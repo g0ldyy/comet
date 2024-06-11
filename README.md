@@ -1,2 +1,2 @@
 # comet
-Stremio's fastest torrent/debris search add-on.
+Stremio's fastest torrent/debrid search add-on.
