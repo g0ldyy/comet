@@ -47,7 +47,7 @@ async def manifest(b64config: str):
         "id": "stremio.comet.fast",
         "version": "1.0.0",
         "name": "Comet",
-        "description": "Stremio's fastest torrent/debris search add-on.",
+        "description": "Stremio's fastest torrent/debrid search add-on.",
         "icon": "https://i.imgur.com/cZOiNzX.jpeg",
         "logo": "https://i.imgur.com/cZOiNzX.jpeg",
         "resources": [
