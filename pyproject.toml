@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "comet"
+version = "0.1.0"
+description = "Stremio's fastest torrent/debrid search add-on."
+authors = ["Goldy"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/g0ldyy/comet"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+rank-torrent-name = "^0.2.19"
+uvicorn = "^0.30.1"
+fastapi = "^0.111.0"
+aiohttp = "^3.9.5"
+bencodepy = "^0.9.5"
+python-dotenv = "^1.0.1"
+asyncio = "^3.4.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
