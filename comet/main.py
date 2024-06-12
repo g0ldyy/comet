@@ -19,7 +19,7 @@ from comet.models import ConfigModel, settings, video_extensions
 
 downloadLinks = {} # temporary before sqlite cache db is implemented
 
-app = FastAPI(docs_url=None)
+app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,13 +29,22 @@ app.add_middleware(
 )
 
 
-def configChecking(config_str: str) -> Optional[ConfigModel]:
+def configChecking(b64config: str):
     try:
-        config_data = json.loads(config_str)
-        config = ConfigModel(**config_data)
-        return config
-    except (json.JSONDecodeError, ValidationError):
-        return None
+        decoded_config = base64.b64decode(b64config).decode()
+        config = json.loads(decoded_config)
+        logger.info("Configuration decoded successfully")
+
+        validated_config = ConfigModel(**config)
+        logger.debug(validated_config)
+        logger.info("Configuration validated successfully")
+        return validated_config.model_dump()
+    except ValidationError as e:
+        logger.error("Validation error in configChecking: %s", str(e))
+        return False
+    except Exception as e:
+        logger.error("Error in configChecking: %s", str(e))
+        return False
 
 @app.get("/manifest.json")
 @app.get("/{config_str}/manifest.json")
@@ -72,7 +81,7 @@ async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str)
 
 async def getTorrentHash(session: aiohttp.ClientSession, url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT")))
+        timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
         response = await session.get(url, allow_redirects=False, timeout=timeout)
         if response.status == 200:
             torrentData = await response.read()
@@ -87,12 +96,12 @@ async def getTorrentHash(session: aiohttp.ClientSession, url: str):
             match = re.search("btih:([a-zA-Z0-9]+)", location)
             if not match:
                 return
-            
+
             hash = match.group(1).upper()
 
         return hash
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to get torrent hash: {e}")
 
 @app.get("/stream/{type}/{id}.json")
 @app.get("/{config_str}/stream/{type}/{id}.json")

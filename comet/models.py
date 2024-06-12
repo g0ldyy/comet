@@ -22,6 +22,16 @@ class ConfigModel(BaseModel):
     indexers: List[str]
     maxResults: int
 
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "debridService": "RealDebrid",
+                "debridApiKey": "your_api_key_here",
+                "indexers": ["indexer1", "indexer2"],
+                "maxResults": 10
+            }
+        }
+
 video_extensions: tuple = (
     ".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm", ".mpg", ".mpeg", 
     ".m4v", ".3gp", ".3g2", ".ogv", ".ogg", ".drc", ".gif", ".gifv", ".mng", 
