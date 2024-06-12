@@ -16,7 +16,12 @@ aiohttp = "^3.9.5"
 bencodepy = "^0.9.5"
 python-dotenv = "^1.0.1"
 asyncio = "^3.4.3"
+pydantic-settings = "^2.3.2"
+pydantic = "^2.7.3"
+loguru = "^0.7.2"
 
+[tool.poetry.group.dev.dependencies]
+isort = "^5.13.2"
 
 [build-system]
 requires = ["poetry-core"]
