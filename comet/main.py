@@ -1,25 +1,41 @@
-import asyncio
-import base64
-import hashlib
-import json
-import os
-import re
-from typing import Optional
-
-import aiohttp
-import bencodepy
-from fastapi import FastAPI, HTTPException, Request
+import aiohttp, asyncio, bencodepy, hashlib, re, base64, json, dotenv, os, RTN
+from .utils.logger import logger
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from pydantic import ValidationError
-from RTN import parse
 
-from comet.logger import logger
-from comet.models import ConfigModel, settings, video_extensions
+dotenv.load_dotenv()
+
+class BestOverallRanking(RTN.BaseRankingModel):
+    uhd: int = 100
+    fhd: int = 90
+    hd: int = 80
+    sd: int = 70
+    dolby_video: int = 100
+    hdr: int = 80
+    hdr10: int = 90
+    dts_x: int = 100
+    dts_hd: int = 80
+    dts_hd_ma: int = 90
+    atmos: int = 90
+    truehd: int = 60
+    ddplus: int = 40
+    aac: int = 30
+    ac3: int = 20
+    remux: int = 150
+    bluray: int = 120
+    webdl: int = 90
+
+settings = RTN.SettingsModel()
+ranking_model = BestOverallRanking()
+rtn = RTN.RTN(settings=settings, ranking_model=ranking_model)
+
+infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 
 downloadLinks = {} # temporary before sqlite cache db is implemented
 
-app = FastAPI()
+app = FastAPI(docs_url=None)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,29 +44,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 def configChecking(b64config: str):
     try:
-        decoded_config = base64.b64decode(b64config).decode()
-        config = json.loads(decoded_config)
-        logger.info("Configuration decoded successfully")
+        config = json.loads(base64.b64decode(b64config).decode())
 
-        validated_config = ConfigModel(**config)
-        logger.debug(validated_config)
-        logger.info("Configuration validated successfully")
-        return validated_config.model_dump()
-    except ValidationError as e:
-        logger.error("Validation error in configChecking: %s", str(e))
-        return False
-    except Exception as e:
-        logger.error("Error in configChecking: %s", str(e))
+        if not isinstance(config["debridService"], str) or config["debridService"] not in ["realdebrid"]:
+            return False
+        
+        if not isinstance(config["debridApiKey"], str):
+            return False
+
+        if not isinstance(config["indexers"], list):
+            return False
+
+        if not isinstance(config["maxResults"], int) or config["maxResults"] < 0:
+            return False
+        
+        if not isinstance(config["resolutions"], list) or len(config["resolutions"]) == 0:
+            return False
+        
+        if not isinstance(config["languages"], list) or len(config["languages"]) == 0:
+            return False
+
+        return config
+    except:
         return False
 
 @app.get("/manifest.json")
-@app.get("/{config_str}/manifest.json")
-async def manifest(request: Request, config_str: str = None):
-    if config_str and not configChecking(config_str):
-        raise HTTPException(status_code=400, detail="Invalid configuration")
+@app.get("/{b64config}/manifest.json")
+async def manifest(b64config: str):
+    if not configChecking(b64config):
+        return
 
     return {
         "id": "stremio.comet.fast",
@@ -76,12 +100,12 @@ async def manifest(request: Request, config_str: str = None):
     }
 
 async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str):
-    response = await session.get(f"{settings.JACKETT_URL}/api/v2.0/indexers/all/results?apikey={settings.JACKETT_KEY}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}")
+    response = await session.get(f"{os.getenv('JACKETT_URL')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}")
     return response
 
 async def getTorrentHash(session: aiohttp.ClientSession, url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT")))
         response = await session.get(url, allow_redirects=False, timeout=timeout)
         if response.status == 200:
             torrentData = await response.read()
@@ -93,277 +117,266 @@ async def getTorrentHash(session: aiohttp.ClientSession, url: str):
             if not location:
                 return
 
-            match = re.search("btih:([a-zA-Z0-9]+)", location)
+            match = infoHashPattern.search(location)
             if not match:
                 return
-
+            
             hash = match.group(1).upper()
 
         return hash
-    except Exception as e:
-        logger.error(f"Failed to get torrent hash: {e}")
+    except:
+        pass
 
 @app.get("/stream/{type}/{id}.json")
-@app.get("/{config_str}/stream/{type}/{id}.json")
-async def stream(request: Request, type: str, id: str, config_str: str = None):
-    if config_str:
-        config = configChecking(config_str)
-        if not config:
-            raise HTTPException(status_code=400, detail="Invalid configuration")
-    else:
-        config = None  # Handle the case where config_str is not provided
+@app.get("/{b64config}/stream/{type}/{id}.json")
+async def stream(request: Request, b64config: str, type: str, id: str):
+    config = configChecking(b64config)
+    if not config:
+        return
     
     async with aiohttp.ClientSession() as session:
-        if config and not await is_premium_account(session, config.debridApiKey):
-            return invalid_account_response()
-
-        if type == "series":
-            id, season, episode = parse_series_id(id)
-
-        name = await get_metadata_name(session, id)
-        name = translate_name(name)
-
-        logger.debug(f"Start of Jackett search for {name}")
-
-        if type == "series":
-            torrents = await search_torrents(session, config.indexers if config else [], name, type, season, episode)
-        else:
-            torrents = await search_torrents(session, config.indexers if config else [], name, type)
-        logger.debug(f"{len(torrents)} torrents found for {name}")
-
-        if not torrents:
-            return {"streams": []}
-
-        torrentHashes = await get_torrent_hashes(session, torrents)
-        logger.debug(f"{len(torrentHashes)} info hashes found for {name}")
-
-        if not torrentHashes:
-            return {"streams": []}
-
-        files = await get_available_files(session, config.debridApiKey if config else "", torrentHashes, type, season, episode)
-        logger.debug(f"{len(files)} cached files found on Real-Debrid for {name}")
-
-        if not files:
-            return {"streams": []}
-
-        results = generate_stream_results(files, config.maxResults if config else 0, request.url, config_str)
-        return {"streams": results}
-
-async def is_premium_account(session, debridApiKey: str) -> bool:
-    checkDebrid = await session.get("https://api.real-debrid.com/rest/1.0/user", headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    })
-    checkDebrid = await checkDebrid.text()
-    return '"type": "premium"' in checkDebrid
-
-def invalid_account_response():
-    return {
-        "streams": [
-            {
-                "name": f"[⚠️] Comet", 
-                "title": f"Invalid Real-Debrid account.",
-                "url": f"https://comet.fast"
+        checkDebrid = await session.get("https://api.real-debrid.com/rest/1.0/user", headers={
+            "Authorization": f"Bearer {config['debridApiKey']}"
+        })
+        checkDebrid = await checkDebrid.text()
+        if not '"type": "premium"' in checkDebrid:
+            return {
+                "streams": [
+                    {
+                        "name": "[⚠️] Comet", 
+                        "title": "Invalid Real-Debrid account.",
+                        "url": "https://comet.fast"
+                    }
+                ]
             }
-        ]
-    }
-
-def parse_series_id(id: str):
-    info = id.split(":")
-    return info[0], info[1].zfill(2), info[2].zfill(2)
-
-async def get_metadata_name(session, id: str) -> str:
-    getMetadata = await session.get(f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json")
-    metadata = await getMetadata.json()
-    return metadata["d"][0]["l"]
-
-def translate_name(name: str) -> str:
-    toChange = {
-        'ā': 'a', 'ă': 'a', 'ą': 'a', 'ć': 'c', 'č': 'c', 'ç': 'c',
-        'ĉ': 'c', 'ċ': 'c', 'ď': 'd', 'đ': 'd', 'è': 'e', 'é': 'e',
-        'ê': 'e', 'ë': 'e', 'ē': 'e', 'ĕ': 'e', 'ę': 'e', 'ě': 'e',
-        'ĝ': 'g', 'ğ': 'g', 'ġ': 'g', 'ģ': 'g', 'ĥ': 'h', 'î': 'i',
-        'ï': 'i', 'ì': 'i', 'í': 'i', 'ī': 'i', 'ĩ': 'i', 'ĭ': 'i',
-        'ı': 'i', 'ĵ': 'j', 'ķ': 'k', 'ĺ': 'l', 'ļ': 'l', 'ł': 'l',
-        'ń': 'n', 'ň': 'n', 'ñ': 'n', 'ņ': 'n', 'ŉ': 'n', 'ó': 'o',
-        'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o', 'ō': 'o', 'ő': 'o',
-        'œ': 'oe', 'ŕ': 'r', 'ř': 'r', 'ŗ': 'r', 'š': 's', 'ş': 's',
-        'ś': 's', 'ș': 's', 'ß': 'ss', 'ť': 't', 'ţ': 't', 'ū': 'u',
-        'ŭ': 'u', 'ũ': 'u', 'û': 'u', 'ü': 'u', 'ù': 'u', 'ú': 'u',
-        'ų': 'u', 'ű': 'u', 'ŵ': 'w', 'ý': 'y', 'ÿ': 'y', 'ŷ': 'y',
-        'ž': 'z', 'ż': 'z', 'ź': 'z', 'æ': 'ae', 'ǎ': 'a', 'ǧ': 'g',
-        'ə': 'e', 'ƒ': 'f', 'ǐ': 'i', 'ǒ': 'o', 'ǔ': 'u', 'ǚ': 'u',
-        'ǜ': 'u', 'ǹ': 'n', 'ǻ': 'a', 'ǽ': 'ae', 'ǿ': 'o',
-    }
-    translationTable = str.maketrans(toChange)
-    return name.translate(translationTable)
-
-async def search_torrents(session, indexers: list, name: str, type: str, season: str = None, episode: str = None):
-    tasks = [getJackett(session, indexers, name)]
-    if type == "series":
-        tasks.append(getJackett(session, indexers, f"{name} S{season}E{episode}"))
-    jackettSearchResponses = await asyncio.gather(*tasks)
-
-    torrents = []
-    for response in jackettSearchResponses:
-        results = await response.json()
-        for i in results["Results"]:
-            torrents.append(i)
-    return torrents
-
-async def get_torrent_hashes(session, torrents: list):
-    tasks = [getTorrentHash(session, torrent["Link"]) for torrent in torrents]
-    torrentHashes = await asyncio.gather(*tasks)
-    return list(set([hash for hash in torrentHashes if hash]))
-
-async def get_available_files(session, debridApiKey: str, torrentHashes: list, type: str, season: str = None, episode: str = None):
-    getAvailability = await session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{'/'.join(torrentHashes)}", headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    })
-
-    files = {}
-    strictFiles = {}
-
-    availability = await getAvailability.json()
-    for hash, details in availability.items():
-        if not "rd" in details:
-            continue
 
         if type == "series":
+            info = id.split(":")
+
+            id = info[0]
+            season = int(info[1])
+            episode = int(info[2])
+
+        getMetadata = await session.get(f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json")
+        metadata = await getMetadata.json()
+
+        name = metadata["d"][0]["l"]
+        toChange = {
+            'ā': 'a', 'ă': 'a', 'ą': 'a', 'ć': 'c', 'č': 'c', 'ç': 'c',
+            'ĉ': 'c', 'ċ': 'c', 'ď': 'd', 'đ': 'd', 'è': 'e', 'é': 'e',
+            'ê': 'e', 'ë': 'e', 'ē': 'e', 'ĕ': 'e', 'ę': 'e', 'ě': 'e',
+            'ĝ': 'g', 'ğ': 'g', 'ġ': 'g', 'ģ': 'g', 'ĥ': 'h', 'î': 'i',
+            'ï': 'i', 'ì': 'i', 'í': 'i', 'ī': 'i', 'ĩ': 'i', 'ĭ': 'i',
+            'ı': 'i', 'ĵ': 'j', 'ķ': 'k', 'ĺ': 'l', 'ļ': 'l', 'ł': 'l',
+            'ń': 'n', 'ň': 'n', 'ñ': 'n', 'ņ': 'n', 'ŉ': 'n', 'ó': 'o',
+            'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o', 'ō': 'o', 'ő': 'o',
+            'œ': 'oe', 'ŕ': 'r', 'ř': 'r', 'ŗ': 'r', 'š': 's', 'ş': 's',
+            'ś': 's', 'ș': 's', 'ß': 'ss', 'ť': 't', 'ţ': 't', 'ū': 'u',
+            'ŭ': 'u', 'ũ': 'u', 'û': 'u', 'ü': 'u', 'ù': 'u', 'ú': 'u',
+            'ų': 'u', 'ű': 'u', 'ŵ': 'w', 'ý': 'y', 'ÿ': 'y', 'ŷ': 'y',
+            'ž': 'z', 'ż': 'z', 'ź': 'z', 'æ': 'ae', 'ǎ': 'a', 'ǧ': 'g',
+            'ə': 'e', 'ƒ': 'f', 'ǐ': 'i', 'ǒ': 'o', 'ǔ': 'u', 'ǚ': 'u',
+            'ǜ': 'u', 'ǹ': 'n', 'ǻ': 'a', 'ǽ': 'ae', 'ǿ': 'o',
+        }
+        translationTable = str.maketrans(toChange)
+        name = name.translate(translationTable)
+
+        logger.info(f"Start of Jackett search for {name} with indexers {config['indexers']}")
+
+        tasks = []
+        tasks.append(getJackett(session, config["indexers"], name))
+        if type == "series":
+            tasks.append(getJackett(session, config["indexers"], f"{name} S0{season}E0{episode}"))
+        jackettSearchResponses = await asyncio.gather(*tasks)
+
+        torrents = []
+        for response in jackettSearchResponses:
+            results = await response.json()
+            for i in results["Results"]:
+                torrents.append(i)
+
+        logger.info(f"{len(torrents)} torrents found for {name}")
+
+        if len(torrents) == 0:
+            return {"streams": []}
+
+        tasks = []
+        for torrent in torrents:
+            parsedTorrent = RTN.parse(torrent["Title"])
+            if not "All" in config["resolutions"] and len(parsedTorrent.resolution) > 0 and parsedTorrent.resolution[0] not in config["resolutions"]:
+                filtered += 1
+
+                continue
+            if not "All" in config["languages"] and not parsedTorrent.is_multi_audio and not any(language in parsedTorrent.language for language in config["languages"]):
+                filtered += 1
+
+                continue
+
+            tasks.append(getTorrentHash(session, torrent["Link"]))
+    
+        torrentHashes = await asyncio.gather(*tasks)
+        torrentHashes = list(set([hash for hash in torrentHashes if hash]))
+
+        logger.info(f"{len(torrentHashes)} info hashes found for {name}")
+        
+        if len(torrentHashes) == 0:
+            return {"streams": []}
+
+        getAvailability = await session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{'/'.join(torrentHashes)}", headers={
+            "Authorization": f"Bearer {config['debridApiKey']}"
+        })
+
+        files = {}
+
+        availability = await getAvailability.json()
+        for hash, details in availability.items():
+            if not "rd" in details:
+                continue
+
+            if type == "series":
+                for variants in details["rd"]:
+                    for index, file in variants.items():
+                        filename = file["filename"].lower()
+                        
+                        if not filename.endswith(tuple([".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm", ".mpg", ".mpeg", ".m4v", ".3gp", ".3g2", ".ogv", ".ogg", ".drc", ".gif", ".gifv", ".mng", ".avi", ".mov", ".qt", ".wmv", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m4p", ".m4v", ".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mpg", ".mpeg", ".m2v", ".m4v", ".svi", ".3gp", ".3g2", ".mxf", ".roq", ".nsv", ".flv", ".f4v", ".f4p", ".f4a", ".f4b"])):
+                            continue
+
+                        filenameParsed = RTN.parse(file["filename"])
+                        if season in filenameParsed.season and episode in filenameParsed.episode:
+                            files[hash] = {
+                                "index": index,
+                                "title": file["filename"],
+                                "size": file["filesize"]
+                            }
+
+                continue
+
             for variants in details["rd"]:
                 for index, file in variants.items():
                     filename = file["filename"].lower()
-                    
-                    if not filename.endswith(video_extensions):
+                    if not filename.endswith(tuple([".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm", ".mpg", ".mpeg", ".m4v", ".3gp", ".3g2", ".ogv", ".ogg", ".drc", ".gif", ".gifv", ".mng", ".avi", ".mov", ".qt", ".wmv", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m4p", ".m4v", ".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mpg", ".mpeg", ".m2v", ".m4v", ".svi", ".3gp", ".3g2", ".mxf", ".roq", ".nsv", ".flv", ".f4v", ".f4p", ".f4a", ".f4b"])):
                         continue
 
-                    if season in filename and episode in filename:
-                        files[hash] = {
-                            "index": index,
-                            "title": file["filename"],
-                            "size": file["filesize"]
-                        }
+                    files[hash] = {
+                        "index": index,
+                        "title": file["filename"],
+                        "size": file["filesize"]
+                    }
 
-                    if f"s{season}" in filename and f"e{episode}" in filename:
-                        strictFiles[hash] = {
-                            "index": index,
-                            "title": file["filename"],
-                            "size": file["filesize"]
-                        }
-
-            continue
-
-        for variants in details["rd"]:
-            for index, file in variants.items():
-                filename = file["filename"].lower()
-                if not filename.endswith(video_extensions):
-                    continue
-
-                files[hash] = {
-                    "index": index,
-                    "title": file["filename"],
-                    "size": file["filesize"]
-                }
-
-    if len(strictFiles) > 0:
-        files = strictFiles
-
-    return files
-
-def generate_stream_results(files, maxResults, url, config_str):
-    files = dict(sorted(files.items(), key=lambda item: item[1]["size"], reverse=True))
-
-    filesByResolution = {"4k": [], "1080p": [], "720p": [], "480p": [], "Unknown": []}
-    for key, value in files.items():
-        qualityPattern = (
-            (r"\b(2160P|UHD|4K)\b", "4k"),
-            (r"\b(1080P|FHD|FULLHD|HD|HIGHDEFINITION)\b", "1080p"),
-            (r"\b(720P|HD|HIGHDEFINITION)\b", "720p"),
-            (r"\b(480P|SD|STANDARDDEFINITION)\b", "480p"),
-        )
-
-        resolution = "Unknown"
-        for pattern, quality in qualityPattern:
-            if re.search(pattern, value["title"], re.IGNORECASE):
-                resolution = quality
+        rankedFiles = set()
+        for hash in files:
+            try:
+                rankedFile = rtn.rank(files[hash]["title"], hash, correct_title=name, remove_trash=True)
+                rankedFiles.add(rankedFile)
+            except:
+                continue
         
-        filesByResolution[resolution].append({
-            key: value
+        sortedRankedFiles = RTN.sort_torrents(rankedFiles)
+
+        logger.info(f"{len(files)} cached files found on Real-Debrid for {name}")
+
+        if len(files) == 0:
+            return {"streams": []}
+        
+        results = []
+        for hash in sortedRankedFiles:
+            results.append({
+                "name": f"[RD⚡] Comet {sortedRankedFiles[hash].data.resolution[0] if len(sortedRankedFiles[hash].data.resolution) > 0 else 'Unknown'}",
+                "title": f"{files[hash]['title']}\n💾 {round(int(files[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
+                "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{files[hash]['index']}"
+            })
+
+        # filesByResolution = {"Unknown": []}
+        # for file in sortedFiles:
+        #     if len(file.data.resolution) == 0:
+        #         filesByResolution["Unknown"].append(file)
+                
+        #         continue
+
+        #     if file.data.resolution[0] not in filesByResolution:
+        #         filesByResolution[file.data.resolution[0]] = []
+
+        #     filesByResolution[file.data.resolution[0]].append(file)
+
+        # hashCount = 0
+        # for quality in filesByResolution:
+        #     hashCount += len(filesByResolution[quality])
+
+        # results = []
+        # if hashCount <= config["maxResults"] or config["maxResults"] == 0:
+        #     for quality, files in filesByResolution.items():
+        #         for file in files:
+        #             for hash in file:
+        #                 results.append({
+        #                     "name": f"[RD⚡] Comet {quality}",
+        #                     "title": f"{file[hash]['title']}\n💾 {round(int(file[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
+        #                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{file[hash]['index']}"
+        #                 })
+        # else:
+        #     selectedFiles = []
+        #     resolutionCount = {res: 0 for res in filesByResolution.keys()}
+        #     resolutions = list(filesByResolution.keys())
+            
+        #     while len(selectedFiles) < config["maxResults"]:
+        #         for resolution in resolutions:
+        #             if len(selectedFiles) >= config["maxResults"]:
+        #                 break
+        #             if resolutionCount[resolution] < len(filesByResolution[resolution]):
+        #                 selectedFiles.append((resolution, filesByResolution[resolution][resolutionCount[resolution]]))
+        #                 resolutionCount[resolution] += 1
+            
+        #     balancedFiles = {res: [] for res in filesByResolution.keys()}
+        #     for resolution, file in selectedFiles:
+        #         balancedFiles[resolution].append(file)
+
+        #     for quality, files in balancedFiles.items():
+        #         for file in files:
+        #             for hash in file:
+        #                 results.append({
+        #                     "name": f"[RD⚡] Comet {quality}",
+        #                     "title": f"{file[hash]['title']}\n💾 {round(int(file[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
+        #                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{file[hash]['index']}"
+        #                 })
+
+        return {
+            "streams": results
+        }
+    
+async def generateDownloadLink(session: aiohttp.ClientSession, debridApiKey: str, hash: str, index: str):
+    try:
+        addMagnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", headers={
+            "Authorization": f"Bearer {debridApiKey}"
+        }, data={
+            "magnet": f"magnet:?xt=urn:btih:{hash}"
+        })
+        addMagnet = await addMagnet.json()
+
+        getMagnetInfo = await session.get(addMagnet["uri"], headers={
+            "Authorization": f"Bearer {debridApiKey}"
+        })
+        getMagnetInfo = await getMagnetInfo.json()
+
+        selectFile = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{addMagnet['id']}", headers={
+            "Authorization": f"Bearer {debridApiKey}"
+        }, data={
+            "files": index
         })
 
-    hashCount = 0
-    for quality in filesByResolution:
-        hashCount += len(filesByResolution[quality])
+        getMagnetInfo = await session.get(addMagnet["uri"], headers={
+            "Authorization": f"Bearer {debridApiKey}"
+        })
+        getMagnetInfo = await getMagnetInfo.json()
 
-    results = []
-    if hashCount <= maxResults or maxResults == 0:
-        for quality, files in filesByResolution.items():
-            for file in files:
-                for hash in file:
-                    results.append({
-                        "name": f"[RD⚡] Comet {quality}",
-                        "title": f"{file[hash]['title']}\n💾 {round(int(file[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
-                        "url": f"{url.scheme}://{url.netloc}/{config_str}/playback/{hash}/{file[hash]['index']}" if config_str else f"{url.scheme}://{url.netloc}/playback/{hash}/{file[hash]['index']}"
-                    })
-    else:
-        selectedFiles = []
-        resolutionCount = {res: 0 for res in filesByResolution.keys()}
-        resolutions = list(filesByResolution.keys())
-        
-        while len(selectedFiles) < maxResults:
-            for resolution in resolutions:
-                if len(selectedFiles) >= maxResults:
-                    break
-                if resolutionCount[resolution] < len(filesByResolution[resolution]):
-                    selectedFiles.append((resolution, filesByResolution[resolution][resolutionCount[resolution]]))
-                    resolutionCount[resolution] += 1
-        
-        balancedFiles = {res: [] for res in filesByResolution.keys()}
-        for resolution, file in selectedFiles:
-            balancedFiles[resolution].append(file)
+        unrestrictLink = await session.post(f"https://api.real-debrid.com/rest/1.0/unrestrict/link", headers={
+            "Authorization": f"Bearer {debridApiKey}"
+        }, data={
+            "link": getMagnetInfo["links"][0]
+        })
+        unrestrictLink = await unrestrictLink.json()
 
-        for quality, files in balancedFiles.items():
-            for file in files:
-                for hash in file:
-                    results.append({
-                        "name": f"[RD⚡] Comet {quality}",
-                        "title": f"{file[hash]['title']}\n💾 {round(int(file[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
-                        "url": f"{url.scheme}://{url.netloc}/{config_str}/playback/{hash}/{file[hash]['index']}" if config_str else f"{url.scheme}://{url.netloc}/playback/{hash}/{file[hash]['index']}"
-                    })
-
-    return results
-
-async def generateDownloadLink(session, debridApiKey: str, hash: str, index: str):
-    addMagnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    }, data={
-        "magnet": f"magnet:?xt=urn:btih:{hash}"
-    })
-    addMagnet = await addMagnet.json()
-
-    getMagnetInfo = await session.get(addMagnet["uri"], headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    })
-    getMagnetInfo = await getMagnetInfo.json()
-
-    selectFile = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{addMagnet['id']}", headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    }, data={
-        "files": index
-    })
-
-    getMagnetInfo = await session.get(addMagnet["uri"], headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    })
-    getMagnetInfo = await getMagnetInfo.json()
-
-    unrestrictLink = await session.post(f"https://api.real-debrid.com/rest/1.0/unrestrict/link", headers={
-        "Authorization": f"Bearer {debridApiKey}"
-    }, data={
-        "link": getMagnetInfo["links"][0]
-    })
-    unrestrictLink = await unrestrictLink.json()
-
-    return unrestrictLink["download"]
+        return unrestrictLink["download"]
+    except:
+        return "https://comet.fast"
 
 @app.head("/{b64config}/playback/{hash}/{index}")
 async def stream(b64config: str, hash: str, index: str):
