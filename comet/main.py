@@ -100,7 +100,8 @@ async def manifest(b64config: str):
     }
 
 async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str):
-    response = await session.get(f"{os.getenv('JACKETT_URL')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}")
+    timeout = aiohttp.ClientTimeout(total=int(os.getenv("JACKETT_TIMEOUT")))
+    response = await session.get(f"{os.getenv('JACKETT_URL')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
     return response
 
 async def getTorrentHash(session: aiohttp.ClientSession, url: str):
@@ -266,7 +267,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         rankedFiles = set()
         for hash in files:
             try:
-                rankedFile = rtn.rank(files[hash]["title"], hash, correct_title=name, remove_trash=True)
+                rankedFile = rtn.rank(files[hash]["title"], hash, remove_trash=True) # , correct_title=name - removed because it's not working great
                 rankedFiles.add(rankedFile)
             except:
                 continue
