@@ -1,10 +1,12 @@
-import aiohttp, asyncio, bencodepy, hashlib, re, base64, json, dotenv, os, RTN
+import aiohttp, asyncio, bencodepy, hashlib, re, base64, json, os, RTN, time, urllib.parse
 from .utils.logger import logger
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from contextlib import asynccontextmanager
+from databases import Database
 
-dotenv.load_dotenv()
+database = Database("sqlite:///database.db")
 
 class BestOverallRanking(RTN.BaseRankingModel):
     uhd: int = 100
@@ -32,9 +34,15 @@ rtn = RTN.RTN(settings=settings, ranking_model=ranking_model)
 
 infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 
-downloadLinks = {} # temporary before sqlite cache db is implemented
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await database.connect()
+    await database.execute("CREATE TABLE IF NOT EXISTS cache (cacheKey BLOB PRIMARY KEY, timestamp INTEGER, results TEXT)")
+    await database.execute("CREATE TABLE IF NOT EXISTS debridDownloads (debridKey BLOB PRIMARY KEY, downloadLink TEXT)")
+    yield
+    await database.disconnect()
 
-app = FastAPI(docs_url=None)
+app = FastAPI(lifespan=lifespan, docs_url=None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -133,7 +141,15 @@ async def getTorrentHash(session: aiohttp.ClientSession, url: str):
 async def stream(request: Request, b64config: str, type: str, id: str):
     config = configChecking(b64config)
     if not config:
-        return
+            return {
+                "streams": [
+                    {
+                        "name": "[⚠️] Comet", 
+                        "title": "Invalid Comet config.",
+                        "url": "https://comet.fast"
+                    }
+                ]
+            }
     
     async with aiohttp.ClientSession() as session:
         checkDebrid = await session.get("https://api.real-debrid.com/rest/1.0/user", headers={
@@ -151,6 +167,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 ]
             }
 
+        season = None
+        episode = None
         if type == "series":
             info = id.split(":")
 
@@ -181,6 +199,47 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         }
         translationTable = str.maketrans(toChange)
         name = name.translate(translationTable)
+
+        cacheKey = hashlib.md5(json.dumps({"name": name, "season": season, "episode": episode, "indexers": config["indexers"], "resolutions": config["resolutions"], "languages": config["languages"]}).encode("utf-8")).hexdigest()
+        cached = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cacheKey}')")
+        if cached[0] != 0:
+            logger.info(f"Cache found for {name}")
+
+            timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cacheKey}'")
+            if timestamp[0] + int(os.getenv("CACHE_TTL")) < time.time():
+                await database.fetch_one(f"DELETE FROM cache WHERE cacheKey = '{cacheKey}'")
+
+                logger.info(f"Cache expired for {name}")
+            else:
+                files = await database.fetch_one(f"SELECT results FROM cache WHERE cacheKey = '{cacheKey}'")
+                files = json.loads(files[0])
+
+                rankedFiles = set()
+                for hash in files:
+                    try:
+                        rankedFile = rtn.rank(files[hash]["title"], hash, remove_trash=True) # , correct_title=name - removed because it's not working great
+                        rankedFiles.add(rankedFile)
+                    except:
+                        continue
+                
+                sortedRankedFiles = RTN.sort_torrents(rankedFiles)
+
+                logger.info(f"{len(sortedRankedFiles)} cached files found in database for {name}")
+
+                if len(sortedRankedFiles) == 0:
+                    return {"streams": []}
+                
+                results = []
+                for hash in sortedRankedFiles:
+                    results.append({
+                        "name": f"[RD⚡] Comet {sortedRankedFiles[hash].data.resolution[0] if len(sortedRankedFiles[hash].data.resolution) > 0 else 'Unknown'}",
+                        "title": f"{files[hash]['title']}\n💾 {round(int(files[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
+                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{files[hash]['index']}"
+                    })
+
+                return {"streams": results}
+        else:
+            logger.info(f"No cache found for {name} with user configuration")
 
         logger.info(f"Start of Jackett search for {name} with indexers {config['indexers']}")
 
@@ -264,6 +323,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         "size": file["filesize"]
                     }
 
+        await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{json.dumps(files)}', {time.time()})")
+        logger.info(f"Results have been cached for {name}")
+
         rankedFiles = set()
         for hash in files:
             try:
@@ -274,9 +336,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         
         sortedRankedFiles = RTN.sort_torrents(rankedFiles)
 
-        logger.info(f"{len(files)} cached files found on Real-Debrid for {name}")
+        logger.info(f"{len(sortedRankedFiles)} cached files found on Real-Debrid for {name}")
 
-        if len(files) == 0:
+        if len(sortedRankedFiles) == 0:
             return {"streams": []}
         
         results = []
@@ -387,7 +449,9 @@ async def stream(b64config: str, hash: str, index: str):
 
     async with aiohttp.ClientSession() as session:
         downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
-        downloadLinks[(hash, index)] = downloadLink
+
+        debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
+        await database.execute(f"INSERT INTO debridDownloads (debridKey, downloadLink) VALUES ('{debridKey}', '{urllib.parse.unquote(downloadLink)}')")
 
         return RedirectResponse(downloadLink, status_code=302)
     
@@ -398,10 +462,9 @@ async def stream(b64config: str, hash: str, index: str):
         return
 
     async with aiohttp.ClientSession() as session:
-        if (hash, index) in downloadLinks:
-            downloadLink = downloadLinks[(hash, index)]
-        else:
-            downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
-            downloadLinks[(hash, index)] = downloadLink
+        debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
+        downloadLink = await database.fetch_one(f"SELECT downloadLink FROM debridDownloads WHERE debridKey = '{debridKey}'")
+        downloadLink = downloadLink[0]
+        await database.fetch_one(f"DELETE FROM debridDownloads WHERE debridKey = '{debridKey}'")
         
         return RedirectResponse(downloadLink, status_code=302)
