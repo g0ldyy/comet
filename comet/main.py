@@ -38,7 +38,7 @@ infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 async def lifespan(app: FastAPI):
     await database.connect()
     await database.execute("CREATE TABLE IF NOT EXISTS cache (cacheKey BLOB PRIMARY KEY, timestamp INTEGER, results TEXT)")
-    await database.execute("CREATE TABLE IF NOT EXISTS debridDownloads (debridKey BLOB PRIMARY KEY, downloadLink TEXT)")
+    # await database.execute("CREATE TABLE IF NOT EXISTS debridDownloads (debridKey BLOB PRIMARY KEY, downloadLink TEXT)")
     yield
     await database.disconnect()
 
@@ -207,7 +207,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cacheKey}'")
             if timestamp[0] + int(os.getenv("CACHE_TTL")) < time.time():
-                await database.fetch_one(f"DELETE FROM cache WHERE cacheKey = '{cacheKey}'")
+                await database.execute(f"DELETE FROM cache WHERE cacheKey = '{cacheKey}'")
 
                 logger.info(f"Cache expired for {name}")
             else:
@@ -446,9 +446,10 @@ async def stream(b64config: str, hash: str, index: str):
 
     async with aiohttp.ClientSession() as session:
         downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
+        # downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
 
-        debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
-        await database.execute(f"INSERT INTO debridDownloads (debridKey, downloadLink) VALUES ('{debridKey}', '{urllib.parse.unquote(downloadLink)}')")
+        # debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
+        # await database.execute(f"INSERT INTO debridDownloads (debridKey, downloadLink) VALUES ('{debridKey}', '{urllib.parse.unquote(downloadLink)}')")
 
         return RedirectResponse(downloadLink, status_code=302)
     
@@ -459,17 +460,15 @@ async def stream(b64config: str, hash: str, index: str):
         return
 
     async with aiohttp.ClientSession() as session:
-        debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
+        downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
+        # debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
 
-        downloaded = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM debridDownloads WHERE debridKey = '{debridKey}')")
-        if downloaded[0] == 0:
-            downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
+        # downloaded = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM debridDownloads WHERE debridKey = '{debridKey}')")
+        # if downloaded[0] != 0:
+        #     downloadLink = await database.fetch_one(f"SELECT downloadLink FROM debridDownloads WHERE debridKey = '{debridKey}'")
+        #     downloadLink = downloadLink[0]
+        #     await database.execute(f"DELETE FROM debridDownloads WHERE debridKey = '{debridKey}'")
+        # else:
+        #     downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
 
-            debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
-            await database.execute(f"INSERT INTO debridDownloads (debridKey, downloadLink) VALUES ('{debridKey}', '{urllib.parse.unquote(downloadLink)}')")
-        else:
-            downloadLink = await database.fetch_one(f"SELECT downloadLink FROM debridDownloads WHERE debridKey = '{debridKey}'")
-            downloadLink = downloadLink[0]
-            await database.fetch_one(f"DELETE FROM debridDownloads WHERE debridKey = '{debridKey}'")
-        
         return RedirectResponse(downloadLink, status_code=302)
