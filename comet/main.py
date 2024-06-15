@@ -211,30 +211,15 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 logger.info(f"Cache expired for {name}")
             else:
-                files = await database.fetch_one(f"SELECT results FROM cache WHERE cacheKey = '{cacheKey}'")
-                files = json.loads(files[0])
-
-                rankedFiles = set()
-                for hash in files:
-                    try:
-                        rankedFile = rtn.rank(files[hash]["title"], hash, remove_trash=True) # , correct_title=name - removed because it's not working great
-                        rankedFiles.add(rankedFile)
-                    except:
-                        continue
-                
-                sortedRankedFiles = RTN.sort_torrents(rankedFiles)
-
-                logger.info(f"{len(sortedRankedFiles)} cached files found in database for {name}")
-
-                if len(sortedRankedFiles) == 0:
-                    return {"streams": []}
+                sortedRankedFiles = await database.fetch_one(f"SELECT results FROM cache WHERE cacheKey = '{cacheKey}'")
+                sortedRankedFiles = json.loads(sortedRankedFiles[0])
                 
                 results = []
                 for hash in sortedRankedFiles:
                     results.append({
-                        "name": f"[RD⚡] Comet {sortedRankedFiles[hash].data.resolution[0] if len(sortedRankedFiles[hash].data.resolution) > 0 else 'Unknown'}",
-                        "title": f"{files[hash]['title']}\n💾 {round(int(files[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
-                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{files[hash]['index']}"
+                        "name": f"[RD⚡] Comet {sortedRankedFiles[hash]['data']['resolution'][0] if len(sortedRankedFiles[hash]['data']['resolution']) > 0 else 'Unknown'}",
+                        "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {round(int(sortedRankedFiles[hash]['data']['size']) / 1024 / 1024 / 1024, 2)}GB",
+                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
                     })
 
                 return {"streams": results}
@@ -323,8 +308,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         "size": file["filesize"]
                     }
 
-        await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{json.dumps(files)}', {time.time()})")
-        logger.info(f"Results have been cached for {name}")
+        # await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{json.dumps(files)}', {time.time()})")
+        # logger.info(f"Results have been cached for {name}")
 
         rankedFiles = set()
         for hash in files:
@@ -341,12 +326,24 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(sortedRankedFiles) == 0:
             return {"streams": []}
         
+        sortedRankedFiles = {
+            key: (value.model_dump() if isinstance(value, RTN.Torrent) else value)
+            for key, value in sortedRankedFiles.items()
+        }
+        for hash in sortedRankedFiles: # needed for caching
+            sortedRankedFiles[hash]["data"]["title"] = files[hash]["title"]
+            sortedRankedFiles[hash]["data"]["size"] = files[hash]["size"]
+            sortedRankedFiles[hash]["data"]["index"] = files[hash]["index"]
+        
+        await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{json.dumps(sortedRankedFiles)}', {time.time()})")
+        logger.info(f"Results have been cached for {name}")
+        
         results = []
         for hash in sortedRankedFiles:
             results.append({
-                "name": f"[RD⚡] Comet {sortedRankedFiles[hash].data.resolution[0] if len(sortedRankedFiles[hash].data.resolution) > 0 else 'Unknown'}",
-                "title": f"{files[hash]['title']}\n💾 {round(int(files[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
-                "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{files[hash]['index']}"
+                "name": f"[RD⚡] Comet {sortedRankedFiles[hash]['data']['resolution'][0] if len(sortedRankedFiles[hash]['data']['resolution']) > 0 else 'Unknown'}",
+                "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {round(int(sortedRankedFiles[hash]['data']['size']) / 1024 / 1024 / 1024, 2)}GB",
+                "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
             })
 
         # filesByResolution = {"Unknown": []}
