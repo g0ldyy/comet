@@ -317,7 +317,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         rankedFiles = set()
         for hash in files:
             try:
-                rankedFile = rtn.rank(files[hash]["title"], hash, remove_trash=True) # , correct_title=name - removed because it's not working great
+                rankedFile = rtn.rank(files[hash]["title"], hash) # , remove_trash=True, correct_title=name - removed because it's not working great
                 rankedFiles.add(rankedFile)
             except:
                 continue
