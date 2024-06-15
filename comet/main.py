@@ -460,8 +460,16 @@ async def stream(b64config: str, hash: str, index: str):
 
     async with aiohttp.ClientSession() as session:
         debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
-        downloadLink = await database.fetch_one(f"SELECT downloadLink FROM debridDownloads WHERE debridKey = '{debridKey}'")
-        downloadLink = downloadLink[0]
-        await database.fetch_one(f"DELETE FROM debridDownloads WHERE debridKey = '{debridKey}'")
+
+        downloaded = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM debridDownloads WHERE debridKey = '{debridKey}')")
+        if downloaded[0] == 0:
+            downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
+
+            debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
+            await database.execute(f"INSERT INTO debridDownloads (debridKey, downloadLink) VALUES ('{debridKey}', '{urllib.parse.unquote(downloadLink)}')")
+        else:
+            downloadLink = await database.fetch_one(f"SELECT downloadLink FROM debridDownloads WHERE debridKey = '{debridKey}'")
+            downloadLink = downloadLink[0]
+            await database.fetch_one(f"DELETE FROM debridDownloads WHERE debridKey = '{debridKey}'")
         
         return RedirectResponse(downloadLink, status_code=302)
