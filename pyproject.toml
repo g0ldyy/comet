@@ -16,6 +16,9 @@ aiohttp = "^3.9.5"
 bencodepy = "^0.9.5"
 python-dotenv = "^1.0.1"
 asyncio = "^3.4.3"
+loguru = "^0.7.2"
+databases = "^0.9.0"
+aiosqlite = "^0.20.0"
 
 
 [build-system]
