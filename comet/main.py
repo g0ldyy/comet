@@ -108,9 +108,12 @@ async def manifest(b64config: str):
     }
 
 async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str):
-    timeout = aiohttp.ClientTimeout(total=int(os.getenv("JACKETT_TIMEOUT")))
-    response = await session.get(f"{os.getenv('JACKETT_URL')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
-    return response
+    try:
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("JACKETT_TIMEOUT")))
+        response = await session.get(f"{os.getenv('JACKETT_URL')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
+        return response
+    except:
+        pass
 
 async def getTorrentHash(session: aiohttp.ClientSession, url: str):
     try:
@@ -200,7 +203,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         translationTable = str.maketrans(toChange)
         name = name.translate(translationTable)
 
-        cacheKey = hashlib.md5(json.dumps({"name": name, "season": season, "episode": episode, "indexers": config["indexers"], "resolutions": config["resolutions"], "languages": config["languages"]}).encode("utf-8")).hexdigest()
+        cacheKey = hashlib.md5(json.dumps({"debridService": config["debridService"], "name": name, "season": season, "episode": episode, "indexers": config["indexers"], "resolutions": config["resolutions"], "languages": config["languages"]}).encode("utf-8")).hexdigest()
         cached = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cacheKey}')")
         if cached[0] != 0:
             logger.info(f"Cache found for {name}")
