@@ -32,6 +32,7 @@ settings = RTN.SettingsModel()
 ranking_model = BestOverallRanking()
 rtn = RTN.RTN(settings=settings, ranking_model=ranking_model)
 
+jackettIndexerPattern = re.compile("dl/([^/]+)/")
 jackettNamePattern = re.compile("(?<=file=).*")
 infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 
@@ -137,7 +138,7 @@ async def getTorrentHash(session: aiohttp.ClientSession, url: str):
 
         return hash
     except Exception as e:
-        logger.warning(f"Exception while getting torrent info hash for {jackettNamePattern.search(url)[0]}: {e}")
+        logger.warning(f"Exception while getting torrent info hash for {jackettIndexerPattern.findall(url)[0]}|{jackettNamePattern.search(url)[0]}: {e}")
 
 @app.get("/stream/{type}/{id}.json")
 @app.get("/{b64config}/stream/{type}/{id}.json")
