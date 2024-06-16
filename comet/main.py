@@ -1,4 +1,4 @@
-import aiohttp, asyncio, bencodepy, hashlib, re, base64, json, os, RTN, time, urllib.parse
+import aiohttp, asyncio, bencodepy, hashlib, re, base64, json, os, RTN, time
 from .utils.logger import logger
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,13 +32,13 @@ settings = RTN.SettingsModel()
 ranking_model = BestOverallRanking()
 rtn = RTN.RTN(settings=settings, ranking_model=ranking_model)
 
+jackettNamePattern = re.compile("(?<=file=).*")
 infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await database.connect()
     await database.execute("CREATE TABLE IF NOT EXISTS cache (cacheKey BLOB PRIMARY KEY, timestamp INTEGER, results TEXT)")
-    # await database.execute("CREATE TABLE IF NOT EXISTS debridDownloads (debridKey BLOB PRIMARY KEY, downloadLink TEXT)")
     yield
     await database.disconnect()
 
@@ -109,15 +109,15 @@ async def manifest(b64config: str):
 
 async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("JACKETT_TIMEOUT")))
-        response = await session.get(f"{os.getenv('JACKETT_URL')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("JACKETT_TIMEOUT", 30)))
+        response = await session.get(f"{os.getenv('JACKETT_URL', 'http://127.0.0.1:9117')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
         return response
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Exception while getting Jackett results for {query} with {indexers}: {e}")
 
 async def getTorrentHash(session: aiohttp.ClientSession, url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT")))
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT", 5)))
         response = await session.get(url, allow_redirects=False, timeout=timeout)
         if response.status == 200:
             torrentData = await response.read()
@@ -136,8 +136,8 @@ async def getTorrentHash(session: aiohttp.ClientSession, url: str):
             hash = match.group(1).upper()
 
         return hash
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Exception while getting torrent info hash for {jackettNamePattern.search(url)[0]}: {e}")
 
 @app.get("/stream/{type}/{id}.json")
 @app.get("/{b64config}/stream/{type}/{id}.json")
@@ -209,7 +209,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             logger.info(f"Cache found for {name}")
 
             timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cacheKey}'")
-            if timestamp[0] + int(os.getenv("CACHE_TTL")) < time.time():
+            if timestamp[0] + int(os.getenv("CACHE_TTL", 86400)) < time.time():
                 await database.execute(f"DELETE FROM cache WHERE cacheKey = '{cacheKey}'")
 
                 logger.info(f"Cache expired for {name}")
@@ -311,16 +311,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         "size": file["filesize"]
                     }
 
-        # await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{json.dumps(files)}', {time.time()})")
-        # logger.info(f"Results have been cached for {name}")
-
         rankedFiles = set()
         for hash in files:
-            try:
-                rankedFile = rtn.rank(files[hash]["title"], hash) # , remove_trash=True, correct_title=name - removed because it's not working great
-                rankedFiles.add(rankedFile)
-            except:
-                continue
+            # try:
+            rankedFile = rtn.rank(files[hash]["title"], hash) # , remove_trash=True, correct_title=name - removed because it's not working great
+            rankedFiles.add(rankedFile)
+            # except:
+            #     continue
         
         sortedRankedFiles = RTN.sort_torrents(rankedFiles)
 
@@ -349,96 +346,56 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
             })
 
-        # filesByResolution = {"Unknown": []}
-        # for file in sortedFiles:
-        #     if len(file.data.resolution) == 0:
-        #         filesByResolution["Unknown"].append(file)
-                
-        #         continue
-
-        #     if file.data.resolution[0] not in filesByResolution:
-        #         filesByResolution[file.data.resolution[0]] = []
-
-        #     filesByResolution[file.data.resolution[0]].append(file)
-
-        # hashCount = 0
-        # for quality in filesByResolution:
-        #     hashCount += len(filesByResolution[quality])
-
-        # results = []
-        # if hashCount <= config["maxResults"] or config["maxResults"] == 0:
-        #     for quality, files in filesByResolution.items():
-        #         for file in files:
-        #             for hash in file:
-        #                 results.append({
-        #                     "name": f"[RD⚡] Comet {quality}",
-        #                     "title": f"{file[hash]['title']}\n💾 {round(int(file[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
-        #                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{file[hash]['index']}"
-        #                 })
-        # else:
-        #     selectedFiles = []
-        #     resolutionCount = {res: 0 for res in filesByResolution.keys()}
-        #     resolutions = list(filesByResolution.keys())
-            
-        #     while len(selectedFiles) < config["maxResults"]:
-        #         for resolution in resolutions:
-        #             if len(selectedFiles) >= config["maxResults"]:
-        #                 break
-        #             if resolutionCount[resolution] < len(filesByResolution[resolution]):
-        #                 selectedFiles.append((resolution, filesByResolution[resolution][resolutionCount[resolution]]))
-        #                 resolutionCount[resolution] += 1
-            
-        #     balancedFiles = {res: [] for res in filesByResolution.keys()}
-        #     for resolution, file in selectedFiles:
-        #         balancedFiles[resolution].append(file)
-
-        #     for quality, files in balancedFiles.items():
-        #         for file in files:
-        #             for hash in file:
-        #                 results.append({
-        #                     "name": f"[RD⚡] Comet {quality}",
-        #                     "title": f"{file[hash]['title']}\n💾 {round(int(file[hash]['size']) / 1024 / 1024 / 1024, 2)}GB",
-        #                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{file[hash]['index']}"
-        #                 })
-
         return {
             "streams": results
         }
     
-async def generateDownloadLink(session: aiohttp.ClientSession, debridApiKey: str, hash: str, index: str):
+async def generateDownloadLink(debridApiKey: str, hash: str, index: str):
     try:
-        addMagnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", headers={
-            "Authorization": f"Bearer {debridApiKey}"
-        }, data={
-            "magnet": f"magnet:?xt=urn:btih:{hash}"
-        })
-        addMagnet = await addMagnet.json()
+        async with aiohttp.ClientSession() as session:
+            checkBlacklisted = await session.get("https://real-debrid.com/vpn")
+            checkBlacklisted = await checkBlacklisted.text()
 
-        getMagnetInfo = await session.get(addMagnet["uri"], headers={
-            "Authorization": f"Bearer {debridApiKey}"
-        })
-        getMagnetInfo = await getMagnetInfo.json()
+            proxy = None
+            if "Your ISP or VPN provider IP address is currently blocked on our website" in checkBlacklisted:
+                proxy = os.getenv("DEBRID_PROXY_URL", "http://127.0.0.1:1080")
+                
+                logger.warning(f"Real-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}")
 
-        selectFile = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{addMagnet['id']}", headers={
-            "Authorization": f"Bearer {debridApiKey}"
-        }, data={
-            "files": index
-        })
+            addMagnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", headers={
+                "Authorization": f"Bearer {debridApiKey}"
+            }, data={
+                "magnet": f"magnet:?xt=urn:btih:{hash}"
+            }, proxy=proxy)
+            addMagnet = await addMagnet.json()
 
-        getMagnetInfo = await session.get(addMagnet["uri"], headers={
-            "Authorization": f"Bearer {debridApiKey}"
-        })
-        getMagnetInfo = await getMagnetInfo.json()
+            getMagnetInfo = await session.get(addMagnet["uri"], headers={
+                "Authorization": f"Bearer {debridApiKey}"
+            }, proxy=proxy)
+            getMagnetInfo = await getMagnetInfo.json()
 
-        unrestrictLink = await session.post(f"https://api.real-debrid.com/rest/1.0/unrestrict/link", headers={
-            "Authorization": f"Bearer {debridApiKey}"
-        }, data={
-            "link": getMagnetInfo["links"][0]
-        })
-        unrestrictLink = await unrestrictLink.json()
+            selectFile = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{addMagnet['id']}", headers={
+                "Authorization": f"Bearer {debridApiKey}"
+            }, data={
+                "files": index
+            }, proxy=proxy)
 
-        return unrestrictLink["download"]
-    except:
+            getMagnetInfo = await session.get(addMagnet["uri"], headers={
+                "Authorization": f"Bearer {debridApiKey}"
+            }, proxy=proxy)
+            getMagnetInfo = await getMagnetInfo.json()
+
+            unrestrictLink = await session.post(f"https://api.real-debrid.com/rest/1.0/unrestrict/link", headers={
+                "Authorization": f"Bearer {debridApiKey}"
+            }, data={
+                "link": getMagnetInfo["links"][0]
+            }, proxy=proxy)
+            unrestrictLink = await unrestrictLink.json()
+
+            return unrestrictLink["download"]
+    except Exception as e:
+        logger.warning(f"Exception while getting download link from Real Debrid for {hash}|{index}: {e}")
+
         return "https://comet.fast"
 
 @app.head("/{b64config}/playback/{hash}/{index}")
@@ -447,14 +404,9 @@ async def stream(b64config: str, hash: str, index: str):
     if not config:
         return
 
-    async with aiohttp.ClientSession() as session:
-        downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
-        # downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
+    downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
 
-        # debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
-        # await database.execute(f"INSERT INTO debridDownloads (debridKey, downloadLink) VALUES ('{debridKey}', '{urllib.parse.unquote(downloadLink)}')")
-
-        return RedirectResponse(downloadLink, status_code=302)
+    return RedirectResponse(downloadLink, status_code=302)
     
 @app.get("/{b64config}/playback/{hash}/{index}")
 async def stream(b64config: str, hash: str, index: str):
@@ -462,16 +414,6 @@ async def stream(b64config: str, hash: str, index: str):
     if not config:
         return
 
-    async with aiohttp.ClientSession() as session:
-        downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
-        # debridKey = hashlib.md5(json.dumps({"debridApiKey": config["debridApiKey"], "hash": hash, "index": index}).encode("utf-8")).hexdigest()
+    downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
 
-        # downloaded = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM debridDownloads WHERE debridKey = '{debridKey}')")
-        # if downloaded[0] != 0:
-        #     downloadLink = await database.fetch_one(f"SELECT downloadLink FROM debridDownloads WHERE debridKey = '{debridKey}'")
-        #     downloadLink = downloadLink[0]
-        #     await database.execute(f"DELETE FROM debridDownloads WHERE debridKey = '{debridKey}'")
-        # else:
-        #     downloadLink = await generateDownloadLink(session, config["debridApiKey"], hash, index)
-
-        return RedirectResponse(downloadLink, status_code=302)
+    return RedirectResponse(downloadLink, status_code=302)
