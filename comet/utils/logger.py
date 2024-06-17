@@ -4,7 +4,7 @@ from loguru import logger
 def setupLogger(level: str):
     logger.level("INFO", icon="📰", color="<fg #FC5F39>")
     logger.level("DEBUG", icon="🕸️", color="<fg #DC5F00>")
-    logger.level("WARNING", icon="⚠️ ", color="<fg #DC5F00>") 
+    logger.level("WARNING", icon="⚠️", color="<fg #DC5F00>") 
 
     log_format = (
         "<white>{time:YYYY-MM-DD}</white> <magenta>{time:HH:mm:ss}</magenta> | "

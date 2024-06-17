@@ -1,10 +1,13 @@
 import aiohttp, asyncio, bencodepy, hashlib, re, base64, json, os, RTN, time
-from .utils.logger import logger
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
 from databases import Database
+
+from .utils.logger import logger
+from .utils.general import translate, isVideo, bytesToSize
 
 database = Database("sqlite:///database.db")
 
@@ -184,25 +187,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         metadata = await getMetadata.json()
 
         name = metadata["d"][0]["l"]
-        toChange = {
-            'ā': 'a', 'ă': 'a', 'ą': 'a', 'ć': 'c', 'č': 'c', 'ç': 'c',
-            'ĉ': 'c', 'ċ': 'c', 'ď': 'd', 'đ': 'd', 'è': 'e', 'é': 'e',
-            'ê': 'e', 'ë': 'e', 'ē': 'e', 'ĕ': 'e', 'ę': 'e', 'ě': 'e',
-            'ĝ': 'g', 'ğ': 'g', 'ġ': 'g', 'ģ': 'g', 'ĥ': 'h', 'î': 'i',
-            'ï': 'i', 'ì': 'i', 'í': 'i', 'ī': 'i', 'ĩ': 'i', 'ĭ': 'i',
-            'ı': 'i', 'ĵ': 'j', 'ķ': 'k', 'ĺ': 'l', 'ļ': 'l', 'ł': 'l',
-            'ń': 'n', 'ň': 'n', 'ñ': 'n', 'ņ': 'n', 'ŉ': 'n', 'ó': 'o',
-            'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o', 'ō': 'o', 'ő': 'o',
-            'œ': 'oe', 'ŕ': 'r', 'ř': 'r', 'ŗ': 'r', 'š': 's', 'ş': 's',
-            'ś': 's', 'ș': 's', 'ß': 'ss', 'ť': 't', 'ţ': 't', 'ū': 'u',
-            'ŭ': 'u', 'ũ': 'u', 'û': 'u', 'ü': 'u', 'ù': 'u', 'ú': 'u',
-            'ų': 'u', 'ű': 'u', 'ŵ': 'w', 'ý': 'y', 'ÿ': 'y', 'ŷ': 'y',
-            'ž': 'z', 'ż': 'z', 'ź': 'z', 'æ': 'ae', 'ǎ': 'a', 'ǧ': 'g',
-            'ə': 'e', 'ƒ': 'f', 'ǐ': 'i', 'ǒ': 'o', 'ǔ': 'u', 'ǚ': 'u',
-            'ǜ': 'u', 'ǹ': 'n', 'ǻ': 'a', 'ǽ': 'ae', 'ǿ': 'o',
-        }
-        translationTable = str.maketrans(toChange)
-        name = name.translate(translationTable)
+        name = translate(name)
 
         cacheKey = hashlib.md5(json.dumps({"debridService": config["debridService"], "name": name, "season": season, "episode": episode, "indexers": config["indexers"], "resolutions": config["resolutions"], "languages": config["languages"]}).encode("utf-8")).hexdigest()
         cached = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cacheKey}')")
@@ -222,7 +207,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 for hash in sortedRankedFiles:
                     results.append({
                         "name": f"[RD⚡] Comet {sortedRankedFiles[hash]['data']['resolution'][0] if len(sortedRankedFiles[hash]['data']['resolution']) > 0 else 'Unknown'}",
-                        "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {round(int(sortedRankedFiles[hash]['data']['size']) / 1024 / 1024 / 1024, 2)}GB",
+                        "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {bytesToSize(sortedRankedFiles[hash]['data']['size'])}",
                         "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
                     })
 
@@ -240,6 +225,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         torrents = []
         for response in jackettSearchResponses:
+            if not response:
+                continue
+
             results = await response.json()
             for i in results["Results"]:
                 torrents.append(i)
@@ -287,7 +275,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     for index, file in variants.items():
                         filename = file["filename"].lower()
                         
-                        if not filename.endswith(tuple([".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm", ".mpg", ".mpeg", ".m4v", ".3gp", ".3g2", ".ogv", ".ogg", ".drc", ".gif", ".gifv", ".mng", ".avi", ".mov", ".qt", ".wmv", ".yuv", ".rm", ".rmvb", ".asf", ".amv", ".m4p", ".m4v", ".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mpg", ".mpeg", ".m2v", ".m4v", ".svi", ".3gp", ".3g2", ".mxf", ".roq", ".nsv", ".flv", ".f4v", ".f4p", ".f4a", ".f4b"])):
+                        if not isVideo(filename):
                             continue
 
                         filenameParsed = RTN.parse(file["filename"])
@@ -336,14 +324,15 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             sortedRankedFiles[hash]["data"]["size"] = files[hash]["size"]
             sortedRankedFiles[hash]["data"]["index"] = files[hash]["index"]
         
-        await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{json.dumps(sortedRankedFiles)}', {time.time()})")
+        jsonData = json.dumps(sortedRankedFiles).replace("'", "''")
+        await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{jsonData}', {time.time()})")
         logger.info(f"Results have been cached for {name}")
         
         results = []
         for hash in sortedRankedFiles:
             results.append({
                 "name": f"[RD⚡] Comet {sortedRankedFiles[hash]['data']['resolution'][0] if len(sortedRankedFiles[hash]['data']['resolution']) > 0 else 'Unknown'}",
-                "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {round(int(sortedRankedFiles[hash]['data']['size']) / 1024 / 1024 / 1024, 2)}GB",
+                "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {bytesToSize(sortedRankedFiles[hash]['data']['size'])}",
                 "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
             })
 
