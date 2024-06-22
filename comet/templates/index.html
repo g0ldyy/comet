@@ -431,58 +431,21 @@
     </head>
 
     <body>
-        <div class="stars">
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-            <div class="star"></div>
-        </div>
+        <div class="stars"></div>
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const starsContainer = document.querySelector('.stars');
+                const isMobile = window.innerWidth <= 750;
+                const starCount = isMobile ? 30 : 30; // Reduce the number of stars on mobile because of performance issues (currently disabled because we need to find a better workarround)
+
+                for (let i = 0; i < starCount; i++) {
+                    const star = document.createElement("div");
+                    star.classList.add("star");
+                    starsContainer.appendChild(star);
+                }
+            });
+        </script>
 
         <div class="form-container">
             <div class="form-item">
