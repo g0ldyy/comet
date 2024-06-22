@@ -508,9 +508,9 @@
             </div>
 
             <div class="centered-item">
-                <sl-button id="install" variant="primary">Install</sl-button>
+                <sl-button id="install" variant="neutral">Install</sl-button>
 
-                <sl-alert variant="primary" duration="3000" closable>
+                <sl-alert variant="neutral" duration="3000" closable>
                     <sl-icon slot="icon" name="clipboard2-check"></sl-icon>
                     <strong>The Stremio addon link has been automatically copied.</strong>
                 </sl-alert>
@@ -544,7 +544,7 @@
                     }
             
                     const button = document.querySelector("sl-button");
-                    const alert = document.querySelector('sl-alert[variant="primary"]');
+                    const alert = document.querySelector('sl-alert[variant="neutral"]');
                     button.addEventListener("click", () => {
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
