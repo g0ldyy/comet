@@ -117,8 +117,8 @@ async def manifest():
         "version": "1.0.0",
         "name": "Comet",
         "description": "Stremio's fastest torrent/debrid search add-on.",
-        "icon": "https://i.imgur.com/jmVoVMu.jpeg",
         "logo": "https://i.imgur.com/jmVoVMu.jpeg",
+        "background": "https://i.imgur.com/WwnXB3k.jpeg",
         "resources": [
             "stream"
         ],
