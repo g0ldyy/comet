@@ -144,6 +144,11 @@ async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str)
         logger.warning(f"Exception while getting Jackett results for {query} with {indexers}: {e}")
 
 async def getTorrentHash(session: aiohttp.ClientSession, url: str):
+    if url["InfoHash"] != None:
+        return url["InfoHash"]
+    
+    url = url["Link"]
+
     try:
         timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT", 5)))
         response = await session.get(url, allow_redirects=False, timeout=timeout)
@@ -273,7 +278,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 continue
 
-            tasks.append(getTorrentHash(session, torrent["Link"]))
+            tasks.append(getTorrentHash(session, torrent))
     
         torrentHashes = await asyncio.gather(*tasks)
         torrentHashes = list(set([hash for hash in torrentHashes if hash]))
