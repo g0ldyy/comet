@@ -52,5 +52,7 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         tags: |
-          docker.io/spoked/riven:latest
-          docker.io/spoked/riven:${{ steps.version.outputs.VERSION }}
+          ghcr.io/g0ldyy/comet:latest
+          ghcr.io/g0ldyy/comet:${{ steps.version.outputs.VERSION }}
+          docker.io/g0ldyy/comet:latest
+          docker.io/g0ldyy/comet:${{ steps.version.outputs.VERSION }}
