@@ -53,6 +53,4 @@ jobs:
         cache-to: type=gha,mode=max
         tags: |
           ghcr.io/g0ldyy/comet:latest
-          ghcr.io/g0ldyy/comet:${{ steps.version.outputs.VERSION }}
           docker.io/g0ldyy/comet:latest
-          docker.io/g0ldyy/comet:${{ steps.version.outputs.VERSION }}
