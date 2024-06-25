@@ -1,13 +1,13 @@
 FROM python:3.11
 LABEL name="Comet" \
-      description="Comet Strmeio Addon" \
+      description="Stremio's fastest torrent/debrid search add-on." \
       url="https://github.com/g0ldyy/comet"
 
 # This is to prevent Python from buffering stdout and stderr
 ENV PYTHONUNBUFFERED=1
 
 # Install Poetry
-RUN pip install poetry==1.8.3
+RUN pip install poetry
 
 ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
