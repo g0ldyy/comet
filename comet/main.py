@@ -37,14 +37,11 @@ settings = RTN.SettingsModel()
 ranking_model = BestOverallRanking()
 rtn = RTN.RTN(settings=settings, ranking_model=ranking_model)
 
-jackettIndexerPattern = re.compile("dl/([^/]+)/")
-jackettNamePattern = re.compile("(?<=file=).*")
-
 infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    indexers = os.getenv("JACKETT_INDEXERS")
+    indexers = os.getenv("INDEXER_MANAGER_INDEXERS")
     if "," in indexers:
         indexers = indexers.split(",")
     else:
@@ -135,19 +132,49 @@ async def manifest():
         }
     }
 
-async def getJackett(session: aiohttp.ClientSession, indexers: list, query: str):
+async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: str, indexers: list, query: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("JACKETT_TIMEOUT", 30)))
-        response = await session.get(f"{os.getenv('JACKETT_URL', 'http://127.0.0.1:9117')}/api/v2.0/indexers/all/results?apikey={os.getenv('JACKETT_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
-        return response
-    except Exception as e:
-        logger.warning(f"Exception while getting Jackett results for {query} with {indexers}: {e}")
+        timeout = aiohttp.ClientTimeout(total=int(os.getenv("INDEXER_MANAGER_TIMEOUT", 30)))
+        results = []
 
-async def getTorrentHash(session: aiohttp.ClientSession, url: str):
-    if url["InfoHash"] != None:
-        return url["InfoHash"]
+        if indexerManagerType == "jackett":
+            response = await session.get(f"{os.getenv('INDEXER_MANAGER_URL', 'http://127.0.0.1:9117')}/api/v2.0/indexers/all/results?apikey={os.getenv('INDEXER_MANAGER_API_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
+            response = await response.json()
+
+            for result in response["Results"]:
+                results.append(result)
+        
+        if indexerManagerType == "prowlarr":
+            getIndexers = await session.get(f"{os.getenv('INDEXER_MANAGER_URL', 'http://127.0.0.1:9696')}/api/v1/indexer", headers={
+                "X-Api-Key": os.getenv("INDEXER_MANAGER_API_KEY")
+            })
+            getIndexers = await getIndexers.json()
+
+            indexersId = []
+            for indexer in getIndexers:
+                if indexer["definitionName"] in indexers:
+                    indexersId.append(indexer["id"])
+
+            response = await session.get(f"{os.getenv('INDEXER_MANAGER_URL', 'http://127.0.0.1:9696')}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&type=search", headers={
+                "X-Api-Key": os.getenv("INDEXER_MANAGER_API_KEY")            
+            })
+            response = await response.json()
+
+            for result in response:
+                results.append(result)
+
+        return results
+    except Exception as e:
+        logger.warning(f"Exception while getting {indexerManagerType} results for {query} with {indexers}: {e}")
+
+async def getTorrentHash(session: aiohttp.ClientSession, indexerManagerType: str, torrent: dict):
+    if "InfoHash" in torrent and torrent["InfoHash"] != None:
+        return torrent["InfoHash"]
     
-    url = url["Link"]
+    if "infoHash" in torrent:
+        return torrent["infoHash"]
+
+    url = torrent["Link"] if indexerManagerType == "jackett" else torrent["downloadUrl"]
 
     try:
         timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT", 5)))
@@ -170,7 +197,8 @@ async def getTorrentHash(session: aiohttp.ClientSession, url: str):
 
         return hash
     except Exception as e:
-        logger.warning(f"Exception while getting torrent info hash for {jackettIndexerPattern.findall(url)[0]}|{jackettNamePattern.search(url)[0]}: {e}")
+        logger.warning(f"Exception while getting torrent info hash for {torrent['indexer'] if 'indexer' in torrent else (torrent['Tracker'] if 'Tracker' in torrent else '')}|{url}: {e}")
+        # logger.warning(f"Exception while getting torrent info hash for {jackettIndexerPattern.findall(url)[0]}|{jackettNamePattern.search(url)[0]}: {e}")
 
 @app.get("/stream/{type}/{id}.json")
 @app.get("/{b64config}/stream/{type}/{id}.json")
@@ -244,22 +272,23 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         else:
             logger.info(f"No cache found for {name} with user configuration")
 
-        logger.info(f"Start of Jackett search for {name} with indexers {config['indexers']}")
+        indexerManagerType = os.getenv("INDEXER_MANAGER_TYPE", "jackett")
+
+        logger.info(f"Start of {indexerManagerType} search for {name} with indexers {config['indexers']}")
 
         tasks = []
-        tasks.append(getJackett(session, config["indexers"], name))
+        tasks.append(getIndexerManager(session, indexerManagerType, config["indexers"], name))
         if type == "series":
-            tasks.append(getJackett(session, config["indexers"], f"{name} S0{season}E0{episode}"))
-        jackettSearchResponses = await asyncio.gather(*tasks)
+            tasks.append(getIndexerManager(session, indexerManagerType, config["indexers"], f"{name} S0{season}E0{episode}"))
+        searchResponses = await asyncio.gather(*tasks)
 
         torrents = []
-        for response in jackettSearchResponses:
-            if not response:
+        for results in searchResponses:
+            if results == None:
                 continue
 
-            results = await response.json()
-            for i in results["Results"]:
-                torrents.append(i)
+            for result in results:
+                torrents.append(result)
 
         logger.info(f"{len(torrents)} torrents found for {name}")
 
@@ -268,7 +297,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         tasks = []
         for torrent in torrents:
-            parsedTorrent = RTN.parse(torrent["Title"])
+            parsedTorrent = RTN.parse(torrent["Title"]) if indexerManagerType == "jackett" else RTN.parse(torrent["title"])
             if not "All" in config["resolutions"] and len(parsedTorrent.resolution) > 0 and parsedTorrent.resolution[0] not in config["resolutions"]:
                 filtered += 1
 
@@ -278,7 +307,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 continue
 
-            tasks.append(getTorrentHash(session, torrent))
+            tasks.append(getTorrentHash(session, indexerManagerType, torrent))
     
         torrentHashes = await asyncio.gather(*tasks)
         torrentHashes = list(set([hash for hash in torrentHashes if hash]))
