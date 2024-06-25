@@ -1,5 +1,5 @@
-# comet
-Stremio's fastest torrent/debrid search add-on.
+<h1 align="center" id="title">☄️ Comet</h1>
+<p align="center"><img src="https://socialify.git.ci/g0ldyy/comet/image?description=1&font=Raleway&forks=1&issues=1&language=1&logo=https%3A%2F%2Fi.imgur.com%2FGj0KQwB.png&name=1&owner=1&pattern=Solid&pulls=1&stargazers=1&theme=Dark" alt="comet" width="640" height="320" /></p>
 
 # Installation
 ## With Docker
@@ -43,5 +43,8 @@ Stremio's fastest torrent/debrid search add-on.
 
     - Finally, rerun your docker run command found in step one
 
-# Real-Debrid
+# Real-Debrid IP Blacklist
 to bypass Real-Debrid's IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
+
+# Web UI Showcase
+<img src="https://i.imgur.com/SaD365F.png" />
