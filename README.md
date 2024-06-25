@@ -3,7 +3,7 @@
 
 # Installation
 ## With Docker
-- Simply run the Docker image
+- Simply run the Docker image after modifying the environment variables
   ```
   docker run -p 8000:8000 -d \
       --name comet \
@@ -41,10 +41,10 @@
       docker pull g0ldyy/comet
       ```
 
-    - Finally, rerun your docker run command found in step one
+    - Finally, re-run the docker run command
 
 # Real-Debrid IP Blacklist
-to bypass Real-Debrid's IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
+To bypass Real-Debrid's IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
 
 # Web UI Showcase
 <img src="https://i.imgur.com/SaD365F.png" />
