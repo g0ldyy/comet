@@ -78,7 +78,7 @@ async def root():
 @app.get("/configure")
 @app.get("/{b64config}/configure")
 async def configure(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": os.getenv("CUSTOM_HEADER_HTML")})
+    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": os.getenv("CUSTOM_HEADER_HTML", "")})
 
 def configChecking(b64config: str):
     try:
