@@ -296,6 +296,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             return {"streams": []}
 
         tasks = []
+        filtered = 0
         for torrent in torrents:
             parsedTorrent = RTN.parse(torrent["Title"]) if indexerManagerType == "jackett" else RTN.parse(torrent["title"])
             if not "All" in config["resolutions"] and len(parsedTorrent.resolution) > 0 and parsedTorrent.resolution[0] not in config["resolutions"]:
