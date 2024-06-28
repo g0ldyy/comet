@@ -11,7 +11,7 @@ from databases import Database
 from .utils.logger import logger
 from .utils.general import translate, isVideo, bytesToSize
 
-database = Database("sqlite:///database.db")
+database = Database(f"sqlite:///{os.getenv('DATABASE_PATH', 'database.db')}")
 
 class BestOverallRanking(RTN.BaseRankingModel):
     uhd: int = 100
@@ -41,18 +41,6 @@ infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    indexers = os.getenv("INDEXER_MANAGER_INDEXERS")
-    if "," in indexers:
-        indexers = indexers.split(",")
-    else:
-        indexers = [indexers]
-
-    json.dump({
-        "indexers": indexers,
-        "languages": [indexer.replace(" ", "_") for indexer in RTN.patterns.language_code_mapping.keys()],
-        "resolutions": ["480p", "720p", "1080p", "1440p", "2160p", "2880p", "4320p"]
-    }, open("comet/templates/config.json", "w", encoding="utf-8"), indent=4)
-
     await database.connect()
     await database.execute("CREATE TABLE IF NOT EXISTS cache (cacheKey BLOB PRIMARY KEY, timestamp INTEGER, results TEXT)")
     yield
@@ -75,10 +63,22 @@ app.mount("/static", StaticFiles(directory="comet/templates"), name="static")
 async def root():
     return RedirectResponse("/configure")
 
+indexers = os.getenv("INDEXER_MANAGER_INDEXERS")
+if "," in indexers:
+    indexers = indexers.split(",")
+else:
+    indexers = [indexers]
+
+webConfig = {
+    "indexers": indexers,
+    "languages": [indexer.replace(" ", "_") for indexer in RTN.patterns.language_code_mapping.keys()],
+    "resolutions": ["480p", "720p", "1080p", "1440p", "2160p", "2880p", "4320p"]
+}
+
 @app.get("/configure")
 @app.get("/{b64config}/configure")
 async def configure(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": os.getenv("CUSTOM_HEADER_HTML", "")})
+    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": os.getenv("CUSTOM_HEADER_HTML", ""), "webConfig": webConfig})
 
 def configChecking(b64config: str):
     try:
