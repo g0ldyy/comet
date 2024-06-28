@@ -6,6 +6,13 @@ LABEL name="Comet" \
 # This is to prevent Python from buffering stdout and stderr
 ENV PYTHONUNBUFFERED=1
 
+# Fix python-alpine gcc
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    make
+
 # Install Poetry
 RUN pip install poetry
 
