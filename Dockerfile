@@ -1,4 +1,4 @@
-FROM python:3.11
+FROM python:3.11-alpine
 LABEL name="Comet" \
       description="Stremio's fastest torrent/debrid search add-on." \
       url="https://github.com/g0ldyy/comet"
