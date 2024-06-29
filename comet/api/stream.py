@@ -1,11 +1,10 @@
 import asyncio
 import hashlib
 import json
-import os
 import time
-from typing import Dict
-
 import aiohttp
+
+from typing import Dict
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from RTN import ParsedData, Torrent, parse, sort_torrents

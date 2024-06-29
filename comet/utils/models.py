@@ -17,13 +17,13 @@ class AppSettings(BaseSettings):
     FASTAPI_WORKERS: int = 2 * (os.cpu_count() or 1)
     DATABASE_PATH: str = "data/comet.db"
     CACHE_TTL: int = 86400
-    GET_TORRENT_TIMEOUT: int = 5
-    INDEXER_MANAGER_INDEXERS: List[str] = ["jackett", "qbittorrent"]
+    DEBRID_PROXY_URL: str = "http://127.0.0.1:1080"
     INDEXER_MANAGER_TYPE: str = "jackett"
     INDEXER_MANAGER_URL: str = "http://127.0.0.1:9117"
-    INDEXER_MANAGER_API_KEY: str = ""
+    INDEXER_MANAGER_API_KEY: str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    INDEXER_MANAGER_INDEXERS: List[str] = ["EXAMPLE1_CHANGETHIS", "EXAMPLE2_CHANGETHIS"]
     INDEXER_MANAGER_TIMEOUT: int = 30
-    DEBRID_PROXY_URL: Optional[str] = None
+    GET_TORRENT_TIMEOUT: int = 5
     CUSTOM_HEADER_HTML: Optional[str] = None
 
 
