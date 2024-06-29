@@ -116,6 +116,9 @@ def start_log():
     logger.log('COMET', f'Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}')
     logger.log('COMET', f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
     logger.log('COMET', f'Indexers: {settings.INDEXER_MANAGER_INDEXERS}')
+    
+    if settings.CUSTOM_HEADER_HTML:
+        logger.log('COMET', f'Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}')
 
 with server.run_in_thread():
     start_log()
