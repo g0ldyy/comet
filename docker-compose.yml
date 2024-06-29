@@ -6,8 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      FASTAPI_HOST: 0.0.0.0
-      FASTAPI_PORT: 8000
-      FASTAPI_WORKERS: 1
+      - FASTAPI_HOST=0.0.0.0
+      - FASTAPI_PORT=8000
+      - FASTAPI_WORKERS=1
+      - DATABASE_PATH=/app/data/comet.db
     volumes:
-      - .:/app
+      - ./data:/app/data
