@@ -15,9 +15,9 @@ from starlette.requests import Request
 
 from comet.api.core import main
 from comet.api.stream import streams
+from comet.utils.db import setup_database, teardown_database, write_config
 from comet.utils.logger import logger
 from comet.utils.models import settings
-from comet.utils.db import setup_database, teardown_database, write_config
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):

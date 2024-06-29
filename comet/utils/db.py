@@ -1,8 +1,9 @@
 import json
 import os
+
+from comet.utils.general import lang_code_map
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
-from comet.utils.general import lang_code_map
 
 
 async def setup_database():
