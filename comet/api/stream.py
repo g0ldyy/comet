@@ -216,7 +216,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             sortedRankedFiles[hash]["data"]["index"] = files[hash]["index"]
         
         jsonData = json.dumps(sortedRankedFiles).replace("'", "''")
-        await database.execute(f"INSERT INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{jsonData}', {time.time()})")
+        await database.execute(f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{jsonData}', {time.time()})")
         logger.info(f"Results have been cached for {name}")
         
         results = []
