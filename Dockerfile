@@ -14,6 +14,8 @@ ENV PYTHONUNBUFFERED=1 \
     FORCE_COLOR=1 \
     TERM=xterm-256color
 
+RUN apk add --no-cache gcc
+
 RUN pip install poetry
 COPY . .
 RUN poetry install --no-cache --no-root --without dev
