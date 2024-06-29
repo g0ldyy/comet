@@ -36,7 +36,7 @@ def write_config():
         if isinstance(indexers, str):
             indexers = indexers.split(",")
         elif not isinstance(indexers, list):
-            logger.warning("Invalid indexers")
+            logger.error(f"Invalid indexers: {indexers}")
 
     config_data = {
         "indexers": indexers,

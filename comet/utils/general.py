@@ -10,6 +10,7 @@ import bencodepy
 from RTN.patterns import language_code_mapping
 
 from comet.utils.logger import logger
+from comet.utils.models import settings
 
 translationTable = {
     'ā': 'a', 'ă': 'a', 'ą': 'a', 'ć': 'c', 'č': 'c', 'ç': 'c',
@@ -75,19 +76,19 @@ def configChecking(b64config: str):
 
 async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: str, indexers: list, query: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("INDEXER_MANAGER_TIMEOUT", 30)))
+        timeout = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
         results = []
 
         if indexerManagerType == "jackett":
-            response = await session.get(f"{os.getenv('INDEXER_MANAGER_URL', 'http://127.0.0.1:9117')}/api/v2.0/indexers/all/results?apikey={os.getenv('INDEXER_MANAGER_API_KEY')}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
+            response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v2.0/indexers/all/results?apikey={settings.INDEXER_MANAGER_API_KEY}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout)
             response = await response.json()
 
             for result in response["Results"]:
                 results.append(result)
         
         if indexerManagerType == "prowlarr":
-            getIndexers = await session.get(f"{os.getenv('INDEXER_MANAGER_URL', 'http://127.0.0.1:9696')}/api/v1/indexer", headers={
-                "X-Api-Key": os.getenv("INDEXER_MANAGER_API_KEY")
+            getIndexers = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v1/indexer", headers={
+                "X-Api-Key": settings.INDEXER_MANAGER_API_KEY
             })
             getIndexers = await getIndexers.json()
 
@@ -96,8 +97,8 @@ async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: 
                 if indexer["definitionName"] in indexers:
                     indexersId.append(indexer["id"])
 
-            response = await session.get(f"{os.getenv('INDEXER_MANAGER_URL', 'http://127.0.0.1:9696')}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&type=search", headers={
-                "X-Api-Key": os.getenv("INDEXER_MANAGER_API_KEY")            
+            response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&type=search", headers={
+                "X-Api-Key": settings.INDEXER_MANAGER_API_KEY            
             })
             response = await response.json()
 
@@ -119,7 +120,7 @@ async def getTorrentHash(session: aiohttp.ClientSession, indexerManagerType: str
     url = torrent["Link"] if indexerManagerType == "jackett" else torrent["downloadUrl"]
 
     try:
-        timeout = aiohttp.ClientTimeout(total=int(os.getenv("GET_TORRENT_TIMEOUT", 5)))
+        timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
         response = await session.get(url, allow_redirects=False, timeout=timeout)
         if response.status == 200:
             torrentData = await response.read()
@@ -151,9 +152,12 @@ async def generateDownloadLink(debridApiKey: str, hash: str, index: str):
 
             proxy = None
             if "Your ISP or VPN provider IP address is currently blocked on our website" in checkBlacklisted:
-                proxy = os.getenv("DEBRID_PROXY_URL", "http://127.0.0.1:1080")
-                
-                logger.warning(f"Real-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}")
+                proxy = settings.DEBRID_PROXY_URL
+                if not proxy:
+                    logger.warning(f"Real-Debrid blacklisted server's IP. No proxy found.")
+                    return "https://comet.fast" # TODO: This needs to be handled better
+                else:
+                    logger.warning(f"Real-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}")
 
             addMagnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", headers={
                 "Authorization": f"Bearer {debridApiKey}"

@@ -15,7 +15,7 @@ class AppSettings(BaseSettings):
     FASTAPI_HOST: str = "0.0.0.0"
     FASTAPI_PORT: int = 8000
     FASTAPI_WORKERS: int = 2 * (os.cpu_count() or 1)
-    DATABASE_PATH: str = "database.db"
+    DATABASE_PATH: str = "data/comet.db"
     CACHE_TTL: int = 86400
     GET_TORRENT_TIMEOUT: int = 5
     INDEXER_MANAGER_INDEXERS: List[str] = ["jackett", "qbittorrent"]

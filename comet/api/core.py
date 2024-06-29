@@ -1,8 +1,8 @@
-import os
-
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+
+from comet.utils.models import settings
 
 templates = Jinja2Templates("comet/templates")
 main = APIRouter()
@@ -21,7 +21,7 @@ async def health():
 @main.get("/configure")
 @main.get("/{b64config}/configure")
 async def configure(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": os.getenv("CUSTOM_HEADER_HTML", "")})
+    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML})
 
 
 @main.get("/manifest.json")

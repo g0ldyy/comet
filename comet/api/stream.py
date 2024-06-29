@@ -14,7 +14,7 @@ from comet.utils.general import (bytesToSize, configChecking,
                                  generateDownloadLink, getIndexerManager,
                                  getTorrentHash, isVideo, translate)
 from comet.utils.logger import logger
-from comet.utils.models import database, rtn
+from comet.utils.models import database, rtn, settings
 
 streams = APIRouter()
 
@@ -70,7 +70,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             logger.info(f"Cache found for {name}")
 
             timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cacheKey}'")
-            if timestamp[0] + int(os.getenv("CACHE_TTL", 86400)) < time.time():
+            if timestamp[0] + settings.CACHE_TTL < time.time():
                 await database.execute(f"DELETE FROM cache WHERE cacheKey = '{cacheKey}'")
 
                 logger.info(f"Cache expired for {name}")
@@ -90,7 +90,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         else:
             logger.info(f"No cache found for {name} with user configuration")
 
-        indexerManagerType = os.getenv("INDEXER_MANAGER_TYPE", "jackett")
+        indexerManagerType = settings.INDEXER_MANAGER_TYPE
 
         logger.info(f"Start of {indexerManagerType} search for {name} with indexers {config['indexers']}")
 
