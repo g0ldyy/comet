@@ -1,28 +1,25 @@
-FROM python:3.11
+FROM python:3.11-alpine
 LABEL name="Comet" \
       description="Stremio's fastest torrent/debrid search add-on." \
       url="https://github.com/g0ldyy/comet"
 
-# This is to prevent Python from buffering stdout and stderr
-ENV PYTHONUNBUFFERED=1
-
-# Install Poetry
-RUN pip install poetry
-
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
-
-# Set working directory
 WORKDIR /app
 
-# Copy the application code
-COPY . ./
+ARG DATABASE_PATH
 
-RUN poetry install --no-root
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_HOME='/usr/local' \
+    FASTAPI_HOST=0.0.0.0 \
+    FASTAPI_PORT=8000 \
+    FASTAPI_WORKERS=1 \
+    DATABASE_PATH=comet.db \
+    FORCE_COLOR=1 \
+    TERM=xterm-256color
 
-ENV VIRTUAL_ENV=/app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
+RUN pip install poetry
+COPY . .
+RUN poetry install --no-cache --no-root --without dev
 
-CMD ["python", "run.py"]
+ENTRYPOINT ["poetry", "run", "python", "-m", "comet.main"]
