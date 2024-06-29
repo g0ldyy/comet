@@ -135,13 +135,27 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrentHashes) == 0:
             return {"streams": []}
 
-        getAvailability = await session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{'/'.join(torrentHashes)}", headers={
-            "Authorization": f"Bearer {config['debridApiKey']}"
-        })
+        # hashChunks = [torrentHashes[i:i + 5] for i in range(0, len(torrentHashes), 5)]
+
+        # tasks = []
+        # for chunk in hashChunks:
+        #     tasks.append(session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{'/'.join(chunk)}", headers={
+        #         "Authorization": f"Bearer {config['debridApiKey']}"
+        #     }))
+
+        tasks = []
+        for hash in torrentHashes:
+            tasks.append(session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}", headers={
+                "Authorization": f"Bearer {config['debridApiKey']}"
+            }))
+
+        responses = await asyncio.gather(*tasks)
+
+        availability = {}
+        for response in responses:
+            availability.update(await response.json())
 
         files = {}
-
-        availability = await getAvailability.json()
         for hash, details in availability.items():
             if not "rd" in details:
                 continue
@@ -217,8 +231,29 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             "streams": results
         }
 
-@streams.route("/{b64config}/playback/{hash}/{index}", methods=["HEAD", "GET"])
-async def stream(b64config: str, hash: str, index: str):
+# @streams.route("/{b64config}/playback/{hash}/{index}", methods=["HEAD", "GET"])
+# async def playback(b64config: str, hash: str, index: str):
+#     config = configChecking(b64config)
+#     if not config:
+#         return
+
+#     downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
+
+#     return RedirectResponse(downloadLink, status_code=302)
+
+@streams.head("/{b64config}/playback/{hash}/{index}")
+async def playback(b64config: str, hash: str, index: str):
+    config = configChecking(b64config)
+    if not config:
+        return
+
+    downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
+
+    return RedirectResponse(downloadLink, status_code=302)
+
+
+@streams.get("/{b64config}/playback/{hash}/{index}")
+async def playback(b64config: str, hash: str, index: str):
     config = configChecking(b64config)
     if not config:
         return

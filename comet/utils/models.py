@@ -1,15 +1,14 @@
 import os
-from typing import List, Optional
 
+from typing import List, Optional
 from databases import Database
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import RTN, BaseRankingModel, SettingsModel
 
-
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
-        env_file_encoding="utf-8",
+        env_file_encoding="utf-8"
     )
 
     FASTAPI_HOST: str = "0.0.0.0"
