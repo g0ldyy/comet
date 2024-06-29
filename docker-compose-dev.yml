@@ -1,0 +1,17 @@
+services:
+  comet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: comet:dev
+    container_name: comet
+    environment:
+      - FASTAPI_HOST=0.0.0.0
+      - FASTAPI_PORT=8000
+      - FASTAPI_WORKERS=1
+      - DATABASE_PATH=/app/data/comet.db
+    tty: true
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data

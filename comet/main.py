@@ -129,4 +129,3 @@ with server.run_in_thread():
         logger.exception(traceback.format_exc())
     finally:
         logger.log("COMET", "Server Shutdown")
-
