@@ -1,9 +1,0 @@
-.github/
-*.env*
-.gitignore
-Dockerfile
-LICENSE
-*.md
-docker-compose*.*
-.vscode/
-config.json

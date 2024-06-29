@@ -15,7 +15,7 @@ from starlette.requests import Request
 
 from comet.api.core import main
 from comet.api.stream import streams
-from comet.utils.db import setup_database, teardown_database, write_config
+from comet.utils.db import setup_database, teardown_database
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
@@ -39,7 +39,6 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    write_config()
     await setup_database()
     yield
     await teardown_database()
@@ -94,7 +93,7 @@ class Server(uvicorn.Server):
 def signal_handler(sig, frame):
     # This will handle kubernetes/docker shutdowns better
     # Toss anything that needs to be gracefully shutdown here
-    logger.log('COMET', 'Exiting Gracefully.')
+    logger.log("COMET", "Exiting Gracefully.")
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -110,15 +109,14 @@ config = uvicorn.Config(
 server = Server(config=config)
 
 def start_log():
-    logger.log('COMET', f'Server started on {settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}')
-    logger.log('COMET', f'Database: {settings.DATABASE_PATH}')
-    logger.log('COMET', f'Workers: {settings.FASTAPI_WORKERS}')
-    logger.log('COMET', f'Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}')
-    logger.log('COMET', f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
-    logger.log('COMET', f'Indexers: {settings.INDEXER_MANAGER_INDEXERS}')
+    logger.log("COMET", f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers")
+    logger.log("COMET", f"Database: {settings.DATABASE_PATH} - TTL: {settings.CACHE_TTL}s")
+    logger.log("COMET", f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
+    logger.log("COMET", f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s")
+    logger.log("COMET", f"Indexers: {settings.INDEXER_MANAGER_INDEXERS}")
+    logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+    logger.log("COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}")
     
-    if settings.CUSTOM_HEADER_HTML:
-        logger.log('COMET', f'Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}')
 
 with server.run_in_thread():
     start_log()
