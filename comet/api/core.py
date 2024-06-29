@@ -28,8 +28,6 @@ webConfig = {
     "resolutions": ["480p", "720p", "1080p", "1440p", "2160p", "2880p", "4320p"]
 }
 
-print(f"aaaa : {webConfig}")
-
 @main.get("/configure")
 @main.get("/{b64config}/configure")
 async def configure(request: Request):
