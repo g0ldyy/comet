@@ -26,8 +26,7 @@ async def teardown_database():
     try:
         await database.disconnect()
     except Exception as e:
-        # Log the exception or handle it as needed
-        print(f"Error tearing down the database: {e}")
+        logger.error(f"Error tearing down the database: {e}")
 
 def write_config():
     """Write the config file."""
