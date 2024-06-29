@@ -481,7 +481,7 @@
             </div>
 
             <div class="form-item">
-                <sl-input id="maxResults" type="number" min=0 value=0 label="Max Results" placeholder="Enter max results"></sl-input>
+                <sl-input id="maxResults" type="number" min=0 value=10 label="Max Results" placeholder="Enter max results"></sl-input>
             </div>
 
             <div class="form-item">
@@ -507,13 +507,16 @@
                     let defaultResolutions = [];
             
                     document.addEventListener("DOMContentLoaded", function() {
-                        const webConfig = {{webConfig|tojson}};
-                        populateSelect("indexers", webConfig.indexers);
-                        populateSelect("languages", webConfig.languages);
-                        populateSelect("resolutions", webConfig.resolutions);
-
-                        defaultLanguages = webConfig.languages;
-                        defaultResolutions = webConfig.resolutions;
+                        fetch("/static/config.json")
+                            .then(response => response.json())
+                            .then(data => {
+                                populateSelect("indexers", data.indexers);
+                                populateSelect("languages", data.languages);
+                                populateSelect("resolutions", data.resolutions);
+            
+                                defaultLanguages = data.languages;
+                                defaultResolutions = data.resolutions;
+                            });
                     });
             
                     function populateSelect(selectId, options) {
@@ -548,14 +551,10 @@
                             resolutions: selectedResolutions,
                             languages: selectedLanguages
                         };
-
-                        const textarea = document.createElement("textarea");
-                        textarea.value = `${window.location.origin}/${btoa(JSON.stringify(settings))}/manifest.json`;
-                        document.body.appendChild(textarea);
-                        textarea.select();
-                        document.execCommand("copy");
-                        document.body.removeChild(textarea);
-                        alert.toast();
+            
+                        navigator.clipboard.writeText(`${window.location.origin}/${btoa(JSON.stringify(settings))}/manifest.json`).then(() => {
+                            alert.toast();
+                        });
                     });
                 </script>
             </div>

@@ -1,6 +1,9 @@
 .github/
-.env*
+*.env*
 .gitignore
 Dockerfile
 LICENSE
-README.md
+*.md
+docker-compose*.*
+.vscode/
+config.json
