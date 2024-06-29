@@ -14,9 +14,12 @@ ENV PYTHONUNBUFFERED=1 \
     FORCE_COLOR=1 \
     TERM=xterm-256color
 
+# Fix python-alpine gcc
 RUN apk add --no-cache \
     gcc \
-    libffi-dev
+    musl-dev \
+    libffi-dev \
+    make
 
 RUN pip install poetry
 COPY . .
