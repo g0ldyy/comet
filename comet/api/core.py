@@ -31,7 +31,7 @@ webConfig = {
 @main.get("/configure")
 @main.get("/{b64config}/configure")
 async def configure(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML, "webConfig": webConfig})
+    return templates.TemplateResponse("index.html", {"request": request, "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML if settings.CUSTOM_HEADER_HTML else "", "webConfig": webConfig})
 
 
 @main.get("/manifest.json")
