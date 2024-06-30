@@ -13,9 +13,25 @@
 - Only Real-Debrid supported right now *(if you want other debrid services, please provide an account)*
 
 # Installation
+## From source
+- Clone the repository and enter the folder
+    ```sh
+    git clone https://github.com/g0ldyy/comet
+    cd comet
+    ```
+- Install dependencies
+    ```sh
+    pip install poetry
+    poetry install
+    ````
+- Start Comet
+    ```sh
+    poetry run python -m comet.main
+    ````
+
 ## With Docker
 - Simply run the Docker image after modifying the environment variables
-  ```
+  ```sh
   docker run -p 8000:8000 -d \
       --name comet \
       -e FASTAPI_HOST=0.0.0.0 \
