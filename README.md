@@ -32,8 +32,7 @@
 ## With Docker
 - Simply run the Docker image after modifying the environment variables
   ```sh
-  docker run -p 8000:8000 -d \
-      --name comet \
+  docker run --name comet -p 8000:8000 -d \
       -e FASTAPI_HOST=0.0.0.0 \
       -e FASTAPI_PORT=8000 \
       -e FASTAPI_WORKERS=1 \
