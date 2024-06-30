@@ -25,4 +25,7 @@ RUN pip install poetry
 COPY . .
 RUN poetry install --no-cache --no-root --without dev
 
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
 ENTRYPOINT ["poetry", "run", "python", "-m", "comet.main"]
