@@ -8,6 +8,7 @@
 
 # Features
 - Jackett and Prowlarr support (change the `INDEXER_MANAGER_TYPE` environment variable to `jackett` or `prowlarr`)
+- [Zilean](https://github.com/iPromKnight/zilean) ([DMM](https://hashlists.debridmediamanager.com/) Scraper) support for even more results
 - Caching system ft. SQLite
 - Proxy support to bypass debrid restrictions
 - Only Real-Debrid supported right now *(if you want other debrid services, please provide an account)*
