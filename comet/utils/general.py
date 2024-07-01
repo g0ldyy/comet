@@ -76,6 +76,8 @@ def configChecking(b64config: str):
 
 async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: str, indexers: list, query: str):
     try:
+        indexers = [indexer.lower() for indexer in indexers]
+
         timeout = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
         results = []
 
@@ -94,7 +96,7 @@ async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: 
 
             indexersId = []
             for indexer in getIndexers:
-                if indexer["name"] in indexers:
+                if indexer["name"].lower() in indexers or indexer["definitionName"].lower() in indexers:
                     indexersId.append(indexer["id"])
 
             response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&categories=2000&categories=5000&type=search", headers={
