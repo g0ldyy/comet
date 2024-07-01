@@ -75,7 +75,7 @@ def configChecking(b64config: str):
 
 async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: str, indexers: list, query: str):
     try:
-        indexers = [indexer.lower().replace("_", " ") for indexer in indexers]
+        indexers = [indexer.replace("_", " ") for indexer in indexers]
 
         timeout = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
         results = []
