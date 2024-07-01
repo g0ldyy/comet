@@ -81,7 +81,7 @@ async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: 
         results = []
 
         if indexerManagerType == "jackett":
-            response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v2.0/indexers/all/results?apikey={settings.INDEXER_MANAGER_API_KEY}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}&Category[]=2000&Category[]=5000", timeout=timeout)
+            response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v2.0/indexers/all/results?apikey={settings.INDEXER_MANAGER_API_KEY}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}", timeout=timeout) # &Category[]=2000&Category[]=5000
             response = await response.json()
 
             for result in response["Results"]:
@@ -98,7 +98,7 @@ async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: 
                 if indexer["name"].lower() in indexers or indexer["definitionName"].lower() in indexers:
                     indexersId.append(indexer["id"])
 
-            response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&categories=2000&categories=5000&type=search", headers={
+            response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&type=search", headers={ # &categories=2000&categories=5000
                 "X-Api-Key": settings.INDEXER_MANAGER_API_KEY            
             })
             response = await response.json()
