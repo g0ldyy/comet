@@ -94,7 +94,7 @@ async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: 
 
             indexersId = []
             for indexer in getIndexers:
-                if indexer["definitionName"] in indexers:
+                if indexer["name"] in indexers:
                     indexersId.append(indexer["id"])
 
             response = await session.get(f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexerId) for indexerId in indexersId)}&categories=2000&categories=5000&type=search", headers={
