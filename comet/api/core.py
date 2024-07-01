@@ -23,8 +23,8 @@ async def health():
 indexers = settings.INDEXER_MANAGER_INDEXERS
 
 webConfig = {
-    "indexers": indexers,
-    "languages": [indexer.replace(" ", "_") for indexer in RTN.patterns.language_code_mapping.keys()],
+    "indexers": [indexer.replace(" ", "_") for indexer in indexers],
+    "languages": [language.replace(" ", "_") for language in RTN.patterns.language_code_mapping.keys()],
     "resolutions": ["480p", "720p", "1080p", "1440p", "2160p", "2880p", "4320p"]
 }
 

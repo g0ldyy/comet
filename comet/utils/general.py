@@ -32,7 +32,6 @@ translationTable = {
 
 translationTable = str.maketrans(translationTable)
 infoHashPattern = re.compile(r"\b([a-fA-F0-9]{40})\b")
-lang_code_map = [indexer.replace(" ", "_") for indexer in language_code_mapping.keys()]
 
 def translate(title: str):
     return title.translate(translationTable)
@@ -76,7 +75,7 @@ def configChecking(b64config: str):
 
 async def getIndexerManager(session: aiohttp.ClientSession, indexerManagerType: str, indexers: list, query: str):
     try:
-        indexers = [indexer.lower() for indexer in indexers]
+        indexers = [indexer.lower().replace("_", " ") for indexer in indexers]
 
         timeout = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
         results = []

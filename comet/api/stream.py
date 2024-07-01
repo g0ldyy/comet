@@ -120,7 +120,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 filtered += 1
 
                 continue
-            if not "All" in config["languages"] and not parsedTorrent.is_multi_audio and not any(language in parsedTorrent.language for language in config["languages"]):
+            if not "All" in config["languages"] and not parsedTorrent.is_multi_audio and not any(language.replace("_", " ") in parsedTorrent.language for language in config["languages"]):
                 filtered += 1
 
                 continue
