@@ -4,10 +4,9 @@ import json
 import time
 import aiohttp
 
-from typing import Dict
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
-from RTN import ParsedData, Torrent, parse, sort_torrents
+from RTN import Torrent, parse, sort_torrents, title_match
 
 from comet.utils.general import (bytesToSize, configChecking,
                                  generateDownloadLink, getIndexerManager,
@@ -107,7 +106,37 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             for result in results:
                 torrents.append(result)
 
-        logger.info(f"{len(torrents)} torrents found for {name}")
+        logger.info(f"{len(torrents)} torrents found for {name} with {indexerManagerType}")
+
+        zileanHashesCount = 0
+        try:
+            if settings.ZILEAN_URL:
+                getDmm = await session.post(f"{settings.ZILEAN_URL}/dmm/search", json={
+                    "queryText": name
+                })
+                getDmm = await getDmm.json()
+
+                if not "status" in getDmm:
+                    for result in getDmm:
+                        zileanHashesCount += 1
+
+                        if indexerManagerType == "jackett":
+                            object = {
+                                "Title": result["filename"],
+                                "InfoHash": result["infoHash"]
+                            }
+
+                        if indexerManagerType == "prowlarr":
+                            object = {
+                                "title": result["filename"],
+                                "infoHash": result["infoHash"]
+                            }
+
+                        torrents.append(object)
+
+            logger.info(f"{zileanHashesCount} torrents found for {name} with Zilean API")
+        except:
+            logger.warning(f"Exception while getting torrents for {name} with Zilean API")
 
         if len(torrents) == 0:
             return {"streams": []}
@@ -115,33 +144,33 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         tasks = []
         filtered = 0
         for torrent in torrents:
-            parsedTorrent: ParsedData = parse(torrent["Title"]) if indexerManagerType == "jackett" else parse(torrent["title"])
+            parsedTorrent = parse(torrent["Title"] if indexerManagerType == "jackett" else torrent["title"])
+            
+            if not title_match(name.lower(), parsedTorrent.parsed_title.lower()):
+                filtered += 1
+                continue
+
             if not "All" in config["resolutions"] and len(parsedTorrent.resolution) > 0 and parsedTorrent.resolution[0] not in config["resolutions"]:
                 filtered += 1
-
                 continue
-            if not "All" in config["languages"] and not parsedTorrent.is_multi_audio and not any(language.replace("_", " ") in parsedTorrent.language for language in config["languages"]):
-                filtered += 1
 
+            if not "All" in config["languages"] and not parsedTorrent.is_multi_audio and not any(language.replace("_", " ").capitalize() in parsedTorrent.language for language in config["languages"]):
+                filtered += 1
                 continue
 
             tasks.append(getTorrentHash(session, indexerManagerType, torrent))
+
+        logger.info(f"{filtered} filtered torrents for {name}")
     
         torrentHashes = await asyncio.gather(*tasks)
         torrentHashes = list(set([hash for hash in torrentHashes if hash]))
 
         logger.info(f"{len(torrentHashes)} info hashes found for {name}")
+
+        torrentHashes = list(set([hash for hash in torrentHashes if hash]))
         
         if len(torrentHashes) == 0:
             return {"streams": []}
-
-        # hashChunks = [torrentHashes[i:i + 5] for i in range(0, len(torrentHashes), 5)]
-
-        # tasks = []
-        # for chunk in hashChunks:
-        #     tasks.append(session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{'/'.join(chunk)}", headers={
-        #         "Authorization": f"Bearer {config['debridApiKey']}"
-        #     }))
 
         tasks = []
         for hash in torrentHashes:
@@ -193,13 +222,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         rankedFiles = set()
         for hash in files:
-            # try:
-            rankedFile = rtn.rank(files[hash]["title"], hash) # , remove_trash=True, correct_title=name - removed because it's not working great
+            rankedFile = rtn.rank(files[hash]["title"], hash)
             rankedFiles.add(rankedFile)
-            # except:
-            #     continue
         
-        sortedRankedFiles: Dict[str, Torrent] = sort_torrents(rankedFiles)
+        sortedRankedFiles = sort_torrents(rankedFiles)
 
         logger.info(f"{len(sortedRankedFiles)} cached files found on Real-Debrid for {name}")
 
@@ -230,16 +256,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         return {
             "streams": results
         }
-
-# @streams.route("/{b64config}/playback/{hash}/{index}", methods=["HEAD", "GET"])
-# async def playback(b64config: str, hash: str, index: str):
-#     config = configChecking(b64config)
-#     if not config:
-#         return
-
-#     downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
-
-#     return RedirectResponse(downloadLink, status_code=302)
 
 @streams.head("/{b64config}/playback/{hash}/{index}")
 async def playback(b64config: str, hash: str, index: str):

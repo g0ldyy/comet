@@ -115,6 +115,7 @@ def start_log():
     logger.log("COMET", f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s")
     logger.log("COMET", f"Indexers: {settings.INDEXER_MANAGER_INDEXERS}")
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+    logger.log("COMET", f"Zilean API: {settings.ZILEAN_URL}")
     logger.log("COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}")
     
 

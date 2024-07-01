@@ -23,6 +23,7 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_TIMEOUT: int = 30
     INDEXER_MANAGER_INDEXERS: List[str] = ["EXAMPLE1_CHANGETHIS", "EXAMPLE2_CHANGETHIS"]
     GET_TORRENT_TIMEOUT: int = 5
+    ZILEAN_URL: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
 
 
