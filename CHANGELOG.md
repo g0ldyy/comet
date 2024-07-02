@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/g0ldyy/comet/compare/v1.1.0...v1.2.0) (2024-07-02)
+
+
+### Features
+
+* lot of fixes, caching system changed, camel to snake etc... ([9cf3346](https://github.com/g0ldyy/comet/commit/9cf3346ed5992ba5ecc88c82530fab91331cc089))
+
 ## [1.1.0](https://github.com/g0ldyy/comet/compare/v1.0.0...v1.1.0) (2024-07-02)
 
 
