@@ -1,11 +1,10 @@
-name: "Release Please"
+name: release-please
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
-  
+
 permissions:
   contents: write
   pull-requests: write
@@ -17,4 +16,3 @@ jobs:
       - uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
