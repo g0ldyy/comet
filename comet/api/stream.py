@@ -8,9 +8,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from RTN import Torrent, parse, sort_torrents, title_match
 
-from comet.utils.general import (bytesToSize, configChecking,
-                                 generateDownloadLink, getIndexerManager,
-                                 getTorrentHash, isVideo, translate)
+from comet.utils.general import (bytes_to_size, config_check,
+                                 generate_download_link, get_indexer_manager,
+                                 get_torrent_hash, is_video, translate, get_balanced_hashes)
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings
 
@@ -19,7 +19,7 @@ streams = APIRouter()
 @streams.get("/stream/{type}/{id}.json")
 @streams.get("/{b64config}/stream/{type}/{id}.json")
 async def stream(request: Request, b64config: str, type: str, id: str):
-    config = configChecking(b64config)
+    config = config_check(b64config)
     if not config:
             return {
                 "streams": [
@@ -32,11 +32,11 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             }
     
     async with aiohttp.ClientSession() as session:
-        checkDebrid = await session.get("https://api.real-debrid.com/rest/1.0/user", headers={
+        check_debrid = await session.get("https://api.real-debrid.com/rest/1.0/user", headers={
             "Authorization": f"Bearer {config['debridApiKey']}"
         })
-        checkDebrid = await checkDebrid.text()
-        if not '"type": "premium"' in checkDebrid:
+        check_debrid = await check_debrid.text()
+        if not '"type": "premium"' in check_debrid:
             return {
                 "streams": [
                     {
@@ -56,85 +56,95 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             season = int(info[1])
             episode = int(info[2])
 
-        getMetadata = await session.get(f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json")
-        metadata = await getMetadata.json()
+        get_metadata = await session.get(f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json")
+        metadata = await get_metadata.json()
 
         name = metadata["d"][0]["l"]
         name = translate(name)
 
-        cacheKey = hashlib.md5(json.dumps({"debridService": config["debridService"], "name": name, "season": season, "episode": episode, "indexers": config["indexers"], "resolutions": config["resolutions"], "languages": config["languages"]}).encode("utf-8")).hexdigest()
-        cached = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cacheKey}')")
+        cache_key = hashlib.md5(json.dumps({"debridService": config["debridService"], "name": name, "season": season, "episode": episode, "indexers": config["indexers"]}).encode("utf-8")).hexdigest()
+        cached = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cache_key}')")
         if cached[0] != 0:
             logger.info(f"Cache found for {name}")
 
-            timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cacheKey}'")
+            timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cache_key}'")
             if timestamp[0] + settings.CACHE_TTL < time.time():
-                await database.execute(f"DELETE FROM cache WHERE cacheKey = '{cacheKey}'")
+                await database.execute(f"DELETE FROM cache WHERE cacheKey = '{cache_key}'")
 
                 logger.info(f"Cache expired for {name}")
             else:
-                sortedRankedFiles = await database.fetch_one(f"SELECT results FROM cache WHERE cacheKey = '{cacheKey}'")
-                sortedRankedFiles = json.loads(sortedRankedFiles[0])
+                sorted_ranked_files = await database.fetch_one(f"SELECT results FROM cache WHERE cacheKey = '{cache_key}'")
+                sorted_ranked_files = json.loads(sorted_ranked_files[0])
+                
+                balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
                 
                 results = []
-                for hash in sortedRankedFiles:
-                    results.append({
-                        "name": f"[RD⚡] Comet {sortedRankedFiles[hash]['data']['resolution'][0] if len(sortedRankedFiles[hash]['data']['resolution']) > 0 else 'Unknown'}",
-                        "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {bytesToSize(sortedRankedFiles[hash]['data']['size'])}",
-                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
-                    })
+                for hash in sorted_ranked_files:
+                    for resolution in balanced_hashes:
+                        if hash in balanced_hashes[resolution]:
+                            results.append({
+                                "name": f"[RD⚡] Comet {sorted_ranked_files[hash]['data']['resolution'][0] if len(sorted_ranked_files[hash]['data']['resolution']) > 0 else 'Unknown'}",
+                                "title": f"{sorted_ranked_files[hash]['data']['title']}\n💾 {bytes_to_size(sorted_ranked_files[hash]['data']['size'])}",
+                                "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sorted_ranked_files[hash]['data']['index']}"
+                            })
 
-                return {"streams": results}
+                            continue
+
+                return {
+                    "streams": results
+                }
         else:
             logger.info(f"No cache found for {name} with user configuration")
 
-        indexerManagerType = settings.INDEXER_MANAGER_TYPE
+        indexer_manager_type = settings.INDEXER_MANAGER_TYPE
 
-        logger.info(f"Start of {indexerManagerType} search for {name} with indexers {config['indexers']}")
+        logger.info(f"Start of {indexer_manager_type} search for {name} with indexers {config['indexers']}")
 
         tasks = []
-        tasks.append(getIndexerManager(session, indexerManagerType, config["indexers"], name))
+        tasks.append(get_indexer_manager(session, indexer_manager_type, config["indexers"], name))
         if type == "series":
-            tasks.append(getIndexerManager(session, indexerManagerType, config["indexers"], f"{name} S0{season}E0{episode}"))
-        searchResponses = await asyncio.gather(*tasks)
+            tasks.append(get_indexer_manager(session, indexer_manager_type, config["indexers"], f"{name} S0{season}E0{episode}"))
+        search_response = await asyncio.gather(*tasks)
 
         torrents = []
-        for results in searchResponses:
+        for results in search_response:
             if results == None:
                 continue
 
             for result in results:
                 torrents.append(result)
 
-        logger.info(f"{len(torrents)} torrents found for {name} with {indexerManagerType}")
+        logger.info(f"{len(torrents)} torrents found for {name} with {indexer_manager_type}")
 
-        zileanHashesCount = 0
+        zilean_hashes_count = 0
         try:
             if settings.ZILEAN_URL:
-                getDmm = await session.post(f"{settings.ZILEAN_URL}/dmm/search", json={
+                get_dmm = await session.post(f"{settings.ZILEAN_URL}/dmm/search", json={
                     "queryText": name
                 })
-                getDmm = await getDmm.json()
+                get_dmm = await get_dmm.json()
 
-                if not "status" in getDmm:
-                    for result in getDmm:
-                        zileanHashesCount += 1
+                if not "status" in get_dmm:
+                    for result in get_dmm:
+                        zilean_hashes_count += 1
 
-                        if indexerManagerType == "jackett":
+                        if indexer_manager_type == "jackett":
                             object = {
                                 "Title": result["filename"],
-                                "InfoHash": result["infoHash"]
+                                "InfoHash": result["infoHash"],
+                                "zilean": True
                             }
 
-                        if indexerManagerType == "prowlarr":
+                        if indexer_manager_type == "prowlarr":
                             object = {
                                 "title": result["filename"],
-                                "infoHash": result["infoHash"]
+                                "infoHash": result["infoHash"],
+                                "zilean": True
                             }
 
                         torrents.append(object)
 
-            logger.info(f"{zileanHashesCount} torrents found for {name} with Zilean API")
+            logger.info(f"{zilean_hashes_count} torrents found for {name} with Zilean API")
         except:
             logger.warning(f"Exception while getting torrents for {name} with Zilean API")
 
@@ -144,36 +154,29 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         tasks = []
         filtered = 0
         for torrent in torrents:
-            parsedTorrent = parse(torrent["Title"] if indexerManagerType == "jackett" else torrent["title"])
-            
-            if not title_match(name.lower(), parsedTorrent.parsed_title.lower()):
-                filtered += 1
-                continue
+            # Only title match check if from Zilean
+            if "zilean" in torrent:
+                parsed_torrent = parse(torrent["Title"] if indexer_manager_type == "jackett" else torrent["title"])
+                if not title_match(name.lower(), parsed_torrent.parsed_title.lower()):
+                    filtered += 1
+                    continue
 
-            if not "All" in config["resolutions"] and len(parsedTorrent.resolution) > 0 and parsedTorrent.resolution[0] not in config["resolutions"]:
-                filtered += 1
-                continue
+            tasks.append(get_torrent_hash(session, indexer_manager_type, torrent))
 
-            if not "All" in config["languages"] and not parsedTorrent.is_multi_audio and not any(language.replace("_", " ").capitalize() in parsedTorrent.language for language in config["languages"]):
-                filtered += 1
-                continue
-
-            tasks.append(getTorrentHash(session, indexerManagerType, torrent))
-
-        logger.info(f"{filtered} filtered torrents for {name}")
+        logger.info(f"{filtered} filtered torrents from Zilean API for {name}")
     
-        torrentHashes = await asyncio.gather(*tasks)
-        torrentHashes = list(set([hash for hash in torrentHashes if hash]))
+        torrent_hashes = await asyncio.gather(*tasks)
+        torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
 
-        logger.info(f"{len(torrentHashes)} info hashes found for {name}")
+        logger.info(f"{len(torrent_hashes)} info hashes found for {name}")
 
-        torrentHashes = list(set([hash for hash in torrentHashes if hash]))
+        torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
         
-        if len(torrentHashes) == 0:
+        if len(torrent_hashes) == 0:
             return {"streams": []}
 
         tasks = []
-        for hash in torrentHashes:
+        for hash in torrent_hashes:
             tasks.append(session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}", headers={
                 "Authorization": f"Bearer {config['debridApiKey']}"
             }))
@@ -192,16 +195,16 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             if type == "series":
                 for variants in details["rd"]:
                     for index, file in variants.items():
-                        filename = file["filename"].lower()
+                        filename = file["filename"]
                         
-                        if not isVideo(filename):
+                        if not is_video(filename):
                             continue
 
-                        filenameParsed = parse(file["filename"])
-                        if season in filenameParsed.season and episode in filenameParsed.episode:
+                        filename_parsed = parse(filename)
+                        if season in filename_parsed.season and episode in filename_parsed.episode:
                             files[hash] = {
                                 "index": index,
-                                "title": file["filename"],
+                                "title": filename,
                                 "size": file["filesize"]
                             }
 
@@ -209,49 +212,55 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             for variants in details["rd"]:
                 for index, file in variants.items():
-                    filename = file["filename"].lower()
+                    filename = file["filename"]
 
-                    if not isVideo(filename):
+                    if not is_video(filename):
                         continue
 
                     files[hash] = {
                         "index": index,
-                        "title": file["filename"],
+                        "title": filename,
                         "size": file["filesize"]
                     }
 
-        rankedFiles = set()
+        ranked_files = set()
         for hash in files:
-            rankedFile = rtn.rank(files[hash]["title"], hash)
-            rankedFiles.add(rankedFile)
+            ranked_file = rtn.rank(files[hash]["title"], hash)
+            ranked_files.add(ranked_file)
         
-        sortedRankedFiles = sort_torrents(rankedFiles)
+        sorted_ranked_files = sort_torrents(ranked_files)
 
-        logger.info(f"{len(sortedRankedFiles)} cached files found on Real-Debrid for {name}")
+        logger.info(f"{len(sorted_ranked_files)} cached files found on Real-Debrid for {name}")
 
-        if len(sortedRankedFiles) == 0:
+        if len(sorted_ranked_files) == 0:
             return {"streams": []}
         
-        sortedRankedFiles = {
+        sorted_ranked_files = {
             key: (value.model_dump() if isinstance(value, Torrent) else value)
-            for key, value in sortedRankedFiles.items()
+            for key, value in sorted_ranked_files.items()
         }
-        for hash in sortedRankedFiles: # needed for caching
-            sortedRankedFiles[hash]["data"]["title"] = files[hash]["title"]
-            sortedRankedFiles[hash]["data"]["size"] = files[hash]["size"]
-            sortedRankedFiles[hash]["data"]["index"] = files[hash]["index"]
+        for hash in sorted_ranked_files: # needed for caching
+            sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]
+            sorted_ranked_files[hash]["data"]["size"] = files[hash]["size"]
+            sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
         
-        jsonData = json.dumps(sortedRankedFiles).replace("'", "''")
-        await database.execute(f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES ('{cacheKey}', '{jsonData}', {time.time()})")
+        json_data = json.dumps(sorted_ranked_files).replace("'", "''")
+        await database.execute(f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES ('{cache_key}', '{json_data}', {time.time()})")
         logger.info(f"Results have been cached for {name}")
+
+        balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
         
         results = []
-        for hash in sortedRankedFiles:
-            results.append({
-                "name": f"[RD⚡] Comet {sortedRankedFiles[hash]['data']['resolution'][0] if len(sortedRankedFiles[hash]['data']['resolution']) > 0 else 'Unknown'}",
-                "title": f"{sortedRankedFiles[hash]['data']['title']}\n💾 {bytesToSize(sortedRankedFiles[hash]['data']['size'])}",
-                "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sortedRankedFiles[hash]['data']['index']}"
-            })
+        for hash in sorted_ranked_files:
+            for resolution in balanced_hashes:
+                if hash in balanced_hashes[resolution]:
+                    results.append({
+                        "name": f"[RD⚡] Comet {sorted_ranked_files[hash]['data']['resolution'][0] if len(sorted_ranked_files[hash]['data']['resolution']) > 0 else 'Unknown'}",
+                        "title": f"{sorted_ranked_files[hash]['data']['title']}\n💾 {bytes_to_size(sorted_ranked_files[hash]['data']['size'])}",
+                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sorted_ranked_files[hash]['data']['index']}"
+                    }) 
+
+                    continue
 
         return {
             "streams": results
@@ -259,21 +268,20 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
 @streams.head("/{b64config}/playback/{hash}/{index}")
 async def playback(b64config: str, hash: str, index: str):
-    config = configChecking(b64config)
+    config = config_check(b64config)
     if not config:
         return
 
-    downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
+    download_link = await generate_download_link(config["debridApiKey"], hash, index)
 
-    return RedirectResponse(downloadLink, status_code=302)
-
+    return RedirectResponse(download_link, status_code=302)
 
 @streams.get("/{b64config}/playback/{hash}/{index}")
 async def playback(b64config: str, hash: str, index: str):
-    config = configChecking(b64config)
+    config = config_check(b64config)
     if not config:
         return
 
-    downloadLink = await generateDownloadLink(config["debridApiKey"], hash, index)
+    download_link = await generate_download_link(config["debridApiKey"], hash, index)
 
-    return RedirectResponse(downloadLink, status_code=302)
+    return RedirectResponse(download_link, status_code=302)

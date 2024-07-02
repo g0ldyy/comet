@@ -3,7 +3,6 @@ import os
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
 
-
 async def setup_database():
     """Setup the database by ensuring the directory and file exist, and creating the necessary tables."""
     try:
@@ -18,7 +17,6 @@ async def setup_database():
         await database.execute("CREATE TABLE IF NOT EXISTS cache (cacheKey BLOB PRIMARY KEY, timestamp INTEGER, results TEXT)")
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
-
 
 async def teardown_database():
     """Teardown the database by disconnecting."""

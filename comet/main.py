@@ -19,7 +19,6 @@ from comet.utils.db import setup_database, teardown_database
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
-
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
@@ -36,7 +35,6 @@ class LoguruMiddleware(BaseHTTPMiddleware):
             )
         return response
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_database()
@@ -49,10 +47,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     redoc_url=None,
-    license_info={
-        "name": "GPL-3.0",
-        "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
-    }
 )
 
 app.add_middleware(LoguruMiddleware)
@@ -68,7 +62,6 @@ app.mount("/static", StaticFiles(directory="comet/templates"), name="static")
 
 app.include_router(main)
 app.include_router(streams)
-
 
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
@@ -118,7 +111,6 @@ def start_log():
     logger.log("COMET", f"Zilean API: {settings.ZILEAN_URL}")
     logger.log("COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}")
     
-
 with server.run_in_thread():
     start_log()
     try:

@@ -28,7 +28,6 @@ class AppSettings(BaseSettings):
     ZILEAN_URL: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
 
-
 class BestOverallRanking(BaseRankingModel):
     uhd: int = 100
     fhd: int = 90

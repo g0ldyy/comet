@@ -2,7 +2,6 @@ import sys
 
 from loguru import logger
 
-
 def setupLogger(level: str):
     logger.level("COMET", no=50, icon="🌠", color="<fg #7871d6>")
     logger.level("API", no=40, icon="👾", color="<fg #7871d6>")
