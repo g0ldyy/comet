@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/g0ldyy/comet/compare/v1.0.0...v1.1.0) (2024-07-02)
+
+
+### Features
+
+* environment variable for custom addon ID (ADDON_ID) ([d2b7ee8](https://github.com/g0ldyy/comet/commit/d2b7ee84bd96f5f8d4f5bbb0abd96ab4d3f24833))
+
 ## 1.0.0 (2024-07-02)
 
 
