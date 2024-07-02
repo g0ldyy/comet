@@ -40,7 +40,7 @@ async def manifest():
     return {
         "id": settings.ADDON_ID,
         "version": "1.0.0",
-        "name": "Comet",
+        "name": settings.ADDON_NAME,
         "description": "Stremio's fastest torrent/debrid search add-on.",
         "logo": "https://i.imgur.com/jmVoVMu.jpeg",
         "background": "https://i.imgur.com/WwnXB3k.jpeg",

@@ -12,6 +12,7 @@ class AppSettings(BaseSettings):
     )
 
     ADDON_ID: str = "stremio.comet.fast"
+    ADDON_NAME: str = "Comet"
     FASTAPI_HOST: str = "0.0.0.0"
     FASTAPI_PORT: int = 8000
     FASTAPI_WORKERS: int = 2 * (os.cpu_count() or 1)
