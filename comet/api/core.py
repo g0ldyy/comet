@@ -38,7 +38,7 @@ async def configure(request: Request):
 @main.get("/{b64config}/manifest.json")
 async def manifest():
     return {
-        "id": "stremio.comet.fast",
+        "id": settings.ADDON_ID,
         "version": "1.0.0",
         "name": "Comet",
         "description": "Stremio's fastest torrent/debrid search add-on.",

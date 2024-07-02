@@ -11,6 +11,7 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8"
     )
 
+    ADDON_ID: str = "stremio.comet.fast"
     FASTAPI_HOST: str = "0.0.0.0"
     FASTAPI_PORT: int = 8000
     FASTAPI_WORKERS: int = 2 * (os.cpu_count() or 1)

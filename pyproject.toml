@@ -9,21 +9,21 @@ repository = "https://github.com/g0ldyy/comet"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-rank-torrent-name = "^0.2.19"
-uvicorn = "^0.30.1"
-fastapi = "^0.111.0"
-aiohttp = "^3.9.5"
-bencodepy = "^0.9.5"
-asyncio = "^3.4.3"
-loguru = "^0.7.2"
-databases = "^0.9.0"
-aiosqlite = "^0.20.0"
-pydantic-settings = "^2.3.4"
+rank-torrent-name = "*"
+uvicorn = "*"
+fastapi = "*"
+aiohttp = "*"
+bencodepy = "*"
+asyncio = "*"
+loguru = "*"
+databases = "*"
+aiosqlite = "*"
+pydantic-settings = "*"
 
 [tool.poetry.group.dev.dependencies]
-isort = "^5.13.2"
-pyright = "^1.1.369"
-pytest = "^8.2.2"
+isort = "*"
+pyright = "*"
+pytest = "*"
 
 [build-system]
 requires = ["poetry-core"]
