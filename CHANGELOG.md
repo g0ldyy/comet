@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3](https://github.com/g0ldyy/comet/compare/v1.3.2...v1.3.3) (2024-07-03)
+
+
+### Bug Fixes
+
+* 0.30ms faster :pro: ([6b1daa6](https://github.com/g0ldyy/comet/commit/6b1daa61a0106d6557047059348ab6e7caecb693))
+
 ## [1.3.2](https://github.com/g0ldyy/comet/compare/v1.3.1...v1.3.2) (2024-07-03)
 
 
