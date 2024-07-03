@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/g0ldyy/comet/compare/v1.3.0...v1.3.1) (2024-07-03)
+
+
+### Bug Fixes
+
+* that's how you release it hehe ([ad65d1f](https://github.com/g0ldyy/comet/commit/ad65d1f99e9996f06d88b27c168d70b3b3998126))
+
 ## [1.3.0](https://github.com/g0ldyy/comet/compare/v1.2.2...v1.3.0) (2024-07-03)
 
 
