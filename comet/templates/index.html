@@ -21,6 +21,7 @@
             }
 
             body {
+                opacity: 0;
                 display: flex;
                 flex-direction: column;
                 justify-content: center;
@@ -31,6 +32,11 @@
                 font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
                 font-size: 1rem;
                 font-weight: 400;
+            }
+
+            body.ready {
+                opacity: 1;
+                transition: 0.25s opacity;
             }
 
             ::-webkit-scrollbar {
@@ -506,17 +512,28 @@
                     let defaultLanguages = [];
                     let defaultResolutions = [];
             
-                    document.addEventListener("DOMContentLoaded", function() {
+                    document.addEventListener("DOMContentLoaded", async () => {
+                        await Promise.allSettled([
+                            customElements.whenDefined("sl-button"),
+                            customElements.whenDefined("sl-alert"),
+                            customElements.whenDefined("sl-select"),
+                            customElements.whenDefined("sl-input"),
+                            customElements.whenDefined("sl-option"),
+                            customElements.whenDefined("sl-icon")
+                        ]);
+                        
                         const webConfig = {{webConfig|tojson}};
                         populateSelect("indexers", webConfig.indexers);
                         populateSelect("languages", webConfig.languages);
                         populateSelect("resolutions", webConfig.resolutions);
 
+                        document.body.classList.add("ready");
+
                         defaultLanguages = webConfig.languages;
                         defaultResolutions = webConfig.resolutions;
                     });
             
-                    function populateSelect(selectId, options) {
+                    async function populateSelect(selectId, options) {
                         const selectElement = document.getElementById(selectId);
                         options.forEach(option => {
                             const optionElement = document.createElement("sl-option");
