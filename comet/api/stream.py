@@ -183,6 +183,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         availability = {}
         for response in responses:
+            if not response:
+                continue
+            
             availability.update(await response.json())
 
         files = {}
