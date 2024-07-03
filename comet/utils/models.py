@@ -48,10 +48,10 @@ class BestOverallRanking(BaseRankingModel):
     webdl: int = 90
 
 
-rtn_settings: SettingsModel = SettingsModel()
-rtn_ranking: BestOverallRanking = BestOverallRanking()
+rtn_settings = SettingsModel()
+rtn_ranking = BestOverallRanking()
 
 # For use anywhere
-rtn: RTN = RTN(settings=rtn_settings, ranking_model=rtn_ranking)
-settings: AppSettings = AppSettings()
+rtn = RTN(settings=rtn_settings, ranking_model=rtn_ranking)
+settings = AppSettings()
 database = Database(f"sqlite:///{settings.DATABASE_PATH}")

@@ -110,14 +110,14 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
                 results = []
-                for hash in sorted_ranked_files:
-                    for resolution in balanced_hashes:
-                        if hash in balanced_hashes[resolution]:
+                for hash, hash_data in sorted_ranked_files.items():
+                    for resolution, hash_list in balanced_hashes.items():
+                        if hash in hash_list:
                             results.append(
                                 {
-                                    "name": f"[RD⚡] Comet {sorted_ranked_files[hash]['data']['resolution'][0] if len(sorted_ranked_files[hash]['data']['resolution']) > 0 else 'Unknown'}",
-                                    "title": f"{sorted_ranked_files[hash]['data']['title']}\n💾 {bytes_to_size(sorted_ranked_files[hash]['data']['size'])}",
-                                    "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sorted_ranked_files[hash]['data']['index']}",
+                                    "name": f"[RD⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
+                                    "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
+                                    "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                                 }
                             )
 
@@ -133,24 +133,18 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             f"Start of {indexer_manager_type} search for {logName} with indexers {config['indexers']}"
         )
 
-        tasks = []
-        tasks.append(
-            get_indexer_manager(session, indexer_manager_type, config["indexers"], name)
-        )
+        search_terms = [name]
         if type == "series":
-            tasks.append(
-                get_indexer_manager(
-                    session,
-                    indexer_manager_type,
-                    config["indexers"],
-                    f"{name} S0{season}E0{episode}",
-                )
-            )
+            search_terms.append(f"{name} S0{season}E0{episode}")
+        tasks = [
+            get_indexer_manager(session, indexer_manager_type, config["indexers"], term)
+            for term in search_terms
+        ]
         search_response = await asyncio.gather(*tasks)
 
         torrents = []
         for results in search_response:
-            if results == None:
+            if results is None:
                 continue
 
             for result in results:
@@ -191,9 +185,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             logger.info(
                 f"{zilean_hashes_count} torrents found for {logName} with Zilean API"
             )
-        except:
+        except Exception as e:
             logger.warning(
-                f"Exception while getting torrents for {logName} with Zilean API"
+                f"Exception while getting torrents for {logName} with Zilean API: {e}"
             )
 
         if len(torrents) == 0:
@@ -310,14 +304,14 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
         results = []
-        for hash in sorted_ranked_files:
-            for resolution in balanced_hashes:
-                if hash in balanced_hashes[resolution]:
+        for hash, hash_data in sorted_ranked_files.items():
+            for resolution, hash_list in balanced_hashes.items():
+                if hash in hash_list:
                     results.append(
                         {
-                            "name": f"[RD⚡] Comet {sorted_ranked_files[hash]['data']['resolution'][0] if len(sorted_ranked_files[hash]['data']['resolution']) > 0 else 'Unknown'}",
-                            "title": f"{sorted_ranked_files[hash]['data']['title']}\n💾 {bytes_to_size(sorted_ranked_files[hash]['data']['size'])}",
-                            "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{sorted_ranked_files[hash]['data']['index']}",
+                            "name": f"[RD⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
+                            "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
+                            "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                         }
                     )
 

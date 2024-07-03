@@ -263,7 +263,7 @@ async def get_indexer_manager(
 async def get_torrent_hash(
     session: aiohttp.ClientSession, indexer_manager_type: str, torrent: dict
 ):
-    if "InfoHash" in torrent and torrent["InfoHash"] != None:
+    if "InfoHash" in torrent and torrent["InfoHash"] is not None:
         return torrent["InfoHash"]
 
     if "infoHash" in torrent:
@@ -302,41 +302,30 @@ async def get_torrent_hash(
 async def get_balanced_hashes(hashes: dict, config: dict):
     max_results = config["maxResults"]
     config_resolutions = config["resolutions"]
-    config_languages = config["languages"]
+    config_languages = {language.replace("_", " ").capitalize() for language in config["languages"]}
+    include_all_languages = "All" in config_languages
+    include_all_resolutions = "All" in config_resolutions
+    include_unknown_resolution = include_all_resolutions or "Unknown" in config_resolutions
 
     hashes_by_resolution = {}
-    for hash in hashes:
-        if (
-            "All" not in config_languages
-            and not hashes[hash]["data"]["is_multi_audio"]
-            and not any(
-                language.replace("_", " ").capitalize()
-                in hashes[hash]["data"]["language"]
-                for language in config_languages
-            )
-        ):
+    for hash, hash_data in hashes.items():
+        hash_info = hash_data["data"]
+        if not include_all_languages and not hash_info["is_multi_audio"] and not any(lang in hash_info["language"] for lang in config_languages):
             continue
 
-        resolution = hashes[hash]["data"]["resolution"]
-        if len(resolution) == 0:
-            if "All" not in config_resolutions and "Unknown" not in config_resolutions:
+        resolution = hash_info["resolution"]
+        if not resolution:
+            if not include_unknown_resolution:
+                continue
+            resolution_key = "Unknown"
+        else:
+            resolution_key = resolution[0]
+            if not include_all_resolutions and resolution_key not in config_resolutions:
                 continue
 
-            if "Unknown" not in hashes_by_resolution:
-                hashes_by_resolution["Unknown"] = [hash]
-                continue
-
-            hashes_by_resolution["Unknown"].append(hash)
-            continue
-
-        if "All" not in config_resolutions and resolution[0] not in config_resolutions:
-            continue
-
-        if resolution[0] not in hashes_by_resolution:
-            hashes_by_resolution[resolution[0]] = [hash]
-            continue
-
-        hashes_by_resolution[resolution[0]].append(hash)
+        if resolution_key not in hashes_by_resolution:
+            hashes_by_resolution[resolution_key] = []
+        hashes_by_resolution[resolution_key].append(hash)
 
     if max_results == 0:
         return hashes_by_resolution
@@ -346,25 +335,20 @@ async def get_balanced_hashes(hashes: dict, config: dict):
     extra_hashes = max_results % total_resolutions
 
     balanced_hashes = {}
-    for resolution, hashes in hashes_by_resolution.items():
-        selected_count = hashes_per_resolution
-
+    for resolution, hash_list in hashes_by_resolution.items():
+        selected_count = hashes_per_resolution + (1 if extra_hashes > 0 else 0)
+        balanced_hashes[resolution] = hash_list[:selected_count]
         if extra_hashes > 0:
-            selected_count += 1
             extra_hashes -= 1
-
-        balanced_hashes[resolution] = hashes[:selected_count]
 
     selected_total = sum(len(hashes) for hashes in balanced_hashes.values())
     if selected_total < max_results:
         missing_hashes = max_results - selected_total
-
-        for resolution, hashes in hashes_by_resolution.items():
+        for resolution, hash_list in hashes_by_resolution.items():
             if missing_hashes <= 0:
                 break
-
             current_count = len(balanced_hashes[resolution])
-            available_hashes = hashes[current_count : current_count + missing_hashes]
+            available_hashes = hash_list[current_count:current_count + missing_hashes]
             balanced_hashes[resolution].extend(available_hashes)
             missing_hashes -= len(available_hashes)
 
