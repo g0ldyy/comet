@@ -19,6 +19,7 @@ from comet.utils.db import setup_database, teardown_database
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
+
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
@@ -35,11 +36,13 @@ class LoguruMiddleware(BaseHTTPMiddleware):
             )
         return response
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_database()
     yield
     await teardown_database()
+
 
 app = FastAPI(
     title="Comet",
@@ -63,6 +66,7 @@ app.mount("/static", StaticFiles(directory="comet/templates"), name="static")
 app.include_router(main)
 app.include_router(streams)
 
+
 class Server(uvicorn.Server):
     def install_signal_handlers(self):
         pass
@@ -83,11 +87,13 @@ class Server(uvicorn.Server):
             self.should_exit = True
             sys.exit(0)
 
+
 def signal_handler(sig, frame):
     # This will handle kubernetes/docker shutdowns better
     # Toss anything that needs to be gracefully shutdown here
     logger.log("COMET", "Exiting Gracefully.")
     sys.exit(0)
+
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
@@ -97,20 +103,32 @@ config = uvicorn.Config(
     host=settings.FASTAPI_HOST,
     port=settings.FASTAPI_PORT,
     workers=settings.FASTAPI_WORKERS,
-    log_config=None
+    log_config=None,
 )
 server = Server(config=config)
 
+
 def start_log():
-    logger.log("COMET", f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers")
-    logger.log("COMET", f"Database: {settings.DATABASE_PATH} - TTL: {settings.CACHE_TTL}s")
+    logger.log(
+        "COMET",
+        f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
+    )
+    logger.log(
+        "COMET", f"Database: {settings.DATABASE_PATH} - TTL: {settings.CACHE_TTL}s"
+    )
     logger.log("COMET", f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
-    logger.log("COMET", f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s")
+    logger.log(
+        "COMET",
+        f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
+    )
     logger.log("COMET", f"Indexers: {settings.INDEXER_MANAGER_INDEXERS}")
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     logger.log("COMET", f"Zilean API: {settings.ZILEAN_URL}")
-    logger.log("COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}")
-    
+    logger.log(
+        "COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}"
+    )
+
+
 with server.run_in_thread():
     start_log()
     try:

@@ -5,11 +5,9 @@ from databases import Database
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import RTN, BaseRankingModel, SettingsModel
 
+
 class AppSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     ADDON_ID: str = "stremio.comet.fast"
     ADDON_NAME: str = "Comet"
@@ -27,6 +25,7 @@ class AppSettings(BaseSettings):
     GET_TORRENT_TIMEOUT: int = 5
     ZILEAN_URL: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
+
 
 class BestOverallRanking(BaseRankingModel):
     uhd: int = 100
@@ -47,6 +46,7 @@ class BestOverallRanking(BaseRankingModel):
     remux: int = 150
     bluray: int = 120
     webdl: int = 90
+
 
 rtn_settings: SettingsModel = SettingsModel()
 rtn_ranking: BestOverallRanking = BestOverallRanking()
