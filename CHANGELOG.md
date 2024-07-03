@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/g0ldyy/comet/compare/v1.2.0...v1.2.1) (2024-07-03)
+
+
+### Bug Fixes
+
+* smooth loading + fixed empty select (web) ([f9dd917](https://github.com/g0ldyy/comet/commit/f9dd91719883d08dbac531cec8ac0ca7a4b45e88))
+
 ## [1.2.0](https://github.com/g0ldyy/comet/compare/v1.1.0...v1.2.0) (2024-07-02)
 
 
