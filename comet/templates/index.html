@@ -533,7 +533,7 @@
                         defaultResolutions = webConfig.resolutions;
                     });
             
-                    async function populateSelect(selectId, options) {
+                    function populateSelect(selectId, options) {
                         const selectElement = document.getElementById(selectId);
                         options.forEach(option => {
                             const optionElement = document.createElement("sl-option");
