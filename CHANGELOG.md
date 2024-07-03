@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2](https://github.com/g0ldyy/comet/compare/v1.2.1...v1.2.2) (2024-07-03)
+
+
+### Bug Fixes
+
+* aiohttp max number of simultaneous connections ([9309e15](https://github.com/g0ldyy/comet/commit/9309e15a121feb69310cb8a3533447cde3b453ad))
+* real debrid error ([704f841](https://github.com/g0ldyy/comet/commit/704f8419cd3107bc5efaa5e9befa36063bb96dd5))
+
 ## [1.2.1](https://github.com/g0ldyy/comet/compare/v1.2.0...v1.2.1) (2024-07-03)
 
 
