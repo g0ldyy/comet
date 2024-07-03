@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/g0ldyy/comet/compare/v1.3.1...v1.3.2) (2024-07-03)
+
+
+### Bug Fixes
+
+* only show stars for non mobile users (performance issue) ([7415984](https://github.com/g0ldyy/comet/commit/741598497eedbb4be3c75e89470077e68ed3528d))
+
 ## [1.3.1](https://github.com/g0ldyy/comet/compare/v1.3.0...v1.3.1) (2024-07-03)
 
 
