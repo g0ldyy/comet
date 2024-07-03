@@ -31,7 +31,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 ]
             }
     
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(limit=0)
+    async with aiohttp.ClientSession(connector=connector) as session:
         check_debrid = await session.get("https://api.real-debrid.com/rest/1.0/user", headers={
             "Authorization": f"Bearer {config['debridApiKey']}"
         })
@@ -80,7 +81,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 sorted_ranked_files = json.loads(sorted_ranked_files[0])
                 
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
-                
                 results = []
                 for hash in sorted_ranked_files:
                     for resolution in balanced_hashes:
@@ -253,7 +253,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         logger.info(f"Results have been cached for {logName}")
 
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
-        
         results = []
         for hash in sorted_ranked_files:
             for resolution in balanced_hashes:

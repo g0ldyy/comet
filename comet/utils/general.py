@@ -199,14 +199,13 @@ async def get_balanced_hashes(hashes: dict, config: dict):
 
     return balanced_hashes
 
-async def check_info_hash(debrid_api_key: str, hash: str):
+async def check_info_hash(session: aiohttp.ClientSession, debrid_api_key: str, hash: str):
     try:
-        async with aiohttp.ClientSession(headers={
+        response = await session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}", headers={
             "Authorization": f"Bearer {debrid_api_key}"
-        }) as session:
-            response = await session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}")
+        })
 
-            return response
+        return response
     except Exception as e:
         logger.warning(f"Exception while checking info hash with Real Debrid for {hash}: {e}")
 
