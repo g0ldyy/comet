@@ -61,17 +61,20 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         name = metadata["d"][0]["l"]
         name = translate(name)
+        logName = name
+        if type == "series":
+            logName = f"{name} S{season:02d}E{episode:02d}"
 
         cache_key = hashlib.md5(json.dumps({"debridService": config["debridService"], "name": name, "season": season, "episode": episode, "indexers": config["indexers"]}).encode("utf-8")).hexdigest()
         cached = await database.fetch_one(f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cache_key}')")
         if cached[0] != 0:
-            logger.info(f"Cache found for {name}")
+            logger.info(f"Cache found for {logName}")
 
             timestamp = await database.fetch_one(f"SELECT timestamp FROM cache WHERE cacheKey = '{cache_key}'")
             if timestamp[0] + settings.CACHE_TTL < time.time():
                 await database.execute(f"DELETE FROM cache WHERE cacheKey = '{cache_key}'")
 
-                logger.info(f"Cache expired for {name}")
+                logger.info(f"Cache expired for {logName}")
             else:
                 sorted_ranked_files = await database.fetch_one(f"SELECT results FROM cache WHERE cacheKey = '{cache_key}'")
                 sorted_ranked_files = json.loads(sorted_ranked_files[0])
@@ -94,11 +97,11 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     "streams": results
                 }
         else:
-            logger.info(f"No cache found for {name} with user configuration")
+            logger.info(f"No cache found for {logName} with user configuration")
 
         indexer_manager_type = settings.INDEXER_MANAGER_TYPE
 
-        logger.info(f"Start of {indexer_manager_type} search for {name} with indexers {config['indexers']}")
+        logger.info(f"Start of {indexer_manager_type} search for {logName} with indexers {config['indexers']}")
 
         tasks = []
         tasks.append(get_indexer_manager(session, indexer_manager_type, config["indexers"], name))
@@ -114,7 +117,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             for result in results:
                 torrents.append(result)
 
-        logger.info(f"{len(torrents)} torrents found for {name} with {indexer_manager_type}")
+        logger.info(f"{len(torrents)} torrents found for {logName} with {indexer_manager_type}")
 
         zilean_hashes_count = 0
         try:
@@ -144,9 +147,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                         torrents.append(object)
 
-            logger.info(f"{zilean_hashes_count} torrents found for {name} with Zilean API")
+            logger.info(f"{zilean_hashes_count} torrents found for {logName} with Zilean API")
         except:
-            logger.warning(f"Exception while getting torrents for {name} with Zilean API")
+            logger.warning(f"Exception while getting torrents for {logName} with Zilean API")
 
         if len(torrents) == 0:
             return {"streams": []}
@@ -163,12 +166,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             tasks.append(get_torrent_hash(session, indexer_manager_type, torrent))
 
-        logger.info(f"{filtered} filtered torrents from Zilean API for {name}")
+        logger.info(f"{filtered} filtered torrents from Zilean API for {logName}")
     
         torrent_hashes = await asyncio.gather(*tasks)
         torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
 
-        logger.info(f"{len(torrent_hashes)} info hashes found for {name}")
+        logger.info(f"{len(torrent_hashes)} info hashes found for {logName}")
 
         torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
         
@@ -231,7 +234,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         
         sorted_ranked_files = sort_torrents(ranked_files)
 
-        logger.info(f"{len(sorted_ranked_files)} cached files found on Real-Debrid for {name}")
+        logger.info(f"{len(sorted_ranked_files)} cached files found on Real-Debrid for {logName}")
 
         if len(sorted_ranked_files) == 0:
             return {"streams": []}
@@ -247,7 +250,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")
         await database.execute(f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES ('{cache_key}', '{json_data}', {time.time()})")
-        logger.info(f"Results have been cached for {name}")
+        logger.info(f"Results have been cached for {logName}")
 
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
         
