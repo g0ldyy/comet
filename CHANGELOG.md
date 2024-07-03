@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/g0ldyy/comet/compare/v1.2.2...v1.3.0) (2024-07-03)
+
+
+### Features
+
+* new debrid manager and cleaning (ruff) ([c48e466](https://github.com/g0ldyy/comet/commit/c48e4661298d7425627ec03510efbcde19c46b2a))
+
 ## [1.2.2](https://github.com/g0ldyy/comet/compare/v1.2.1...v1.2.2) (2024-07-03)
 
 
