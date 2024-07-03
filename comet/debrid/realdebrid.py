@@ -51,7 +51,6 @@ class RealDebrid:
                     logger.warning(
                         "Real-Debrid blacklisted server's IP. No proxy found."
                     )
-                    return "https://comet.fast"
                 else:
                     logger.warning(
                         f"Real-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}"
