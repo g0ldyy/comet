@@ -455,17 +455,37 @@
         <div class="stars"></div>
 
         <script>
-            document.addEventListener("DOMContentLoaded", function() {
-                const starsContainer = document.querySelector('.stars');
-                const isMobile = window.innerWidth <= 750;
-                const starCount = isMobile ? 30 : 30; // Reduce the number of stars on mobile because of performance issues (currently disabled because we need to find a better workarround)
-
-                for (let i = 0; i < starCount; i++) {
-                    const star = document.createElement("div");
-                    star.classList.add("star");
-                    starsContainer.appendChild(star);
+            let hasTouchScreen = false;
+            if ("maxTouchPoints" in navigator) {
+                hasTouchScreen = navigator.maxTouchPoints > 0;
+            } else if ("msMaxTouchPoints" in navigator) {
+                hasTouchScreen = navigator.msMaxTouchPoints > 0;
+            } else {
+                const mQ = matchMedia?.("(pointer:coarse)");
+                if (mQ?.media === "(pointer:coarse)") {
+                    hasTouchScreen = !!mQ.matches;
+                } else if ("orientation" in window) {
+                    hasTouchScreen = true;
+                } else {
+                    const UA = navigator.userAgent;
+                    hasTouchScreen =
+                        /\b(BlackBerry|webOS|iPhone|IEMobile)\b/i.test(UA) ||
+                        /\b(Android|Windows Phone|iPad|iPod)\b/i.test(UA);
                 }
-            });
+            }
+
+            if (!hasTouchScreen) {
+                document.addEventListener("DOMContentLoaded", function() {
+                    const starsContainer = document.querySelector('.stars');
+                    const starCount = 30
+
+                    for (let i = 0; i < starCount; i++) {
+                        const star = document.createElement("div");
+                        star.classList.add("star");
+                        starsContainer.appendChild(star);
+                    }
+                });
+            }
         </script>
 
         <div class="header">
