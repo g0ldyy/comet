@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from RTN import Torrent, parse, sort_torrents, title_match
 
-from comet.utils.general import (bytes_to_size, config_check,
+from comet.utils.general import (bytes_to_size, config_check, check_info_hash,
                                  generate_download_link, get_indexer_manager,
                                  get_torrent_hash, is_video, translate, get_balanced_hashes)
 from comet.utils.logger import logger
@@ -177,9 +177,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         tasks = []
         for hash in torrent_hashes:
-            tasks.append(session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}", headers={
-                "Authorization": f"Bearer {config['debridApiKey']}"
-            }))
+            tasks.append(check_info_hash(config["debridApiKey"], hash))
 
         responses = await asyncio.gather(*tasks)
 

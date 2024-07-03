@@ -199,9 +199,24 @@ async def get_balanced_hashes(hashes: dict, config: dict):
 
     return balanced_hashes
 
+async def check_info_hash(debrid_api_key: str, hash: str):
+    try:
+        async with aiohttp.ClientSession(headers={
+            "Authorization": f"Bearer {debrid_api_key}"
+        }) as session:
+            response = await session.get(f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}")
+
+            return response
+    except Exception as e:
+        logger.warning(f"Exception while checking info hash with Real Debrid for {hash}: {e}")
+
+        return
+
 async def generate_download_link(debrid_api_key: str, hash: str, index: str):
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers={
+            "Authorization": f"Bearer {debrid_api_key}"
+        }) as session:
             check_blacklisted = await session.get("https://real-debrid.com/vpn")
             check_blacklisted = await check_blacklisted.text()
 
@@ -214,32 +229,22 @@ async def generate_download_link(debrid_api_key: str, hash: str, index: str):
                 else:
                     logger.warning(f"Real-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}")
 
-            add_magnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", headers={
-                "Authorization": f"Bearer {debrid_api_key}"
-            }, data={
+            add_magnet = await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/addMagnet", data={
                 "magnet": f"magnet:?xt=urn:btih:{hash}"
             }, proxy=proxy)
             add_magnet = await add_magnet.json()
 
-            get_magnet_info = await session.get(add_magnet["uri"], headers={
-                "Authorization": f"Bearer {debrid_api_key}"
-            }, proxy=proxy)
+            get_magnet_info = await session.get(add_magnet["uri"], proxy=proxy)
             get_magnet_info = await get_magnet_info.json()
 
-            await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{add_magnet['id']}", headers={
-                "Authorization": f"Bearer {debrid_api_key}"
-            }, data={
+            await session.post(f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{add_magnet['id']}", data={
                 "files": index
             }, proxy=proxy)
 
-            get_magnet_info = await session.get(add_magnet["uri"], headers={
-                "Authorization": f"Bearer {debrid_api_key}"
-            }, proxy=proxy)
+            get_magnet_info = await session.get(add_magnet["uri"], proxy=proxy)
             get_magnet_info = await get_magnet_info.json()
 
-            unrestrict_link = await session.post(f"https://api.real-debrid.com/rest/1.0/unrestrict/link", headers={
-                "Authorization": f"Bearer {debrid_api_key}"
-            }, data={
+            unrestrict_link = await session.post(f"https://api.real-debrid.com/rest/1.0/unrestrict/link", data={
                 "link": get_magnet_info["links"][0]
             }, proxy=proxy)
             unrestrict_link = await unrestrict_link.json()
