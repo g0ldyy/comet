@@ -296,14 +296,14 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             async def stream_content(headers: dict):
                 async with aiohttp.ClientSession() as session:
-                    response = await session.get(download_link, headers=headers)
-                    while True:
-                        chunk = await response.content.read(
-                            settings.PROXY_DEBRID_STREAM_BYTES_PER_CHUNK
-                        )  # 10 MB chunks
-                        if not chunk:
-                            break
-                        yield chunk
+                    async with session.get(download_link, headers=headers) as response:
+                        while True:
+                            chunk = await response.content.read(
+                                settings.PROXY_DEBRID_STREAM_BYTES_PER_CHUNK
+                            )  # 10 MB chunks
+                            if not chunk:
+                                break
+                            yield chunk
 
             range = None
             range_header = request.headers.get("range")
@@ -314,19 +314,19 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 end = int(end) if end else ""
                 range = f"bytes={start}-{end}"
 
-            response = await session.get(
-                download_link, headers={"Range": f"bytes={start}-{end}"}
-            )
-            if response.status == 206:
-                return StreamingResponse(
-                    stream_content({"Range": range}),
-                    status_code=206,
-                    headers={
-                        "Content-Range": response.headers["Content-Range"],
-                        "Content-Length": response.headers["Content-Length"],
-                        "Accept-Ranges": "bytes",
-                    },
-                )
+            async with await session.get(download_link, headers={"Range": f"bytes={start}-{end}"}) as response:
+                await session.close()
+
+                if response.status == 206:
+                    return StreamingResponse(
+                        stream_content({"Range": range}),
+                        status_code=206,
+                        headers={
+                            "Content-Range": response.headers["Content-Range"],
+                            "Content-Length": response.headers["Content-Length"],
+                            "Accept-Ranges": "bytes",
+                        },
+                    )
 
             return
 
