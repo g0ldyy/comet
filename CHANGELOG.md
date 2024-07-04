@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/g0ldyy/comet/compare/v1.3.3...v1.4.0) (2024-07-04)
+
+
+### Features
+
+* add option to toggle title checking ([bbb257d](https://github.com/g0ldyy/comet/commit/bbb257dda87875bfcb0d236d1cd82e9a3781fdef))
+
 ## [1.3.3](https://github.com/g0ldyy/comet/compare/v1.3.2...v1.3.3) (2024-07-03)
 
 
