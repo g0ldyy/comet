@@ -219,14 +219,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrent_hashes) == 0:
             return {"streams": []}
 
-        tasks = []
-        for hash in torrent_hashes:
-            tasks.append(debrid.check_hash_cache(hash))
-
-        responses = await asyncio.gather(*tasks)
+        hashes_checked = await debrid.check_hashes_cache(torrent_hashes)
 
         availability = {}
-        for response in responses:
+        for response in hashes_checked:
             if not response:
                 continue
 

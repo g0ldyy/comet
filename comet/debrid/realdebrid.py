@@ -1,4 +1,4 @@
-import aiohttp
+import aiohttp, asyncio
 
 from comet.utils.logger import logger
 from comet.utils.models import settings
@@ -8,11 +8,12 @@ class RealDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
+        self.api_url = "https://api.real-debrid.com/rest/1.0"
 
     async def check_premium(self):
         try:
             check_premium = await self.session.get(
-                "https://api.real-debrid.com/rest/1.0/user"
+                f"{self.api_url}/user"
             )
             check_premium = await check_premium.text()
             if '"type": "premium"' not in check_premium:
@@ -25,17 +26,25 @@ class RealDebrid:
             )
             return False
 
-    async def check_hash_cache(self, hash: str):
-        try:
-            response = await self.session.get(
-                f"https://api.real-debrid.com/rest/1.0/torrents/instantAvailability/{hash}"
-            )
-            return response
-        except Exception as e:
-            logger.warning(
-                f"Exception while checking hash cache on Real Debrid for {hash}: {e}"
-            )
-            return
+    async def check_hashes_cache(self, hashes: list):
+        async def check(hash: str):
+            try:
+                response = await self.session.get(
+                    f"{self.api_url}/torrents/instantAvailability/{hash}"
+                )
+                return response
+            except Exception as e:
+                logger.warning(
+                    f"Exception while checking hash cache on Real Debrid for {hash}: {e}"
+                )
+                return
+
+        tasks = []
+        for hash in hashes:
+            tasks.append(check(hash))
+
+        responses = await asyncio.gather(*tasks)
+        return responses
 
     async def generate_download_link(self, hash: str, index: str):
         try:
@@ -57,7 +66,7 @@ class RealDebrid:
                     )
 
             add_magnet = await self.session.post(
-                "https://api.real-debrid.com/rest/1.0/torrents/addMagnet",
+                f"{self.api_url}/torrents/addMagnet",
                 data={"magnet": f"magnet:?xt=urn:btih:{hash}"},
                 proxy=proxy,
             )
@@ -67,7 +76,7 @@ class RealDebrid:
             get_magnet_info = await get_magnet_info.json()
 
             await self.session.post(
-                f"https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{add_magnet['id']}",
+                f"{self.api_url}/torrents/selectFiles/{add_magnet['id']}",
                 data={"files": index},
                 proxy=proxy,
             )
@@ -76,7 +85,7 @@ class RealDebrid:
             get_magnet_info = await get_magnet_info.json()
 
             unrestrict_link = await self.session.post(
-                "https://api.real-debrid.com/rest/1.0/unrestrict/link",
+                f"{self.api_url}/unrestrict/link",
                 data={"link": get_magnet_info["links"][0]},
                 proxy=proxy,
             )
