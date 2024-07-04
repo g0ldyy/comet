@@ -10,22 +10,25 @@ from RTN import RTN, BaseRankingModel, SettingsModel
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    ADDON_ID: str = "stremio.comet.fast"
-    ADDON_NAME: str = "Comet"
-    FASTAPI_HOST: str = "0.0.0.0"
-    FASTAPI_PORT: int = 8000
-    FASTAPI_WORKERS: int = 2 * (os.cpu_count() or 1)
-    DATABASE_PATH: str = "data/comet.db"
-    CACHE_TTL: int = 86400
+    ADDON_ID: Optional[str] = "stremio.comet.fast"
+    ADDON_NAME: Optional[str] = "Comet"
+    FASTAPI_HOST: Optional[str] = "0.0.0.0"
+    FASTAPI_PORT: Optional[int] = 8000
+    FASTAPI_WORKERS: Optional[int] = 2 * (os.cpu_count() or 1)
+    DATABASE_PATH: Optional[str] = "data/comet.db"
+    CACHE_TTL: Optional[int] = 86400
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: str = "jackett"
     INDEXER_MANAGER_URL: str = "http://127.0.0.1:9117"
-    INDEXER_MANAGER_API_KEY: str = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-    INDEXER_MANAGER_TIMEOUT: int = 30
+    INDEXER_MANAGER_API_KEY: str
+    INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = ["EXAMPLE1_CHANGETHIS", "EXAMPLE2_CHANGETHIS"]
-    GET_TORRENT_TIMEOUT: int = 5
+    GET_TORRENT_TIMEOUT: Optional[int] = 5
     ZILEAN_URL: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
+    PROXY_DEBRID_STREAM: Optional[bool] = False
+    PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "CHANGE_ME"
+    PROXY_DEBRID_STREAM_BYTES_PER_CHUNK: Optional[int] = 102400
 
 
 settings = AppSettings()
@@ -39,6 +42,7 @@ class ConfigModel(BaseModel):
     filterTitles: Optional[bool] = True
     debridService: str
     debridApiKey: str
+    debridStreamProxyPassword: Optional[str] = ""
 
     @field_validator("indexers")
     def check_indexers(cls, v, values):

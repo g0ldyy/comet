@@ -515,6 +515,10 @@
             </div>
 
             <div class="form-item">
+                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="Enter secret password" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
+            </div>
+
+            <div class="form-item">
                 <sl-select id="debridService" value="realdebrid" label="Debrid Service" placeholder="Select debrid service">
                     <sl-option value="realdebrid">Real-Debrid</sl-option>
                 </sl-select>
@@ -578,18 +582,20 @@
                         const filterTitles = document.getElementById("filterTitles").checked;
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
+                        const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
             
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
             
                         const settings = {
-                            debridService: debridService,
-                            debridApiKey: debridApiKey,
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
                             filterTitles: filterTitles,
                             resolutions: selectedResolutions,
-                            languages: selectedLanguages
+                            languages: selectedLanguages,
+                            debridService: debridService,
+                            debridApiKey: debridApiKey,
+                            debridStreamProxyPassword: debridStreamProxyPassword,
                         };
             
                         navigator.clipboard.writeText(`${window.location.origin}/${btoa(JSON.stringify(settings))}/manifest.json`).then(() => {

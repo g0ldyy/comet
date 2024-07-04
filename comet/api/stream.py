@@ -5,7 +5,7 @@ import time
 import aiohttp
 
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from RTN import Torrent, parse, sort_torrents, title_match
 
 from comet.debrid.manager import getDebrid
@@ -279,7 +279,7 @@ async def playback(b64config: str, hash: str, index: str):
 
 
 @streams.get("/{b64config}/playback/{hash}/{index}")
-async def playback(b64config: str, hash: str, index: str):
+async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
     if not config:
         return
@@ -288,4 +288,46 @@ async def playback(b64config: str, hash: str, index: str):
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
 
-    return RedirectResponse(download_link, status_code=302)
+        if (
+            settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            == config["debridStreamProxyPassword"]
+        ):
+
+            async def stream_content(headers: dict):
+                async with aiohttp.ClientSession() as session:
+                    response = await session.get(download_link, headers=headers)
+                    while True:
+                        chunk = await response.content.read(
+                            settings.PROXY_DEBRID_STREAM_BYTES_PER_CHUNK
+                        )  # 10 MB chunks
+                        if not chunk:
+                            break
+                        yield chunk
+
+            range = None
+            range_header = request.headers.get("range")
+            if range_header:
+                range_value = range_header.strip().split("=")[1]
+                start, end = range_value.split("-")
+                start = int(start)
+                end = int(end) if end else ""
+                range = f"bytes={start}-{end}"
+
+            response = await session.get(
+                download_link, headers={"Range": f"bytes={start}-{end}"}
+            )
+            if response.status == 206:
+                return StreamingResponse(
+                    stream_content({"Range": range}),
+                    status_code=206,
+                    headers={
+                        "Content-Range": response.headers["Content-Range"],
+                        "Content-Length": response.headers["Content-Length"],
+                        "Accept-Ranges": "bytes",
+                    },
+                )
+
+            return
+
+        return RedirectResponse(download_link, status_code=302)

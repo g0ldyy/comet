@@ -16,9 +16,7 @@ class RealDebrid:
 
     async def check_premium(self):
         try:
-            check_premium = await self.session.get(
-                f"{self.api_url}/user"
-            )
+            check_premium = await self.session.get(f"{self.api_url}/user")
             check_premium = await check_premium.text()
             if '"type": "premium"' not in check_premium:
                 return False
@@ -29,7 +27,7 @@ class RealDebrid:
                 f"Exception while checking premium status on Real Debrid: {e}"
             )
             return False
-        
+
     async def get_instant(self, hash: str):
         try:
             response = await self.session.get(
@@ -58,7 +56,6 @@ class RealDebrid:
 
         return availability
 
-    
     async def get_files(self, availability: dict, type: str, season: str, episode: str):
         files = {}
         for hash, details in availability.items():
