@@ -7,7 +7,7 @@ import aiohttp
 import bencodepy
 
 from comet.utils.logger import logger
-from comet.utils.models import settings
+from comet.utils.models import settings, ConfigModel
 
 translation_table = {
     "ā": "a",
@@ -181,26 +181,8 @@ def bytes_to_size(bytes: int):
 def config_check(b64config: str):
     try:
         config = json.loads(base64.b64decode(b64config).decode())
-
-        if not isinstance(config["debridService"], str) or config[
-            "debridService"
-        ] not in ["realdebrid"]:
-            return False
-        if not isinstance(config["debridApiKey"], str):
-            return False
-        if not isinstance(config["indexers"], list):
-            return False
-        if not isinstance(config["maxResults"], int) or config["maxResults"] < 0:
-            return False
-        if (
-            not isinstance(config["resolutions"], list)
-            or len(config["resolutions"]) == 0
-        ):
-            return False
-        if not isinstance(config["languages"], list) or len(config["languages"]) == 0:
-            return False
-
-        return config
+        validated_config = ConfigModel(**config)
+        return validated_config.model_dump()
     except:
         return False
 
@@ -302,15 +284,23 @@ async def get_torrent_hash(
 async def get_balanced_hashes(hashes: dict, config: dict):
     max_results = config["maxResults"]
     config_resolutions = config["resolutions"]
-    config_languages = {language.replace("_", " ").capitalize() for language in config["languages"]}
+    config_languages = {
+        language.replace("_", " ").capitalize() for language in config["languages"]
+    }
     include_all_languages = "All" in config_languages
     include_all_resolutions = "All" in config_resolutions
-    include_unknown_resolution = include_all_resolutions or "Unknown" in config_resolutions
+    include_unknown_resolution = (
+        include_all_resolutions or "Unknown" in config_resolutions
+    )
 
     hashes_by_resolution = {}
     for hash, hash_data in hashes.items():
         hash_info = hash_data["data"]
-        if not include_all_languages and not hash_info["is_multi_audio"] and not any(lang in hash_info["language"] for lang in config_languages):
+        if (
+            not include_all_languages
+            and not hash_info["is_multi_audio"]
+            and not any(lang in hash_info["language"] for lang in config_languages)
+        ):
             continue
 
         resolution = hash_info["resolution"]
@@ -348,7 +338,7 @@ async def get_balanced_hashes(hashes: dict, config: dict):
             if missing_hashes <= 0:
                 break
             current_count = len(balanced_hashes[resolution])
-            available_hashes = hash_list[current_count:current_count + missing_hashes]
+            available_hashes = hash_list[current_count : current_count + missing_hashes]
             balanced_hashes[resolution].extend(available_hashes)
             missing_hashes -= len(available_hashes)
 

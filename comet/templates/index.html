@@ -571,13 +571,13 @@
                     const button = document.querySelector("sl-button");
                     const alert = document.querySelector('sl-alert[variant="neutral"]');
                     button.addEventListener("click", () => {
-                        const debridService = document.getElementById("debridService").value;
-                        const debridApiKey = document.getElementById("debridApiKey").value;
                         const indexers = Array.from(document.getElementById("indexers").selectedOptions).map(option => option.value);
                         const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
                         const filterTitles = document.getElementById("filterTitles").checked;
+                        const debridService = document.getElementById("debridService").value;
+                        const debridApiKey = document.getElementById("debridApiKey").value;
             
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;

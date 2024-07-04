@@ -2,6 +2,7 @@ import os
 
 from typing import List, Optional
 from databases import Database
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import RTN, BaseRankingModel, SettingsModel
 
@@ -25,6 +26,39 @@ class AppSettings(BaseSettings):
     GET_TORRENT_TIMEOUT: int = 5
     ZILEAN_URL: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
+
+
+settings = AppSettings()
+
+
+class ConfigModel(BaseModel):
+    indexers: List[str]
+    languages: Optional[List[str]] = ["All"]
+    resolutions: Optional[List[str]] = ["All"]
+    maxResults: Optional[int] = 0
+    filterTitles: Optional[bool] = True
+    debridService: str
+    debridApiKey: str
+
+    @field_validator("indexers")
+    def check_indexers(cls, v, values):
+        if not any(indexer in settings.INDEXER_MANAGER_INDEXERS for indexer in v):
+            raise ValueError(
+                f"At least one indexer must be from {settings.INDEXER_MANAGER_INDEXERS}"
+            )
+        return v
+
+    @field_validator("maxResults")
+    def check_max_results(cls, v):
+        if v < 0:
+            raise ValueError("maxResults cannot be less than 0")
+        return v
+
+    @field_validator("debridService")
+    def check_debrid_service(cls, v):
+        if v not in ["realdebrid", "realdebrid"]:
+            raise ValueError("Invalid debridService")
+        return v
 
 
 class BestOverallRanking(BaseRankingModel):
@@ -53,5 +87,4 @@ rtn_ranking = BestOverallRanking()
 
 # For use anywhere
 rtn = RTN(settings=rtn_settings, ranking_model=rtn_ranking)
-settings = AppSettings()
 database = Database(f"sqlite:///{settings.DATABASE_PATH}")

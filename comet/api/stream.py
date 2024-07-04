@@ -193,7 +193,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         tasks = []
         filtered = 0
-        filter_title = config["filterTitles"] if "filterTitles" in config else True # not needed when pydantic config validation system implemented
+        filter_title = config["filterTitles"]
         for torrent in torrents:
             if filter_title:
                 parsed_torrent = parse(
@@ -207,7 +207,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             tasks.append(get_torrent_hash(session, indexer_manager_type, torrent))
 
-        logger.info(f"{filtered} filtered torrents from Zilean API for {logName}")
+        logger.info(f"{filtered} filtered torrents for {logName}")
 
         torrent_hashes = await asyncio.gather(*tasks)
         torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
