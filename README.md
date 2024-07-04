@@ -7,6 +7,7 @@
 </p>
 
 # Features
+- The only addon that can Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time!
 - Jackett and Prowlarr support (change the `INDEXER_MANAGER_TYPE` environment variable to `jackett` or `prowlarr`)
 - [Zilean](https://github.com/iPromKnight/zilean) ([DMM](https://hashlists.debridmediamanager.com/) Scraper) support for even more results
 - Caching system ft. SQLite
