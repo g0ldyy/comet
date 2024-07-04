@@ -300,7 +300,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                         while True:
                             chunk = await response.content.read(
                                 settings.PROXY_DEBRID_STREAM_BYTES_PER_CHUNK
-                            )  # 10 MB chunks
+                            )
                             if not chunk:
                                 break
                             yield chunk
