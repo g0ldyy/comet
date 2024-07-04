@@ -511,6 +511,10 @@
             </div>
 
             <div class="form-item">
+                <sl-checkbox id="filterTitles" checked help-text="Should Comet check for title mismatch?">Filter Titles</sl-checkbox>
+            </div>
+
+            <div class="form-item">
                 <sl-select id="debridService" value="realdebrid" label="Debrid Service" placeholder="Select debrid service">
                     <sl-option value="realdebrid">Real-Debrid</sl-option>
                 </sl-select>
@@ -573,6 +577,7 @@
                         const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
+                        const filterTitles = document.getElementById("filterTitles").checked;
             
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
@@ -582,6 +587,7 @@
                             debridApiKey: debridApiKey,
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
+                            filterTitles: filterTitles,
                             resolutions: selectedResolutions,
                             languages: selectedLanguages
                         };

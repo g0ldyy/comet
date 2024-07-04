@@ -170,14 +170,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                             object = {
                                 "Title": result["filename"],
                                 "InfoHash": result["infoHash"],
-                                "zilean": True,
                             }
 
                         if indexer_manager_type == "prowlarr":
                             object = {
                                 "title": result["filename"],
                                 "infoHash": result["infoHash"],
-                                "zilean": True,
                             }
 
                         torrents.append(object)
@@ -195,9 +193,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         tasks = []
         filtered = 0
+        filter_title = config["filterTitles"] if "filterTitles" in config else True # not needed when pydantic config validation system implemented
         for torrent in torrents:
-            # Only title match check if from Zilean
-            if "zilean" in torrent:
+            if filter_title:
                 parsed_torrent = parse(
                     torrent["Title"]
                     if indexer_manager_type == "jackett"
