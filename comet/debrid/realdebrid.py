@@ -1,5 +1,9 @@
-import aiohttp, asyncio
+import aiohttp
+import asyncio
 
+from RTN import parse
+
+from comet.utils.general import is_video
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
@@ -25,26 +29,77 @@ class RealDebrid:
                 f"Exception while checking premium status on Real Debrid: {e}"
             )
             return False
+        
+    async def get_instant(self, hash: str):
+        try:
+            response = await self.session.get(
+                f"{self.api_url}/torrents/instantAvailability/{hash}"
+            )
+            return await response.json()
+        except Exception as e:
+            logger.warning(
+                f"Exception while checking hash cache on Real Debrid for {hash}: {e}"
+            )
+            return
 
-    async def check_hashes_cache(self, hashes: list):
-        async def check(hash: str):
-            try:
-                response = await self.session.get(
-                    f"{self.api_url}/torrents/instantAvailability/{hash}"
-                )
-                return response
-            except Exception as e:
-                logger.warning(
-                    f"Exception while checking hash cache on Real Debrid for {hash}: {e}"
-                )
-                return
-
+    async def get_availability(self, hashes: list):
         tasks = []
         for hash in hashes:
-            tasks.append(check(hash))
+            tasks.append(self.get_instant(hash))
 
         responses = await asyncio.gather(*tasks)
-        return responses
+
+        availability = {}
+        for response in responses:
+            if not response:
+                continue
+
+            availability.update(response)
+
+        return availability
+
+    
+    async def get_files(self, availability: dict, type: str, season: str, episode: str):
+        files = {}
+        for hash, details in availability.items():
+            if "rd" not in details:
+                continue
+
+            if type == "series":
+                for variants in details["rd"]:
+                    for index, file in variants.items():
+                        filename = file["filename"]
+
+                        if not is_video(filename):
+                            continue
+
+                        filename_parsed = parse(filename)
+                        if (
+                            season in filename_parsed.season
+                            and episode in filename_parsed.episode
+                        ):
+                            files[hash] = {
+                                "index": index,
+                                "title": filename,
+                                "size": file["filesize"],
+                            }
+
+                continue
+
+            for variants in details["rd"]:
+                for index, file in variants.items():
+                    filename = file["filename"]
+
+                    if not is_video(filename):
+                        continue
+
+                    files[hash] = {
+                        "index": index,
+                        "title": filename,
+                        "size": file["filesize"],
+                    }
+
+        return files
 
     async def generate_download_link(self, hash: str, index: str):
         try:

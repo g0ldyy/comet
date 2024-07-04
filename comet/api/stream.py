@@ -9,13 +9,11 @@ from fastapi.responses import RedirectResponse
 from RTN import Torrent, parse, sort_torrents, title_match
 
 from comet.debrid.manager import getDebrid
-
 from comet.utils.general import (
     bytes_to_size,
     config_check,
     get_indexer_manager,
     get_torrent_hash,
-    is_video,
     translate,
     get_balanced_hashes,
 )
@@ -74,7 +72,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         name = translate(name)
         logName = name
         if type == "series":
-            logName = f"{name} S{season:02d}E{episode:02d}"
+            logName = f"{name} S0{season}E0{episode}"
 
         cache_key = hashlib.md5(
             json.dumps(
@@ -214,58 +212,11 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         logger.info(f"{len(torrent_hashes)} info hashes found for {logName}")
 
-        torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
-
         if len(torrent_hashes) == 0:
             return {"streams": []}
 
-        hashes_checked = await debrid.check_hashes_cache(torrent_hashes)
-
-        availability = {}
-        for response in hashes_checked:
-            if not response:
-                continue
-
-            availability.update(await response.json())
-
-        files = {}
-        for hash, details in availability.items():
-            if "rd" not in details:
-                continue
-
-            if type == "series":
-                for variants in details["rd"]:
-                    for index, file in variants.items():
-                        filename = file["filename"]
-
-                        if not is_video(filename):
-                            continue
-
-                        filename_parsed = parse(filename)
-                        if (
-                            season in filename_parsed.season
-                            and episode in filename_parsed.episode
-                        ):
-                            files[hash] = {
-                                "index": index,
-                                "title": filename,
-                                "size": file["filesize"],
-                            }
-
-                continue
-
-            for variants in details["rd"]:
-                for index, file in variants.items():
-                    filename = file["filename"]
-
-                    if not is_video(filename):
-                        continue
-
-                    files[hash] = {
-                        "index": index,
-                        "title": filename,
-                        "size": file["filesize"],
-                    }
+        availability = await debrid.get_availability(torrent_hashes)
+        files = await debrid.get_files(availability, type, season, episode)
 
         ranked_files = set()
         for hash in files:

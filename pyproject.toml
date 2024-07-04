@@ -13,12 +13,12 @@ rank-torrent-name = "*"
 uvicorn = "*"
 fastapi = "*"
 aiohttp = "*"
-bencodepy = "*"
 asyncio = "*"
 loguru = "*"
 databases = "*"
 aiosqlite = "*"
 pydantic-settings = "*"
+bencode-py = "*"
 
 [tool.poetry.group.dev.dependencies]
 isort = "*"
