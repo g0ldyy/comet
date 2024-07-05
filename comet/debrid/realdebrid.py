@@ -12,7 +12,7 @@ class RealDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
-        
+
         self.api_url = "https://api.real-debrid.com/rest/1.0"
 
     async def check_premium(self):
@@ -25,7 +25,7 @@ class RealDebrid:
             logger.warning(
                 f"Exception while checking premium status on Real Debrid: {e}"
             )
-            
+
         return False
 
     async def get_instant(self, hash: str):
@@ -36,27 +36,24 @@ class RealDebrid:
             return await response.json()
         except Exception as e:
             logger.warning(
-                f"Exception while checking hash cache on Real Debrid for {hash}: {e}"
+                f"Exception while checking hash instant availability on Real Debrid for {hash}: {e}"
             )
             return
 
-    async def get_availability(self, hashes: list):
+    async def get_files(self, torrent_hashes: list, type: str, season: str, episode: str):
         tasks = []
-        for hash in hashes:
+        for hash in torrent_hashes:
             tasks.append(self.get_instant(hash))
 
         responses = await asyncio.gather(*tasks)
 
         availability = {}
         for response in responses:
-            if not response:
+            if response is None:
                 continue
 
             availability.update(response)
-
-        return availability
-
-    async def get_files(self, availability: dict, type: str, season: str, episode: str):
+        
         files = {}
         for hash, details in availability.items():
             if "rd" not in details:

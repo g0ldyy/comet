@@ -1,6 +1,7 @@
 import aiohttp
 
 from .realdebrid import RealDebrid
+from .alldebrid import AllDebrid
 
 
 def getDebrid(session: aiohttp.ClientSession, config: dict):
@@ -8,3 +9,5 @@ def getDebrid(session: aiohttp.ClientSession, config: dict):
     debrid_api_key = config["debridApiKey"]
     if debrid_service == "realdebrid":
         return RealDebrid(session, debrid_api_key)
+    if debrid_service == "alldebrid":
+        return AllDebrid(session, debrid_api_key)

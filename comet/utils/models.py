@@ -46,11 +46,14 @@ class ConfigModel(BaseModel):
 
     @field_validator("indexers")
     def check_indexers(cls, v, values):
-        if not any(indexer in settings.INDEXER_MANAGER_INDEXERS for indexer in v):
+        valid_indexers = [
+            indexer for indexer in v if indexer in settings.INDEXER_MANAGER_INDEXERS
+        ]
+        if not valid_indexers:
             raise ValueError(
                 f"At least one indexer must be from {settings.INDEXER_MANAGER_INDEXERS}"
             )
-        return v
+        return valid_indexers
 
     @field_validator("maxResults")
     def check_max_results(cls, v):
@@ -60,7 +63,7 @@ class ConfigModel(BaseModel):
 
     @field_validator("debridService")
     def check_debrid_service(cls, v):
-        if v not in ["realdebrid"]:
+        if v not in ["realdebrid", "alldebrid"]:
             raise ValueError("Invalid debridService")
         return v
 

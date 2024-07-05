@@ -6,10 +6,8 @@ from comet.utils.models import database, settings
 
 async def setup_database():
     try:
-        # Ensure the database directory exists
         os.makedirs(os.path.dirname(settings.DATABASE_PATH), exist_ok=True)
 
-        # Ensure the database file exists
         if not os.path.exists(settings.DATABASE_PATH):
             open(settings.DATABASE_PATH, "a").close()
 

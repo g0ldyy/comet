@@ -63,12 +63,28 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             season = int(info[1])
             episode = int(info[2])
 
-        get_metadata = await session.get(
-            f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
-        )
-        metadata = await get_metadata.json()
+        try:
+            get_metadata = await session.get(
+                f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
+            )
+            metadata = await get_metadata.json()
 
-        name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
+            name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
+        except Exception as e:
+            logger.warning(
+                f"Exception while getting metadata for {id}: {e}"
+            )
+
+            return {
+                "streams": [
+                    {
+                        "name": "[⚠️] Comet",
+                        "title": f"Can't get metadata for {id}",
+                        "url": "https://comet.fast",
+                    }
+                ]
+            }
+
         name = translate(name)
         logName = name
         if type == "series":
@@ -153,14 +169,14 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
 
         zilean_hashes_count = 0
-        try:
-            if settings.ZILEAN_URL:
+        if settings.ZILEAN_URL:
+            try:
                 get_dmm = await session.post(
                     f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
                 )
                 get_dmm = await get_dmm.json()
 
-                if "status" not in get_dmm:
+                if isinstance(get_dmm, list):
                     for result in get_dmm:
                         zilean_hashes_count += 1
 
@@ -178,13 +194,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                         torrents.append(object)
 
-            logger.info(
-                f"{zilean_hashes_count} torrents found for {logName} with Zilean API"
-            )
-        except Exception as e:
-            logger.warning(
-                f"Exception while getting torrents for {logName} with Zilean API: {e}"
-            )
+                logger.info(
+                    f"{zilean_hashes_count} torrents found for {logName} with Zilean API"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Exception while getting torrents for {logName} with Zilean API: {e}"
+                )
 
         if len(torrents) == 0:
             return {"streams": []}
@@ -192,6 +208,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         tasks = []
         filtered = 0
         filter_title = config["filterTitles"]
+        name_lower = name.lower()
         for torrent in torrents:
             if filter_title:
                 parsed_torrent = parse(
@@ -199,7 +216,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     if indexer_manager_type == "jackett"
                     else torrent["title"]
                 )
-                if not title_match(name.lower(), parsed_torrent.parsed_title.lower()):
+                if not title_match(name_lower, parsed_torrent.parsed_title.lower()):
                     filtered += 1
                     continue
 
@@ -215,8 +232,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrent_hashes) == 0:
             return {"streams": []}
 
-        availability = await debrid.get_availability(torrent_hashes)
-        files = await debrid.get_files(availability, type, season, episode)
+        files = await debrid.get_files(torrent_hashes, type, season, episode)
 
         ranked_files = set()
         for hash in files:
@@ -314,7 +330,9 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 end = int(end) if end else ""
                 range = f"bytes={start}-{end}"
 
-            async with await session.get(download_link, headers={"Range": f"bytes={start}-{end}"}) as response:
+            async with await session.get(
+                download_link, headers={"Range": f"bytes={start}-{end}"}
+            ) as response:
                 await session.close()
 
                 if response.status == 206:
