@@ -71,9 +71,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
         except Exception as e:
-            logger.warning(
-                f"Exception while getting metadata for {id}: {e}"
-            )
+            logger.warning(f"Exception while getting metadata for {id}: {e}")
 
             return {
                 "streams": [
@@ -303,7 +301,9 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     async with aiohttp.ClientSession() as session:
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
-        proxy = debrid.proxy if config["debridService"] == "alldebrid" else None # proxy is not needed to proxy realdebrid stream
+        proxy = (
+            debrid.proxy if config["debridService"] == "alldebrid" else None
+        )  # proxy is not needed to proxy realdebrid stream
 
         if (
             settings.PROXY_DEBRID_STREAM
@@ -313,7 +313,9 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             async def stream_content(headers: dict):
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(download_link, headers=headers, proxy=proxy) as response:
+                    async with session.get(
+                        download_link, headers=headers, proxy=proxy
+                    ) as response:
                         while True:
                             chunk = await response.content.read(
                                 settings.PROXY_DEBRID_STREAM_BYTES_PER_CHUNK

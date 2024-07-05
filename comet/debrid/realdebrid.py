@@ -12,6 +12,7 @@ class RealDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
+        self.proxy = None
 
         self.api_url = "https://api.real-debrid.com/rest/1.0"
 
@@ -40,7 +41,9 @@ class RealDebrid:
             )
             return
 
-    async def get_files(self, torrent_hashes: list, type: str, season: str, episode: str):
+    async def get_files(
+        self, torrent_hashes: list, type: str, season: str, episode: str
+    ):
         tasks = []
         for hash in torrent_hashes:
             tasks.append(self.get_instant(hash))
@@ -53,7 +56,7 @@ class RealDebrid:
                 continue
 
             availability.update(response)
-        
+
         files = {}
         for hash, details in availability.items():
             if "rd" not in details:
@@ -99,44 +102,47 @@ class RealDebrid:
         try:
             check_blacklisted = await self.session.get("https://real-debrid.com/vpn")
             check_blacklisted = await check_blacklisted.text()
-            proxy = None
             if (
                 "Your ISP or VPN provider IP address is currently blocked on our website"
                 in check_blacklisted
             ):
-                proxy = settings.DEBRID_PROXY_URL
-                if not proxy:
+                self.proxy = settings.DEBRID_PROXY_URL
+                if not self.proxy:
                     logger.warning(
                         "Real-Debrid blacklisted server's IP. No proxy found."
                     )
                 else:
                     logger.warning(
-                        f"Real-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}"
+                        f"Real-Debrid blacklisted server's IP. Switching to proxy {self.proxy} for {hash}|{index}"
                     )
 
             add_magnet = await self.session.post(
                 f"{self.api_url}/torrents/addMagnet",
                 data={"magnet": f"magnet:?xt=urn:btih:{hash}"},
-                proxy=proxy,
+                proxy=self.proxy,
             )
             add_magnet = await add_magnet.json()
 
-            get_magnet_info = await self.session.get(add_magnet["uri"], proxy=proxy)
+            get_magnet_info = await self.session.get(
+                add_magnet["uri"], proxy=self.proxy
+            )
             get_magnet_info = await get_magnet_info.json()
 
             await self.session.post(
                 f"{self.api_url}/torrents/selectFiles/{add_magnet['id']}",
                 data={"files": index},
-                proxy=proxy,
+                proxy=self.proxy,
             )
 
-            get_magnet_info = await self.session.get(add_magnet["uri"], proxy=proxy)
+            get_magnet_info = await self.session.get(
+                add_magnet["uri"], proxy=self.proxy
+            )
             get_magnet_info = await get_magnet_info.json()
 
             unrestrict_link = await self.session.post(
                 f"{self.api_url}/unrestrict/link",
                 data={"link": get_magnet_info["links"][0]},
-                proxy=proxy,
+                proxy=self.proxy,
             )
             unrestrict_link = await unrestrict_link.json()
 

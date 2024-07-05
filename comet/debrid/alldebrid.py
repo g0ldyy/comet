@@ -31,7 +31,9 @@ class AllDebrid:
 
         return False
 
-    async def get_files(self, torrent_hashes: list, type: str, season: str, episode: str):
+    async def get_files(
+        self, torrent_hashes: list, type: str, season: str, episode: str
+    ):
         try:
             get_instant = await self.session.get(
                 f"{self.api_url}/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(hash for hash in torrent_hashes)}"
@@ -44,9 +46,9 @@ class AllDebrid:
 
             return {}
 
-        if not "status" in availability or availability["status"] != "success":
+        if "status" not in availability or availability["status"] != "success":
             return {}
-        
+
         files = {}
         for magnet in availability["data"]["magnets"]:
             if not magnet["instant"]:
