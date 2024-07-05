@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/g0ldyy/comet/compare/v1.5.0...v1.5.1) (2024-07-05)
+
+
+### Bug Fixes
+
+* imdb metadata api returning "Summer Watch Guide" ([e9af38b](https://github.com/g0ldyy/comet/commit/e9af38bdc1c1d0aea225ef10f201658ce4b749c6))
+
 ## [1.5.0](https://github.com/g0ldyy/comet/compare/v1.4.0...v1.5.0) (2024-07-04)
 
 
