@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/g0ldyy/comet/compare/v1.5.1...v1.6.0) (2024-07-05)
+
+
+### Features
+
+* alldebrid support ([afd27c0](https://github.com/g0ldyy/comet/commit/afd27c083da37204797246450619a4f9c1a7fc89))
+
 ## [1.5.1](https://github.com/g0ldyy/comet/compare/v1.5.0...v1.5.1) (2024-07-05)
 
 
