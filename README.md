@@ -7,7 +7,8 @@
 </p>
 
 # Features
-- The only addon that can Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time!
+
+- The only Stremio addon that can Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
 - Jackett and Prowlarr support (change the `INDEXER_MANAGER_TYPE` environment variable to `jackett` or `prowlarr`)
 - [Zilean](https://github.com/iPromKnight/zilean) ([DMM](https://hashlists.debridmediamanager.com/) Scraper) support for even more results
 - Caching system ft. SQLite
@@ -16,7 +17,23 @@
 - Only Real-Debrid supported right now *(if you want other debrid services, please provide an account)*
 
 # Installation
-## From source
+
+## ElfHosted
+
+A free, public Comet instance is available at https://comet.elfhosted.com
+
+[ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (*hosting, security, updates, etc*) for your self-hosted apps. 
+
+ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/comet/), allowing you to customize your indexers, and including an optional addon to enable Stream Proxy mode, to permit streaming from multiple source IPs with the same RD token!
+
+> [!IMPORTANT]
+> Comet is a top-tier app in the [ElfHosted app catalogue](https://elfhosted.com/apps/). 30% of your subscription goes to the app developer :heart:
+
+(*[ElfHosted Discord](https://discord.elfhosted.com)*)
+
+## Self Hosted
+
+### From source
 - Clone the repository and enter the folder
     ```sh
     git clone https://github.com/g0ldyy/comet
@@ -32,7 +49,7 @@
     poetry run python -m comet.main
     ````
 
-## With Docker
+### With Docker
 - Simply run the Docker image after modifying the environment variables
   ```sh
   docker run --name comet -p 8000:8000 -d \
@@ -73,8 +90,10 @@
 
     - Finally, re-run the docker run command
 
-# Real-Debrid IP Blacklist
+## Real-Debrid IP Blacklist
+
 To bypass Real-Debrid's IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
 
-# Web UI Showcase
+## Web UI Showcase
+
 <img src="https://i.imgur.com/SaD365F.png" />

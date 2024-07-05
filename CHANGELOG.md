@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/g0ldyy/comet/compare/v1.4.0...v1.5.0) (2024-07-04)
+
+
+### Features
+
+* insane new debrid stream proxy (allows to use debrid service on multiple IPs at same time) ([ba1f78e](https://github.com/g0ldyy/comet/commit/ba1f78eb84fda5e4d3b9f488d5fbde46fa57317d))
+
+
+### Bug Fixes
+
+* try to fix session unclosed issue with debrid stream proxy ([1f63113](https://github.com/g0ldyy/comet/commit/1f63113d8d418a8101cea925625f6d1d0cef5cf7))
+
 ## [1.4.0](https://github.com/g0ldyy/comet/compare/v1.3.3...v1.4.0) (2024-07-04)
 
 
