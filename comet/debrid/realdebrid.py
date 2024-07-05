@@ -12,21 +12,21 @@ class RealDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
+        
         self.api_url = "https://api.real-debrid.com/rest/1.0"
 
     async def check_premium(self):
         try:
             check_premium = await self.session.get(f"{self.api_url}/user")
             check_premium = await check_premium.text()
-            if '"type": "premium"' not in check_premium:
-                return False
-
-            return True
+            if '"type": "premium"' in check_premium:
+                return True
         except Exception as e:
             logger.warning(
                 f"Exception while checking premium status on Real Debrid: {e}"
             )
-            return False
+            
+        return False
 
     async def get_instant(self, hash: str):
         try:
