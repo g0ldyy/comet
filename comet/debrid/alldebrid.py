@@ -11,6 +11,7 @@ class AllDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
+        self.proxy = None
 
         self.api_url = "http://api.alldebrid.com/v4"
         self.agent = "comet"
@@ -91,33 +92,32 @@ class AllDebrid:
                 f"{self.api_url}/magnet/upload?agent=comet&magnets[]={hash}"
             )
             check_blacklisted = await check_blacklisted.text()
-            proxy = None
             if "NO_SERVER" in check_blacklisted:
-                proxy = settings.DEBRID_PROXY_URL
-                if not proxy:
+                self.proxy = settings.DEBRID_PROXY_URL
+                if not self.proxy:
                     logger.warning(
                         "All-Debrid blacklisted server's IP. No proxy found."
                     )
                 else:
                     logger.warning(
-                        f"All-Debrid blacklisted server's IP. Switching to proxy {proxy} for {hash}|{index}"
+                        f"All-Debrid blacklisted server's IP. Switching to proxy {self.proxy} for {hash}|{index}"
                     )
 
             upload_magnet = await self.session.get(
                 f"{self.api_url}/magnet/upload?agent=comet&magnets[]={hash}",
-                proxy=proxy,
+                proxy=self.proxy,
             )
             upload_magnet = await upload_magnet.json()
 
             get_magnet_status = await self.session.get(
                 f"{self.api_url}/magnet/status?agent=comet&id={upload_magnet['data']['magnets'][0]['id']}",
-                proxy=proxy,
+                proxy=self.proxy,
             )
             get_magnet_status = await get_magnet_status.json()
 
             unlock_link = await self.session.get(
                 f"{self.api_url}/link/unlock?agent=comet&link={get_magnet_status['data']['magnets']['links'][int(index)]['link']}",
-                proxy=proxy,
+                proxy=self.proxy,
             )
             unlock_link = await unlock_link.json()
 

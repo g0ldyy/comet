@@ -303,6 +303,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     async with aiohttp.ClientSession() as session:
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
+        proxy = debrid.proxy if config["debridService"] == "alldebrid" else None # proxy is not needed to proxy realdebrid stream
 
         if (
             settings.PROXY_DEBRID_STREAM
@@ -312,7 +313,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             async def stream_content(headers: dict):
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(download_link, headers=headers) as response:
+                    async with session.get(download_link, headers=headers, proxy=proxy) as response:
                         while True:
                             chunk = await response.content.read(
                                 settings.PROXY_DEBRID_STREAM_BYTES_PER_CHUNK
@@ -331,7 +332,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 range = f"bytes={start}-{end}"
 
             async with await session.get(
-                download_link, headers={"Range": f"bytes={start}-{end}"}
+                download_link, headers={"Range": f"bytes={start}-{end}"}, proxy=proxy
             ) as response:
                 await session.close()
 
