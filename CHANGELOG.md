@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/g0ldyy/comet/compare/v1.6.0...v1.6.1) (2024-07-05)
+
+
+### Bug Fixes
+
+* alldebrid stream proxy ([1502d4c](https://github.com/g0ldyy/comet/commit/1502d4cf17e785b5972d781a185eda1dade119dd))
+
 ## [1.6.0](https://github.com/g0ldyy/comet/compare/v1.5.1...v1.6.0) (2024-07-05)
 
 
