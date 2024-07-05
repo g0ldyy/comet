@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/g0ldyy/comet/compare/v1.6.2...v1.7.0) (2024-07-05)
+
+
+### Features
+
+* cosmetics + important fixes ([a1441c8](https://github.com/g0ldyy/comet/commit/a1441c8d9a0bc788caad359e823034a709c1cc2c))
+
 ## [1.6.2](https://github.com/g0ldyy/comet/compare/v1.6.1...v1.6.2) (2024-07-05)
 
 
