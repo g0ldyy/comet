@@ -515,7 +515,7 @@
             </div>
 
             <div class="form-item">
-                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="Enter secret password" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
+                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="Configuration required, see docs" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
             </div>
 
             <div class="form-item">
@@ -526,8 +526,25 @@
             </div>
 
             <div class="form-item">
-                <sl-input id="debridApiKey" label="Debrid API Key" placeholder="Enter API key"></sl-input>
+                <label for="debridService">
+                    Debrid API Key - 
+                    <a id="apiKeyLink" href="https://real-debrid.com/apitoken" target="_blank">Get It Here</a>
+                </label>
+                <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
             </div>
+            
+            <script>
+                document.getElementById("debridService").addEventListener("sl-change", function(event) {
+                    const selectedService = event.target.value;
+                    const apiKeyLink = document.getElementById("apiKeyLink");
+            
+                    if (selectedService === "realdebrid") {
+                        apiKeyLink.href = "https://real-debrid.com/apitoken";
+                    } else if (selectedService === "alldebrid") {
+                        apiKeyLink.href = "https://alldebrid.fr/apikeys";
+                    }
+                });
+            </script>
 
             <div class="centered-item">
                 <sl-button id="install" variant="neutral">Install</sl-button>

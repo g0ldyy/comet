@@ -151,4 +151,4 @@ class RealDebrid:
             logger.warning(
                 f"Exception while getting download link from Real Debrid for {hash}|{index}: {e}"
             )
-            return "https://comet.fast"
+            return

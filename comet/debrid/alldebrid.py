@@ -1,4 +1,5 @@
 import aiohttp
+import asyncio
 
 from RTN import parse
 
@@ -31,20 +32,39 @@ class AllDebrid:
 
         return False
 
+    async def get_instant(self, chunk: list):
+        try:
+            get_instant = await self.session.get(
+                f"{self.api_url}/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(hash for hash in chunk)}"
+            )
+            return await get_instant.json()
+        except Exception as e:
+            logger.warning(
+                f"Exception while checking hashes instant availability on All Debrid: {e}"
+            )
+            return
+
     async def get_files(
         self, torrent_hashes: list, type: str, season: str, episode: str
     ):
-        try:
-            get_instant = await self.session.get(
-                f"{self.api_url}/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(hash for hash in torrent_hashes)}"
-            )
-            availability = await get_instant.json()
-        except Exception as e:
-            logger.warning(
-                f"Exception while checking hash cache on All Debrid for {hash}: {e}"
-            )
+        chunk_size = 500
+        chunks = [
+            torrent_hashes[i : i + chunk_size]
+            for i in range(0, len(torrent_hashes), chunk_size)
+        ]
 
-            return {}
+        tasks = []
+        for chunk in chunks:
+            tasks.append(self.get_instant(chunk))
+
+        responses = await asyncio.gather(*tasks)
+
+        availability = {}
+        for response in responses:
+            if response is None:
+                continue
+
+            availability.update(response)
 
         if "status" not in availability or availability["status"] != "success":
             return {}
@@ -128,4 +148,4 @@ class AllDebrid:
             logger.warning(
                 f"Exception while getting download link from All Debrid for {hash}|{index}: {e}"
             )
-            return "https://comet.fast"
+            return

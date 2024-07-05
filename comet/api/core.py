@@ -5,6 +5,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from comet.utils.models import settings
+from comet.utils.general import config_check
 
 templates = Jinja2Templates("comet/templates")
 main = APIRouter()
@@ -58,11 +59,21 @@ async def configure(request: Request):
 
 @main.get("/manifest.json")
 @main.get("/{b64config}/manifest.json")
-async def manifest():
+async def manifest(b64config: str = None):
+    config = config_check(b64config)
+    if not config:
+        config = {"debridService": None}
+
+    debrid_extension = None
+    if config["debridService"] == "realdebrid":
+        debrid_extension = "RD"
+    if config["debridService"] == "alldebrid":
+        debrid_extension = "AD"
+
     return {
         "id": settings.ADDON_ID,
         "version": "1.0.0",
-        "name": settings.ADDON_NAME,
+        "name": f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}",
         "description": "Stremio's fastest torrent/debrid search add-on.",
         "logo": "https://i.imgur.com/jmVoVMu.jpeg",
         "background": "https://i.imgur.com/WwnXB3k.jpeg",

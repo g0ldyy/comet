@@ -42,13 +42,17 @@ async def stream(request: Request, b64config: str, type: str, id: str):
     async with aiohttp.ClientSession(connector=connector) as session:
         debrid = getDebrid(session, config)
 
-        check_debrid = await debrid.check_premium()
-        if not check_debrid:
+        check_premium = await debrid.check_premium()
+        if not check_premium:
+            additional_info = ""
+            if config["debridService"] == "alldebrid":
+                additional_info = "\nCheck your email!"
+
             return {
                 "streams": [
                     {
                         "name": "[⚠️] Comet",
-                        "title": f"Invalid {config['debridService']} account.",
+                        "title": f"Invalid {config['debridService']} account.{additional_info}",
                         "url": "https://comet.fast",
                     }
                 ]
@@ -120,6 +124,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 )
                 sorted_ranked_files = json.loads(sorted_ranked_files[0])
 
+                debrid_extension = "EZ"
+                if config["debridService"] == "realdebrid":
+                    debrid_extension = "RD"
+                if config["debridService"] == "alldebrid":
+                    debrid_extension = "AD"
+
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
                 results = []
                 for hash, hash_data in sorted_ranked_files.items():
@@ -127,7 +137,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         if hash in hash_list:
                             results.append(
                                 {
-                                    "name": f"[RD⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
+                                    "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
                                     "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
                                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                                 }
@@ -261,6 +271,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
         logger.info(f"Results have been cached for {logName}")
 
+        debrid_extension = "EZ"
+        if config["debridService"] == "realdebrid":
+            debrid_extension = "RD"
+        if config["debridService"] == "alldebrid":
+            debrid_extension = "AD"
+
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
         results = []
         for hash, hash_data in sorted_ranked_files.items():
@@ -268,7 +284,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 if hash in hash_list:
                     results.append(
                         {
-                            "name": f"[RD⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
+                            "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
                             "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
                             "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                         }
@@ -289,6 +305,9 @@ async def playback(b64config: str, hash: str, index: str):
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
 
+        if download_link is None:
+            return
+
     return RedirectResponse(download_link, status_code=302)
 
 
@@ -301,6 +320,10 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     async with aiohttp.ClientSession() as session:
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
+
+        if download_link is None:
+            return
+
         proxy = (
             debrid.proxy if config["debridService"] == "alldebrid" else None
         )  # proxy is not needed to proxy realdebrid stream
