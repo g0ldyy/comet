@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/g0ldyy/comet/compare/v1.6.1...v1.6.2) (2024-07-05)
+
+
+### Bug Fixes
+
+* I forgot something I need to release for elfhosted bruh ([14d6ebf](https://github.com/g0ldyy/comet/commit/14d6ebf0f43c87d6e199e6fdd57a02bfa6acc973))
+
 ## [1.6.1](https://github.com/g0ldyy/comet/compare/v1.6.0...v1.6.1) (2024-07-05)
 
 
