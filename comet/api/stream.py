@@ -68,7 +68,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
         metadata = await get_metadata.json()
 
-        name = metadata["d"][0]["l"]
+        name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
         name = translate(name)
         logName = name
         if type == "series":
