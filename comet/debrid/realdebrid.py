@@ -29,10 +29,10 @@ class RealDebrid:
 
         return False
 
-    async def get_instant(self, hash: str):
+    async def get_instant(self, chunk: list):
         try:
             response = await self.session.get(
-                f"{self.api_url}/torrents/instantAvailability/{hash}"
+                f"{self.api_url}/torrents/instantAvailability/{'/'.join(hash for hash in chunk)}"
             )
             return await response.json()
         except Exception as e:
@@ -44,9 +44,15 @@ class RealDebrid:
     async def get_files(
         self, torrent_hashes: list, type: str, season: str, episode: str
     ):
+        chunk_size = 50
+        chunks = [
+            torrent_hashes[i : i + chunk_size]
+            for i in range(0, len(torrent_hashes), chunk_size)
+        ]
+
         tasks = []
-        for hash in torrent_hashes:
-            tasks.append(self.get_instant(hash))
+        for chunk in chunks:
+            tasks.append(self.get_instant(chunk))
 
         responses = await asyncio.gather(*tasks)
 
