@@ -37,7 +37,7 @@ class RealDebrid:
             return await response.json()
         except Exception as e:
             logger.warning(
-                f"Exception while checking hash instant availability on Real Debrid for {hash}: {e}"
+                f"Exception while checking hash instant availability on Real Debrid: {e}"
             )
             return
 
