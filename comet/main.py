@@ -125,6 +125,9 @@ def start_log():
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     logger.log("COMET", f"Zilean API: {settings.ZILEAN_URL}")
     logger.log(
+        "COMET", f"Debrid Stream Proxy Enabled: {bool(settings.PROXY_DEBRID_STREAM)}"
+    )
+    logger.log(
         "COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}"
     )
 

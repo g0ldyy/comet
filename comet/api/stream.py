@@ -312,41 +312,45 @@ async def playback(b64config: str, hash: str, index: str):
 
     return RedirectResponse(download_link, status_code=302)
 
+
 @streams.get("/{b64config}/playback/{hash}/{index}")
 async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
     if not config:
         return
-    
+
     async with aiohttp.ClientSession() as session:
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
         if download_link is None:
             return
-        
+
         proxy = (
             debrid.proxy if config["debridService"] == "alldebrid" else None
         )  # proxy is not needed to proxy realdebrid stream
-        
+
         if (
             settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
+
             class Streamer:
                 def __init__(self):
                     self.response = None
 
                 async def stream_content(self, headers: dict):
                     async with httpx.AsyncClient(proxy=proxy) as client:
-                        async with client.stream("GET", download_link, headers=headers) as self.response:
+                        async with client.stream(
+                            "GET", download_link, headers=headers
+                        ) as self.response:
                             async for chunk in self.response.aiter_raw():
                                 yield chunk
 
                 async def close(self):
                     if self.response is not None:
                         await self.response.aclose()
-            
+
             range = None
             range_header = request.headers.get("range")
             if range_header:
@@ -369,8 +373,9 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                             "Content-Range": response.headers["Content-Range"],
                             "Content-Length": response.headers["Content-Length"],
                             "Accept-Ranges": "bytes",
-                        }, background=BackgroundTask(await streamer.close())
+                        },
+                        background=BackgroundTask(await streamer.close()),
                     )
             return
-        
+
         return RedirectResponse(download_link, status_code=302)
