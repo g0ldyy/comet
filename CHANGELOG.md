@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/g0ldyy/comet/compare/v1.8.0...v1.8.1) (2024-07-06)
+
+
+### Bug Fixes
+
+* debrid stream proxy dynamic input field ([2e0a219](https://github.com/g0ldyy/comet/commit/2e0a219ca523e4f9f4e1fdd1301e651f2846470e))
+
 ## [1.8.0](https://github.com/g0ldyy/comet/compare/v1.7.0...v1.8.0) (2024-07-06)
 
 
