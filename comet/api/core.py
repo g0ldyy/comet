@@ -53,6 +53,7 @@ async def configure(request: Request):
             if settings.CUSTOM_HEADER_HTML and settings.CUSTOM_HEADER_HTML != "None"
             else "",
             "webConfig": web_config,
+            "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
         },
     )
 

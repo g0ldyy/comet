@@ -515,7 +515,7 @@
             </div>
 
             <div class="form-item">
-                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="Configuration required, see docs" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
+                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="{% if not proxyDebridStream %}Configuration required, see docs{% else %}Enter password{% endif %}" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!" {% if not proxyDebridStream %} disabled {% endif %}></sl-input>
             </div>
 
             <div class="form-item">
