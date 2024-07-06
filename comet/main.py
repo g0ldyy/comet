@@ -103,7 +103,7 @@ config = uvicorn.Config(
     host=settings.FASTAPI_HOST,
     port=settings.FASTAPI_PORT,
     workers=settings.FASTAPI_WORKERS,
-    log_config=None,#a
+    log_config=None,
 )
 server = Server(config=config)
 
