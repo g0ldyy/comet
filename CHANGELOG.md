@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/g0ldyy/comet/compare/v1.7.0...v1.8.0) (2024-07-06)
+
+
+### Features
+
+* improve debrid stream proxy ([60710fa](https://github.com/g0ldyy/comet/commit/60710faa41d732c441fdd76a03c20b8649c7274d))
+
+
+### Bug Fixes
+
+* logs ([8743e49](https://github.com/g0ldyy/comet/commit/8743e4973b0db85d252fca321f04f23f0ca54a55))
+
 ## [1.7.0](https://github.com/g0ldyy/comet/compare/v1.6.2...v1.7.0) (2024-07-05)
 
 
