@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/g0ldyy/comet/compare/v1.8.1...v1.9.0) (2024-07-06)
+
+
+### Features
+
+* ui improvements ([9a94f0f](https://github.com/g0ldyy/comet/commit/9a94f0fc272c07185f16ecbb0463335a04b6a77f))
+
 ## [1.8.1](https://github.com/g0ldyy/comet/compare/v1.8.0...v1.8.1) (2024-07-06)
 
 
