@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.1](https://github.com/g0ldyy/comet/compare/v1.9.0...v1.9.1) (2024-07-06)
+
+
+### Bug Fixes
+
+* easier for elfhosted to process ([6443fa1](https://github.com/g0ldyy/comet/commit/6443fa1b5fe601cbdf27e208bd80feaf3ac3156d))
+* log error ([9fb92eb](https://github.com/g0ldyy/comet/commit/9fb92eb3780e8b312cdb97dd566f699846eaec4e))
+
 ## [1.9.0](https://github.com/g0ldyy/comet/compare/v1.8.1...v1.9.0) (2024-07-06)
 
 
