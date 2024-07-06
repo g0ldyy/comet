@@ -19,6 +19,7 @@ databases = "*"
 aiosqlite = "*"
 pydantic-settings = "*"
 bencode-py = "*"
+httpx = "*"
 
 [tool.poetry.group.dev.dependencies]
 isort = "*"

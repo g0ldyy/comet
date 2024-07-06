@@ -28,7 +28,6 @@ class AppSettings(BaseSettings):
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "CHANGE_ME"
-    PROXY_DEBRID_STREAM_BYTES_PER_CHUNK: Optional[int] = 102400
 
 
 settings = AppSettings()
