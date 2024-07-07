@@ -1,10 +1,11 @@
 import base64
 import hashlib
 import json
-import math
 import re
 import aiohttp
 import bencodepy
+
+from RTN import parse, title_match
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
@@ -169,13 +170,15 @@ def is_video(title: str):
 
 def bytes_to_size(bytes: int):
     sizes = ["Bytes", "KB", "MB", "GB", "TB"]
-
     if bytes == 0:
         return "0 Byte"
-
-    i = int(math.floor(math.log(bytes, 1024)))
-
-    return f"{round(bytes / math.pow(1024, i), 2)} {sizes[i]}"
+    
+    i = 0
+    while bytes >= 1024 and i < len(sizes) - 1:
+        bytes /= 1024
+        i += 1
+    
+    return f"{round(bytes, 2)} {sizes[i]}"
 
 
 def config_check(b64config: str):
@@ -240,6 +243,18 @@ async def get_indexer_manager(
         logger.warning(
             f"Exception while getting {indexer_manager_type} results for {query} with {indexers}: {e}"
         )
+
+
+async def filter(torrents: list, name_lower: str, indexer_manager_type: str):
+    valid_torrents = [
+        torrent for torrent in torrents
+        if title_match(
+            name_lower,
+            parse(torrent["Title"] if indexer_manager_type == "jackett" else torrent["title"]).parsed_title.lower()
+        )
+    ]
+
+    return valid_torrents
 
 
 async def get_torrent_hash(

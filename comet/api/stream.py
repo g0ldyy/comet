@@ -8,13 +8,14 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from starlette.background import BackgroundTask
-from RTN import Torrent, parse, sort_torrents, title_match
+from RTN import Torrent, sort_torrents
 
 from comet.debrid.manager import getDebrid
 from comet.utils.general import (
     bytes_to_size,
     config_check,
     get_indexer_manager,
+    filter,
     get_torrent_hash,
     translate,
     get_balanced_hashes,
@@ -164,12 +165,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             if type == "series":
                 search_terms.append(f"{name} S0{season}E0{episode}")
             tasks = [
-                get_indexer_manager(session, indexer_manager_type, config["indexers"], term)
+                get_indexer_manager(
+                    session, indexer_manager_type, config["indexers"], term
+                )
                 for term in search_terms
             ]
             search_response = await asyncio.gather(*tasks)
 
-            
             for results in search_response:
                 if results is None:
                     continue
@@ -181,9 +183,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 f"{len(torrents)} torrents found for {logName} with {indexer_manager_type}"
             )
         else:
-            logger.info(
-                f"No indexer selected by user for {logName}"
-            )
+            logger.info(f"No indexer selected by user for {logName}")
 
         zilean_hashes_count = 0
         if settings.ZILEAN_URL:
@@ -194,7 +194,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 get_dmm = await get_dmm.json()
 
                 if isinstance(get_dmm, list):
-                    for result in get_dmm:
+                    for result in get_dmm[: settings.ZILEAN_TAKE_FIRST]:
                         zilean_hashes_count += 1
 
                         if indexer_manager_type == "jackett":
@@ -202,8 +202,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                                 "Title": result["filename"],
                                 "InfoHash": result["infoHash"],
                             }
-
-                        if indexer_manager_type == "prowlarr":
+                        elif indexer_manager_type == "prowlarr":
                             object = {
                                 "title": result["filename"],
                                 "infoHash": result["infoHash"],
@@ -222,24 +221,34 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrents) == 0:
             return {"streams": []}
 
-        tasks = []
-        filtered = 0
         filter_title = config["filterTitles"]
-        name_lower = name.lower()
-        for torrent in torrents:
-            if filter_title:
-                parsed_torrent = parse(
-                    torrent["Title"]
-                    if indexer_manager_type == "jackett"
-                    else torrent["title"]
-                )
-                if not title_match(name_lower, parsed_torrent.parsed_title.lower()):
-                    filtered += 1
-                    continue
+        if filter_title:
+            chunk_size = 50
+            chunks = [
+                torrents[i : i + chunk_size]
+                for i in range(0, len(torrents), chunk_size)
+            ]
 
+            name_lower = name.lower()
+            tasks = []
+            for chunk in chunks:
+                tasks.append(filter(chunk, name_lower, indexer_manager_type))
+
+            filtered_total = await asyncio.gather(*tasks)
+
+            filtered_torrents = []
+            for filtered in filtered_total:
+                filtered_torrents.extend(filtered)
+        else:
+            filtered_torrents = torrents
+
+        logger.info(
+            f"{len(torrents) - len(filtered_torrents)} filtered torrents for {logName}"
+        )
+
+        tasks = []
+        for torrent in filtered_torrents:
             tasks.append(get_torrent_hash(session, indexer_manager_type, torrent))
-
-        logger.info(f"{filtered} filtered torrents for {logName}")
 
         torrent_hashes = await asyncio.gather(*tasks)
         torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
@@ -259,7 +268,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         sorted_ranked_files = sort_torrents(ranked_files)
 
         logger.info(
-            f"{len(sorted_ranked_files)} cached files found on Real-Debrid for {logName}"
+            f"{len(sorted_ranked_files)} cached files found on {config['debridService']} for {logName}"
         )
 
         if len(sorted_ranked_files) == 0:
