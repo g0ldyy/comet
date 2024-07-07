@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/g0ldyy/comet/compare/v1.11.0...v1.11.1) (2024-07-07)
+
+
+### Bug Fixes
+
+* webui copy button for non secured environments ([8eda672](https://github.com/g0ldyy/comet/commit/8eda6720ff3b27bc748b9329fc0a5442310aa291))
+
 ## [1.11.0](https://github.com/g0ldyy/comet/compare/v1.10.0...v1.11.0) (2024-07-07)
 
 
