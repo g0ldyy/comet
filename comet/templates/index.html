@@ -640,9 +640,16 @@
 
                     copyLinkButton.addEventListener("click", () => {
                         const settings = getSettings();
-                        navigator.clipboard.writeText(`${window.location.origin}/${btoa(JSON.stringify(settings))}/manifest.json`).then(() => {
-                            copyAlert.toast();
-                        });
+
+                        const textArea = document.createElement("textarea");
+                        textArea.value = `${window.location.origin}/${btoa(JSON.stringify(settings))}/manifest.json`;
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(textArea);
+
+                        copyAlert.toast();
                     });
 
                     installButton.addEventListener("click", () => {
