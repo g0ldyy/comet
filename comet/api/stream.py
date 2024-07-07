@@ -158,26 +158,32 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             f"Start of {indexer_manager_type} search for {logName} with indexers {config['indexers']}"
         )
 
-        search_terms = [name]
-        if type == "series":
-            search_terms.append(f"{name} S0{season}E0{episode}")
-        tasks = [
-            get_indexer_manager(session, indexer_manager_type, config["indexers"], term)
-            for term in search_terms
-        ]
-        search_response = await asyncio.gather(*tasks)
-
         torrents = []
-        for results in search_response:
-            if results is None:
-                continue
+        if len(config["indexers"]) != 0:
+            search_terms = [name]
+            if type == "series":
+                search_terms.append(f"{name} S0{season}E0{episode}")
+            tasks = [
+                get_indexer_manager(session, indexer_manager_type, config["indexers"], term)
+                for term in search_terms
+            ]
+            search_response = await asyncio.gather(*tasks)
 
-            for result in results:
-                torrents.append(result)
+            
+            for results in search_response:
+                if results is None:
+                    continue
 
-        logger.info(
-            f"{len(torrents)} torrents found for {logName} with {indexer_manager_type}"
-        )
+                for result in results:
+                    torrents.append(result)
+
+            logger.info(
+                f"{len(torrents)} torrents found for {logName} with {indexer_manager_type}"
+            )
+        else:
+            logger.info(
+                f"No indexer selected by user for {logName}"
+            )
 
         zilean_hashes_count = 0
         if settings.ZILEAN_URL:

@@ -48,10 +48,10 @@ class ConfigModel(BaseModel):
         valid_indexers = [
             indexer for indexer in v if indexer in settings.INDEXER_MANAGER_INDEXERS
         ]
-        if not valid_indexers:
-            raise ValueError(
-                f"At least one indexer must be from {settings.INDEXER_MANAGER_INDEXERS}"
-            )
+        # if not valid_indexers: # For only Zilean mode
+        #     raise ValueError(
+        #         f"At least one indexer must be from {settings.INDEXER_MANAGER_INDEXERS}"
+        #     )
         return valid_indexers
 
     @field_validator("maxResults")
