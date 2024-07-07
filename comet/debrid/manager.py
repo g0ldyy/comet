@@ -2,6 +2,7 @@ import aiohttp
 
 from .realdebrid import RealDebrid
 from .alldebrid import AllDebrid
+from .premiumize import Premiumize
 
 
 def getDebrid(session: aiohttp.ClientSession, config: dict):
@@ -11,3 +12,5 @@ def getDebrid(session: aiohttp.ClientSession, config: dict):
         return RealDebrid(session, debrid_api_key)
     if debrid_service == "alldebrid":
         return AllDebrid(session, debrid_api_key)
+    if debrid_service == "premiumize":
+        return Premiumize(session, debrid_api_key)

@@ -68,8 +68,10 @@ async def manifest(b64config: str = None):
     debrid_extension = None
     if config["debridService"] == "realdebrid":
         debrid_extension = "RD"
-    if config["debridService"] == "alldebrid":
+    elif config["debridService"] == "alldebrid":
         debrid_extension = "AD"
+    elif config["debridService"] == "premiumize":
+        debrid_extension = "PM"
 
     return {
         "id": settings.ADDON_ID,

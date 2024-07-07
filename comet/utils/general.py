@@ -246,10 +246,10 @@ async def get_torrent_hash(
     session: aiohttp.ClientSession, indexer_manager_type: str, torrent: dict
 ):
     if "InfoHash" in torrent and torrent["InfoHash"] is not None:
-        return torrent["InfoHash"]
+        return torrent["InfoHash"].lower()
 
     if "infoHash" in torrent:
-        return torrent["infoHash"]
+        return torrent["infoHash"].lower()
 
     url = (
         torrent["Link"] if indexer_manager_type == "jackett" else torrent["downloadUrl"]
@@ -274,7 +274,7 @@ async def get_torrent_hash(
 
             hash = match.group(1).upper()
 
-        return hash
+        return hash.lower()
     except Exception as e:
         logger.warning(
             f"Exception while getting torrent info hash for {torrent['indexer'] if 'indexer' in torrent else (torrent['Tracker'] if 'Tracker' in torrent else '')}|{url}: {e}"

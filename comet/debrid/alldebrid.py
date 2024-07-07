@@ -27,7 +27,7 @@ class AllDebrid:
                 return True
         except Exception as e:
             logger.warning(
-                f"Exception while checking premium status on All Debrid: {e}"
+                f"Exception while checking premium status on All-Debrid: {e}"
             )
 
         return False
@@ -40,7 +40,7 @@ class AllDebrid:
             return await get_instant.json()
         except Exception as e:
             logger.warning(
-                f"Exception while checking hashes instant availability on All Debrid: {e}"
+                f"Exception while checking hashes instant availability on All-Debrid: {e}"
             )
             return
 
@@ -146,6 +146,6 @@ class AllDebrid:
             return unlock_link["data"]["link"]
         except Exception as e:
             logger.warning(
-                f"Exception while getting download link from All Debrid for {hash}|{index}: {e}"
+                f"Exception while getting download link from All-Debrid for {hash}|{index}: {e}"
             )
             return

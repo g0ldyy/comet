@@ -126,11 +126,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 )
                 sorted_ranked_files = json.loads(sorted_ranked_files[0])
 
-                debrid_extension = "EZ"
                 if config["debridService"] == "realdebrid":
                     debrid_extension = "RD"
-                if config["debridService"] == "alldebrid":
+                elif config["debridService"] == "alldebrid":
                     debrid_extension = "AD"
+                elif config["debridService"] == "premiumize":
+                    debrid_extension = "PM"
 
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
                 results = []
@@ -273,11 +274,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
         logger.info(f"Results have been cached for {logName}")
 
-        debrid_extension = "EZ"
         if config["debridService"] == "realdebrid":
             debrid_extension = "RD"
-        if config["debridService"] == "alldebrid":
+        elif config["debridService"] == "alldebrid":
             debrid_extension = "AD"
+        elif config["debridService"] == "premiumize":
+            debrid_extension = "PM"
 
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
         results = []

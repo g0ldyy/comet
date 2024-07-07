@@ -24,7 +24,7 @@ class RealDebrid:
                 return True
         except Exception as e:
             logger.warning(
-                f"Exception while checking premium status on Real Debrid: {e}"
+                f"Exception while checking premium status on Real-Debrid: {e}"
             )
 
         return False
@@ -37,7 +37,7 @@ class RealDebrid:
             return await response.json()
         except Exception as e:
             logger.warning(
-                f"Exception while checking hash instant availability on Real Debrid: {e}"
+                f"Exception while checking hash instant availability on Real-Debrid: {e}"
             )
             return
 
@@ -155,6 +155,6 @@ class RealDebrid:
             return unrestrict_link["download"]
         except Exception as e:
             logger.warning(
-                f"Exception while getting download link from Real Debrid for {hash}|{index}: {e}"
+                f"Exception while getting download link from Real-Debrid for {hash}|{index}: {e}"
             )
             return

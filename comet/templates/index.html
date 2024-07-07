@@ -535,6 +535,7 @@
                 <sl-select id="debridService" value="realdebrid" label="Debrid Service" placeholder="Select debrid service">
                     <sl-option value="realdebrid">Real-Debrid</sl-option>
                     <sl-option value="alldebrid">All-Debrid</sl-option>
+                    <sl-option value="premiumize">Premiumize</sl-option>
                 </sl-select>
             </div>
 
@@ -555,6 +556,8 @@
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
                     } else if (selectedService === "alldebrid") {
                         apiKeyLink.href = "https://alldebrid.fr/apikeys";
+                    } else if (selectedService === "premiumize") {
+                        apiKeyLink.href = "https://premiumize.me/account";
                     }
                 });
             </script>
