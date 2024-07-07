@@ -46,6 +46,7 @@ class ConfigModel(BaseModel):
 
     @field_validator("indexers")
     def check_indexers(cls, v, values):
+        settings.INDEXER_MANAGER_INDEXERS = [indexer.replace(" ", "_").lower() for indexer in settings.INDEXER_MANAGER_INDEXERS] # to equal webui
         valid_indexers = [
             indexer for indexer in v if indexer in settings.INDEXER_MANAGER_INDEXERS
         ]
