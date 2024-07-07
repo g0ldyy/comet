@@ -14,7 +14,7 @@
 - Caching system ft. SQLite
 - Smart Torrent Ranking by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
-- Only Real-Debrid supported right now *(if you want other debrid services, please provide an account)*
+- Real-Debrid, All-Debrid and Premiumize supported *(if you want other debrid services, please provide an account)*
 
 # Installation
 
