@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.11.0](https://github.com/g0ldyy/comet/compare/v1.10.0...v1.11.0) (2024-07-07)
+
+
+### Features
+
+* pack support for alldebrid ([30fe1ef](https://github.com/g0ldyy/comet/commit/30fe1ef6bd97aec5545aa808bf77db9ae4a8d4fa))
+* zilean only mode ([123378f](https://github.com/g0ldyy/comet/commit/123378ff351ed4b6df15f0a33c6d1227f6f91fc5))
+
+
+### Bug Fixes
+
+* zilean filtering speed fixed ([dad68c2](https://github.com/g0ldyy/comet/commit/dad68c256e93df99a3aa5ed810dc495dc67d739d))
+
 ## [1.10.0](https://github.com/g0ldyy/comet/compare/v1.9.1...v1.10.0) (2024-07-07)
 
 
