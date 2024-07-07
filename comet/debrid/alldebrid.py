@@ -77,6 +77,10 @@ class AllDebrid:
             if type == "series":
                 for file in magnet["files"]:
                     filename = file["n"]
+                    pack = False
+                    if "e" in file: # PACK
+                        filename = file["e"][0]["n"]
+                        pack = True
 
                     if not is_video(filename):
                         continue
@@ -89,7 +93,7 @@ class AllDebrid:
                         files[magnet["hash"]] = {
                             "index": magnet["files"].index(file),
                             "title": filename,
-                            "size": file["s"],
+                            "size": file["e"][0]["s"] if pack else file["s"],
                         }
 
                 continue
