@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0](https://github.com/g0ldyy/comet/compare/v1.9.1...v1.10.0) (2024-07-07)
+
+
+### Features
+
+* premiumize support ([ab846a7](https://github.com/g0ldyy/comet/commit/ab846a76134fa2c0ebf6091a878bf3f0aeb93ff4))
+
+
+### Bug Fixes
+
+* proxy is not needed with premiumize ([82fb354](https://github.com/g0ldyy/comet/commit/82fb354ed10a471f1ac3d9b807af71c1ae6c80de))
+
 ## [1.9.1](https://github.com/g0ldyy/comet/compare/v1.9.0...v1.9.1) (2024-07-06)
 
 
