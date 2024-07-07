@@ -114,7 +114,6 @@ class Premiumize:
         try:
             add_magnet = await self.session.post(
                 f"{self.api_url}/transfer/directdl?apikey={self.debrid_api_key}&src=magnet:?xt=urn:btih:{hash}",
-                proxy=self.proxy,
             )
             add_magnet = await add_magnet.json()
 
