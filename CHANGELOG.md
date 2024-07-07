@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.2](https://github.com/g0ldyy/comet/compare/v1.11.1...v1.11.2) (2024-07-07)
+
+
+### Bug Fixes
+
+* prowlarr ([a6179bf](https://github.com/g0ldyy/comet/commit/a6179bf3b029619286edbc1a7746091d0d254d7b))
+
 ## [1.11.1](https://github.com/g0ldyy/comet/compare/v1.11.0...v1.11.1) (2024-07-07)
 
 
