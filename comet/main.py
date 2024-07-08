@@ -124,9 +124,12 @@ def start_log():
     logger.log("COMET", f"Indexers: {settings.INDEXER_MANAGER_INDEXERS}")
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     if settings.ZILEAN_URL:
-        logger.log("COMET", f"Zilean: {settings.ZILEAN_URL} - Take first: {settings.ZILEAN_TAKE_FIRST}")
+        logger.log(
+            "COMET",
+            f"Zilean: {settings.ZILEAN_URL} - Take first: {settings.ZILEAN_TAKE_FIRST}",
+        )
     else:
-        logger.log("COMET", f"Zilean: Disabled")
+        logger.log("COMET", "Zilean: Disabled")
     logger.log(
         "COMET", f"Debrid Stream Proxy Enabled: {bool(settings.PROXY_DEBRID_STREAM)}"
     )

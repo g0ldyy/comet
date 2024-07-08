@@ -185,7 +185,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             search_terms = [name]
             if type == "series":
                 search_terms.append(f"{name} S0{season}E0{episode}")
-            tasks.extend(get_indexer_manager(session, indexer_manager_type, config["indexers"], term) for term in search_terms)
+            tasks.extend(
+                get_indexer_manager(
+                    session, indexer_manager_type, config["indexers"], term
+                )
+                for term in search_terms
+            )
         else:
             logger.info(f"No indexer selected by user for {log_name}")
 
