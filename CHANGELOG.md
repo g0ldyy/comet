@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.3](https://github.com/g0ldyy/comet/compare/v1.12.2...v1.12.3) (2024-07-08)
+
+
+### Bug Fixes
+
+* zilean multithreaded ([73b0a35](https://github.com/g0ldyy/comet/commit/73b0a35d38dd29c6b9ba4dad116f8f86f5086064))
+
 ## [1.12.2](https://github.com/g0ldyy/comet/compare/v1.12.1...v1.12.2) (2024-07-08)
 
 
