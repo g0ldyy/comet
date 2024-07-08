@@ -277,17 +277,17 @@ async def get_zilean(
     return results
 
 
-async def filter(torrents: list, name_lower: str, indexer_manager_type: str):
+async def filter(torrents: list, name: str, indexer_manager_type: str):
     valid_torrents = [
         torrent
         for torrent in torrents
         if title_match(
-            name_lower,
+            name,
             parse(
                 torrent["Title"]
                 if indexer_manager_type == "jackett"
                 else torrent["title"]
-            ).parsed_title.lower(),
+            ).parsed_title,
         )
     ]
 

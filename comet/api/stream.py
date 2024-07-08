@@ -228,10 +228,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 for i in range(0, len(torrents), chunk_size)
             ]
 
-            name_lower = name.lower()
             tasks = []
             for chunk in chunks:
-                tasks.append(filter(chunk, name_lower, indexer_manager_type))
+                tasks.append(filter(chunk, name, indexer_manager_type))
 
             filtered_total = await asyncio.gather(*tasks)
 
