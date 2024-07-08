@@ -47,7 +47,6 @@ class Premiumize:
             logger.warning(
                 f"Exception while checking hash instant availability on Premiumize: {e}"
             )
-            return
 
     async def get_files(
         self, torrent_hashes: list, type: str, season: str, episode: str
@@ -147,4 +146,3 @@ class Premiumize:
             logger.warning(
                 f"Exception while getting download link from Premiumize for {hash}|{index}: {e}"
             )
-            return

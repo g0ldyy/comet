@@ -139,7 +139,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 results = []
                 if (
-                    settings.PROXY_DEBRID_STREAM
+                    config["debridStreamProxyPassword"] != ""
+                    and settings.PROXY_DEBRID_STREAM
                     and settings.PROXY_DEBRID_STREAM_PASSWORD
                     != config["debridStreamProxyPassword"]
                 ):
@@ -193,9 +194,11 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             search_response = await asyncio.gather(*tasks)
         else:
             logger.info(f"No indexer selected by user for {log_name}")
-        
+
         if settings.ZILEAN_URL:
-            zilean_torrents = await asyncio.create_task(get_zilean(session, indexer_manager_type, name, log_name))
+            zilean_torrents = await asyncio.create_task(
+                get_zilean(session, indexer_manager_type, name, log_name)
+            )
 
         if search_indexer:
             for results in search_response:
@@ -296,7 +299,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         results = []
         if (
-            settings.PROXY_DEBRID_STREAM
+            config["debridStreamProxyPassword"] != ""
+            and settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             != config["debridStreamProxyPassword"]
         ):

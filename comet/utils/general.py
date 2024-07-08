@@ -228,9 +228,7 @@ async def get_indexer_manager(
 
             response = await session.get(
                 f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
-                headers={
-                    "X-Api-Key": settings.INDEXER_MANAGER_API_KEY
-                },
+                headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
             )
             response = await response.json()
 
@@ -245,7 +243,9 @@ async def get_indexer_manager(
     return results
 
 
-async def get_zilean(session: aiohttp.ClientSession, indexer_manager_type: str, name: str, log_name: str):
+async def get_zilean(
+    session: aiohttp.ClientSession, indexer_manager_type: str, name: str, log_name: str
+):
     results = []
     try:
         get_dmm = await session.post(
@@ -254,7 +254,8 @@ async def get_zilean(session: aiohttp.ClientSession, indexer_manager_type: str, 
         get_dmm = await get_dmm.json()
 
         if isinstance(get_dmm, list):
-            for result in get_dmm[: settings.ZILEAN_TAKE_FIRST]:
+            take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
+            for result in take_first:
                 if indexer_manager_type == "jackett":
                     object = {
                         "Title": result["filename"],

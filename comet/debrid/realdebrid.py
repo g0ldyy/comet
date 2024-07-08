@@ -39,7 +39,6 @@ class RealDebrid:
             logger.warning(
                 f"Exception while checking hash instant availability on Real-Debrid: {e}"
             )
-            return
 
     async def get_files(
         self, torrent_hashes: list, type: str, season: str, episode: str
@@ -157,4 +156,3 @@ class RealDebrid:
             logger.warning(
                 f"Exception while getting download link from Real-Debrid for {hash}|{index}: {e}"
             )
-            return

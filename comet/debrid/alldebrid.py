@@ -42,7 +42,6 @@ class AllDebrid:
             logger.warning(
                 f"Exception while checking hashes instant availability on All-Debrid: {e}"
             )
-            return
 
     async def get_files(
         self, torrent_hashes: list, type: str, season: str, episode: str
@@ -152,4 +151,3 @@ class AllDebrid:
             logger.warning(
                 f"Exception while getting download link from All-Debrid for {hash}|{index}: {e}"
             )
-            return
