@@ -175,47 +175,31 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         indexer_manager_type = settings.INDEXER_MANAGER_TYPE
 
         search_indexer = len(config["indexers"]) != 0
+        torrents = []
+        tasks = []
         if search_indexer:
             logger.info(
                 f"Start of {indexer_manager_type} search for {log_name} with indexers {config['indexers']}"
             )
 
-        torrents = []
-        if search_indexer:
             search_terms = [name]
             if type == "series":
                 search_terms.append(f"{name} S0{season}E0{episode}")
-            tasks = [
-                get_indexer_manager(
-                    session, indexer_manager_type, config["indexers"], term
-                )
-                for term in search_terms
-            ]
-            search_response = await asyncio.gather(*tasks)
+            tasks.extend(get_indexer_manager(session, indexer_manager_type, config["indexers"], term) for term in search_terms)
         else:
             logger.info(f"No indexer selected by user for {log_name}")
 
         if settings.ZILEAN_URL:
-            zilean_torrents = await asyncio.create_task(
-                get_zilean(session, indexer_manager_type, name, log_name)
-            )
+            tasks.append(get_zilean(session, indexer_manager_type, name, log_name))
 
-        if search_indexer:
-            for results in search_response:
-                for result in results:
-                    torrents.append(result)
+        search_response = await asyncio.gather(*tasks)
+        for results in search_response:
+            for result in results:
+                torrents.append(result)
 
-            logger.info(
-                f"{len(torrents)} torrents found for {log_name} with {indexer_manager_type}"
-            )
-
-        if settings.ZILEAN_URL:
-            for torrent in zilean_torrents:
-                torrents.append(torrent)
-
-            logger.info(
-                f"{len(zilean_torrents)} torrents found for {log_name} with Zilean"
-            )
+        logger.info(
+            f"{len(torrents)} torrents found for {log_name} with {indexer_manager_type}{' and Zilean' if settings.ZILEAN_URL else ''}"
+        )
 
         if len(torrents) == 0:
             return {"streams": []}

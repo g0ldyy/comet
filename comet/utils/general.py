@@ -274,6 +274,10 @@ async def get_zilean(
         )
         pass
 
+    logger.info(
+        f"{len(results)} torrents found for {log_name} with Zilean"
+    )
+
     return results
 
 
