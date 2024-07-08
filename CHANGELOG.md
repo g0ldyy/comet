@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/g0ldyy/comet/compare/v1.11.2...v1.12.0) (2024-07-08)
+
+
+### Features
+
+* wrong password warning for debrid stream proxy ([6b8303b](https://github.com/g0ldyy/comet/commit/6b8303b2745bf3191a60f0a9c25d0d2bd81c4436))
+
 ## [1.11.2](https://github.com/g0ldyy/comet/compare/v1.11.1...v1.11.2) (2024-07-07)
 
 
