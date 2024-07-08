@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/g0ldyy/comet/compare/v1.12.1...v1.12.2) (2024-07-08)
+
+
+### Bug Fixes
+
+* lower not needed ([ff60d91](https://github.com/g0ldyy/comet/commit/ff60d91091f465db1c5b06eeb3ad8efd064f2c24))
+
 ## [1.12.1](https://github.com/g0ldyy/comet/compare/v1.12.0...v1.12.1) (2024-07-08)
 
 
