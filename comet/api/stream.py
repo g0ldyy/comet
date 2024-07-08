@@ -15,6 +15,7 @@ from comet.utils.general import (
     bytes_to_size,
     config_check,
     get_indexer_manager,
+    get_zilean,
     filter,
     get_torrent_hash,
     translate,
@@ -91,9 +92,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             }
 
         name = translate(name)
-        logName = name
+        log_name = name
         if type == "series":
-            logName = f"{name} S0{season}E0{episode}"
+            log_name = f"{name} S0{season}E0{episode}"
 
         cache_key = hashlib.md5(
             json.dumps(
@@ -110,7 +111,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cache_key}')"
         )
         if cached[0] != 0:
-            logger.info(f"Cache found for {logName}")
+            logger.info(f"Cache found for {log_name}")
 
             timestamp = await database.fetch_one(
                 f"SELECT timestamp FROM cache WHERE cacheKey = '{cache_key}'"
@@ -120,7 +121,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     f"DELETE FROM cache WHERE cacheKey = '{cache_key}'"
                 )
 
-                logger.info(f"Cache expired for {logName}")
+                logger.info(f"Cache expired for {log_name}")
             else:
                 sorted_ranked_files = await database.fetch_one(
                     f"SELECT results FROM cache WHERE cacheKey = '{cache_key}'"
@@ -168,16 +169,18 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 return {"streams": results}
         else:
-            logger.info(f"No cache found for {logName} with user configuration")
+            logger.info(f"No cache found for {log_name} with user configuration")
 
         indexer_manager_type = settings.INDEXER_MANAGER_TYPE
 
-        logger.info(
-            f"Start of {indexer_manager_type} search for {logName} with indexers {config['indexers']}"
-        )
+        search_indexer = len(config["indexers"]) != 0
+        if search_indexer:
+            logger.info(
+                f"Start of {indexer_manager_type} search for {log_name} with indexers {config['indexers']}"
+            )
 
         torrents = []
-        if len(config["indexers"]) != 0:
+        if search_indexer:
             search_terms = [name]
             if type == "series":
                 search_terms.append(f"{name} S0{season}E0{episode}")
@@ -188,52 +191,28 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 for term in search_terms
             ]
             search_response = await asyncio.gather(*tasks)
+        else:
+            logger.info(f"No indexer selected by user for {log_name}")
+        
+        if settings.ZILEAN_URL:
+            zilean_torrents = await asyncio.create_task(get_zilean(session, indexer_manager_type, name, log_name))
 
+        if search_indexer:
             for results in search_response:
-                if results is None:
-                    continue
-
                 for result in results:
                     torrents.append(result)
 
             logger.info(
-                f"{len(torrents)} torrents found for {logName} with {indexer_manager_type}"
+                f"{len(torrents)} torrents found for {log_name} with {indexer_manager_type}"
             )
-        else:
-            logger.info(f"No indexer selected by user for {logName}")
 
-        zilean_hashes_count = 0
         if settings.ZILEAN_URL:
-            try:
-                get_dmm = await session.post(
-                    f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
-                )
-                get_dmm = await get_dmm.json()
+            for torrent in zilean_torrents:
+                torrents.append(torrent)
 
-                if isinstance(get_dmm, list):
-                    for result in get_dmm[: settings.ZILEAN_TAKE_FIRST]:
-                        zilean_hashes_count += 1
-
-                        if indexer_manager_type == "jackett":
-                            object = {
-                                "Title": result["filename"],
-                                "InfoHash": result["infoHash"],
-                            }
-                        elif indexer_manager_type == "prowlarr":
-                            object = {
-                                "title": result["filename"],
-                                "infoHash": result["infoHash"],
-                            }
-
-                        torrents.append(object)
-
-                logger.info(
-                    f"{zilean_hashes_count} torrents found for {logName} with Zilean API"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Exception while getting torrents for {logName} with Zilean API: {e}"
-                )
+            logger.info(
+                f"{len(zilean_torrents)} torrents found for {log_name} with Zilean"
+            )
 
         if len(torrents) == 0:
             return {"streams": []}
@@ -260,7 +239,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             filtered_torrents = torrents
 
         logger.info(
-            f"{len(torrents) - len(filtered_torrents)} filtered torrents for {logName}"
+            f"{len(torrents) - len(filtered_torrents)} filtered torrents for {log_name}"
         )
 
         tasks = []
@@ -270,7 +249,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         torrent_hashes = await asyncio.gather(*tasks)
         torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
 
-        logger.info(f"{len(torrent_hashes)} info hashes found for {logName}")
+        logger.info(f"{len(torrent_hashes)} info hashes found for {log_name}")
 
         if len(torrent_hashes) == 0:
             return {"streams": []}
@@ -285,7 +264,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         sorted_ranked_files = sort_torrents(ranked_files)
 
         logger.info(
-            f"{len(sorted_ranked_files)} cached files found on {config['debridService']} for {logName}"
+            f"{len(sorted_ranked_files)} cached files found on {config['debridService']} for {log_name}"
         )
 
         if len(sorted_ranked_files) == 0:
@@ -304,7 +283,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         await database.execute(
             f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES ('{cache_key}', '{json_data}', {time.time()})"
         )
-        logger.info(f"Results have been cached for {logName}")
+        logger.info(f"Results have been cached for {log_name}")
 
         if config["debridService"] == "realdebrid":
             debrid_extension = "RD"

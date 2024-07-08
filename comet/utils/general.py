@@ -196,17 +196,16 @@ async def get_indexer_manager(
     indexers: list,
     query: str,
 ):
+    results = []
     try:
         indexers = [indexer.replace("_", " ") for indexer in indexers]
-
         timeout = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
-        results = []
 
         if indexer_manager_type == "jackett":
             response = await session.get(
                 f"{settings.INDEXER_MANAGER_URL}/api/v2.0/indexers/all/results?apikey={settings.INDEXER_MANAGER_API_KEY}&Query={query}&Tracker[]={'&Tracker[]='.join(indexer for indexer in indexers)}",
                 timeout=timeout,
-            )  # &Category[]=2000&Category[]=5000
+            )
             response = await response.json()
 
             for result in response["Results"]:
@@ -229,7 +228,7 @@ async def get_indexer_manager(
 
             response = await session.get(
                 f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
-                headers={  # &categories=2000&categories=5000
+                headers={
                     "X-Api-Key": settings.INDEXER_MANAGER_API_KEY
                 },
             )
@@ -237,12 +236,44 @@ async def get_indexer_manager(
 
             for result in response:
                 results.append(result)
-
-        return results
     except Exception as e:
         logger.warning(
             f"Exception while getting {indexer_manager_type} results for {query} with {indexers}: {e}"
         )
+        pass
+
+    return results
+
+
+async def get_zilean(session: aiohttp.ClientSession, indexer_manager_type: str, name: str, log_name: str):
+    results = []
+    try:
+        get_dmm = await session.post(
+            f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
+        )
+        get_dmm = await get_dmm.json()
+
+        if isinstance(get_dmm, list):
+            for result in get_dmm[: settings.ZILEAN_TAKE_FIRST]:
+                if indexer_manager_type == "jackett":
+                    object = {
+                        "Title": result["filename"],
+                        "InfoHash": result["infoHash"],
+                    }
+                elif indexer_manager_type == "prowlarr":
+                    object = {
+                        "title": result["filename"],
+                        "infoHash": result["infoHash"],
+                    }
+
+                results.append(object)
+    except Exception as e:
+        logger.warning(
+            f"Exception while getting torrents for {log_name} with Zilean: {e}"
+        )
+        pass
+
+    return results
 
 
 async def filter(torrents: list, name_lower: str, indexer_manager_type: str):
