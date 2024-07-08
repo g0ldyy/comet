@@ -78,7 +78,7 @@ class AllDebrid:
                 for file in magnet["files"]:
                     filename = file["n"]
                     pack = False
-                    if "e" in file: # PACK
+                    if "e" in file:  # PACK
                         filename = file["e"][0]["n"]
                         pack = True
 

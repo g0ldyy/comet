@@ -137,16 +137,23 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
 
                 results = []
-                if (settings.PROXY_DEBRID_STREAM and settings.PROXY_DEBRID_STREAM_PASSWORD != config["debridStreamProxyPassword"]):
+                if (
+                    settings.PROXY_DEBRID_STREAM
+                    and settings.PROXY_DEBRID_STREAM_PASSWORD
+                    != config["debridStreamProxyPassword"]
+                ):
                     results.append(
                         {
                             "name": "[⚠️] Comet",
-                            "title": f"Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
+                            "title": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
                             "url": "https://comet.fast",
                         }
                     )
 
-                for hash, hash_data in sorted_ranked_files.items(): # Like that to keep ranking order
+                for (
+                    hash,
+                    hash_data,
+                ) in sorted_ranked_files.items():  # Like that to keep ranking order
                     for resolution, hash_list in balanced_hashes.items():
                         if hash in hash_list:
                             results.append(
@@ -309,11 +316,15 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
 
         results = []
-        if (settings.PROXY_DEBRID_STREAM and settings.PROXY_DEBRID_STREAM_PASSWORD != config["debridStreamProxyPassword"]):
+        if (
+            settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            != config["debridStreamProxyPassword"]
+        ):
             results.append(
                 {
                     "name": "[⚠️] Comet",
-                    "title": f"Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
+                    "title": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
                     "url": "https://comet.fast",
                 }
             )

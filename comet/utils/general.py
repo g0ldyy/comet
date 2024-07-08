@@ -172,12 +172,12 @@ def bytes_to_size(bytes: int):
     sizes = ["Bytes", "KB", "MB", "GB", "TB"]
     if bytes == 0:
         return "0 Byte"
-    
+
     i = 0
     while bytes >= 1024 and i < len(sizes) - 1:
         bytes /= 1024
         i += 1
-    
+
     return f"{round(bytes, 2)} {sizes[i]}"
 
 
@@ -247,10 +247,15 @@ async def get_indexer_manager(
 
 async def filter(torrents: list, name_lower: str, indexer_manager_type: str):
     valid_torrents = [
-        torrent for torrent in torrents
+        torrent
+        for torrent in torrents
         if title_match(
             name_lower,
-            parse(torrent["Title"] if indexer_manager_type == "jackett" else torrent["title"]).parsed_title.lower()
+            parse(
+                torrent["Title"]
+                if indexer_manager_type == "jackett"
+                else torrent["title"]
+            ).parsed_title.lower(),
         )
     ]
 
