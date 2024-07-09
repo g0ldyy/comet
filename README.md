@@ -24,7 +24,7 @@ A free, public Comet instance is available at https://comet.elfhosted.com
 
 [ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (*hosting, security, updates, etc*) for your self-hosted apps. 
 
-ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/comet/), allowing you to customize your indexers, and including an optional addon to enable Stream Proxy mode, to permit streaming from multiple source IPs with the same RD token!
+ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/comet/), allowing you to customize your indexers, and enabling "Proxy Stream" mode, to permit streaming from multiple source IPs with the same RD token!
 
 > [!IMPORTANT]
 > Comet is a top-tier app in the [ElfHosted app catalogue](https://elfhosted.com/apps/). 30% of your subscription goes to the app developer :heart:
