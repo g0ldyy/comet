@@ -135,7 +135,7 @@ class RealDebrid:
 
             await self.session.post(
                 f"{self.api_url}/torrents/selectFiles/{add_magnet['id']}",
-                data={"files": index},
+                data={"files": ",".join(str(file["id"]) for file in get_magnet_info["files"] if is_video(file["path"]))}, # "all" because bad
                 proxy=self.proxy,
             )
 
@@ -144,9 +144,18 @@ class RealDebrid:
             )
             get_magnet_info = await get_magnet_info.json()
 
+            index = int(index)
+            realIndex = index
+            for file in get_magnet_info["files"]:
+                if file["id"] == realIndex:
+                    break
+
+                if file["selected"] != 1:
+                    index -= 1
+
             unrestrict_link = await self.session.post(
                 f"{self.api_url}/unrestrict/link",
-                data={"link": get_magnet_info["links"][0]},
+                data={"link": get_magnet_info["links"][index - 1]},
                 proxy=self.proxy,
             )
             unrestrict_link = await unrestrict_link.json()
