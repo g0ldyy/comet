@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.4](https://github.com/g0ldyy/comet/compare/v1.12.3...v1.12.4) (2024-07-10)
+
+
+### Bug Fixes
+
+* realdebrid pack caching issue ([0a9eb03](https://github.com/g0ldyy/comet/commit/0a9eb03c5895fffaff8f13c6eb96d546487dcccd))
+
 ## [1.12.3](https://github.com/g0ldyy/comet/compare/v1.12.2...v1.12.3) (2024-07-08)
 
 
