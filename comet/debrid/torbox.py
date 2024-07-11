@@ -67,6 +67,9 @@ class TorBox:
             if not result["success"]:
                 continue
 
+            if result["data"] is None:
+                continue
+
             if type == "series":
                 for hash in result["data"]:
                     hash_files = result["data"][hash]["files"]
