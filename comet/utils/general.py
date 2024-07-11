@@ -190,6 +190,20 @@ def config_check(b64config: str):
         return False
 
 
+def get_debrid_extension(debridService: str):
+    debrid_extension = "?"  # Unknown
+    if debridService == "realdebrid":
+        debrid_extension = "RD"
+    elif debridService == "alldebrid":
+        debrid_extension = "AD"
+    elif debridService == "premiumize":
+        debrid_extension = "PM"
+    elif debridService == "torbox":
+        debrid_extension = "TB"
+
+    return debrid_extension
+
+
 async def get_indexer_manager(
     session: aiohttp.ClientSession,
     indexer_manager_type: str,

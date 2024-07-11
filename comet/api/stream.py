@@ -14,6 +14,7 @@ from comet.debrid.manager import getDebrid
 from comet.utils.general import (
     bytes_to_size,
     config_check,
+    get_debrid_extension,
     get_indexer_manager,
     get_zilean,
     filter,
@@ -128,14 +129,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 )
                 sorted_ranked_files = json.loads(sorted_ranked_files[0])
 
-                if config["debridService"] == "realdebrid":
-                    debrid_extension = "RD"
-                elif config["debridService"] == "alldebrid":
-                    debrid_extension = "AD"
-                elif config["debridService"] == "premiumize":
-                    debrid_extension = "PM"
-                elif config["debridService"] == "torbox":
-                    debrid_extension = "TB"
+                debrid_extension = get_debrid_extension(config["debridService"])
 
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
 
@@ -278,14 +272,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
         logger.info(f"Results have been cached for {log_name}")
 
-        if config["debridService"] == "realdebrid":
-            debrid_extension = "RD"
-        elif config["debridService"] == "alldebrid":
-            debrid_extension = "AD"
-        elif config["debridService"] == "premiumize":
-            debrid_extension = "PM"
-        elif config["debridService"] == "torbox":
-            debrid_extension = "TB"
+        debrid_extension = get_debrid_extension(config["debridService"])
 
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
 

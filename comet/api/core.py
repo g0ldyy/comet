@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from comet.utils.models import settings
-from comet.utils.general import config_check
+from comet.utils.general import config_check, get_debrid_extension
 
 templates = Jinja2Templates("comet/templates")
 main = APIRouter()
@@ -65,15 +65,7 @@ async def manifest(b64config: str = None):
     if not config:
         config = {"debridService": None}
 
-    debrid_extension = None
-    if config["debridService"] == "realdebrid":
-        debrid_extension = "RD"
-    elif config["debridService"] == "alldebrid":
-        debrid_extension = "AD"
-    elif config["debridService"] == "premiumize":
-        debrid_extension = "PM"
-    elif config["debridService"] == "torbox":
-        debrid_extension = "TB"
+    debrid_extension = get_debrid_extension(config["debridService"])
 
     return {
         "id": settings.ADDON_ID,
