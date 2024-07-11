@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.13.0](https://github.com/g0ldyy/comet/compare/v1.12.4...v1.13.0) (2024-07-11)
+
+
+### Features
+
+* torbox integration ([db1a003](https://github.com/g0ldyy/comet/commit/db1a003a7b6225ea06dfd118cb8247dd2b385a1e))
+
+
+### Bug Fixes
+
+* torbox faster (removed useless checks) ([dfaf12b](https://github.com/g0ldyy/comet/commit/dfaf12b6afcf7d1aa2d7d998bdf9dedef8ec0502))
+* torbox ignore empty data ([f971255](https://github.com/g0ldyy/comet/commit/f971255c0f6da4207e015d0a7d779b9a89afdb91))
+* useless repeated code ([fa8ce05](https://github.com/g0ldyy/comet/commit/fa8ce0546575eb7e93560dc25649ea9620a2e554))
+
 ## [1.12.4](https://github.com/g0ldyy/comet/compare/v1.12.3...v1.12.4) (2024-07-10)
 
 
