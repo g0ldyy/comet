@@ -125,17 +125,18 @@ class TorBox:
                 create_torrent = await create_torrent.json()
                 torrent_id = create_torrent["data"]["torrent_id"]
 
-                get_torrents = await self.session.get(
-                    f"{self.api_url}/torrents/mylist?bypass_cache=true"
-                )
-                get_torrents = await get_torrents.json()
+                # get_torrents = await self.session.get(
+                #     f"{self.api_url}/torrents/mylist?bypass_cache=true"
+                # )
+                # get_torrents = await get_torrents.json()
 
-            for torrent in get_torrents["data"]:
-                if torrent["id"] == torrent_id:
-                    file_id = torrent["files"][int(index)]["id"]
+            # for torrent in get_torrents["data"]:
+            #     if torrent["id"] == torrent_id:
+            #         file_id = torrent["files"][int(index)]["id"]
+            # Useless, we already have file index
 
             get_download_link = await self.session.get(
-                f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={file_id}&zip=false",
+                f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={index}&zip=false",
             )
             get_download_link = await get_download_link.json()
 
