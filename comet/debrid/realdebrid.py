@@ -32,7 +32,7 @@ class RealDebrid:
     async def get_instant(self, chunk: list):
         try:
             response = await self.session.get(
-                f"{self.api_url}/torrents/instantAvailability/{'/'.join(hash for hash in chunk)}"
+                f"{self.api_url}/torrents/instantAvailability/{'/'.join(chunk)}"
             )
             return await response.json()
         except Exception as e:
@@ -135,7 +135,13 @@ class RealDebrid:
 
             await self.session.post(
                 f"{self.api_url}/torrents/selectFiles/{add_magnet['id']}",
-                data={"files": ",".join(str(file["id"]) for file in get_magnet_info["files"] if is_video(file["path"]))}, # "all" because bad
+                data={
+                    "files": ",".join(
+                        str(file["id"])
+                        for file in get_magnet_info["files"]
+                        if is_video(file["path"])
+                    )
+                },  # "all" because bad
                 proxy=self.proxy,
             )
 

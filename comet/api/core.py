@@ -72,6 +72,8 @@ async def manifest(b64config: str = None):
         debrid_extension = "AD"
     elif config["debridService"] == "premiumize":
         debrid_extension = "PM"
+    elif config["debridService"] == "torbox":
+        debrid_extension = "TB"
 
     return {
         "id": settings.ADDON_ID,

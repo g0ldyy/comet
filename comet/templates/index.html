@@ -536,6 +536,7 @@
                     <sl-option value="realdebrid">Real-Debrid</sl-option>
                     <sl-option value="alldebrid">All-Debrid</sl-option>
                     <sl-option value="premiumize">Premiumize</sl-option>
+                    <sl-option value="torbox">TorBox</sl-option>
                 </sl-select>
             </div>
 
@@ -558,6 +559,8 @@
                         apiKeyLink.href = "https://alldebrid.fr/apikeys";
                     } else if (selectedService === "premiumize") {
                         apiKeyLink.href = "https://premiumize.me/account";
+                    } else if (selectedService === "torbox") {
+                        apiKeyLink.href = "https://torbox.app/settings";
                     }
                 });
             </script>

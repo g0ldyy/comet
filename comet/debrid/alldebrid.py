@@ -35,7 +35,7 @@ class AllDebrid:
     async def get_instant(self, chunk: list):
         try:
             get_instant = await self.session.get(
-                f"{self.api_url}/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(hash for hash in chunk)}"
+                f"{self.api_url}/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(chunk)}"
             )
             return await get_instant.json()
         except Exception as e:

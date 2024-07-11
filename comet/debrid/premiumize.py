@@ -11,9 +11,9 @@ class Premiumize:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         self.session = session
         self.proxy = None
-        self.debrid_api_key = debrid_api_key
 
         self.api_url = "https://premiumize.me/api"
+        self.debrid_api_key = debrid_api_key
 
     async def check_premium(self):
         try:
@@ -36,7 +36,7 @@ class Premiumize:
     async def get_instant(self, chunk: list):
         try:
             response = await self.session.get(
-                f"{self.api_url}/cache/check?apikey={self.debrid_api_key}&items[]={'&items[]='.join(hash for hash in chunk)}"
+                f"{self.api_url}/cache/check?apikey={self.debrid_api_key}&items[]={'&items[]='.join(chunk)}"
             )
 
             response = await response.json()

@@ -134,6 +134,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     debrid_extension = "AD"
                 elif config["debridService"] == "premiumize":
                     debrid_extension = "PM"
+                elif config["debridService"] == "torbox":
+                    debrid_extension = "TB"
 
                 balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
 
@@ -282,6 +284,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             debrid_extension = "AD"
         elif config["debridService"] == "premiumize":
             debrid_extension = "PM"
+        elif config["debridService"] == "torbox":
+            debrid_extension = "TB"
 
         balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
 
