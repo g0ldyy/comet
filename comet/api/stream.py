@@ -313,14 +313,7 @@ async def playback(b64config: str, hash: str, index: str):
     if not config:
         return
 
-    async with aiohttp.ClientSession() as session:
-        debrid = getDebrid(session, config)
-        download_link = await debrid.generate_download_link(hash, index)
-
-        if download_link is None:
-            return
-
-    return RedirectResponse(download_link, status_code=302)
+    return RedirectResponse("https://stremio.fast", status_code=302)
 
 
 @streams.get("/{b64config}/playback/{hash}/{index}")
