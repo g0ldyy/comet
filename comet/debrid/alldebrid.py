@@ -58,56 +58,57 @@ class AllDebrid:
 
         responses = await asyncio.gather(*tasks)
 
-        availability = {}
+        availability = []
         for response in responses:
             if response is None:
                 continue
 
-            availability.update(response)
-
-        if "status" not in availability or availability["status"] != "success":
-            return {}
+            availability.append(response)
 
         files = {}
-        for magnet in availability["data"]["magnets"]:
-            if not magnet["instant"]:
+        for result in availability:
+            if "status" not in result or result["status"] != "success":
                 continue
 
-            if type == "series":
+            for magnet in result["data"]["magnets"]:
+                if not magnet["instant"]:
+                    continue
+
+                if type == "series":
+                    for file in magnet["files"]:
+                        filename = file["n"]
+                        pack = False
+                        if "e" in file:  # PACK
+                            filename = file["e"][0]["n"]
+                            pack = True
+
+                        if not is_video(filename):
+                            continue
+
+                        filename_parsed = parse(filename)
+                        if (
+                            season in filename_parsed.season
+                            and episode in filename_parsed.episode
+                        ):
+                            files[magnet["hash"]] = {
+                                "index": magnet["files"].index(file),
+                                "title": filename,
+                                "size": file["e"][0]["s"] if pack else file["s"],
+                            }
+
+                    continue
+
                 for file in magnet["files"]:
                     filename = file["n"]
-                    pack = False
-                    if "e" in file:  # PACK
-                        filename = file["e"][0]["n"]
-                        pack = True
 
                     if not is_video(filename):
                         continue
 
-                    filename_parsed = parse(filename)
-                    if (
-                        season in filename_parsed.season
-                        and episode in filename_parsed.episode
-                    ):
-                        files[magnet["hash"]] = {
-                            "index": magnet["files"].index(file),
-                            "title": filename,
-                            "size": file["e"][0]["s"] if pack else file["s"],
-                        }
-
-                continue
-
-            for file in magnet["files"]:
-                filename = file["n"]
-
-                if not is_video(filename):
-                    continue
-
-                files[magnet["hash"]] = {
-                    "index": magnet["files"].index(file),
-                    "title": filename,
-                    "size": file["s"],
-                }
+                    files[magnet["hash"]] = {
+                        "index": magnet["files"].index(file),
+                        "title": filename,
+                        "size": file["s"],
+                    }
 
         return files
 
