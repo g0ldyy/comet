@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.14.0](https://github.com/g0ldyy/comet/compare/v1.13.0...v1.14.0) (2024-07-12)
+
+
+### Features
+
+* Debrid-Link support ([dadca78](https://github.com/g0ldyy/comet/commit/dadca784b1ddddbbde1d7db59e2d12039a99f60a))
+
+
+### Bug Fixes
+
+* alldebrid get files ([4bf8e88](https://github.com/g0ldyy/comet/commit/4bf8e88c0be7e82349581c8027f4ecb407ec99de))
+
 ## [1.13.0](https://github.com/g0ldyy/comet/compare/v1.12.4...v1.13.0) (2024-07-11)
 
 
