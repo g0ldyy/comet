@@ -200,6 +200,8 @@ def get_debrid_extension(debridService: str):
         debrid_extension = "PM"
     elif debridService == "torbox":
         debrid_extension = "TB"
+    elif debridService == "debridlink":
+        debrid_extension = "DL"
 
     return debrid_extension
 

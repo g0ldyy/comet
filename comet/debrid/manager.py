@@ -4,6 +4,7 @@ from .realdebrid import RealDebrid
 from .alldebrid import AllDebrid
 from .premiumize import Premiumize
 from .torbox import TorBox
+from .debridlink import DebridLink
 
 
 def getDebrid(session: aiohttp.ClientSession, config: dict):
@@ -17,3 +18,5 @@ def getDebrid(session: aiohttp.ClientSession, config: dict):
         return Premiumize(session, debrid_api_key)
     elif debrid_service == "torbox":
         return TorBox(session, debrid_api_key)
+    elif debrid_service == "debridlink":
+        return DebridLink(session, debrid_api_key)
