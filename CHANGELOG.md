@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/g0ldyy/comet/compare/v1.14.0...v1.14.1) (2024-07-12)
+
+
+### Bug Fixes
+
+* speed up playback ([683a826](https://github.com/g0ldyy/comet/commit/683a82656aa35a90a891ef902f59acb967c078e4))
+
 ## [1.14.0](https://github.com/g0ldyy/comet/compare/v1.13.0...v1.14.0) (2024-07-12)
 
 
