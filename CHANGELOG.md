@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.2](https://github.com/g0ldyy/comet/compare/v1.14.1...v1.14.2) (2024-07-13)
+
+
+### Bug Fixes
+
+* divising by 0 ([dcef22a](https://github.com/g0ldyy/comet/commit/dcef22a46d6331befae31d51a977ed714868366f))
+
 ## [1.14.1](https://github.com/g0ldyy/comet/compare/v1.14.0...v1.14.1) (2024-07-12)
 
 
