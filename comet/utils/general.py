@@ -202,6 +202,8 @@ def get_debrid_extension(debridService: str):
         debrid_extension = "TB"
     elif debridService == "debridlink":
         debrid_extension = "DL"
+    elif debridService == "offcloud":
+        debrid_extension = "OC"
 
     return debrid_extension
 
@@ -387,10 +389,10 @@ async def get_balanced_hashes(hashes: dict, config: dict):
             hashes_by_resolution[resolution_key] = []
         hashes_by_resolution[resolution_key].append(hash)
 
-    if max_results == 0:
-        return hashes_by_resolution
-
     total_resolutions = len(hashes_by_resolution)
+    if max_results == 0 or total_resolutions == 0:
+        return hashes_by_resolution
+    
     hashes_per_resolution = max_results // total_resolutions
     extra_hashes = max_results % total_resolutions
 
