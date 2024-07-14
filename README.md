@@ -16,7 +16,7 @@
 - Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported *(if you want other debrid services, please provide an account)*
 
 # Installation
-To customize your Comet experience to suit your needs, please take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
+To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
 ## ElfHosted
 A free, public Comet instance is available at https://comet.elfhosted.com
 
