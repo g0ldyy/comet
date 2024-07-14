@@ -87,8 +87,14 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
 
     - Finally, re-run the docker run command
 
-## Real-Debrid IP Blacklist
+## Debrid IP Blacklist
 To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
+
+## Suggested indexers
+When creating your Comet instance, it's important to choose the right indexers.
+This choice should be based on speed, quantity of content and whether the indexer is served by cloudflare or has a ratelimit system (which should be avoided).
+
+My personal recommendation is: BitSearch, EZTV, The Pirate Bay, TheRARBG and YTS!
 
 ## Web UI Showcase
 <img src="https://i.imgur.com/SaD365F.png" />
