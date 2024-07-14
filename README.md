@@ -7,7 +7,6 @@
 </p>
 
 # Features
-
 - The only Stremio addon that can Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
 - Jackett and Prowlarr support (change the `INDEXER_MANAGER_TYPE` environment variable to `jackett` or `prowlarr`)
 - [Zilean](https://github.com/iPromKnight/zilean) ([DMM](https://hashlists.debridmediamanager.com/) Scraper) support for even more results
@@ -17,9 +16,8 @@
 - Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported *(if you want other debrid services, please provide an account)*
 
 # Installation
-
+To customize your Comet experience to suit your needs, please take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
 ## ElfHosted
-
 A free, public Comet instance is available at https://comet.elfhosted.com
 
 [ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (*hosting, security, updates, etc*) for your self-hosted apps. 
@@ -32,7 +30,6 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
 (*[ElfHosted Discord](https://discord.elfhosted.com)*)
 
 ## Self Hosted
-
 ### From source
 - Clone the repository and enter the folder
     ```sh
@@ -91,9 +88,7 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
     - Finally, re-run the docker run command
 
 ## Real-Debrid IP Blacklist
-
-To bypass Real-Debrid's IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
+To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
 
 ## Web UI Showcase
-
 <img src="https://i.imgur.com/SaD365F.png" />
