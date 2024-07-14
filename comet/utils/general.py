@@ -202,8 +202,6 @@ def get_debrid_extension(debridService: str):
         debrid_extension = "TB"
     elif debridService == "debridlink":
         debrid_extension = "DL"
-    elif debridService == "offcloud":
-        debrid_extension = "OC"
 
     return debrid_extension
 
