@@ -45,24 +45,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
-        debrid = getDebrid(session, config)
-
-        check_premium = await debrid.check_premium()
-        if not check_premium:
-            additional_info = ""
-            if config["debridService"] == "alldebrid":
-                additional_info = "\nCheck your email!"
-
-            return {
-                "streams": [
-                    {
-                        "name": "[⚠️] Comet",
-                        "title": f"Invalid {config['debridService']} account.{additional_info}",
-                        "url": "https://comet.fast",
-                    }
-                ]
-            }
-
         season = None
         episode = None
         if type == "series":
@@ -168,6 +150,24 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 return {"streams": results}
         else:
             logger.info(f"No cache found for {log_name} with user configuration")
+
+        debrid = getDebrid(session, config)
+
+        check_premium = await debrid.check_premium()
+        if not check_premium:
+            additional_info = ""
+            if config["debridService"] == "alldebrid":
+                additional_info = "\nCheck your email!"
+
+            return {
+                "streams": [
+                    {
+                        "name": "[⚠️] Comet",
+                        "title": f"Invalid {config['debridService']} account.{additional_info}",
+                        "url": "https://comet.fast",
+                    }
+                ]
+            }
 
         indexer_manager_type = settings.INDEXER_MANAGER_TYPE
 
