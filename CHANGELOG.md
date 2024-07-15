@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.15.2](https://github.com/g0ldyy/comet/compare/v1.15.1...v1.15.2) (2024-07-15)
+
+
+### Bug Fixes
+
+* alldebrid .fr to .com ([22c4445](https://github.com/g0ldyy/comet/commit/22c444573766bba40ac5d40fe83a0bc2fbf04ec3))
+* int to float ([a0d72d8](https://github.com/g0ldyy/comet/commit/a0d72d8849b289a6f7c7be4e4219a46ccdd82ee2))
+
 ## [1.15.1](https://github.com/g0ldyy/comet/compare/v1.15.0...v1.15.1) (2024-07-15)
 
 
