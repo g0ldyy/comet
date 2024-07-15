@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.15.0](https://github.com/g0ldyy/comet/compare/v1.14.2...v1.15.0) (2024-07-15)
+
+
+### Features
+
+* faster, prowlarr pack support, max size, tracker name in results and more... ([0fabd79](https://github.com/g0ldyy/comet/commit/0fabd79a6e07b33fde76074ebbb5193cea7b9d10))
+* realTitle in results for prowlarr support ([57440a9](https://github.com/g0ldyy/comet/commit/57440a9d08d2630ed084cfd07b374c9d9a96ef19))
+
+
+### Bug Fixes
+
+* valid debrid api key not needed anymore if results already cached ([e94e224](https://github.com/g0ldyy/comet/commit/e94e2249a0ac9bd99eaee1f90dd3cdfd41bc43ba))
+
 ## [1.14.2](https://github.com/g0ldyy/comet/compare/v1.14.1...v1.14.2) (2024-07-13)
 
 
