@@ -17,7 +17,6 @@ from comet.utils.general import (
     get_debrid_extension,
     get_indexer_manager,
     get_zilean,
-    filter,
     get_torrent_hash,
     translate,
     get_balanced_hashes,
@@ -133,14 +132,16 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 for (
                     hash,
                     hash_data,
-                ) in sorted_ranked_files.items():  # Like that to keep ranking order
+                ) in sorted_ranked_files.items():
                     for resolution, hash_list in balanced_hashes.items():
                         if hash in hash_list:
                             results.append(
                                 {
                                     "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
-                                    "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
-                                    "torrentTitle": hash_data['raw_title'],
+                                    "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])} 🔎 {sorted_ranked_files[hash]['data']['tracker'] if 'tracker' in sorted_ranked_files[hash]['data'] else '?'}",
+                                    "torrentTitle": hash_data["data"]["torrent_title"]
+                                    if "torrent_title" in hash_data["data"]
+                                    else None,
                                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                                 }
                             )
@@ -192,7 +193,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             logger.info(f"No indexer selected by user for {log_name}")
 
         if settings.ZILEAN_URL:
-            tasks.append(get_zilean(session, indexer_manager_type, name, log_name))
+            tasks.append(get_zilean(session, name, log_name, season, episode))
 
         search_response = await asyncio.gather(*tasks)
         for results in search_response:
@@ -206,47 +207,41 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrents) == 0:
             return {"streams": []}
 
-        filter_title = config["filterTitles"]
-        if filter_title:
-            chunk_size = 50
-            chunks = [
-                torrents[i : i + chunk_size]
-                for i in range(0, len(torrents), chunk_size)
-            ]
-
-            tasks = []
-            for chunk in chunks:
-                tasks.append(filter(chunk, name, indexer_manager_type))
-
-            filtered_total = await asyncio.gather(*tasks)
-
-            filtered_torrents = []
-            for filtered in filtered_total:
-                filtered_torrents.extend(filtered)
-        else:
-            filtered_torrents = torrents
-
-        logger.info(
-            f"{len(torrents) - len(filtered_torrents)} filtered torrents for {log_name}"
-        )
-
         tasks = []
-        for torrent in filtered_torrents:
-            tasks.append(get_torrent_hash(session, indexer_manager_type, torrent))
+        for i in range(len(torrents)):
+            tasks.append(get_torrent_hash(session, (i, torrents[i])))
 
         torrent_hashes = await asyncio.gather(*tasks)
-        torrent_hashes = list(set([hash for hash in torrent_hashes if hash]))
+        index_less = 0
+        for hash in torrent_hashes:
+            if hash[1] is None:
+                del torrents[hash[0]]
+                index_less += 1
+                continue
 
-        logger.info(f"{len(torrent_hashes)} info hashes found for {log_name}")
+            torrents[hash[0] - index_less]["InfoHash"] = hash[1]
 
-        if len(torrent_hashes) == 0:
+        logger.info(f"{len(torrents)} info hashes found for {log_name}")
+
+        if len(torrents) == 0:
             return {"streams": []}
 
-        files = await debrid.get_files(torrent_hashes, type, season, episode)
+        files = await debrid.get_files(
+            [hash[1] for hash in torrent_hashes if hash[1] is not None],
+            type,
+            season,
+            episode,
+        )
 
         ranked_files = set()
         for hash in files:
-            ranked_file = rtn.rank(files[hash]["title"], hash)
+            try:
+                ranked_file = rtn.rank(
+                    files[hash]["title"], hash, correct_title=name, remove_trash=True
+                )
+            except:
+                continue
+
             ranked_files.add(ranked_file)
 
         sorted_ranked_files = sort_torrents(ranked_files)
@@ -262,8 +257,19 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             key: (value.model_dump() if isinstance(value, Torrent) else value)
             for key, value in sorted_ranked_files.items()
         }
+        torrents_by_hash = {
+            torrent["InfoHash"]: torrent
+            for torrent in torrents
+            if hash in sorted_ranked_files
+        }
         for hash in sorted_ranked_files:  # needed for caching
             sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]
+            sorted_ranked_files[hash]["data"]["torrent_title"] = torrents_by_hash[hash][
+                "Title"
+            ]
+            sorted_ranked_files[hash]["data"]["tracker"] = torrents_by_hash[hash][
+                "Tracker"
+            ]
             sorted_ranked_files[hash]["data"]["size"] = files[hash]["size"]
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
@@ -298,8 +304,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     results.append(
                         {
                             "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
-                            "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
-                            "torrentTitle": hash_data['raw_title'],
+                            "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])} 🔎 {sorted_ranked_files[hash]['data']['tracker']}",
+                            "torrentTitle": hash_data["data"]["torrent_title"],
                             "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                         }
                     )

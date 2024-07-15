@@ -121,7 +121,7 @@ def start_log():
         "COMET",
         f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
     )
-    logger.log("COMET", f"Indexers: {settings.INDEXER_MANAGER_INDEXERS}")
+    logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     if settings.ZILEAN_URL:
         logger.log(

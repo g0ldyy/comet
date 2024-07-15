@@ -39,7 +39,7 @@ class ConfigModel(BaseModel):
     languages: Optional[List[str]] = ["All"]
     resolutions: Optional[List[str]] = ["All"]
     maxResults: Optional[int] = 0
-    filterTitles: Optional[bool] = True
+    maxSize: Optional[float] = 0
     debridService: str
     debridApiKey: str
     debridStreamProxyPassword: Optional[str] = ""
@@ -62,7 +62,13 @@ class ConfigModel(BaseModel):
     @field_validator("maxResults")
     def check_max_results(cls, v):
         if v < 0:
-            raise ValueError("maxResults cannot be less than 0")
+            v = 0
+        return v
+
+    @field_validator("maxSize")
+    def check_max_size(cls, v):
+        if v < 0:
+            v = 0
         return v
 
     @field_validator("debridService")

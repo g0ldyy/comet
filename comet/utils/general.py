@@ -5,8 +5,6 @@ import re
 import aiohttp
 import bencodepy
 
-from RTN import parse, title_match
-
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
 
@@ -249,6 +247,18 @@ async def get_indexer_manager(
             response = await response.json()
 
             for result in response:
+                result["InfoHash"] = result["infoHash"]
+                del result["infoHash"]
+
+                result["Title"] = result["title"]
+                del result["title"]
+
+                result["Link"] = result["downloadUrl"]
+                del result["downloadUrl"]
+
+                result["Tracker"] = result["indexer"]
+                del result["indexer"]
+
                 results.append(result)
     except Exception as e:
         logger.warning(
@@ -260,70 +270,60 @@ async def get_indexer_manager(
 
 
 async def get_zilean(
-    session: aiohttp.ClientSession, indexer_manager_type: str, name: str, log_name: str
+    session: aiohttp.ClientSession, name: str, log_name: str, season: int, episode: int
 ):
     results = []
     try:
-        get_dmm = await session.post(
-            f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
-        )
-        get_dmm = await get_dmm.json()
+        if season is None:
+            get_dmm = await session.post(
+                f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
+            )
+            get_dmm = await get_dmm.json()
 
-        if isinstance(get_dmm, list):
-            take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
-            for result in take_first:
-                if indexer_manager_type == "jackett":
+            if isinstance(get_dmm, list):
+                take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
+                for result in take_first:
                     object = {
                         "Title": result["filename"],
                         "InfoHash": result["infoHash"],
-                    }
-                elif indexer_manager_type == "prowlarr":
-                    object = {
-                        "title": result["filename"],
-                        "infoHash": result["infoHash"],
+                        "Tracker": "DMM",
                     }
 
-                results.append(object)
+                    results.append(object)
+        else:
+            get_dmm = await session.get(
+                f"{settings.ZILEAN_URL}/dmm/filtered?query={name}&season={season}&episode={episode}"
+            )
+            get_dmm = await get_dmm.json()
+
+            if isinstance(get_dmm, list):
+                take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
+                for result in take_first:
+                    object = {
+                        "Title": result["rawTitle"],
+                        "InfoHash": result["infoHash"],
+                        "Tracker": "DMM",
+                    }
+
+                    results.append(object)
+
+        logger.info(f"{len(results)} torrents found for {log_name} with Zilean")
     except Exception as e:
         logger.warning(
             f"Exception while getting torrents for {log_name} with Zilean: {e}"
         )
         pass
 
-    logger.info(f"{len(results)} torrents found for {log_name} with Zilean")
-
     return results
 
 
-async def filter(torrents: list, name: str, indexer_manager_type: str):
-    valid_torrents = [
-        torrent
-        for torrent in torrents
-        if title_match(
-            name,
-            parse(
-                torrent["Title"]
-                if indexer_manager_type == "jackett"
-                else torrent["title"]
-            ).parsed_title,
-        )
-    ]
-
-    return valid_torrents
-
-
-async def get_torrent_hash(
-    session: aiohttp.ClientSession, indexer_manager_type: str, torrent: dict
-):
+async def get_torrent_hash(session: aiohttp.ClientSession, torrent: tuple):
+    index = torrent[0]
+    torrent = torrent[1]
     if "InfoHash" in torrent and torrent["InfoHash"] is not None:
-        return torrent["InfoHash"].lower()
+        return (index, torrent["InfoHash"].lower())
 
-    if "infoHash" in torrent:
-        return torrent["infoHash"].lower()
-
-    url = (
-        torrent["Link"] if indexer_manager_type == "jackett" else torrent["downloadUrl"]
-    )
+    url = torrent["Link"]
 
     try:
         timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
@@ -336,23 +336,26 @@ async def get_torrent_hash(
         else:
             location = response.headers.get("Location", "")
             if not location:
-                return
+                return (index, None)
 
             match = info_hash_pattern.search(location)
             if not match:
-                return
+                return (index, None)
 
             hash = match.group(1).upper()
 
-        return hash.lower()
+        return (index, hash.lower())
     except Exception as e:
         logger.warning(
             f"Exception while getting torrent info hash for {torrent['indexer'] if 'indexer' in torrent else (torrent['Tracker'] if 'Tracker' in torrent else '')}|{url}: {e}"
         )
 
+        return (index, None)
+
 
 async def get_balanced_hashes(hashes: dict, config: dict):
     max_results = config["maxResults"]
+    max_size = config["maxSize"]
     config_resolutions = config["resolutions"]
     config_languages = {
         language.replace("_", " ").capitalize() for language in config["languages"]
@@ -366,6 +369,10 @@ async def get_balanced_hashes(hashes: dict, config: dict):
     hashes_by_resolution = {}
     for hash, hash_data in hashes.items():
         hash_info = hash_data["data"]
+
+        if hash_info["size"] / (1024**3) > max_size and max_size != 0:
+            continue
+
         if (
             not include_all_languages
             and not hash_info["is_multi_audio"]
@@ -390,7 +397,7 @@ async def get_balanced_hashes(hashes: dict, config: dict):
     total_resolutions = len(hashes_by_resolution)
     if max_results == 0 or total_resolutions == 0:
         return hashes_by_resolution
-    
+
     hashes_per_resolution = max_results // total_resolutions
     extra_hashes = max_results % total_resolutions
 

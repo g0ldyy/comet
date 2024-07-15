@@ -17,9 +17,7 @@ class DebridLink:
 
     async def check_premium(self):
         try:
-            check_premium = await self.session.get(
-                f"{self.api_url}/account/infos"
-            )
+            check_premium = await self.session.get(f"{self.api_url}/account/infos")
             check_premium = await check_premium.text()
             if '"accountType":1' in check_premium:
                 return True
@@ -109,14 +107,10 @@ class DebridLink:
     async def generate_download_link(self, hash: str, index: str):
         try:
             add_torrent = await self.session.post(
-                f"{self.api_url}/seedbox/add",
-                data={
-                    "url": hash,
-                    "async": True
-                }
+                f"{self.api_url}/seedbox/add", data={"url": hash, "async": True}
             )
             add_torrent = await add_torrent.json()
-            
+
             return add_torrent["value"]["files"][int(index)]["downloadUrl"]
         except Exception as e:
             logger.warning(

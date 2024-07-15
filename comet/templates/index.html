@@ -524,7 +524,7 @@
             </div>
 
             <div class="form-item">
-                <sl-checkbox id="filterTitles" checked help-text="Should Comet check for title mismatch?">Filter Titles</sl-checkbox>
+                <sl-input id="maxSize" type="number" min=0 value=0 label="Max Size (GB)" placeholder="Enter max size in gigabytes"></sl-input>
             </div>
 
             <div class="form-item">
@@ -625,7 +625,7 @@
                         const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
-                        const filterTitles = document.getElementById("filterTitles").checked;
+                        const maxSize = document.getElementById("maxSize").value;
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
@@ -635,7 +635,7 @@
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
-                            filterTitles: filterTitles,
+                            maxSize: parseFloat(maxSize),
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
                             debridService: debridService,
