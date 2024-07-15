@@ -158,6 +158,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                                 {
                                     "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
                                     "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
+                                    "torrentTitle": hash_data['raw_title'],
                                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                                 }
                             )
@@ -298,6 +299,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         {
                             "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
                             "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])}",
+                            "torrentTitle": hash_data['raw_title'],
                             "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
                         }
                     )
