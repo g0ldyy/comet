@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/g0ldyy/comet/compare/v1.15.0...v1.15.1) (2024-07-15)
+
+
+### Bug Fixes
+
+* do the maths client side ([b0aa42c](https://github.com/g0ldyy/comet/commit/b0aa42c519767b61ed9d3dfdec7eceed79e127ae))
+
 ## [1.15.0](https://github.com/g0ldyy/comet/compare/v1.14.2...v1.15.0) (2024-07-15)
 
 
