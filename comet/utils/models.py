@@ -39,7 +39,7 @@ class ConfigModel(BaseModel):
     languages: Optional[List[str]] = ["All"]
     resolutions: Optional[List[str]] = ["All"]
     maxResults: Optional[int] = 0
-    maxSize: Optional[float] = 0
+    maxSize: Optional[int] = 0
     debridService: str
     debridApiKey: str
     debridStreamProxyPassword: Optional[str] = ""

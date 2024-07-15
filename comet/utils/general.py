@@ -370,7 +370,7 @@ async def get_balanced_hashes(hashes: dict, config: dict):
     for hash, hash_data in hashes.items():
         hash_info = hash_data["data"]
 
-        if hash_info["size"] / (1024**3) > max_size and max_size != 0:
+        if max_size != 0 and hash_info["size"] > max_size:
             continue
 
         if (
