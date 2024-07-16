@@ -215,7 +215,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         index_less = 0
         for hash in torrent_hashes:
             if hash[1] is None:
-                del torrents[hash[0]]
+                del torrents[hash[0] - index_less]
                 index_less += 1
                 continue
 
