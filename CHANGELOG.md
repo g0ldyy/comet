@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.3](https://github.com/g0ldyy/comet/compare/v1.15.2...v1.15.3) (2024-07-16)
+
+
+### Bug Fixes
+
+* hope ([0086f3f](https://github.com/g0ldyy/comet/commit/0086f3f90ed31dba29d5e5ad0f6b6451f9144e91))
+
 ## [1.15.2](https://github.com/g0ldyy/comet/compare/v1.15.1...v1.15.2) (2024-07-15)
 
 
