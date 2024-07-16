@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.4](https://github.com/g0ldyy/comet/compare/v1.15.3...v1.15.4) (2024-07-16)
+
+
+### Bug Fixes
+
+* I fixed it I think guys ([86ea5d5](https://github.com/g0ldyy/comet/commit/86ea5d5a3d2af47e3698c04f160e195cf8def614))
+
 ## [1.15.3](https://github.com/g0ldyy/comet/compare/v1.15.2...v1.15.3) (2024-07-16)
 
 
