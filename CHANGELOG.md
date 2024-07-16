@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.5](https://github.com/g0ldyy/comet/compare/v1.15.4...v1.15.5) (2024-07-16)
+
+
+### Bug Fixes
+
+* prowlarr infoHash ([71738ee](https://github.com/g0ldyy/comet/commit/71738ee3a65115694a219b4e55e645df2ccef138))
+
 ## [1.15.4](https://github.com/g0ldyy/comet/compare/v1.15.3...v1.15.4) (2024-07-16)
 
 
