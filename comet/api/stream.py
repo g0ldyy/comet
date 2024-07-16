@@ -215,7 +215,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         index_less = 0
         for hash in torrent_hashes:
             if hash[1] is None:
-                del torrents[hash[0] - index_less] # fix?
+                del torrents[hash[0] - index_less]
                 index_less += 1
                 continue
 
@@ -260,7 +260,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         torrents_by_hash = {
             torrent["InfoHash"]: torrent
             for torrent in torrents
-            if hash in sorted_ranked_files
         }
         for hash in sorted_ranked_files:  # needed for caching
             sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]

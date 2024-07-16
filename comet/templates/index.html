@@ -635,7 +635,7 @@
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
-                            maxSize: parseFloat(maxSize) * 1073741824,
+                            maxSize: parseFloat(maxSize * 1073741824),
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
                             debridService: debridService,

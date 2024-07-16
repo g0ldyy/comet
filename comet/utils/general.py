@@ -248,16 +248,9 @@ async def get_indexer_manager(
 
             for result in response:
                 result["InfoHash"] = result["infoHash"]
-                del result["infoHash"]
-
                 result["Title"] = result["title"]
-                del result["title"]
-
                 result["Link"] = result["downloadUrl"]
-                del result["downloadUrl"]
-
                 result["Tracker"] = result["indexer"]
-                del result["indexer"]
 
                 results.append(result)
     except Exception as e:
