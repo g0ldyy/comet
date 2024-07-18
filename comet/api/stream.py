@@ -135,14 +135,16 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 ) in sorted_ranked_files.items():
                     for resolution, hash_list in balanced_hashes.items():
                         if hash in hash_list:
+                            data = hash_data["data"]
                             results.append(
                                 {
-                                    "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
-                                    "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])} 🔎 {sorted_ranked_files[hash]['data']['tracker'] if 'tracker' in sorted_ranked_files[hash]['data'] else '?'}",
-                                    "torrentTitle": hash_data["data"]["torrent_title"]
-                                    if "torrent_title" in hash_data["data"]
+                                    "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
+                                    "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker'] if 'tracker' in data else '?'}",
+                                    "torrentTitle": data["torrent_title"]
+                                    if "torrent_title" in data
                                     else None,
-                                    "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
+                                    "torrentSize": data["torrent_size"] if "torrent_size" in data else None,
+                                    "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
                                 }
                             )
 
@@ -270,6 +272,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 "Tracker"
             ]
             sorted_ranked_files[hash]["data"]["size"] = files[hash]["size"]
+            sorted_ranked_files[hash]["data"]["torrent_size"] = torrents_by_hash[hash]["Size"]
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")
@@ -300,12 +303,14 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         for hash, hash_data in sorted_ranked_files.items():
             for resolution, hash_list in balanced_hashes.items():
                 if hash in hash_list:
+                    data = hash_data["data"]
                     results.append(
                         {
-                            "name": f"[{debrid_extension}⚡] Comet {hash_data['data']['resolution'][0] if hash_data['data']['resolution'] else 'Unknown'}",
-                            "title": f"{hash_data['data']['title']}\n💾 {bytes_to_size(hash_data['data']['size'])} 🔎 {sorted_ranked_files[hash]['data']['tracker']}",
-                            "torrentTitle": hash_data["data"]["torrent_title"],
-                            "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{hash_data['data']['index']}",
+                            "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
+                            "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker']}",
+                            "torrentTitle": data["torrent_title"],
+                            "torrentSize": data["torrent_size"],
+                            "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
                         }
                     )
 

@@ -249,6 +249,7 @@ async def get_indexer_manager(
             for result in response:
                 result["InfoHash"] = result["infoHash"]
                 result["Title"] = result["title"]
+                result["Size"] = result["size"]
                 result["Link"] = result["downloadUrl"]
                 result["Tracker"] = result["indexer"]
 
@@ -279,6 +280,7 @@ async def get_zilean(
                     object = {
                         "Title": result["filename"],
                         "InfoHash": result["infoHash"],
+                        "Size": result["filesize"],
                         "Tracker": "DMM",
                     }
 
@@ -295,6 +297,7 @@ async def get_zilean(
                     object = {
                         "Title": result["rawTitle"],
                         "InfoHash": result["infoHash"],
+                        "Size": result["size"],
                         "Tracker": "DMM",
                     }
 
