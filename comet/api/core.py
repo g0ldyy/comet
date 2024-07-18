@@ -69,14 +69,33 @@ async def manifest(b64config: str = None):
 
     return {
         "id": settings.ADDON_ID,
-        "version": "1.0.0",
         "name": f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}",
         "description": "Stremio's fastest torrent/debrid search add-on.",
+        "version": "1.0.0",
+        "catalogs": [],
+        "resources": [
+            {
+            "name": "stream",
+            "types": [
+                "movie",
+                "series"
+            ],
+            "idPrefixes": [
+                "tt",
+                "kitsu"
+            ]
+            }
+        ],
+        "types": [
+            "movie",
+            "series",
+            "anime",
+            "other"
+        ],
         "logo": "https://i.imgur.com/jmVoVMu.jpeg",
         "background": "https://i.imgur.com/WwnXB3k.jpeg",
-        "resources": ["stream"],
-        "types": ["movie", "series"],
-        "idPrefixes": ["tt"],
-        "catalogs": [],
-        "behaviorHints": {"configurable": True},
+        "behaviorHints": {
+            "configurable": True,
+            "configurationRequired": False
+        }
     }
