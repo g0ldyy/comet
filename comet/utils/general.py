@@ -191,7 +191,7 @@ def config_check(b64config: str):
 
 
 def get_debrid_extension(debridService: str):
-    debrid_extension = "?"  # Unknown
+    debrid_extension = None  # Unknown
     if debridService == "realdebrid":
         debrid_extension = "RD"
     elif debridService == "alldebrid":
