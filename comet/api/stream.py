@@ -6,7 +6,7 @@ import aiohttp
 import httpx
 
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse
 from starlette.background import BackgroundTask
 from RTN import Torrent, sort_torrents
 
@@ -349,10 +349,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
 @streams.head("/{b64config}/playback/{hash}/{index}")
 async def playback(b64config: str, hash: str, index: str):
-    config = config_check(b64config)
-    if not config:
-        return
-
     return RedirectResponse("https://stremio.fast", status_code=302)
 
 
@@ -360,13 +356,13 @@ async def playback(b64config: str, hash: str, index: str):
 async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
     if not config:
-        return
+        return FileResponse("comet/assets/invalidconfig.mp4")
 
     async with aiohttp.ClientSession() as session:
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
         if download_link is None:
-            return
+            return FileResponse("comet/assets/uncached.mp4")
 
         proxy = (
             debrid.proxy if config["debridService"] == "alldebrid" else None
@@ -419,6 +415,6 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                         },
                         background=BackgroundTask(await streamer.close()),
                     )
-            return
+            return FileResponse("comet/assets/uncached.mp4")
 
         return RedirectResponse(download_link, status_code=302)
