@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.2](https://github.com/g0ldyy/comet/compare/v1.17.1...v1.17.2) (2024-07-18)
+
+
+### Bug Fixes
+
+* update manifest for animes support ([8ee3220](https://github.com/g0ldyy/comet/commit/8ee32205f14ad098dc96c1f9aea3f78314807431))
+
 ## [1.17.1](https://github.com/g0ldyy/comet/compare/v1.17.0...v1.17.1) (2024-07-18)
 
 
