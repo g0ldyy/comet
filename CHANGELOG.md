@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.17.0](https://github.com/g0ldyy/comet/compare/v1.16.0...v1.17.0) (2024-07-18)
+
+
+### Features
+
+* error videos added to playback ([83668ea](https://github.com/g0ldyy/comet/commit/83668ea3c15858504dfbb58fae5764995dc30bf9))
+
+
+### Bug Fixes
+
+* faster (we title match check before doing the rest) ([19fc235](https://github.com/g0ldyy/comet/commit/19fc235e838bcfb6d3d7e06f95309ff72c491fd5))
+
 ## [1.16.0](https://github.com/g0ldyy/comet/compare/v1.15.5...v1.16.0) (2024-07-18)
 
 
