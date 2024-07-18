@@ -247,7 +247,7 @@ async def get_indexer_manager(
             response = await response.json()
 
             for result in response:
-                result["InfoHash"] = result["infoHash"]
+                result["InfoHash"] = result["infoHash"] if "infoHash" in result else None
                 result["Title"] = result["title"]
                 result["Size"] = result["size"]
                 result["Link"] = result["downloadUrl"]
