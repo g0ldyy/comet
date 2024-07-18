@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.0](https://github.com/g0ldyy/comet/compare/v1.17.2...v1.18.0) (2024-07-18)
+
+
+### Features
+
+* Kitsu support ([b641c69](https://github.com/g0ldyy/comet/commit/b641c69c04173b82386a4e150fccba2e078a85be))
+
 ## [1.17.2](https://github.com/g0ldyy/comet/compare/v1.17.1...v1.17.2) (2024-07-18)
 
 
