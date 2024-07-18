@@ -646,21 +646,26 @@
 
                     copyLinkButton.addEventListener("click", () => {
                         const settings = getSettings();
+                        const settingsString = btoa(JSON.stringify(settings))
 
                         const textArea = document.createElement("textarea");
-                        textArea.value = `${window.location.origin}/${btoa(JSON.stringify(settings))}/manifest.json`;
+                        textArea.value = `${window.location.origin}/${settingsString}/manifest.json`;
                         document.body.appendChild(textArea);
                         textArea.focus();
                         textArea.select();
                         document.execCommand("copy");
                         document.body.removeChild(textArea);
 
+                        console.log(settingsString);
+
                         copyAlert.toast();
                     });
 
                     installButton.addEventListener("click", () => {
                         const settings = getSettings();
-                        window.location.href = `stremio://${window.location.host}/${btoa(JSON.stringify(settings))}/manifest.json`;
+                        const settingsString = btoa(JSON.stringify(settings))
+                        window.location.href = `stremio://${window.location.host}/${settingsString}/manifest.json`;
+                        console.log(settingsString);
                         installAlert.toast();
                     });
                 </script>
