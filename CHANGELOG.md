@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/g0ldyy/comet/compare/v1.17.0...v1.17.1) (2024-07-18)
+
+
+### Bug Fixes
+
+* metadata ([81ff5bc](https://github.com/g0ldyy/comet/commit/81ff5bc71b1b8a683f662fa9af7c364cf6046b85))
+
 ## [1.17.0](https://github.com/g0ldyy/comet/compare/v1.16.0...v1.17.0) (2024-07-18)
 
 
