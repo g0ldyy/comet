@@ -41,7 +41,7 @@ class RealDebrid:
             )
 
     async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str
+        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
     ):
         chunk_size = 50
         chunks = [
@@ -76,15 +76,20 @@ class RealDebrid:
                             continue
 
                         filename_parsed = parse(filename)
-                        if (
-                            season in filename_parsed.season
-                            and episode in filename_parsed.episode
-                        ):
-                            files[hash] = {
-                                "index": index,
-                                "title": filename,
-                                "size": file["filesize"],
-                            }
+                        if episode not in filename_parsed.episode:
+                            continue
+
+                        if not kitsu and season not in filename_parsed.season:
+                            continue
+
+                        if kitsu and filename_parsed.season != []:
+                            continue
+
+                        files[hash] = {
+                            "index": index,
+                            "title": filename,
+                            "size": file["filesize"],
+                        }
 
                 continue
 
@@ -141,7 +146,7 @@ class RealDebrid:
                         for file in get_magnet_info["files"]
                         if is_video(file["path"])
                     )
-                },  # "all" because bad
+                },
                 proxy=self.proxy,
             )
 

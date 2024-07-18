@@ -75,27 +75,13 @@ async def manifest(b64config: str = None):
         "catalogs": [],
         "resources": [
             {
-            "name": "stream",
-            "types": [
-                "movie",
-                "series"
-            ],
-            "idPrefixes": [
-                "tt",
-                "kitsu"
-            ]
+                "name": "stream",
+                "types": ["movie", "series"],
+                "idPrefixes": ["tt", "kitsu"],
             }
         ],
-        "types": [
-            "movie",
-            "series",
-            "anime",
-            "other"
-        ],
+        "types": ["movie", "series", "anime", "other"],
         "logo": "https://i.imgur.com/jmVoVMu.jpeg",
         "background": "https://i.imgur.com/WwnXB3k.jpeg",
-        "behaviorHints": {
-            "configurable": True,
-            "configurationRequired": False
-        }
+        "behaviorHints": {"configurable": True, "configurationRequired": False},
     }

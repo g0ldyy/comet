@@ -49,18 +49,26 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         episode = None
         if type == "series":
             info = id.split(":")
-
             id = info[0]
             season = int(info[1])
             episode = int(info[2])
 
         try:
-            get_metadata = await session.get(
-                f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
-            )
-            metadata = await get_metadata.json()
-
-            name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
+            kitsu = False
+            if id == "kitsu":
+                kitsu = True
+                get_metadata = await session.get(
+                    f"https://kitsu.io/api/edge/anime/{season}"
+                )
+                get_metadata = await get_metadata.json()
+                name = get_metadata["data"]["attributes"]["canonicalTitle"]
+                season = 1
+            else:
+                get_metadata = await session.get(
+                    f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
+                )
+                metadata = await get_metadata.json()
+                name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
@@ -185,9 +193,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 f"Start of {indexer_manager_type} search for {log_name} with indexers {config['indexers']}"
             )
 
-            search_terms = [name]
+            search_terms = [name] if not kitsu else [f"{name} {episode}"]
             if type == "series":
-                search_terms.append(f"{name} S0{season}E0{episode}")
+                if not kitsu:
+                    search_terms.append(f"{name} S0{season}E0{episode}")
             tasks.extend(
                 get_indexer_manager(
                     session, indexer_manager_type, config["indexers"], term
@@ -261,6 +270,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             type,
             season,
             episode,
+            kitsu,
         )
 
         ranked_files = set()

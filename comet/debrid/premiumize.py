@@ -49,7 +49,7 @@ class Premiumize:
             )
 
     async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str
+        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
     ):
         chunk_size = 100
         chunks = [
@@ -89,15 +89,20 @@ class Premiumize:
                 filename = filenames[index]
                 if type == "series":
                     filename_parsed = parse(filename)
-                    if (
-                        season in filename_parsed.season
-                        and episode in filename_parsed.episode
-                    ):
-                        files[hashes[index]] = {
-                            "index": f"{season}|{episode}",
-                            "title": filename,
-                            "size": int(filesizes[index]),
-                        }
+                    if episode not in filename_parsed.episode:
+                        continue
+
+                    if not kitsu and season not in filename_parsed.season:
+                        continue
+
+                    if kitsu and filename_parsed.season != []:
+                        continue
+
+                    files[hashes[index]] = {
+                        "index": f"{season}|{episode}",
+                        "title": filename,
+                        "size": int(filesizes[index]),
+                    }
 
                     continue
 

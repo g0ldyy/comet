@@ -44,7 +44,7 @@ class AllDebrid:
             )
 
     async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str
+        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
     ):
         chunk_size = 500
         chunks = [
@@ -86,15 +86,20 @@ class AllDebrid:
                             continue
 
                         filename_parsed = parse(filename)
-                        if (
-                            season in filename_parsed.season
-                            and episode in filename_parsed.episode
-                        ):
-                            files[magnet["hash"]] = {
-                                "index": magnet["files"].index(file),
-                                "title": filename,
-                                "size": file["e"][0]["s"] if pack else file["s"],
-                            }
+                        if episode not in filename_parsed.episode:
+                            continue
+
+                        if not kitsu and season not in filename_parsed.season:
+                            continue
+
+                        if kitsu and filename_parsed.season != []:
+                            continue
+
+                        files[magnet["hash"]] = {
+                            "index": magnet["files"].index(file),
+                            "title": filename,
+                            "size": file["e"][0]["s"] if pack else file["s"],
+                        }
 
                     continue
 

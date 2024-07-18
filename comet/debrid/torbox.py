@@ -41,7 +41,7 @@ class TorBox:
             )
 
     async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str
+        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
     ):
         chunk_size = 100
         chunks = [
@@ -80,15 +80,20 @@ class TorBox:
                             continue
 
                         filename_parsed = parse(filename)
-                        if (
-                            season in filename_parsed.season
-                            and episode in filename_parsed.episode
-                        ):
-                            files[hash] = {
-                                "index": hash_files.index(file),
-                                "title": filename,
-                                "size": file["size"],
-                            }
+                        if episode not in filename_parsed.episode:
+                            continue
+
+                        if not kitsu and season not in filename_parsed.season:
+                            continue
+
+                        if kitsu and filename_parsed.season != []:
+                            continue
+
+                        files[hash] = {
+                            "index": hash_files.index(file),
+                            "title": filename,
+                            "size": file["size"],
+                        }
 
                 continue
 
