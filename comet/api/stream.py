@@ -17,6 +17,7 @@ from comet.utils.general import (
     get_debrid_extension,
     get_indexer_manager,
     get_zilean,
+    filter,
     get_torrent_hash,
     translate,
     get_balanced_hashes,
@@ -143,7 +144,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                                     "torrentTitle": data["torrent_title"]
                                     if "torrent_title" in data
                                     else None,
-                                    "torrentSize": data["torrent_size"] if "torrent_size" in data else None,
+                                    "torrentSize": data["torrent_size"]
+                                    if "torrent_size" in data
+                                    else None,
                                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
                                 }
                             )
@@ -209,6 +212,31 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrents) == 0:
             return {"streams": []}
 
+        indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
+        chunk_size = 50
+        chunks = [
+            indexed_torrents[i : i + chunk_size]
+            for i in range(0, len(indexed_torrents), chunk_size)
+        ]
+
+        tasks = []
+        for chunk in chunks:
+            tasks.append(filter(chunk, name))
+
+        filtered_torrents = await asyncio.gather(*tasks)
+        index_less = 0
+        for result in filtered_torrents:
+            for filtered in result:
+                if not filtered[1]:
+                    del torrents[filtered[0] - index_less]
+                    index_less += 1
+                    continue
+
+        logger.info(f"{len(torrents)} torrents passed title match check for {log_name}")
+
+        if len(torrents) == 0:
+            return {"streams": []}
+
         tasks = []
         for i in range(len(torrents)):
             tasks.append(get_torrent_hash(session, (i, torrents[i])))
@@ -237,12 +265,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         ranked_files = set()
         for hash in files:
-            try:
-                ranked_file = rtn.rank(
-                    files[hash]["title"], hash, correct_title=name, remove_trash=True
-                )
-            except:
-                continue
+            # try:
+            ranked_file = rtn.rank(
+                files[hash]["title"],
+                hash,  # , correct_title=name, remove_trash=True
+            )
+            # except:
+            #     continue
 
             ranked_files.add(ranked_file)
 
@@ -259,10 +288,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             key: (value.model_dump() if isinstance(value, Torrent) else value)
             for key, value in sorted_ranked_files.items()
         }
-        torrents_by_hash = {
-            torrent["InfoHash"]: torrent
-            for torrent in torrents
-        }
+        torrents_by_hash = {torrent["InfoHash"]: torrent for torrent in torrents}
         for hash in sorted_ranked_files:  # needed for caching
             sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]
             sorted_ranked_files[hash]["data"]["torrent_title"] = torrents_by_hash[hash][
@@ -272,7 +298,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 "Tracker"
             ]
             sorted_ranked_files[hash]["data"]["size"] = files[hash]["size"]
-            sorted_ranked_files[hash]["data"]["torrent_size"] = torrents_by_hash[hash]["Size"]
+            sorted_ranked_files[hash]["data"]["torrent_size"] = torrents_by_hash[hash][
+                "Size"
+            ]
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")

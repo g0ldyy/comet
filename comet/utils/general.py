@@ -5,6 +5,8 @@ import re
 import aiohttp
 import bencodepy
 
+from RTN import parse, title_match
+
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
 
@@ -247,7 +249,9 @@ async def get_indexer_manager(
             response = await response.json()
 
             for result in response:
-                result["InfoHash"] = result["infoHash"] if "infoHash" in result else None
+                result["InfoHash"] = (
+                    result["infoHash"] if "infoHash" in result else None
+                )
                 result["Title"] = result["title"]
                 result["Size"] = result["size"]
                 result["Link"] = result["downloadUrl"]
@@ -309,6 +313,21 @@ async def get_zilean(
             f"Exception while getting torrents for {log_name} with Zilean: {e}"
         )
         pass
+
+    return results
+
+
+async def filter(torrents: list, name: str):
+    results = []
+    for torrent in torrents:
+        index = torrent[0]
+        torrent = torrent[1]
+
+        if title_match(name, parse(torrent).parsed_title):
+            results.append((index, True))
+            continue
+
+        results.append((index, False))
 
     return results
 
