@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.0](https://github.com/g0ldyy/comet/compare/v1.15.5...v1.16.0) (2024-07-18)
+
+
+### Features
+
+* add real torrent_size in results ([33ef5b1](https://github.com/g0ldyy/comet/commit/33ef5b119fa9f01bb914ba969bf19f95b61a761f))
+* config string now sent to console when copy/install button clicked ([9f46fa9](https://github.com/g0ldyy/comet/commit/9f46fa98ddfdd9a0466f200144cd72dc09a8e160))
+
 ## [1.15.5](https://github.com/g0ldyy/comet/compare/v1.15.4...v1.15.5) (2024-07-16)
 
 
