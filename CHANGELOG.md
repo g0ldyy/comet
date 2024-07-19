@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.3](https://github.com/g0ldyy/comet/compare/v1.18.2...v1.18.3) (2024-07-19)
+
+
+### Bug Fixes
+
+* slightly improve anime results ([c9f230c](https://github.com/g0ldyy/comet/commit/c9f230c9cb8649dbe5f0dfab923039785b4c885b))
+
 ## [1.18.2](https://github.com/g0ldyy/comet/compare/v1.18.1...v1.18.2) (2024-07-19)
 
 
