@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.1](https://github.com/g0ldyy/comet/compare/v1.18.0...v1.18.1) (2024-07-19)
+
+
+### Bug Fixes
+
+* torrents faster ([ef53efe](https://github.com/g0ldyy/comet/commit/ef53efe7337679cc1cf1843d1efa956c09cad62a))
+
 ## [1.18.0](https://github.com/g0ldyy/comet/compare/v1.17.2...v1.18.0) (2024-07-18)
 
 
