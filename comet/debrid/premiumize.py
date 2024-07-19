@@ -65,52 +65,68 @@ class Premiumize:
 
         availability = []
         for response in responses:
-            if response is None:
+            if not response:
                 continue
 
             availability.append(response)
 
         files = {}
-        for result in availability:
-            if result["status"] != "success":
-                continue
 
-            responses = result["response"]
-            filenames = result["filename"]
-            filesizes = result["filesize"]
-            hashes = result["hashes"]
-            for index, response in enumerate(responses):
-                if response is False:
+        if type == "series":
+            for result in availability:
+                if result["status"] != "success":
                     continue
 
-                if filesizes[index] is None:
-                    continue
+                responses = result["response"]
+                filenames = result["filename"]
+                filesizes = result["filesize"]
+                hashes = result["hashes"]
+                for index, response in enumerate(responses):
+                    if not response:
+                        continue
 
-                filename = filenames[index]
-                if type == "series":
+                    if not filesizes[index]:
+                        continue
+
+                    filename = filenames[index]
                     filename_parsed = parse(filename)
                     if episode not in filename_parsed.episode:
                         continue
 
-                    if not kitsu and season not in filename_parsed.season:
-                        continue
-
-                    if kitsu and filename_parsed.season != []:
-                        continue
+                    if kitsu:
+                        if filename_parsed.season:
+                            continue
+                    else:
+                        if season not in filename_parsed.season:
+                            continue
 
                     files[hashes[index]] = {
                         "index": f"{season}|{episode}",
                         "title": filename,
                         "size": int(filesizes[index]),
                     }
-
+        else:
+            for result in availability:
+                if result["status"] != "success":
                     continue
 
-                files[hashes[index]] = {
-                    "index": 0,
-                    "title": filename,
-                    "size": int(filesizes[index]),
-                }
+                responses = result["response"]
+                filenames = result["filename"]
+                filesizes = result["filesize"]
+                hashes = result["hashes"]
+                for index, response in enumerate(responses):
+                    if response is False:
+                        continue
+
+                    if not filesizes[index]:
+                        continue
+
+                    filename = filenames[index]
+                    files[hashes[index]] = {
+                        "index": 0,
+                        "title": filename,
+                        "size": int(filesizes[index]),
+                    }
 
         return files
 

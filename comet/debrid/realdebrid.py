@@ -57,17 +57,16 @@ class RealDebrid:
 
         availability = {}
         for response in responses:
-            if response is None:
-                continue
-
-            availability.update(response)
+            if response is not None:
+                availability.update(response)
 
         files = {}
-        for hash, details in availability.items():
-            if "rd" not in details:
-                continue
 
-            if type == "series":
+        if type == "series":
+            for hash, details in availability.items():
+                if "rd" not in details:
+                    continue
+
                 for variants in details["rd"]:
                     for index, file in variants.items():
                         filename = file["filename"]
@@ -79,10 +78,30 @@ class RealDebrid:
                         if episode not in filename_parsed.episode:
                             continue
 
-                        if not kitsu and season not in filename_parsed.season:
-                            continue
+                        if kitsu:
+                            if filename_parsed.season:
+                                continue
+                        else:
+                            if season not in filename_parsed.season:
+                                continue
 
-                        if kitsu and filename_parsed.season != []:
+                        files[hash] = {
+                            "index": index,
+                            "title": filename,
+                            "size": file["filesize"],
+                        }
+
+                        break
+        else:
+            for hash, details in availability.items():
+                if "rd" not in details:
+                    continue
+
+                for variants in details["rd"]:
+                    for index, file in variants.items():
+                        filename = file["filename"]
+
+                        if not is_video(filename):
                             continue
 
                         files[hash] = {
@@ -91,20 +110,7 @@ class RealDebrid:
                             "size": file["filesize"],
                         }
 
-                continue
-
-            for variants in details["rd"]:
-                for index, file in variants.items():
-                    filename = file["filename"]
-
-                    if not is_video(filename):
-                        continue
-
-                    files[hash] = {
-                        "index": index,
-                        "title": filename,
-                        "size": file["filesize"],
-                    }
+                        break
 
         return files
 

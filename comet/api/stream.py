@@ -253,7 +253,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         torrent_hashes = await asyncio.gather(*tasks)
         index_less = 0
         for hash in torrent_hashes:
-            if hash[1] is None:
+            if not hash[1]:
                 del torrents[hash[0] - index_less]
                 index_less += 1
                 continue
@@ -371,7 +371,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     async with aiohttp.ClientSession() as session:
         debrid = getDebrid(session, config)
         download_link = await debrid.generate_download_link(hash, index)
-        if download_link is None:
+        if not download_link:
             return FileResponse("comet/assets/uncached.mp4")
 
         proxy = (

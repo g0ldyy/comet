@@ -54,22 +54,16 @@ class DebridLink:
 
         responses = await asyncio.gather(*tasks)
 
-        availability = []
-        for response in responses:
-            if response is None:
-                continue
-
-            availability.append(response)
+        availability = [
+            response for response in responses if response and response.get("success")
+        ]
 
         files = {}
-        for result in availability:
-            if "success" not in result or not result["success"]:
-                continue
 
-            if type == "series":
-                for hash in result["value"]:
-                    hash_files = result["value"][hash]["files"]
-                    for file in hash_files:
+        if type == "series":
+            for result in availability:
+                for hash, torrent_data in result["value"].items():
+                    for file in torrent_data["files"]:
                         filename = file["name"]
 
                         if not is_video(filename):
@@ -79,33 +73,36 @@ class DebridLink:
                         if episode not in filename_parsed.episode:
                             continue
 
-                        if not kitsu and season not in filename_parsed.season:
-                            continue
-
-                        if kitsu and filename_parsed.season != []:
-                            continue
+                        if kitsu:
+                            if filename_parsed.season:
+                                continue
+                        else:
+                            if season not in filename_parsed.season:
+                                continue
 
                         files[hash] = {
-                            "index": hash_files.index(file),
+                            "index": torrent_data["files"].index(file),
                             "title": filename,
                             "size": file["size"],
                         }
 
-                continue
+                        break
+        else:
+            for result in availability:
+                for hash, torrent_data in result["value"].items():
+                    for file in torrent_data["files"]:
+                        filename = file["name"]
 
-            for hash in result["value"]:
-                hash_files = result["value"][hash]["files"]
-                for file in hash_files:
-                    filename = file["name"]
+                        if not is_video(filename):
+                            continue
 
-                    if not is_video(filename):
-                        continue
+                        files[hash] = {
+                            "index": torrent_data["files"].index(file),
+                            "title": filename,
+                            "size": file["size"],
+                        }
 
-                    files[hash] = {
-                        "index": hash_files.index(file),
-                        "title": filename,
-                        "size": file["size"],
-                    }
+                        break
 
         return files
 

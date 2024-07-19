@@ -272,7 +272,7 @@ async def get_zilean(
 ):
     results = []
     try:
-        if season is None:
+        if not season:
             get_dmm = await session.post(
                 f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
             )

@@ -58,23 +58,19 @@ class AllDebrid:
 
         responses = await asyncio.gather(*tasks)
 
-        availability = []
-        for response in responses:
-            if response is None:
-                continue
-
-            availability.append(response)
+        availability = [response for response in responses if response]
 
         files = {}
-        for result in availability:
-            if "status" not in result or result["status"] != "success":
-                continue
 
-            for magnet in result["data"]["magnets"]:
-                if not magnet["instant"]:
+        if type == "series":
+            for result in availability:
+                if "status" not in result or result["status"] != "success":
                     continue
 
-                if type == "series":
+                for magnet in result["data"]["magnets"]:
+                    if not magnet["instant"]:
+                        continue
+
                     for file in magnet["files"]:
                         filename = file["n"]
                         pack = False
@@ -89,11 +85,12 @@ class AllDebrid:
                         if episode not in filename_parsed.episode:
                             continue
 
-                        if not kitsu and season not in filename_parsed.season:
-                            continue
-
-                        if kitsu and filename_parsed.season != []:
-                            continue
+                        if kitsu:
+                            if filename_parsed.season:
+                                continue
+                        else:
+                            if season not in filename_parsed.season:
+                                continue
 
                         files[magnet["hash"]] = {
                             "index": magnet["files"].index(file),
@@ -101,19 +98,29 @@ class AllDebrid:
                             "size": file["e"][0]["s"] if pack else file["s"],
                         }
 
+                        break
+        else:
+            for result in availability:
+                if "status" not in result or result["status"] != "success":
                     continue
 
-                for file in magnet["files"]:
-                    filename = file["n"]
-
-                    if not is_video(filename):
+                for magnet in result["data"]["magnets"]:
+                    if not magnet["instant"]:
                         continue
 
-                    files[magnet["hash"]] = {
-                        "index": magnet["files"].index(file),
-                        "title": filename,
-                        "size": file["s"],
-                    }
+                    for file in magnet["files"]:
+                        filename = file["n"]
+
+                        if not is_video(filename):
+                            continue
+
+                        files[magnet["hash"]] = {
+                            "index": magnet["files"].index(file),
+                            "title": filename,
+                            "size": file["s"],
+                        }
+
+                        break
 
         return files
 

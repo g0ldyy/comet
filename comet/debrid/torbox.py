@@ -55,22 +55,15 @@ class TorBox:
 
         responses = await asyncio.gather(*tasks)
 
-        availability = []
-        for response in responses:
-            if response is None:
-                continue
-
-            availability.append(response)
+        availability = [response for response in responses if response is not None]
 
         files = {}
-        for result in availability:
-            if not result["success"]:
-                continue
 
-            if result["data"] is None:
-                continue
+        if type == "series":
+            for result in availability:
+                if not result["success"] or not result["data"]:
+                    continue
 
-            if type == "series":
                 for torrent in result["data"]:
                     torrent_files = torrent["files"]
                     for file in torrent_files:
@@ -83,10 +76,31 @@ class TorBox:
                         if episode not in filename_parsed.episode:
                             continue
 
-                        if not kitsu and season not in filename_parsed.season:
-                            continue
+                        if kitsu:
+                            if filename_parsed.season:
+                                continue
+                        else:
+                            if season not in filename_parsed.season:
+                                continue
 
-                        if kitsu and filename_parsed.season != []:
+                        files[torrent["hash"]] = {
+                            "index": torrent_files.index(file),
+                            "title": filename,
+                            "size": file["size"],
+                        }
+
+                        break
+        else:
+            for result in availability:
+                if not result["success"] or not result["data"]:
+                    continue
+
+                for torrent in result["data"]:
+                    torrent_files = torrent["files"]
+                    for file in torrent_files:
+                        filename = file["name"].split("/")[1]
+
+                        if not is_video(filename):
                             continue
 
                         files[torrent["hash"]] = {
@@ -95,21 +109,7 @@ class TorBox:
                             "size": file["size"],
                         }
 
-                continue
-
-            for torrent in result["data"]:
-                torrent_files = torrent["files"]
-                for file in torrent_files:
-                    filename = file["name"].split("/")[1]
-
-                    if not is_video(filename):
-                        continue
-
-                    files[torrent["hash"]] = {
-                        "index": torrent_files.index(file),
-                        "title": filename,
-                        "size": file["size"],
-                    }
+                        break
 
         return files
 
