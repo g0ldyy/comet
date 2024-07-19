@@ -32,7 +32,7 @@ class TorBox:
     async def get_instant(self, chunk: list):
         try:
             response = await self.session.get(
-                f"{self.api_url}/torrents/checkcached?hash={','.join(chunk)}&list_files=true"
+                f"{self.api_url}/torrents/checkcached?hash={','.join(chunk)}&format=list&list_files=true"
             )
             return await response.json()
         except Exception as e:
@@ -71,9 +71,9 @@ class TorBox:
                 continue
 
             if type == "series":
-                for hash in result["data"]:
-                    hash_files = result["data"][hash]["files"]
-                    for file in hash_files:
+                for torrent in result["data"]:
+                    torrent_files = torrent["files"]
+                    for file in torrent_files:
                         filename = file["name"].split("/")[1]
 
                         if not is_video(filename):
@@ -89,24 +89,24 @@ class TorBox:
                         if kitsu and filename_parsed.season != []:
                             continue
 
-                        files[hash] = {
-                            "index": hash_files.index(file),
+                        files[torrent["hash"]] = {
+                            "index": torrent_files.index(file),
                             "title": filename,
                             "size": file["size"],
                         }
 
                 continue
 
-            for hash in result["data"]:
-                hash_files = result["data"][hash]["files"]
-                for file in hash_files:
+            for torrent in result["data"]:
+                torrent_files = torrent["files"]
+                for file in torrent_files:
                     filename = file["name"].split("/")[1]
 
                     if not is_video(filename):
                         continue
 
-                    files[hash] = {
-                        "index": hash_files.index(file),
+                    files[torrent["hash"]] = {
+                        "index": torrent_files.index(file),
                         "title": filename,
                         "size": file["size"],
                     }
