@@ -193,10 +193,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 f"Start of {indexer_manager_type} search for {log_name} with indexers {config['indexers']}"
             )
 
-            search_terms = [name] if not kitsu else [f"{name} {episode}"]
+            search_terms = [name]
             if type == "series":
                 if not kitsu:
                     search_terms.append(f"{name} S0{season}E0{episode}")
+                else:
+                    search_terms.append(f"{name} {episode}")
             tasks.extend(
                 get_indexer_manager(
                     session, indexer_manager_type, config["indexers"], term

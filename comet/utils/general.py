@@ -321,9 +321,9 @@ async def filter(torrents: list, name: str):
     results = []
     for torrent in torrents:
         index = torrent[0]
-        torrent = torrent[1]
+        title = torrent[1]
 
-        if title_match(name, parse(torrent).parsed_title):
+        if title_match(name, parse(title).parsed_title):
             results.append((index, True))
             continue
 
