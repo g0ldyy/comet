@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.18.2](https://github.com/g0ldyy/comet/compare/v1.18.1...v1.18.2) (2024-07-19)
+
+
+### Bug Fixes
+
+* faster debrid file parsing ([bf846fa](https://github.com/g0ldyy/comet/commit/bf846fa8a8d8444d13f404ec1651e7f0d71b4697))
+
 ## [1.18.1](https://github.com/g0ldyy/comet/compare/v1.18.0...v1.18.1) (2024-07-19)
 
 
