@@ -130,12 +130,9 @@ def start_log():
         )
     else:
         logger.log("COMET", "Zilean: Disabled")
-    logger.log(
-        "COMET", f"Debrid Stream Proxy Enabled: {bool(settings.PROXY_DEBRID_STREAM)}"
-    )
-    logger.log(
-        "COMET", f"Custom Header HTML Enabled: {bool(settings.CUSTOM_HEADER_HTML)}"
-    )
+    logger.log("COMET", f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}")
+    logger.log("COMET", f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)}")
+    logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
 
 with server.run_in_thread():

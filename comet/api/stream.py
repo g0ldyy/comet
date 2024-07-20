@@ -17,6 +17,7 @@ from comet.utils.general import (
     get_debrid_extension,
     get_indexer_manager,
     get_zilean,
+    get_torrentio,
     filter,
     get_torrent_hash,
     translate,
@@ -45,10 +46,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
+        full_id = id
         season = None
         episode = None
         if type == "series":
             info = id.split(":")
+            full_id = id
             id = info[0]
             season = int(info[1])
             episode = int(info[2])
@@ -211,13 +214,16 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if settings.ZILEAN_URL:
             tasks.append(get_zilean(session, name, log_name, season, episode))
 
+        if settings.SCRAPE_TORRENTIO:
+            tasks.append(get_torrentio(session, log_name, type, full_id))
+
         search_response = await asyncio.gather(*tasks)
         for results in search_response:
             for result in results:
                 torrents.append(result)
 
         logger.info(
-            f"{len(torrents)} torrents found for {log_name} with {indexer_manager_type}{' and Zilean' if settings.ZILEAN_URL else ''}"
+            f"{len(torrents)} torrents found for {log_name} with {indexer_manager_type}{' and Zilean' if settings.ZILEAN_URL else ''}{' and Torrentio' if settings.SCRAPE_TORRENTIO else ''}"
         )
 
         if len(torrents) == 0:

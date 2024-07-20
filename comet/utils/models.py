@@ -26,6 +26,7 @@ class AppSettings(BaseSettings):
     GET_TORRENT_TIMEOUT: Optional[int] = 5
     ZILEAN_URL: Optional[str] = None
     ZILEAN_TAKE_FIRST: Optional[int] = 500
+    SCRAPE_TORRENTIO: Optional[bool] = False
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "CHANGE_ME"

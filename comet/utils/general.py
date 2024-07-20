@@ -317,11 +317,48 @@ async def get_zilean(
     return results
 
 
+async def get_torrentio(
+    session: aiohttp.ClientSession, log_name: str, type: str, full_id: str
+):
+    results = []
+    try:
+        get_torrentio = await session.get(
+            f"https://torrentio.strem.fun/stream/{type}/{full_id}.json"
+        )
+        get_torrentio = await get_torrentio.json()
+
+        for torrent in get_torrentio["streams"]:
+            title = torrent["title"]
+            title_full = title.split("\n👤")[0]
+            tracker = title.split("⚙️ ")[1].split("\n")[0]
+
+            results.append(
+                {
+                    "Title": title_full,
+                    "InfoHash": torrent["infoHash"],
+                    "Size": None,
+                    "Tracker": f"Torrentio|{tracker}",
+                }
+            )
+
+        logger.info(f"{len(results)} torrents found for {log_name} with Torrentio")
+    except Exception as e:
+        logger.warning(
+            f"Exception while getting torrents for {log_name} with Torrentio: {e}"
+        )
+        pass
+
+    return results
+
+
 async def filter(torrents: list, name: str):
     results = []
     for torrent in torrents:
         index = torrent[0]
         title = torrent[1]
+
+        if "\n" in title:  # Torrentio title parsing
+            title = title.split("\n")[1]
 
         if title_match(name, parse(title).parsed_title):
             results.append((index, True))
