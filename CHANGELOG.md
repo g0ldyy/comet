@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.19.0](https://github.com/g0ldyy/comet/compare/v1.18.3...v1.19.0) (2024-07-20)
+
+
+### Features
+
+* torrentio scraper ([94c21d9](https://github.com/g0ldyy/comet/commit/94c21d962d784405d0c09e2986393b90c497dfd9))
+
+
+### Bug Fixes
+
+* add torrentio scraper to features ([27d23a5](https://github.com/g0ldyy/comet/commit/27d23a5fa6bb15a92be61ec7701207554864e422))
+
 ## [1.18.3](https://github.com/g0ldyy/comet/compare/v1.18.2...v1.18.3) (2024-07-19)
 
 
