@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.4](https://github.com/g0ldyy/comet/compare/v1.19.3...v1.19.4) (2024-07-21)
+
+
+### Bug Fixes
+
+* debrid stream proxy on some devices ([240364b](https://github.com/g0ldyy/comet/commit/240364bd883070cf2556fb2b7bdd89fa4a1230f6))
+
 ## [1.19.3](https://github.com/g0ldyy/comet/compare/v1.19.2...v1.19.3) (2024-07-21)
 
 
