@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.1](https://github.com/g0ldyy/comet/compare/v1.19.0...v1.19.1) (2024-07-21)
+
+
+### Bug Fixes
+
+* torrentio cloudflare bypass ([d9c98a7](https://github.com/g0ldyy/comet/commit/d9c98a75cb4e101d00395022549499b9a7d3965b))
+
 ## [1.19.0](https://github.com/g0ldyy/comet/compare/v1.18.3...v1.19.0) (2024-07-20)
 
 
