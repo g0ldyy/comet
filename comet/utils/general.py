@@ -6,6 +6,7 @@ import aiohttp
 import bencodepy
 
 from RTN import parse, title_match
+from curl_cffi import requests
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
@@ -317,15 +318,11 @@ async def get_zilean(
     return results
 
 
-async def get_torrentio(
-    session: aiohttp.ClientSession, log_name: str, type: str, full_id: str
+async def get_torrentio(log_name: str, type: str, full_id: str
 ):
     results = []
     try:
-        get_torrentio = await session.get(
-            f"https://torrentio.strem.fun/stream/{type}/{full_id}.json"
-        )
-        get_torrentio = await get_torrentio.json()
+        get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json").json()
 
         for torrent in get_torrentio["streams"]:
             title = torrent["title"]

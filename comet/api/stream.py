@@ -215,7 +215,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             tasks.append(get_zilean(session, name, log_name, season, episode))
 
         if settings.SCRAPE_TORRENTIO:
-            tasks.append(get_torrentio(session, log_name, type, full_id))
+            tasks.append(get_torrentio(log_name, type, full_id))
 
         search_response = await asyncio.gather(*tasks)
         for results in search_response:
