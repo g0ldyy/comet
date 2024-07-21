@@ -417,7 +417,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 end = int(end) if end else ""
                 range = f"bytes={start}-{end}"
 
-            async with await session.get(
+            async with session.get(
                 download_link, headers={"Range": range}, proxy=proxy
             ) as response:
                 if response.status == 206:
