@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.2](https://github.com/g0ldyy/comet/compare/v1.19.1...v1.19.2) (2024-07-21)
+
+
+### Bug Fixes
+
+* Delete poetry.lock ([833bb33](https://github.com/g0ldyy/comet/commit/833bb332c4b4899372b08007c57db4084752339e))
+
 ## [1.19.1](https://github.com/g0ldyy/comet/compare/v1.19.0...v1.19.1) (2024-07-21)
 
 
