@@ -418,7 +418,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 range = f"bytes={start}-{end}"
 
             async with session.get(
-                download_link, headers={"Range": range}, proxy=proxy
+                download_link, headers={"Range": range} if range else None, proxy=proxy
             ) as response:
                 if response.status == 206:
                     streamer = Streamer()
