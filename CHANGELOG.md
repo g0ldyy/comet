@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.5](https://github.com/g0ldyy/comet/compare/v1.19.4...v1.19.5) (2024-07-21)
+
+
+### Bug Fixes
+
+* prowlarr indexer ([4003fb4](https://github.com/g0ldyy/comet/commit/4003fb4fc06c70364fb7d64a077a334d303de085))
+
 ## [1.19.4](https://github.com/g0ldyy/comet/compare/v1.19.3...v1.19.4) (2024-07-21)
 
 
