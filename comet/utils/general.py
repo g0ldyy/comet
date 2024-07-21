@@ -341,7 +341,7 @@ async def get_torrentio(log_name: str, type: str, full_id: str
         logger.info(f"{len(results)} torrents found for {log_name} with Torrentio")
     except Exception as e:
         logger.warning(
-            f"Exception while getting torrents for {log_name} with Torrentio: {e}"
+            f"Exception while getting torrents for {log_name} with Torrentio, your IP is most likely blacklisted (you should try proxying Comet): {e}"
         )
         pass
 
