@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.3](https://github.com/g0ldyy/comet/compare/v1.19.2...v1.19.3) (2024-07-21)
+
+
+### Bug Fixes
+
+* wtf ([b47676c](https://github.com/g0ldyy/comet/commit/b47676cc86758964bb9feb5a4ebcccc97ae7ef02))
+
 ## [1.19.2](https://github.com/g0ldyy/comet/compare/v1.19.1...v1.19.2) (2024-07-21)
 
 
