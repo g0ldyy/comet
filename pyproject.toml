@@ -20,6 +20,7 @@ aiosqlite = "*"
 pydantic-settings = "*"
 bencode-py = "*"
 httpx = "*"
+curl-cffi = "*"
 
 [tool.poetry.group.dev.dependencies]
 isort = "*"

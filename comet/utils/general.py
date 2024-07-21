@@ -6,6 +6,7 @@ import aiohttp
 import bencodepy
 
 from RTN import parse, title_match
+from curl_cffi import requests
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
@@ -254,7 +255,7 @@ async def get_indexer_manager(
                 )
                 result["Title"] = result["title"]
                 result["Size"] = result["size"]
-                result["Link"] = result["downloadUrl"]
+                result["Link"] = result["downloadUrl"] if "downloadUrl" in result else None
                 result["Tracker"] = result["indexer"]
 
                 results.append(result)
@@ -317,11 +318,44 @@ async def get_zilean(
     return results
 
 
+async def get_torrentio(log_name: str, type: str, full_id: str
+):
+    results = []
+    try:
+        get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json").json()
+
+        for torrent in get_torrentio["streams"]:
+            title = torrent["title"]
+            title_full = title.split("\n👤")[0]
+            tracker = title.split("⚙️ ")[1].split("\n")[0]
+
+            results.append(
+                {
+                    "Title": title_full,
+                    "InfoHash": torrent["infoHash"],
+                    "Size": None,
+                    "Tracker": f"Torrentio|{tracker}",
+                }
+            )
+
+        logger.info(f"{len(results)} torrents found for {log_name} with Torrentio")
+    except Exception as e:
+        logger.warning(
+            f"Exception while getting torrents for {log_name} with Torrentio, your IP is most likely blacklisted (you should try proxying Comet): {e}"
+        )
+        pass
+
+    return results
+
+
 async def filter(torrents: list, name: str):
     results = []
     for torrent in torrents:
         index = torrent[0]
         title = torrent[1]
+
+        if "\n" in title:  # Torrentio title parsing
+            title = title.split("\n")[1]
 
         if title_match(name, parse(title).parsed_title):
             results.append((index, True))

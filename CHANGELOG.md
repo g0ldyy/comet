@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.19.5](https://github.com/g0ldyy/comet/compare/v1.19.4...v1.19.5) (2024-07-21)
+
+
+### Bug Fixes
+
+* prowlarr indexer ([4003fb4](https://github.com/g0ldyy/comet/commit/4003fb4fc06c70364fb7d64a077a334d303de085))
+
+## [1.19.4](https://github.com/g0ldyy/comet/compare/v1.19.3...v1.19.4) (2024-07-21)
+
+
+### Bug Fixes
+
+* debrid stream proxy on some devices ([240364b](https://github.com/g0ldyy/comet/commit/240364bd883070cf2556fb2b7bdd89fa4a1230f6))
+
+## [1.19.3](https://github.com/g0ldyy/comet/compare/v1.19.2...v1.19.3) (2024-07-21)
+
+
+### Bug Fixes
+
+* wtf ([b47676c](https://github.com/g0ldyy/comet/commit/b47676cc86758964bb9feb5a4ebcccc97ae7ef02))
+
+## [1.19.2](https://github.com/g0ldyy/comet/compare/v1.19.1...v1.19.2) (2024-07-21)
+
+
+### Bug Fixes
+
+* Delete poetry.lock ([833bb33](https://github.com/g0ldyy/comet/commit/833bb332c4b4899372b08007c57db4084752339e))
+
+## [1.19.1](https://github.com/g0ldyy/comet/compare/v1.19.0...v1.19.1) (2024-07-21)
+
+
+### Bug Fixes
+
+* torrentio cloudflare bypass ([d9c98a7](https://github.com/g0ldyy/comet/commit/d9c98a75cb4e101d00395022549499b9a7d3965b))
+
+## [1.19.0](https://github.com/g0ldyy/comet/compare/v1.18.3...v1.19.0) (2024-07-20)
+
+
+### Features
+
+* torrentio scraper ([94c21d9](https://github.com/g0ldyy/comet/commit/94c21d962d784405d0c09e2986393b90c497dfd9))
+
+
+### Bug Fixes
+
+* add torrentio scraper to features ([27d23a5](https://github.com/g0ldyy/comet/commit/27d23a5fa6bb15a92be61ec7701207554864e422))
+
 ## [1.18.3](https://github.com/g0ldyy/comet/compare/v1.18.2...v1.18.3) (2024-07-19)
 
 
