@@ -255,7 +255,7 @@ async def get_indexer_manager(
                 )
                 result["Title"] = result["title"]
                 result["Size"] = result["size"]
-                result["Link"] = result["downloadUrl"]
+                result["Link"] = result["downloadUrl"] if "downloadUrl" in result else None
                 result["Tracker"] = result["indexer"]
 
                 results.append(result)
