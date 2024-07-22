@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.0](https://github.com/g0ldyy/comet/compare/v1.19.5...v1.20.0) (2024-07-22)
+
+
+### Features
+
+* use debrid proxy for torrentio (bypass Cloudflare server IP blacklist) ([5d02247](https://github.com/g0ldyy/comet/commit/5d02247021ca897aa79842bde1bbb56817a58967))
+
 ## [1.19.5](https://github.com/g0ldyy/comet/compare/v1.19.4...v1.19.5) (2024-07-21)
 
 
