@@ -681,11 +681,11 @@
                     function getSettingsFromUrl() {
                         const url = window.location.href;
                         // Try parse settings from the URL
-                        if (url.split('/').length < 5) {
+                        if (url.split("/").length < 5) {
                             console.log("no previous settings"); return null;
                         }
-                    	const settingsString =  url.split('/')[3];
-                        if (typeof settingsString === 'undefined') {
+                    	const settingsString =  url.split("/")[3];
+                        if (typeof settingsString === "undefined") {
                             console.log("can't fetch previous settings", settingsString)
                             return null; 
                         }
