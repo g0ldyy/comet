@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.21.0](https://github.com/g0ldyy/comet/compare/v1.20.0...v1.21.0) (2024-07-22)
+
+
+### Features
+
+* fetch previous settings from stremio configure ([b42f4fb](https://github.com/g0ldyy/comet/commit/b42f4fbc96622a48f035de10e711bae2c9a9e2d2))
+* save settings on Stremio configure button ([6dd22cc](https://github.com/g0ldyy/comet/commit/6dd22ccce7858967c287ad028ea011caefffd2af))
+
 ## [1.20.0](https://github.com/g0ldyy/comet/compare/v1.19.5...v1.20.0) (2024-07-22)
 
 
