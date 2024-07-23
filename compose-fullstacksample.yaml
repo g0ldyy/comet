@@ -1,0 +1,195 @@
+services:
+# This is a Comet full stack with Zilean, flaresolverr, Warp, Prowlarr/Jackett deployed through docker compose using Traefik as a reverse proxy.
+  Comet:
+    image: g0ldyy/comet
+    container_name: comet
+    restart: unless-stopped
+#    ports: #uncomment this if you're not using a reverse proxy
+#      - 8000:8000
+#    env_file: #uncomment this if you want to use a .env file, otherwise update below in environment
+#      - .env
+    environment: #comment this out/remove if you want to use a .env file
+      - ADDON_ID=stremio.comet.fast # for Stremio
+      - ADDON_NAME=Comet # for Stremio
+      - FASTAPI_HOST=0.0.0.0
+      - FASTAPI_PORT=8000
+      - FASTAPI_WORKERS=1 # remove to destroy CPU -> max performances
+      - DATABASE_PATH=data/comet.db # only change it if you know what it is - folders in path must exist
+      - CACHE_TTL=86400 # cache duration in seconds
+      - DEBRID_PROXY_URL=http://warp:1080 # https://github.com/cmj2002/warp-docker to bypass Debrid Services and Torrentio server IP blacklist 
+      - INDEXER_MANAGER_TYPE=jackett # or prowlarr
+      - INDEXER_MANAGER_URL=http://jackett:9117 # or http:prowlarr:9696
+      - INDEXER_MANAGER_API_KEY= CHANGE_TO_YOUR_APIKEY
+      - INDEXER_MANAGER_TIMEOUT=60 # maximum time to obtain search results from indexer manager in seconds
+      - INDEXER_MANAGER_INDEXERS=["EZTV", "YTS", "TheRARBG", "BitSearch", "ThePirateBay"]
+      - GET_TORRENT_TIMEOUT=5 # maximum time to obtain the torrent info hash in seconds
+      - ZILEAN_URL=http://zilean:8181 # for DMM search - https://github.com/iPromKnight/zilean
+      - ZILEAN_TAKE_FIRST=500 # only change it if you know what it is
+      - SCRAPE_TORRENTIO=True # or False scrape Torrentio
+      - CUSTOM_HEADER_HTML=None # only set it if you know what it is
+      - PROXY_DEBRID_STREAM=TRUE # or False Proxy Debrid Streams (very useful to use your debrid service on multiple IPs at same time)
+      - PROXY_DEBRID_STREAM_PASSWORD=CHANGE_ME # Secret password to enter on configuration page to prevent people from abusing your debrid stream proxy
+    networks:
+      proxy:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comet.entrypoints=http"
+      - "traefik.http.routers.comet.rule=Host(`comet.domain.tld`)"
+      - "traefik.http.middlewares.comet-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.comet.middlewares=comet-https-redirect"
+      - "traefik.http.routers.comet-secure.entrypoints=https"
+      - "traefik.http.routers.comet-secure.rule=Host(`comet.domain.tld`)"
+      - "traefik.http.routers.comet-secure.tls=true"
+      - "traefik.http.routers.comet-secure.service=comet"
+      - "traefik.http.services.comet.loadbalancer.server.port=8000"
+      - "traefik.docker.network=proxy"
+
+# This is for the DMM scraper
+  zilean:
+    image: ipromknight/zilean:latest
+    restart: unless-stopped
+    container_name: zilean
+    ports:
+      - 8181:8181
+    volumes:      
+      - zilean_data:/app/data
+    environment:
+        Zilean__ElasticSearch__Url: http://elasticsearch:9200
+        Zilean__Dmm__MinimumScoreMatch: 40
+    networks:
+      proxy:   
+    healthcheck:
+      test: curl --connect-timeout 10 --silent --show-error --fail http://zilean:8181/healthchecks/ping
+      timeout: 60s
+      interval: 30s
+      retries: 10
+# This is required for the DMM Scraper (Zilean)
+  elasticsearch:
+    image: elasticsearch:8.14.1
+    container_name: elasticsearch
+    environment:
+      ES_SETTING_DISCOVERY_TYPE: single-node
+      ES_SETTING_XPACK_SECURITY_ENABLED: false
+      ES_SETTING_BOOTSTRAP_MEMORY__LOCK: true
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - 9200:9200
+      - 9300:9300
+    networks:
+      proxy:
+    healthcheck:
+      test: curl -s http://elasticsearch:9200 >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data:rw
+
+#This will allow you to bypass Cloudflare checks (necessary for some indexers)      
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=Etc/UTC
+    networks:
+      proxy:
+    ports:
+      - 8191:8191
+    restart: unless-stopped
+
+#This is your debrid proxy.
+  warp:
+    image: caomingjun/warp
+    container_name: warp
+    restart: unless-stopped
+    ports:
+      - '1080:1080'
+    environment:
+      - WARP_SLEEP=2
+      # - WARP_LICENSE_KEY= # optional
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - warp_data:/var/lib/cloudflare-warp
+    networks:
+      proxy:
+    healthcheck:
+      test: curl -fsS "https://cloudflare.com/cdn-cgi/trace" | grep -qE "warp=(plus|on)" || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+#You can only use one indexer at a time, pick either Jackett or Prowlarr below and ensure it aligns with your .env or environment variables. You will have to add your indexers selected in Comet to your indexer here. Ensure you sign in to the UI for each of these before starting Comet.
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - jackett_data:/config
+      - jacket_data:/downloads
+#    ports:
+#      - 9117:9117
+    restart: unless-stopped
+    networks:
+      proxy:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jackett.entrypoints=http"
+      - "traefik.http.routers.jackett.rule=Host(`jackett.domain.tld`)"
+      - "traefik.http.middlewares.jackett-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.jackett.middlewares=jackett-https-redirect"
+      - "traefik.http.routers.jackett-secure.entrypoints=https"
+      - "traefik.http.routers.jackett-secure.rule=Host(`jackett.domain.tld`)"
+      - "traefik.http.routers.jackett-secure.tls=true"
+      - "traefik.http.routers.jackett-secure.service=jackett"
+      - "traefik.http.services.jackett.loadbalancer.server.port=9117"
+      - "traefik.docker.network=proxy"
+
+  Prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+#    ports:
+#      - 9696:9696
+    volumes:
+      - prowlarr_data:/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    networks:
+      proxy:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prowlarr.entrypoints=http"
+      - "traefik.http.routers.prowlarr.rule=Host(`prowlarr.domain.tld)"
+      - "traefik.http.middlewares.prowlarr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.prowlarr.middlewares=prowlarr-https-redirect"
+      - "traefik.http.routers.prowlarr-secure.entrypoints=https"
+      - "traefik.http.routers.prowlarr-secure.rule=Host(`prowlarr.domain.tld`)"
+      - "traefik.http.routers.prowlarr-secure.tls=true"
+      - "traefik.http.routers.prowlarr-secure.service=prowlarr"
+      - "traefik.http.services.prowlarr.loadbalancer.server.port=9696"
+      - "traefik.docker.network=proxy"
+# This assumes you have a proxy network setup with Traefik already existing
+networks:
+    proxy:
+      external: true
+
+# Comment out any volumes not needed or if you would like a persistent volume instead.    
+volumes:
+  zilean_data:
+  elastic_data:
+  warp_data:
+  jackett_data:
+  prowlarr_data:
+
