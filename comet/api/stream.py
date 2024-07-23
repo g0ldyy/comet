@@ -417,10 +417,9 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 end = int(end) if end else ""
                 range = f"bytes={start}-{end}"
 
-            async with session.get(
-                download_link, headers={"Range": range} if range else None, proxy=proxy
-            ) as response:
-                if response.status == 206:
+            async with httpx.AsyncClient(proxy=proxy) as client:
+                response = await client.get(download_link, headers={"Range": range} if range else None)
+                if response.status_code == 206:
                     streamer = Streamer()
 
                     return StreamingResponse(
