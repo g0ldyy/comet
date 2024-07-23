@@ -135,7 +135,7 @@ services:
       - TZ=Etc/UTC
     volumes:
       - jackett_data:/config
-      - jacket_data:/downloads
+      - jackett_data:/downloads
 #    ports:
 #      - 9117:9117
     restart: unless-stopped
