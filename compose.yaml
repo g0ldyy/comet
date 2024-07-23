@@ -1,0 +1,14 @@
+version: '3.8'
+volumes:
+  comet_data:
+services:
+  comet:
+    image: g0ldyy/comet
+    restart: unless-stopped
+    container_name: comet
+    ports:
+      - "3123:8000"
+    env_file:
+      - .env
+    volumes:
+      - comet_data:/data
