@@ -18,7 +18,7 @@ services:
       - CACHE_TTL=86400 # cache duration in seconds
       - DEBRID_PROXY_URL=http://warp:1080 # https://github.com/cmj2002/warp-docker to bypass Debrid Services and Torrentio server IP blacklist 
       - INDEXER_MANAGER_TYPE=jackett # or prowlarr
-      - INDEXER_MANAGER_URL=http://jackett:9117 # or http:prowlarr:9696
+      - INDEXER_MANAGER_URL=http://jackett:9117 # or http://prowlarr:9696
       - INDEXER_MANAGER_API_KEY= CHANGE_TO_YOUR_APIKEY
       - INDEXER_MANAGER_TIMEOUT=60 # maximum time to obtain search results from indexer manager in seconds
       - INDEXER_MANAGER_INDEXERS=["EZTV", "YTS", "TheRARBG", "BitSearch", "ThePirateBay"]
