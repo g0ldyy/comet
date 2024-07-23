@@ -88,6 +88,18 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
       ```
 
     - Finally, re-run the docker run command
+ 
+### With Docker Compose
+- Copy *compose.yaml* in a directory
+- Copy *env-sample* to *.env* in the same directory
+- Pull the latest version from docker hub
+    ```sh
+      docker compose pull
+    ```
+- Run
+     ```sh
+      docker compose up -d
+    ```
 
 ## Debrid IP Blacklist
 To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
