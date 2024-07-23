@@ -71,7 +71,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
                 )
                 metadata = await get_metadata.json()
-                name = metadata["d"][0 if len(metadata["d"]) == 1 else 1]["l"]
+                name = metadata["d"][0]["l"]
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
