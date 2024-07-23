@@ -4,6 +4,7 @@ volumes:
 services:
   comet:
     image: g0ldyy/comet
+    restart: unless-stopped
     container_name: comet
     ports:
       - "3123:8000"
