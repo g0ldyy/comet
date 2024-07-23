@@ -398,7 +398,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                     self.response = None
 
                 async def stream_content(self, headers: dict):
-                    async with client.stream(
+                    async with self.client.stream(
                         "GET", download_link, headers=headers
                     ) as self.response:
                         async for chunk in self.response.aiter_raw():
