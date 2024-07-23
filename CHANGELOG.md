@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.21.1](https://github.com/g0ldyy/comet/compare/v1.21.0...v1.21.1) (2024-07-23)
+
+
+### Bug Fixes
+
+* coding blind ([2a5002a](https://github.com/g0ldyy/comet/commit/2a5002a3a134429fb9cffc708ac1973dceff0b40))
+* IMDb metadata retriever ([914c5d2](https://github.com/g0ldyy/comet/commit/914c5d2d455cc4f12f738a4e3aa014aa816c619b))
+* not retrieving saved stremio settings if all selected ([42c5863](https://github.com/g0ldyy/comet/commit/42c5863297807f231e04f2eb25510b146c6f789a))
+* proxy stream ([1ceeff5](https://github.com/g0ldyy/comet/commit/1ceeff57223f521b006b4311c314ed62f56096fe))
+* try to fix Nvidia shield debrid stream proxying ([bdb22dc](https://github.com/g0ldyy/comet/commit/bdb22dcc63b4ca6fd014faaf287b7d8034093c12))
+* where is the client ([c532656](https://github.com/g0ldyy/comet/commit/c532656b3bba916a5df8cbdcf306b822ef94a871))
+
 ## [1.21.0](https://github.com/g0ldyy/comet/compare/v1.20.0...v1.21.0) (2024-07-22)
 
 
