@@ -394,44 +394,38 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             class Streamer:
                 def __init__(self):
+                    self.client = httpx.AsyncClient(proxy=proxy)
                     self.response = None
 
                 async def stream_content(self, headers: dict):
-                    async with httpx.AsyncClient(proxy=proxy) as client:
-                        async with client.stream(
-                            "GET", download_link, headers=headers
-                        ) as self.response:
-                            async for chunk in self.response.aiter_raw():
-                                yield chunk
+                    async with client.stream(
+                        "GET", download_link, headers=headers
+                    ) as self.response:
+                        async for chunk in self.response.aiter_raw():
+                            yield chunk
 
                 async def close(self):
                     if self.response is not None:
                         await self.response.aclose()
+                    await self.client.aclose()
+        
+            range_header = request.headers.get("range", "bytes=0-")
 
-            range = None
-            range_header = request.headers.get("range")
-            if range_header:
-                range_value = range_header.strip().split("=")[1]
-                start, end = range_value.split("-")
-                start = int(start)
-                end = int(end) if end else ""
-                range = f"bytes={start}-{end}"
+            response = await session.head(download_link, headers={"Range": range_header})
+            if response.status == 206:
+                streamer = Streamer()
 
-            async with httpx.AsyncClient(proxy=proxy) as client:
-                response = await client.head(download_link, headers={"Range": range} if range else None)
-                if response.status_code == 206:
-                    streamer = Streamer()
-
-                    return StreamingResponse(
-                        streamer.stream_content({"Range": range}),
-                        status_code=206,
-                        headers={
-                            "Content-Range": response.headers["Content-Range"],
-                            "Content-Length": response.headers["Content-Length"],
-                            "Accept-Ranges": "bytes",
-                        },
-                        background=BackgroundTask(await streamer.close()),
+                return StreamingResponse(
+                    streamer.stream_content({"Range": range}),
+                    status_code=206,
+                    headers={
+                        "Content-Range": response.headers["Content-Range"],
+                        "Content-Length": response.headers["Content-Length"],
+                        "Accept-Ranges": "bytes",
+                    },
+                    background=BackgroundTask(await streamer.close()),
                     )
+
             return FileResponse("comet/assets/uncached.mp4")
 
         return RedirectResponse(download_link, status_code=302)
