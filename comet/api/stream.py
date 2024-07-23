@@ -416,7 +416,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 streamer = Streamer()
 
                 return StreamingResponse(
-                    streamer.stream_content({"Range": range}),
+                    streamer.stream_content({"Range": range_header}),
                     status_code=206,
                     headers={
                         "Content-Range": response.headers["Content-Range"],
