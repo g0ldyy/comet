@@ -377,10 +377,33 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         return FileResponse("comet/assets/invalidconfig.mp4")
 
     async with aiohttp.ClientSession() as session:
-        debrid = getDebrid(session, config)
-        download_link = await debrid.generate_download_link(hash, index)
+        # Check for cached download link
+        cached_link = await database.fetch_one(
+            f"SELECT link, timestamp FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND `index` = '{index}'"
+        )
+
+        current_time = time.time()
+        download_link = None
+        if cached_link:
+            link = cached_link["link"]
+            timestamp = cached_link["timestamp"]
+
+            if current_time - timestamp < 3600:
+                download_link = link
+            else:
+                # Cache expired, remove old entry
+                await database.execute(
+                    f"DELETE FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND `index` = '{index}'"
+                )
+
         if not download_link:
-            return FileResponse("comet/assets/uncached.mp4")
+            debrid = getDebrid(session, config)
+            download_link = await debrid.generate_download_link(hash, index)
+            if not download_link:
+                return FileResponse("comet/assets/uncached.mp4")
+
+            # Cache the new download link
+            await database.execute("INSERT OR REPLACE INTO download_links (debrid_key, hash, `index`, link, timestamp) VALUES (:debrid_key, :hash, :index, :link, :timestamp)", {"debrid_key": config["debridApiKey"], "hash": hash, "index": index, "link": download_link, "timestamp": current_time})
 
         proxy = (
             debrid.proxy if config["debridService"] == "alldebrid" else None
@@ -407,7 +430,8 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 async def close(self):
                     if self.response is not None:
                         await self.response.aclose()
-                    await self.client.aclose()
+                    if self.client is not None:
+                        await self.client.aclose()
         
             range_header = request.headers.get("range", "bytes=0-")
 
@@ -423,7 +447,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                         "Content-Length": response.headers["Content-Length"],
                         "Accept-Ranges": "bytes",
                     },
-                    background=BackgroundTask(await streamer.close()),
+                    background=BackgroundTask(streamer.close),
                     )
 
             return FileResponse("comet/assets/uncached.mp4")
