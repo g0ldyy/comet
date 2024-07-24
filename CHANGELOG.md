@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.22.0](https://github.com/g0ldyy/comet/compare/v1.21.2...v1.22.0) (2024-07-24)
+
+
+### Features
+
+* debrid download links are now cached for 1h (massive speed improvement) ([aab0b91](https://github.com/g0ldyy/comet/commit/aab0b918bd205b668ce15510c13d672efb5ed923))
+
+
+### Bug Fixes
+
+* imdb metadata wrong name ([0ecba3e](https://github.com/g0ldyy/comet/commit/0ecba3e64aaf6b3f5dad47f4f5527f0a8732d57a))
+* torrentio proxy ([b098bb1](https://github.com/g0ldyy/comet/commit/b098bb1ed9a60af89e173c527bf4bb579a91a29c))
+
 ## [1.21.2](https://github.com/g0ldyy/comet/compare/v1.21.1...v1.21.2) (2024-07-24)
 
 
