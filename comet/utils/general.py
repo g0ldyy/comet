@@ -322,10 +322,13 @@ async def get_torrentio(log_name: str, type: str, full_id: str
 ):
     results = []
     try:
-        get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json", proxies={
-            "http": settings.DEBRID_PROXY_URL,
-            "https": settings.DEBRID_PROXY_URL,
-        }).json()
+        try:
+            get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json").json()
+        except:
+            get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json", proxies={
+                "http": settings.DEBRID_PROXY_URL,
+                "https": settings.DEBRID_PROXY_URL,
+            }).json()
 
         for torrent in get_torrentio["streams"]:
             title = torrent["title"]
