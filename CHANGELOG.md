@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.21.2](https://github.com/g0ldyy/comet/compare/v1.21.1...v1.21.2) (2024-07-24)
+
+
+### Bug Fixes
+
+* revert IMDb metadata bug ([595c2c0](https://github.com/g0ldyy/comet/commit/595c2c0da9f6a94a930e82d1e555cafefa343ad2))
+
 ## [1.21.1](https://github.com/g0ldyy/comet/compare/v1.21.0...v1.21.1) (2024-07-23)
 
 
