@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.23.0](https://github.com/g0ldyy/comet/compare/v1.22.0...v1.23.0) (2024-07-24)
+
+
+### Features
+
+* ability to enable/disable title match check (TITLE_MATCH_CHECK env var) ([755c4fb](https://github.com/g0ldyy/comet/commit/755c4fb8d21e74576aa615c7d84b399ebedeb45a))
+* show language emoji in results ([d9e15e7](https://github.com/g0ldyy/comet/commit/d9e15e7e88244eca1c264221ca71e38b4dab7dbc))
+
 ## [1.22.0](https://github.com/g0ldyy/comet/compare/v1.21.2...v1.22.0) (2024-07-24)
 
 
