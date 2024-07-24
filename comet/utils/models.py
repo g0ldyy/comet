@@ -30,6 +30,7 @@ class AppSettings(BaseSettings):
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "CHANGE_ME"
+    TITLE_MATCH_CHECK: Optional[bool] = True
 
 
 settings = AppSettings()

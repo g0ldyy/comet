@@ -229,30 +229,31 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         if len(torrents) == 0:
             return {"streams": []}
 
-        indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
-        chunk_size = 50
-        chunks = [
-            indexed_torrents[i : i + chunk_size]
-            for i in range(0, len(indexed_torrents), chunk_size)
-        ]
+        if settings.TITLE_MATCH_CHECK:
+            indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
+            chunk_size = 50
+            chunks = [
+                indexed_torrents[i : i + chunk_size]
+                for i in range(0, len(indexed_torrents), chunk_size)
+            ]
 
-        tasks = []
-        for chunk in chunks:
-            tasks.append(filter(chunk, name))
+            tasks = []
+            for chunk in chunks:
+                tasks.append(filter(chunk, name))
 
-        filtered_torrents = await asyncio.gather(*tasks)
-        index_less = 0
-        for result in filtered_torrents:
-            for filtered in result:
-                if not filtered[1]:
-                    del torrents[filtered[0] - index_less]
-                    index_less += 1
-                    continue
+            filtered_torrents = await asyncio.gather(*tasks)
+            index_less = 0
+            for result in filtered_torrents:
+                for filtered in result:
+                    if not filtered[1]:
+                        del torrents[filtered[0] - index_less]
+                        index_less += 1
+                        continue
 
-        logger.info(f"{len(torrents)} torrents passed title match check for {log_name}")
+            logger.info(f"{len(torrents)} torrents passed title match check for {log_name}")
 
-        if len(torrents) == 0:
-            return {"streams": []}
+            if len(torrents) == 0:
+                return {"streams": []}
 
         tasks = []
         for i in range(len(torrents)):
