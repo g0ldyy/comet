@@ -12,6 +12,7 @@ from RTN import Torrent, sort_torrents
 
 from comet.debrid.manager import getDebrid
 from comet.utils.general import (
+    get_language_emoji,
     bytes_to_size,
     config_check,
     get_debrid_extension,
@@ -71,7 +72,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
                 )
                 metadata = await get_metadata.json()
-                name = metadata["d"][0 if metadata["d"][0]["l"] != "Summer Watch Guide" else 1]["l"]
+                name = metadata["d"][
+                    0 if metadata["d"][0]["l"] != "Summer Watch Guide" else 1
+                ]["l"]
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
@@ -124,7 +127,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 debrid_extension = get_debrid_extension(config["debridService"])
 
-                balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
+                balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
 
                 results = []
                 if (
@@ -148,10 +151,26 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     for resolution, hash_list in balanced_hashes.items():
                         if hash in hash_list:
                             data = hash_data["data"]
+                            languages = data["language"]
+                            formatted_languages = (
+                                "/".join(
+                                    get_language_emoji(language)
+                                    for language in languages
+                                )
+                                if languages
+                                else get_language_emoji("multi_audio")
+                                if data["is_multi_audio"]
+                                else None
+                            )
+                            languages_str = (
+                                "\n" + formatted_languages
+                                if formatted_languages
+                                else ""
+                            )
                             results.append(
                                 {
                                     "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
-                                    "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker'] if 'tracker' in data else '?'}",
+                                    "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker'] if 'tracker' in data else '?'}{languages_str}",
                                     "torrentTitle": data["torrent_title"]
                                     if "torrent_title" in data
                                     else None,
@@ -250,7 +269,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         index_less += 1
                         continue
 
-            logger.info(f"{len(torrents)} torrents passed title match check for {log_name}")
+            logger.info(
+                f"{len(torrents)} torrents passed title match check for {log_name}"
+            )
 
             if len(torrents) == 0:
                 return {"streams": []}
@@ -330,7 +351,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         debrid_extension = get_debrid_extension(config["debridService"])
 
-        balanced_hashes = await get_balanced_hashes(sorted_ranked_files, config)
+        balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
 
         results = []
         if (
@@ -351,10 +372,21 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             for resolution, hash_list in balanced_hashes.items():
                 if hash in hash_list:
                     data = hash_data["data"]
+                    languages = data["language"]
+                    formatted_languages = (
+                        "/".join(get_language_emoji(language) for language in languages)
+                        if languages
+                        else get_language_emoji("multi_audio")
+                        if data["is_multi_audio"]
+                        else None
+                    )
+                    languages_str = (
+                        "\n" + formatted_languages if formatted_languages else ""
+                    )
                     results.append(
                         {
                             "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
-                            "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker']}",
+                            "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker']}{languages_str}",
                             "torrentTitle": data["torrent_title"],
                             "torrentSize": data["torrent_size"],
                             "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
@@ -404,7 +436,16 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 return FileResponse("comet/assets/uncached.mp4")
 
             # Cache the new download link
-            await database.execute("INSERT OR REPLACE INTO download_links (debrid_key, hash, `index`, link, timestamp) VALUES (:debrid_key, :hash, :index, :link, :timestamp)", {"debrid_key": config["debridApiKey"], "hash": hash, "index": index, "link": download_link, "timestamp": current_time})
+            await database.execute(
+                "INSERT OR REPLACE INTO download_links (debrid_key, hash, `index`, link, timestamp) VALUES (:debrid_key, :hash, :index, :link, :timestamp)",
+                {
+                    "debrid_key": config["debridApiKey"],
+                    "hash": hash,
+                    "index": index,
+                    "link": download_link,
+                    "timestamp": current_time,
+                },
+            )
 
         proxy = (
             debrid.proxy if config["debridService"] == "alldebrid" else None
@@ -433,10 +474,12 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                         await self.response.aclose()
                     if self.client is not None:
                         await self.client.aclose()
-        
+
             range_header = request.headers.get("range", "bytes=0-")
 
-            response = await session.head(download_link, headers={"Range": range_header})
+            response = await session.head(
+                download_link, headers={"Range": range_header}
+            )
             if response.status == 206:
                 streamer = Streamer()
 
@@ -449,7 +492,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                         "Accept-Ranges": "bytes",
                     },
                     background=BackgroundTask(streamer.close),
-                    )
+                )
 
             return FileResponse("comet/assets/uncached.mp4")
 

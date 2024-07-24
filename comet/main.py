@@ -132,6 +132,7 @@ def start_log():
         logger.log("COMET", "Zilean: Disabled")
     logger.log("COMET", f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}")
     logger.log("COMET", f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)}")
+    logger.log("COMET", f"Title Match Check: {bool(settings.TITLE_MATCH_CHECK)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
 

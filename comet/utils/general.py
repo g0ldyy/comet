@@ -11,6 +11,65 @@ from curl_cffi import requests
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
 
+languages_emojis = {
+    "multi_subs": "🌐",
+    "multi_audio": "🌎",
+    "dual_audio": "🔉",
+    "english": "🇬🇧",
+    "japanese": "🇯🇵",
+    "korean": "🇰🇷",
+    "taiwanese": "🇹🇼",
+    "chinese": "🇨🇳",
+    "french": "🇫🇷",
+    "latino": "💃🏻",
+    "spanish": "🇪🇸",
+    "portuguese": "🇵🇹",
+    "italian": "🇮🇹",
+    "greek": "🇬🇷",
+    "german": "🇩🇪",
+    "russian": "🇷🇺",
+    "ukrainian": "🇺🇦",
+    "hindi": "🇮🇳",
+    "telugu": "🇮🇳",
+    "tamil": "🇮🇳",
+    "lithuanian": "🇱🇹",
+    "latvian": "🇱🇻",
+    "estonian": "🇪🇪",
+    "polish": "🇵🇱",
+    "czech": "🇨🇿",
+    "slovakian": "🇸🇰",
+    "hungarian": "🇭🇺",
+    "romanian": "🇷🇴",
+    "bulgarian": "🇧🇬",
+    "serbian": "🇷🇸",
+    "croatian": "🇭🇷",
+    "slovenian": "🇸🇮",
+    "dutch": "🇳🇱",
+    "danish": "🇩🇰",
+    "finnish": "🇫🇮",
+    "swedish": "🇸🇪",
+    "norwegian": "🇳🇴",
+    "arabic": "🇸🇦",
+    "turkish": "🇹🇷",
+    "vietnamese": "🇻🇳",
+    "indonesian": "🇮🇩",
+    "thai": "🇹🇭",
+    "malay": "🇲🇾",
+    "hebrew": "🇮🇱",
+    "persian": "🇮🇷",
+    "bengali": "🇧🇩",
+}
+
+
+def get_language_emoji(language: str):
+    language_formatted = language.replace(" ", "_").lower()
+    return (
+        languages_emojis[language_formatted]
+        if language_formatted in languages_emojis
+        else language
+    )
+
+
 translation_table = {
     "ā": "a",
     "ă": "a",
@@ -255,7 +314,9 @@ async def get_indexer_manager(
                 )
                 result["Title"] = result["title"]
                 result["Size"] = result["size"]
-                result["Link"] = result["downloadUrl"] if "downloadUrl" in result else None
+                result["Link"] = (
+                    result["downloadUrl"] if "downloadUrl" in result else None
+                )
                 result["Tracker"] = result["indexer"]
 
                 results.append(result)
@@ -318,17 +379,21 @@ async def get_zilean(
     return results
 
 
-async def get_torrentio(log_name: str, type: str, full_id: str
-):
+async def get_torrentio(log_name: str, type: str, full_id: str):
     results = []
     try:
         try:
-            get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json").json()
+            get_torrentio = requests.get(
+                f"https://torrentio.strem.fun/stream/{type}/{full_id}.json"
+            ).json()
         except:
-            get_torrentio = requests.get(f"https://torrentio.strem.fun/stream/{type}/{full_id}.json", proxies={
-                "http": settings.DEBRID_PROXY_URL,
-                "https": settings.DEBRID_PROXY_URL,
-            }).json()
+            get_torrentio = requests.get(
+                f"https://torrentio.strem.fun/stream/{type}/{full_id}.json",
+                proxies={
+                    "http": settings.DEBRID_PROXY_URL,
+                    "https": settings.DEBRID_PROXY_URL,
+                },
+            ).json()
 
         for torrent in get_torrentio["streams"]:
             title = torrent["title"]
@@ -408,7 +473,7 @@ async def get_torrent_hash(session: aiohttp.ClientSession, torrent: tuple):
         return (index, None)
 
 
-async def get_balanced_hashes(hashes: dict, config: dict):
+def get_balanced_hashes(hashes: dict, config: dict):
     max_results = config["maxResults"]
     max_size = config["maxSize"]
     config_resolutions = config["resolutions"]
