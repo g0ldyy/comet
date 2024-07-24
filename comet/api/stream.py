@@ -345,7 +345,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")
         await database.execute(
-            f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES ('{cache_key}', '{json_data}', {time.time()})"
+            f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp)",
+            {"cache_key": cache_key, "json_data": json_data, "timestamp": time.time()},
         )
         logger.info(f"Results have been cached for {log_name}")
 
