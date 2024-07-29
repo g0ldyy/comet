@@ -448,15 +448,12 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 },
             )
 
-        proxy = (
-            debrid.proxy if config["debridService"] == "alldebrid" else None
-        )  # proxy is not needed to proxy realdebrid stream
-
         if (
             settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
+            proxy = None
 
             class Streamer:
                 def __init__(self):
@@ -481,6 +478,13 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             response = await session.head(
                 download_link, headers={"Range": range_header}
             )
+            if response.status == 503 and config["debridService"] == "alldebrid":
+                proxy = settings.DEBRID_PROXY_URL  # proxy is not needed to proxy realdebrid stream
+
+                response = await session.head(
+                    download_link, headers={"Range": range_header}, proxy=proxy
+                )
+
             if response.status == 206:
                 streamer = Streamer()
 

@@ -23,7 +23,7 @@ class AllDebrid:
                 f"{self.api_url}/user?agent={self.agent}"
             )
             check_premium = await check_premium.text()
-            if '"isPremium": true' in check_premium:
+            if '"isPremium":true' in check_premium:
                 return True
         except Exception as e:
             logger.warning(
