@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.1](https://github.com/g0ldyy/comet/compare/v1.23.0...v1.23.1) (2024-07-24)
+
+
+### Bug Fixes
+
+* db error ([d1232ce](https://github.com/g0ldyy/comet/commit/d1232cec61b7ecc7d639098d949dc8696822a274))
+
 ## [1.23.0](https://github.com/g0ldyy/comet/compare/v1.22.0...v1.23.0) (2024-07-24)
 
 
