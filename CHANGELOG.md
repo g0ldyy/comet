@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.2](https://github.com/g0ldyy/comet/compare/v1.23.1...v1.23.2) (2024-07-29)
+
+
+### Bug Fixes
+
+* alldebrid support ([1ea4464](https://github.com/g0ldyy/comet/commit/1ea446471ce7e9673724952a24075e64672d3510))
+
 ## [1.23.1](https://github.com/g0ldyy/comet/compare/v1.23.0...v1.23.1) (2024-07-24)
 
 
