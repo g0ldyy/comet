@@ -60,7 +60,7 @@
                 height: 1em;
                 vertical-align: middle;
             }
-            
+
             .form-container {
                 background-color: #1a1d20;
                 padding: 2rem;
@@ -528,6 +528,15 @@
             </div>
 
             <div class="form-item">
+                <sl-select id="titleFormat" value="titleIncludeTorrentTitle titleIncludeSize titleIncludeTrackers titleIncludeLanguages" multiple label="Title Format" placeholder="Select what to show in result title" max-options-visible=4>
+                  <sl-option value="titleIncludeTorrentTitle">Torrent Title</sl-option>
+                  <sl-option value="titleIncludeSize">Size</sl-option>
+                  <sl-option value="titleIncludeTrackers">Trackers</sl-option>
+                  <sl-option value="titleIncludeLanguages">Languages</sl-option>
+                </sl-select>
+            </div>
+
+            <div class="form-item">
                 <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="{% if not proxyDebridStream %}Configuration required, see docs{% else %}Enter password{% endif %}" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!" {% if not proxyDebridStream %} disabled {% endif %}></sl-input>
             </div>
 
@@ -543,17 +552,17 @@
 
             <div class="form-item">
                 <label for="debridService">
-                    Debrid API Key - 
+                    Debrid API Key -
                     <a id="apiKeyLink" href="https://real-debrid.com/apitoken" target="_blank">Get It Here</a>
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
             </div>
-            
+
             <script>
                 document.getElementById("debridService").addEventListener("sl-change", function(event) {
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
-            
+
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
                     } else if (selectedService === "alldebrid") {
@@ -580,7 +589,7 @@
                     <sl-icon slot="icon" name="clipboard2-check"></sl-icon>
                     <strong>The Stremio addon link has been automatically copied.</strong>
                 </sl-alert>
-                
+
                 <script type="module">
                     let defaultLanguages = [];
                     let defaultResolutions = [];
@@ -635,16 +644,18 @@
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
                         const maxSize = document.getElementById("maxSize").value;
+                        const titleFormat = Array.from(document.getElementById("titleFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
-                        
+
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
                             maxSize: parseFloat(maxSize * 1073741824),
+                            titleFormat: titleFormat,
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
                             debridService: debridService,
@@ -684,24 +695,25 @@
                         if (url.split("/").length < 5) {
                             console.log("no previous settings"); return null;
                         }
-                    	const settingsString =  url.split("/")[3];
+                        const settingsString =  url.split("/")[3];
                         if (typeof settingsString === "undefined") {
                             console.log("can't fetch previous settings", settingsString)
-                            return null; 
+                            return null;
                         }
                         const settingsJson = atob(settingsString);
                         return JSON.parse(settingsJson);
                     }
 
-                    function populateFormFromSettings(settings) {        
+                    function populateFormFromSettings(settings) {
                         document.getElementById("maxResults").value = settings.maxResults;
                         document.getElementById("maxSize").value = settings.maxSize / 1073741824; // Convert back from bytes to GB
+                        document.getElementById("titleFormat").value = settings.titleFormat;
                         document.getElementById("debridService").value = settings.debridService;
                         document.getElementById("debridApiKey").value = settings.debridApiKey;
                         document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
                         document.getElementById("indexers").value = settings.indexers;
                         if (settings.languages != "All")
-                            document.getElementById("languages").value = settings.languages; 
+                            document.getElementById("languages").value = settings.languages;
                         if (settings.resolutions != "All")
                             document.getElementById("resolutions").value = settings.resolutions;
                     }
