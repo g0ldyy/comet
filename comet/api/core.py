@@ -39,6 +39,12 @@ web_config = {
         "4K",
         "Unknown",
     ],
+    "resultFormat": [
+        "Title",
+        "Size",
+        "Tracker",
+        "Languages",
+    ]
 }
 
 

@@ -60,7 +60,7 @@
                 height: 1em;
                 vertical-align: middle;
             }
-            
+
             .form-container {
                 background-color: #1a1d20;
                 padding: 2rem;
@@ -72,6 +72,10 @@
             }
 
             .form-item {
+                margin-bottom: 0.75rem;
+            }
+
+            sl-details {
                 margin-bottom: 0.75rem;
             }
 
@@ -543,17 +547,24 @@
 
             <div class="form-item">
                 <label for="debridService">
-                    Debrid API Key - 
+                    Debrid API Key -
                     <a id="apiKeyLink" href="https://real-debrid.com/apitoken" target="_blank">Get It Here</a>
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
             </div>
-            
+
+            <sl-details summary="Advanced Settings">
+                <div class="form-item">
+                    <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=4>
+                    </sl-select>
+                </div>
+            </sl-details>
+
             <script>
                 document.getElementById("debridService").addEventListener("sl-change", function(event) {
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
-            
+
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
                     } else if (selectedService === "alldebrid") {
@@ -580,10 +591,11 @@
                     <sl-icon slot="icon" name="clipboard2-check"></sl-icon>
                     <strong>The Stremio addon link has been automatically copied.</strong>
                 </sl-alert>
-                
+
                 <script type="module">
                     let defaultLanguages = [];
                     let defaultResolutions = [];
+                    let defaultResultFormat = [];
 
                     document.addEventListener("DOMContentLoaded", async () => {
                         await Promise.allSettled([
@@ -599,9 +611,11 @@
                         populateSelect("indexers", webConfig.indexers);
                         populateSelect("languages", webConfig.languages);
                         populateSelect("resolutions", webConfig.resolutions);
+                        populateSelect("resultFormat", webConfig.resultFormat);
                         document.body.classList.add("ready");
                         defaultLanguages = webConfig.languages;
                         defaultResolutions = webConfig.resolutions;
+                        defaultResultFormat = webConfig.resultFormat;
 
                         // try populate the form from previous settings
                         try {
@@ -635,16 +649,19 @@
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
                         const maxSize = document.getElementById("maxSize").value;
+                        const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
-                        
+                        const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["All"] : resultFormat;
+
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
                             maxSize: parseFloat(maxSize * 1073741824),
+                            resultFormat: selectedResultFormat,
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
                             debridService: debridService,
@@ -684,16 +701,16 @@
                         if (url.split("/").length < 5) {
                             console.log("no previous settings"); return null;
                         }
-                    	const settingsString =  url.split("/")[3];
+                        const settingsString =  url.split("/")[3];
                         if (typeof settingsString === "undefined") {
                             console.log("can't fetch previous settings", settingsString)
-                            return null; 
+                            return null;
                         }
                         const settingsJson = atob(settingsString);
                         return JSON.parse(settingsJson);
                     }
 
-                    function populateFormFromSettings(settings) {        
+                    function populateFormFromSettings(settings) {
                         document.getElementById("maxResults").value = settings.maxResults;
                         document.getElementById("maxSize").value = settings.maxSize / 1073741824; // Convert back from bytes to GB
                         document.getElementById("debridService").value = settings.debridService;
@@ -701,9 +718,11 @@
                         document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
                         document.getElementById("indexers").value = settings.indexers;
                         if (settings.languages != "All")
-                            document.getElementById("languages").value = settings.languages; 
+                            document.getElementById("languages").value = settings.languages;
                         if (settings.resolutions != "All")
                             document.getElementById("resolutions").value = settings.resolutions;
+                        if (settings.resultFormat != "All")
+                            document.getElementById("resultFormat").value = settings.resultFormat;
                     }
 
                 </script>

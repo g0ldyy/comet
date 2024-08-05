@@ -540,3 +540,19 @@ def get_balanced_hashes(hashes: dict, config: dict):
             missing_hashes -= len(available_hashes)
 
     return balanced_hashes
+
+
+def format_title(torrent_title: str, torrent_size: int, torrent_tracker: str, torrent_languages: str, config: dict):
+    title = ""
+    if "Title" in config["resultFormat"] or "All" in config["resultFormat"]:
+        title += f"{torrent_title}\n"
+    if "Size" in config["resultFormat"] or "All" in config["resultFormat"]:
+        title += f"💾 {bytes_to_size(torrent_size)} "
+    if "Tracker" in config["resultFormat"] or "All" in config["resultFormat"]:
+        title += f"🔎 {torrent_tracker}"
+    if "Languages" in config["resultFormat"] or "All" in config["resultFormat"]:
+        title += f"{torrent_languages}"
+    if title == "":
+        # Without this, Streamio shows SD as the result, which is confusing
+        title = "Empty result format configuration"
+    return title

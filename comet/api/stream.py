@@ -13,7 +13,6 @@ from RTN import Torrent, sort_torrents
 from comet.debrid.manager import getDebrid
 from comet.utils.general import (
     get_language_emoji,
-    bytes_to_size,
     config_check,
     get_debrid_extension,
     get_indexer_manager,
@@ -23,6 +22,7 @@ from comet.utils.general import (
     get_torrent_hash,
     translate,
     get_balanced_hashes,
+    format_title
 )
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings
@@ -170,7 +170,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                             results.append(
                                 {
                                     "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
-                                    "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker'] if 'tracker' in data else '?'}{languages_str}",
+                                    "title": format_title(data['title'], data['size'], data['tracker'] if 'tracker' in data else '?', languages_str, config),
                                     "torrentTitle": data["torrent_title"]
                                     if "torrent_title" in data
                                     else None,
@@ -387,7 +387,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     results.append(
                         {
                             "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
-                            "title": f"{data['title']}\n💾 {bytes_to_size(data['size'])} 🔎 {data['tracker']}{languages_str}",
+                            "title": format_title(data['title'], data['size'], data['tracker'] if 'tracker' in data else '?', languages_str, config),
                             "torrentTitle": data["torrent_title"],
                             "torrentSize": data["torrent_size"],
                             "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
