@@ -552,4 +552,7 @@ def format_title(torrent_title: str, torrent_size: int, torrent_tracker: str, to
         title += f"🔎 {torrent_tracker}"
     if "Languages" in config["resultFormat"] or "All" in config["resultFormat"]:
         title += f"{torrent_languages}"
+    if title == "":
+        # Without this, Streamio shows SD as the result, which is confusing
+        title = "Empty result format configuration"
     return title
