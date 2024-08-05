@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.0](https://github.com/g0ldyy/comet/compare/v1.23.2...v1.24.0) (2024-08-05)
+
+
+### Features
+
+* custom results title ([fa800ef](https://github.com/g0ldyy/comet/commit/fa800ef6b6a0f8ba91ebe2ebfa21147f9cb667a1))
+
 ## [1.23.2](https://github.com/g0ldyy/comet/compare/v1.23.1...v1.23.2) (2024-07-29)
 
 
