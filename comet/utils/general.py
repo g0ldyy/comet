@@ -544,12 +544,12 @@ def get_balanced_hashes(hashes: dict, config: dict):
 
 def format_title(torrent_title: str, torrent_size: int, torrent_tracker: str, torrent_languages: str, config: dict):
     title = ""
-    if "titleIncludeTorrentTitle" in config["titleFormat"]:
+    if "Title" in config["resultFormat"] or "All" in config["resultFormat"]:
         title += f"{torrent_title}\n"
-    if "titleIncludeSize" in config["titleFormat"]:
+    if "Size" in config["resultFormat"] or "All" in config["resultFormat"]:
         title += f"💾 {bytes_to_size(torrent_size)} "
-    if "titleIncludeTracker" in config["titleFormat"]:
+    if "Tracker" in config["resultFormat"] or "All" in config["resultFormat"]:
         title += f"🔎 {torrent_tracker}"
-    if "titleIncludeLanguages" in config["titleFormat"]:
+    if "Languages" in config["resultFormat"] or "All" in config["resultFormat"]:
         title += f"{torrent_languages}"
     return title

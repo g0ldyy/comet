@@ -13,7 +13,6 @@ from RTN import Torrent, sort_torrents
 from comet.debrid.manager import getDebrid
 from comet.utils.general import (
     get_language_emoji,
-    bytes_to_size,
     config_check,
     get_debrid_extension,
     get_indexer_manager,

@@ -40,7 +40,7 @@ class ConfigModel(BaseModel):
     indexers: List[str]
     languages: Optional[List[str]] = ["All"]
     resolutions: Optional[List[str]] = ["All"]
-    titleFormat: Optional[List[str]] = ["titleIncludeTorrentTitle", "titleIncludeSize", "titleIncludeTracker", "titleIncludeLanguages"]
+    resultFormat: Optional[List[str]] = ["All"]
     maxResults: Optional[int] = 0
     maxSize: Optional[float] = 0
     debridService: str

@@ -75,6 +75,10 @@
                 margin-bottom: 0.75rem;
             }
 
+            sl-details {
+                margin-bottom: 0.75rem;
+            }
+
             .centered-item {
                 display: flex;
                 justify-content: center;
@@ -528,15 +532,6 @@
             </div>
 
             <div class="form-item">
-                <sl-select id="titleFormat" value="titleIncludeTorrentTitle titleIncludeSize titleIncludeTrackers titleIncludeLanguages" multiple label="Title Format" placeholder="Select what to show in result title" max-options-visible=4>
-                  <sl-option value="titleIncludeTorrentTitle">Torrent Title</sl-option>
-                  <sl-option value="titleIncludeSize">Size</sl-option>
-                  <sl-option value="titleIncludeTrackers">Trackers</sl-option>
-                  <sl-option value="titleIncludeLanguages">Languages</sl-option>
-                </sl-select>
-            </div>
-
-            <div class="form-item">
                 <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="{% if not proxyDebridStream %}Configuration required, see docs{% else %}Enter password{% endif %}" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!" {% if not proxyDebridStream %} disabled {% endif %}></sl-input>
             </div>
 
@@ -557,6 +552,13 @@
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
             </div>
+
+            <sl-details summary="Advanced Settings">
+                <div class="form-item">
+                    <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=4>
+                    </sl-select>
+                </div>
+            </sl-details>
 
             <script>
                 document.getElementById("debridService").addEventListener("sl-change", function(event) {
@@ -593,6 +595,7 @@
                 <script type="module">
                     let defaultLanguages = [];
                     let defaultResolutions = [];
+                    let defaultResultFormat = [];
 
                     document.addEventListener("DOMContentLoaded", async () => {
                         await Promise.allSettled([
@@ -608,9 +611,11 @@
                         populateSelect("indexers", webConfig.indexers);
                         populateSelect("languages", webConfig.languages);
                         populateSelect("resolutions", webConfig.resolutions);
+                        populateSelect("resultFormat", webConfig.resultFormat);
                         document.body.classList.add("ready");
                         defaultLanguages = webConfig.languages;
                         defaultResolutions = webConfig.resolutions;
+                        defaultResultFormat = webConfig.resultFormat;
 
                         // try populate the form from previous settings
                         try {
@@ -644,18 +649,19 @@
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
                         const maxSize = document.getElementById("maxSize").value;
-                        const titleFormat = Array.from(document.getElementById("titleFormat").selectedOptions).map(option => option.value);
+                        const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
+                        const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["All"] : resultFormat;
 
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
                             maxSize: parseFloat(maxSize * 1073741824),
-                            titleFormat: titleFormat,
+                            resultFormat: selectedResultFormat,
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
                             debridService: debridService,
@@ -707,7 +713,6 @@
                     function populateFormFromSettings(settings) {
                         document.getElementById("maxResults").value = settings.maxResults;
                         document.getElementById("maxSize").value = settings.maxSize / 1073741824; // Convert back from bytes to GB
-                        document.getElementById("titleFormat").value = settings.titleFormat;
                         document.getElementById("debridService").value = settings.debridService;
                         document.getElementById("debridApiKey").value = settings.debridApiKey;
                         document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
@@ -716,6 +721,8 @@
                             document.getElementById("languages").value = settings.languages;
                         if (settings.resolutions != "All")
                             document.getElementById("resolutions").value = settings.resolutions;
+                        if (settings.resultFormat != "All")
+                            document.getElementById("resultFormat").value = settings.resultFormat;
                     }
 
                 </script>
