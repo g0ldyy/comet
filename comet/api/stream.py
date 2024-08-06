@@ -151,32 +151,20 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     for resolution, hash_list in balanced_hashes.items():
                         if hash in hash_list:
                             data = hash_data["data"]
-                            languages = data["language"]
-                            formatted_languages = (
-                                "/".join(
-                                    get_language_emoji(language)
-                                    for language in languages
-                                )
-                                if languages
-                                else get_language_emoji("multi_audio")
-                                if data["is_multi_audio"]
-                                else None
-                            )
-                            languages_str = (
-                                "\n" + formatted_languages
-                                if formatted_languages
-                                else ""
-                            )
                             results.append(
                                 {
                                     "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
-                                    "title": format_title(data['title'], data['size'], data['tracker'] if 'tracker' in data else '?', languages_str, config),
-                                    "torrentTitle": data["torrent_title"]
-                                    if "torrent_title" in data
-                                    else None,
-                                    "torrentSize": data["torrent_size"]
-                                    if "torrent_size" in data
-                                    else None,
+                                    "title": format_title(data, config),
+                                    "torrentTitle": (
+                                        data["torrent_title"]
+                                        if "torrent_title" in data
+                                        else None
+                                    ),
+                                    "torrentSize": (
+                                        data["torrent_size"]
+                                        if "torrent_size" in data
+                                        else None
+                                    ),
                                     "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
                                 }
                             )
@@ -373,21 +361,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             for resolution, hash_list in balanced_hashes.items():
                 if hash in hash_list:
                     data = hash_data["data"]
-                    languages = data["language"]
-                    formatted_languages = (
-                        "/".join(get_language_emoji(language) for language in languages)
-                        if languages
-                        else get_language_emoji("multi_audio")
-                        if data["is_multi_audio"]
-                        else None
-                    )
-                    languages_str = (
-                        "\n" + formatted_languages if formatted_languages else ""
-                    )
                     results.append(
                         {
                             "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
-                            "title": format_title(data['title'], data['size'], data['tracker'] if 'tracker' in data else '?', languages_str, config),
+                            "title": format_title(data, config),
                             "torrentTitle": data["torrent_title"],
                             "torrentSize": data["torrent_size"],
                             "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
