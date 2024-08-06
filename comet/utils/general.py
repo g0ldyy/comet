@@ -542,16 +542,49 @@ def get_balanced_hashes(hashes: dict, config: dict):
     return balanced_hashes
 
 
-def format_title(torrent_title: str, torrent_size: int, torrent_tracker: str, torrent_languages: str, config: dict):
+def format_metadata(data: dict):
+    extras = []
+    if data["hdr"] != "":
+        extras.append(data["hdr"] if data["hdr"] != "DV" else "Dolby Vision")
+    if data["remux"]:
+        extras.append("Remux")
+    if data["proper"]:
+        extras.append("Proper")
+    if data["repack"]:
+        extras.append("Repack")
+    if data["upscaled"]:
+        extras.append("Upscaled")
+    if data["remastered"]:
+        extras.append("Remastered")
+    if data["directorsCut"]:
+        extras.append("Director's Cut")
+    if data["extended"]:
+        extras.append("Extended")
+    return " | ".join(extras)
+
+
+def format_title(data: dict, config: dict):
     title = ""
+    logger.info(config)
     if "Title" in config["resultFormat"] or "All" in config["resultFormat"]:
-        title += f"{torrent_title}\n"
+        title += f"{data['title']}\n"
+    if "Metadata" in config["resultFormat"] or "All" in config["resultFormat"]:
+        metadata = format_metadata(data)
+        if metadata != "":
+            title += f"💿 {metadata}\n"
     if "Size" in config["resultFormat"] or "All" in config["resultFormat"]:
-        title += f"💾 {bytes_to_size(torrent_size)} "
+        title += f"💾 {bytes_to_size(data['size'])} "
     if "Tracker" in config["resultFormat"] or "All" in config["resultFormat"]:
-        title += f"🔎 {torrent_tracker}"
+        title += f"🔎 {data['tracker'] if 'tracker' in data else '?'}"
     if "Languages" in config["resultFormat"] or "All" in config["resultFormat"]:
-        title += f"{torrent_languages}"
+        languages = data["language"]
+        formatted_languages = (
+            "/".join(get_language_emoji(language) for language in languages)
+            if languages
+            else get_language_emoji("multi_audio") if data["is_multi_audio"] else None
+        )
+        languages_str = "\n" + formatted_languages if formatted_languages else ""
+        title += f"{languages_str}"
     if title == "":
         # Without this, Streamio shows SD as the result, which is confusing
         title = "Empty result format configuration"
