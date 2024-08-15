@@ -345,7 +345,7 @@ async def get_zilean(
                 for result in take_first:
                     object = {
                         "Title": result["filename"],
-                        "InfoHash": result["infoHash"],
+                        "InfoHash": result["info_hash"],
                         "Size": result["filesize"],
                         "Tracker": "DMM",
                     }
