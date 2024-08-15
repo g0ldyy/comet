@@ -361,8 +361,8 @@ async def get_zilean(
                 take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
                 for result in take_first:
                     object = {
-                        "Title": result["rawTitle"],
-                        "InfoHash": result["infoHash"],
+                        "Title": result["raw_title"],
+                        "InfoHash": result["info_hash"],
                         "Size": result["size"],
                         "Tracker": "DMM",
                     }
