@@ -56,6 +56,8 @@ services:
     environment:
         Zilean__ElasticSearch__Url: http://elasticsearch:9200
         Zilean__Dmm__MinimumScoreMatch: 40
+        Zilean__Database__ConnectionString: Host=postgres;Port=5432;Database=zilean;Username=postgres;Password=postgres
+      #  Zilean__Dmm__ImportBatched: true # Uncomment to enable batched import - this is for low end systems.
     networks:
       proxy:   
     healthcheck:
@@ -63,6 +65,29 @@ services:
       timeout: 60s
       interval: 30s
       retries: 10
+      
+# This is database for zilean
+  postgres:
+    image: postgres:16.3-alpine3.20
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - pg-data:/var/lib/postgresql/data/pgdata
+    networks:
+      proxy:
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      
 # This is required for the DMM Scraper (Zilean)
   elasticsearch:
     image: elasticsearch:8.14.1
@@ -192,4 +217,5 @@ volumes:
   warp_data:
   jackett_data:
   prowlarr_data:
+  pg-data:
 
