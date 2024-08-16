@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.25.2](https://github.com/g0ldyy/comet/compare/v1.25.1...v1.25.2) (2024-08-16)
+
+
+### Bug Fixes
+
+* zilean ([40b62b2](https://github.com/g0ldyy/comet/commit/40b62b29dc351775da3c7d914203579abfede646))
+
 ## [1.25.1](https://github.com/g0ldyy/comet/compare/v1.25.0...v1.25.1) (2024-08-15)
 
 
