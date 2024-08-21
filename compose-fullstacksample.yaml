@@ -54,10 +54,10 @@ services:
     volumes:      
       - zilean_data:/app/data
     environment:
-        Zilean__ElasticSearch__Url: http://elasticsearch:9200
-        Zilean__Dmm__MinimumScoreMatch: 40
         Zilean__Database__ConnectionString: Host=postgres;Port=5432;Database=zilean;Username=postgres;Password=postgres
-      #  Zilean__Dmm__ImportBatched: true # Uncomment to enable batched import - this is for low end systems.
+      # Zilean__Dmm__ImportBatched: "true"         Allows enabling batched import - this is for low-end systems.
+      # Zilean__Dmm__MaxFilteredResults: 200       Allows changing the maximum number of filtered results returned by the DMM API. 200 is the default.
+      # Zilean__Dmm__MinimumScoreMatch: 0.85       Allows changing the minimum score match for the DMM API. 0.85 is the default. Values between 0 and 1 are accepted.
     networks:
       proxy:   
     healthcheck:
@@ -87,28 +87,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      
-# This is required for the DMM Scraper (Zilean)
-  elasticsearch:
-    image: elasticsearch:8.14.1
-    container_name: elasticsearch
-    environment:
-      ES_SETTING_DISCOVERY_TYPE: single-node
-      ES_SETTING_XPACK_SECURITY_ENABLED: false
-      ES_SETTING_BOOTSTRAP_MEMORY__LOCK: true
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ports:
-      - 9200:9200
-      - 9300:9300
-    networks:
-      proxy:
-    healthcheck:
-      test: curl -s http://elasticsearch:9200 >/dev/null || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 10
-    volumes:
-      - elastic_data:/usr/share/elasticsearch/data:rw
+
 
 #This will allow you to bypass Cloudflare checks (necessary for some indexers)      
   flaresolverr:
