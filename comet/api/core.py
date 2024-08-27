@@ -54,6 +54,7 @@ async def configure(request: Request):
             if settings.CUSTOM_HEADER_HTML
             else "",
             "webConfig": web_config,
+            "indexerManager": settings.INDEXER_MANAGER_TYPE,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
         },
     )
