@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.27.0](https://github.com/g0ldyy/comet/compare/v1.26.0...v1.27.0) (2024-08-27)
+
+
+### Features
+
+* disable indexer select if indexer manager disabled ([2907a0e](https://github.com/g0ldyy/comet/commit/2907a0e25ca3da405b309e0c90ce7d191e7825f7))
+
 ## [1.26.0](https://github.com/g0ldyy/comet/compare/v1.25.2...v1.26.0) (2024-08-27)
 
 
