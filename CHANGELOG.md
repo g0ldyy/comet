@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.27.1](https://github.com/g0ldyy/comet/compare/v1.27.0...v1.27.1) (2024-08-27)
+
+
+### Bug Fixes
+
+* Jinja2 missing sometimes ([11a96b7](https://github.com/g0ldyy/comet/commit/11a96b705b29b7a8dd72d81c6d2f6957360bfea9))
+* jinja2????? ([55fe625](https://github.com/g0ldyy/comet/commit/55fe625c595ac2b8eea5ac3ee98219bbc6adeddf))
+
 ## [1.27.0](https://github.com/g0ldyy/comet/compare/v1.26.0...v1.27.0) (2024-08-27)
 
 
