@@ -18,6 +18,10 @@ async def setup_database():
         await database.execute(
             "CREATE TABLE IF NOT EXISTS download_links (debrid_key TEXT, hash TEXT, `index` TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, hash, `index`))"
         )
+        await database.execute("DROP TABLE IF EXISTS active_connections")
+        await database.execute(
+            "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
+        )
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
 

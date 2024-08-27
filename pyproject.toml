@@ -21,6 +21,7 @@ pydantic-settings = "*"
 bencode-py = "*"
 httpx = "*"
 curl-cffi = "*"
+orjson = "*"
 
 [tool.poetry.group.dev.dependencies]
 isort = "*"

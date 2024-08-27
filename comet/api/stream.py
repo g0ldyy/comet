@@ -4,15 +4,21 @@ import json
 import time
 import aiohttp
 import httpx
+import uuid
+import orjson
 
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse
+from fastapi.responses import (
+    RedirectResponse,
+    StreamingResponse,
+    FileResponse,
+    Response,
+)
 from starlette.background import BackgroundTask
 from RTN import Torrent, sort_torrents
 
 from comet.debrid.manager import getDebrid
 from comet.utils.general import (
-    get_language_emoji,
     config_check,
     get_debrid_extension,
     get_indexer_manager,
@@ -22,7 +28,7 @@ from comet.utils.general import (
     get_torrent_hash,
     translate,
     get_balanced_hashes,
-    format_title
+    format_title,
 )
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings
@@ -67,14 +73,17 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 get_metadata = await get_metadata.json()
                 name = get_metadata["data"]["attributes"]["canonicalTitle"]
                 season = 1
+                year = None
             else:
                 get_metadata = await session.get(
                     f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
                 )
                 metadata = await get_metadata.json()
-                name = metadata["d"][
+                element = metadata["d"][
                     0 if metadata["d"][0]["l"] != "Summer Watch Guide" else 1
-                ]["l"]
+                ]
+                name = element["l"]
+                year = element["y"]
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
@@ -175,6 +184,17 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         else:
             logger.info(f"No cache found for {log_name} with user configuration")
 
+        if (
+            settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            == config["debridStreamProxyPassword"]
+            and config["debridApiKey"] == ""
+        ):
+            config["debridService"] = (
+                settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
+            )
+            config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+
         debrid = getDebrid(session, config)
 
         check_premium = await debrid.check_premium()
@@ -198,7 +218,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         search_indexer = len(config["indexers"]) != 0
         torrents = []
         tasks = []
-        if search_indexer:
+        if indexer_manager_type and search_indexer:
             logger.info(
                 f"Start of {indexer_manager_type} search for {log_name} with indexers {config['indexers']}"
             )
@@ -216,7 +236,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 for term in search_terms
             )
         else:
-            logger.info(f"No indexer selected by user for {log_name}")
+            logger.info(
+                f"No indexer {'manager ' if not indexer_manager_type else ' '}{'selected by user' if indexer_manager_type else 'defined'} for {log_name}"
+            )
 
         if settings.ZILEAN_URL:
             tasks.append(get_zilean(session, name, log_name, season, episode))
@@ -230,7 +252,27 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 torrents.append(result)
 
         logger.info(
-            f"{len(torrents)} torrents found for {log_name} with {indexer_manager_type}{' and Zilean' if settings.ZILEAN_URL else ''}{' and Torrentio' if settings.SCRAPE_TORRENTIO else ''}"
+            f"{len(torrents)} torrents found for {log_name}"
+            + (
+                " with "
+                + ", ".join(
+                    part
+                    for part in [
+                        indexer_manager_type,
+                        "Zilean" if settings.ZILEAN_URL else None,
+                        "Torrentio" if settings.SCRAPE_TORRENTIO else None,
+                    ]
+                    if part
+                )
+                if any(
+                    [
+                        indexer_manager_type,
+                        settings.ZILEAN_URL,
+                        settings.SCRAPE_TORRENTIO,
+                    ]
+                )
+                else ""
+            )
         )
 
         if len(torrents) == 0:
@@ -246,7 +288,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             tasks = []
             for chunk in chunks:
-                tasks.append(filter(chunk, name))
+                tasks.append(filter(chunk, name, year))
 
             filtered_torrents = await asyncio.gather(*tasks)
             index_less = 0
@@ -333,7 +375,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")
         await database.execute(
-            f"INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp)",
+            "INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp)",
             {"cache_key": cache_key, "json_data": json_data, "timestamp": time.time()},
         )
         logger.info(f"Results have been cached for {log_name}")
@@ -381,6 +423,27 @@ async def playback(b64config: str, hash: str, index: str):
     return RedirectResponse("https://stremio.fast", status_code=302)
 
 
+class CustomORJSONResponse(Response):
+    media_type = "application/json"
+
+    def render(self, content) -> bytes:
+        assert orjson is not None, "orjson must be installed"
+        return orjson.dumps(content, option=orjson.OPT_INDENT_2)
+
+
+@streams.get("/active-connections", response_class=CustomORJSONResponse)
+async def active_connections(request: Request, password: str):
+    if password != settings.DASHBOARD_ADMIN_PASSWORD:
+        return "Invalid Password"
+
+    active_connections = await database.fetch_all("SELECT * FROM active_connections")
+
+    return {
+        "total_connections": len(active_connections),
+        "active_connections": active_connections,
+    }
+
+
 @streams.get("/{b64config}/playback/{hash}/{index}")
 async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
@@ -408,6 +471,19 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 )
 
         if not download_link:
+            if (
+                settings.PROXY_DEBRID_STREAM
+                and settings.PROXY_DEBRID_STREAM_PASSWORD
+                == config["debridStreamProxyPassword"]
+                and config["debridApiKey"] == ""
+            ):
+                config["debridService"] = (
+                    settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
+                )
+                config["debridApiKey"] = (
+                    settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+                )
+
             debrid = getDebrid(session, config)
             download_link = await debrid.generate_download_link(hash, index)
             if not download_link:
@@ -430,10 +506,28 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
+            active_ip_connections = await database.fetch_all(
+                "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
+            )
+            ip = (
+                request.headers["cf-connecting-ip"]
+                if "cf-connecting-ip" in request.headers
+                else request.client.host
+            )
+            if any(
+                connection["ip"] == ip
+                and connection["connections"]
+                >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
+                for connection in active_ip_connections
+            ):
+                return FileResponse("comet/assets/proxylimit.mp4")
+
             proxy = None
 
             class Streamer:
-                def __init__(self):
+                def __init__(self, id: str):
+                    self.id = id
+
                     self.client = httpx.AsyncClient(proxy=proxy)
                     self.response = None
 
@@ -445,6 +539,10 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                             yield chunk
 
                 async def close(self):
+                    await database.execute(
+                        f"DELETE FROM active_connections WHERE id = '{self.id}'"
+                    )
+
                     if self.response is not None:
                         await self.response.aclose()
                     if self.client is not None:
@@ -456,14 +554,27 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 download_link, headers={"Range": range_header}
             )
             if response.status == 503 and config["debridService"] == "alldebrid":
-                proxy = settings.DEBRID_PROXY_URL  # proxy is not needed to proxy realdebrid stream
+                proxy = (
+                    settings.DEBRID_PROXY_URL
+                )  # proxy is not needed to proxy realdebrid stream
 
                 response = await session.head(
                     download_link, headers={"Range": range_header}, proxy=proxy
                 )
 
             if response.status == 206:
-                streamer = Streamer()
+                id = str(uuid.uuid4())
+                await database.execute(
+                    "INSERT OR REPLACE INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp)",
+                    {
+                        "id": id,
+                        "ip": ip,
+                        "content": str(response.url),
+                        "timestamp": current_time,
+                    },
+                )
+
+                streamer = Streamer(id)
 
                 return StreamingResponse(
                     streamer.stream_content({"Range": range_header}),

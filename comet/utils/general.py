@@ -419,7 +419,7 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
     return results
 
 
-async def filter(torrents: list, name: str):
+async def filter(torrents: list, name: str, year: int):
     results = []
     for torrent in torrents:
         index = torrent[0]
@@ -428,11 +428,16 @@ async def filter(torrents: list, name: str):
         if "\n" in title:  # Torrentio title parsing
             title = title.split("\n")[1]
 
-        if title_match(name, parse(title).parsed_title):
-            results.append((index, True))
+        parsed = parse(title)
+        if not title_match(name, parsed.parsed_title):
+            results.append((index, False))
             continue
 
-        results.append((index, False))
+        if year and parsed.year != 0 and year != parsed.year:
+            results.append((index, False))
+            continue
+
+        results.append((index, True))
 
     return results
 
@@ -565,7 +570,6 @@ def format_metadata(data: dict):
 
 def format_title(data: dict, config: dict):
     title = ""
-    logger.info(config)
     if "Title" in config["resultFormat"] or "All" in config["resultFormat"]:
         title += f"{data['title']}\n"
     if "Metadata" in config["resultFormat"] or "All" in config["resultFormat"]:
@@ -581,7 +585,9 @@ def format_title(data: dict, config: dict):
         formatted_languages = (
             "/".join(get_language_emoji(language) for language in languages)
             if languages
-            else get_language_emoji("multi_audio") if data["is_multi_audio"] else None
+            else get_language_emoji("multi_audio")
+            if data["is_multi_audio"]
+            else None
         )
         languages_str = "\n" + formatted_languages if formatted_languages else ""
         title += f"{languages_str}"

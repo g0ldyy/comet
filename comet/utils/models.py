@@ -1,4 +1,6 @@
 import os
+import random
+import string
 
 from typing import List, Optional
 from databases import Database
@@ -15,12 +17,13 @@ class AppSettings(BaseSettings):
     FASTAPI_HOST: Optional[str] = "0.0.0.0"
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 2 * (os.cpu_count() or 1)
+    DASHBOARD_ADMIN_PASSWORD: Optional[str] = None
     DATABASE_PATH: Optional[str] = "data/comet.db"
     CACHE_TTL: Optional[int] = 86400
     DEBRID_PROXY_URL: Optional[str] = None
-    INDEXER_MANAGER_TYPE: str = "jackett"
-    INDEXER_MANAGER_URL: str = "http://127.0.0.1:9117"
-    INDEXER_MANAGER_API_KEY: str
+    INDEXER_MANAGER_TYPE: Optional[str] = "jackett"
+    INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
+    INDEXER_MANAGER_API_KEY: Optional[str] = None
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = ["EXAMPLE1_CHANGETHIS", "EXAMPLE2_CHANGETHIS"]
     GET_TORRENT_TIMEOUT: Optional[int] = 5
@@ -29,8 +32,29 @@ class AppSettings(BaseSettings):
     SCRAPE_TORRENTIO: Optional[bool] = False
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
-    PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "CHANGE_ME"
+    PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = None
+    PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = 100
+    PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = None
+    PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     TITLE_MATCH_CHECK: Optional[bool] = True
+
+    @field_validator("DASHBOARD_ADMIN_PASSWORD")
+    def set_dashboard_admin_password(cls, v, values):
+        if v is None:
+            return "".join(random.choices(string.ascii_letters + string.digits, k=16))
+        return v
+
+    @field_validator("INDEXER_MANAGER_TYPE")
+    def set_indexer_manager_type(cls, v, values):
+        if v == "None":
+            return None
+        return v
+
+    @field_validator("PROXY_DEBRID_STREAM_PASSWORD")
+    def set_debrid_stream_proxy_password(cls, v, values):
+        if v is None:
+            return "".join(random.choices(string.ascii_letters + string.digits, k=16))
+        return v
 
 
 settings = AppSettings()

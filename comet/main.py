@@ -102,6 +102,7 @@ config = uvicorn.Config(
     app,
     host=settings.FASTAPI_HOST,
     port=settings.FASTAPI_PORT,
+    proxy_headers=True,
     workers=settings.FASTAPI_WORKERS,
     log_config=None,
 )
@@ -114,24 +115,37 @@ def start_log():
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
     logger.log(
+        "COMET", f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD}"
+    )
+    logger.log(
         "COMET", f"Database: {settings.DATABASE_PATH} - TTL: {settings.CACHE_TTL}s"
     )
     logger.log("COMET", f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
-    logger.log(
-        "COMET",
-        f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
-    )
+
+    if settings.INDEXER_MANAGER_TYPE:
+        logger.log(
+            "COMET",
+            f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
+        )
+    else:
+        logger.log("COMET", "Indexer Manager: False")
+
     logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+
     if settings.ZILEAN_URL:
         logger.log(
             "COMET",
             f"Zilean: {settings.ZILEAN_URL} - Take first: {settings.ZILEAN_TAKE_FIRST}",
         )
     else:
-        logger.log("COMET", "Zilean: Disabled")
+        logger.log("COMET", "Zilean: False")
+
     logger.log("COMET", f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}")
-    logger.log("COMET", f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)}")
+    logger.log(
+        "COMET",
+        f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",
+    )
     logger.log("COMET", f"Title Match Check: {bool(settings.TITLE_MATCH_CHECK)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 

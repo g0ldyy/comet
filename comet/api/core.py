@@ -51,7 +51,7 @@ async def configure(request: Request):
         {
             "request": request,
             "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML
-            if settings.CUSTOM_HEADER_HTML and settings.CUSTOM_HEADER_HTML != "None"
+            if settings.CUSTOM_HEADER_HTML
             else "",
             "webConfig": web_config,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
