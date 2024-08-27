@@ -115,7 +115,7 @@ def start_log():
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
     logger.log(
-        "COMET", f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD}"
+        "COMET", f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/active-connections?password={settings.DASHBOARD_ADMIN_PASSWORD}"
     )
     logger.log(
         "COMET", f"Database: {settings.DATABASE_PATH} - TTL: {settings.CACHE_TTL}s"
