@@ -16,13 +16,15 @@ aiohttp = "*"
 asyncio = "*"
 loguru = "*"
 databases = "*"
-aiosqlite = "*"
 pydantic-settings = "*"
 bencode-py = "*"
 httpx = "*"
 curl-cffi = "*"
 orjson = "*"
-jinja2 = "*"
+asyncpg = "^0.29.0"
+aiosqlite = "^0.20.0"
+jinja2 = "^3.1.4"
+
 
 [tool.poetry.group.dev.dependencies]
 isort = "*"

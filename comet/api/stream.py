@@ -375,7 +375,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")
         await database.execute(
-            "INSERT OR IGNORE INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp)",
+            f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgressql' else ''}",
             {"cache_key": cache_key, "json_data": json_data, "timestamp": time.time()},
         )
         logger.info(f"Results have been cached for {log_name}")
@@ -453,7 +453,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     async with aiohttp.ClientSession() as session:
         # Check for cached download link
         cached_link = await database.fetch_one(
-            f"SELECT link, timestamp FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND `index` = '{index}'"
+            f"SELECT link, timestamp FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND file_index = '{index}'"
         )
 
         current_time = time.time()
@@ -467,7 +467,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             else:
                 # Cache expired, remove old entry
                 await database.execute(
-                    f"DELETE FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND `index` = '{index}'"
+                    f"DELETE FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND file_index = '{index}'"
                 )
 
         if not download_link:
@@ -491,7 +491,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             # Cache the new download link
             await database.execute(
-                "INSERT OR REPLACE INTO download_links (debrid_key, hash, `index`, link, timestamp) VALUES (:debrid_key, :hash, :index, :link, :timestamp)",
+                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO download_links (debrid_key, hash, file_index, link, timestamp) VALUES (:debrid_key, :hash, :index, :link, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgressql' else ''}",
                 {
                     "debrid_key": config["debridApiKey"],
                     "hash": hash,
@@ -565,7 +565,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             if response.status == 206:
                 id = str(uuid.uuid4())
                 await database.execute(
-                    "INSERT OR REPLACE INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp)",
+                    f"INSERT  {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgressql' else ''}",
                     {
                         "id": id,
                         "ip": ip,

@@ -6,17 +6,18 @@ from comet.utils.models import database, settings
 
 async def setup_database():
     try:
-        os.makedirs(os.path.dirname(settings.DATABASE_PATH), exist_ok=True)
+        if settings.DATABASE_TYPE == "sqlite":
+            os.makedirs(os.path.dirname(settings.DATABASE_PATH), exist_ok=True)
 
-        if not os.path.exists(settings.DATABASE_PATH):
-            open(settings.DATABASE_PATH, "a").close()
+            if not os.path.exists(settings.DATABASE_PATH):
+                open(settings.DATABASE_PATH, "a").close()
 
         await database.connect()
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS cache (cacheKey BLOB PRIMARY KEY, timestamp INTEGER, results TEXT)"
+            "CREATE TABLE IF NOT EXISTS cache (cacheKey TEXT PRIMARY KEY, timestamp INTEGER, results TEXT)"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS download_links (debrid_key TEXT, hash TEXT, `index` TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, hash, `index`))"
+            "CREATE TABLE IF NOT EXISTS download_links (debrid_key TEXT, hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, hash, file_index))"
         )
         await database.execute("DROP TABLE IF EXISTS active_connections")
         await database.execute(
