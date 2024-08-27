@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.26.0](https://github.com/g0ldyy/comet/compare/v1.25.2...v1.26.0) (2024-08-27)
+
+
+### Features
+
+* new admin dashboard for debrid proxy stream + title year check + ip-based max connections for debrid proxy stream ([1d11ac4](https://github.com/g0ldyy/comet/commit/1d11ac46bde0c951ee0c3afa746e83a46bb8474f))
+
+
+### Bug Fixes
+
+* remove fullstacksample docker compose as it needs to be changed a lot ([7533ecb](https://github.com/g0ldyy/comet/commit/7533ecb4b08a349b25a1bce2e70b1481fc3407bd))
+
 ## [1.25.2](https://github.com/g0ldyy/comet/compare/v1.25.1...v1.25.2) (2024-08-16)
 
 
