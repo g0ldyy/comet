@@ -18,6 +18,8 @@ class AppSettings(BaseSettings):
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 2 * (os.cpu_count() or 1)
     DASHBOARD_ADMIN_PASSWORD: Optional[str] = None
+    DATABASE_TYPE: Optional[str] = "sqlite"
+    DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
     CACHE_TTL: Optional[int] = 86400
     DEBRID_PROXY_URL: Optional[str] = None
@@ -131,4 +133,12 @@ rtn_ranking = BestOverallRanking()
 
 # For use anywhere
 rtn = RTN(settings=rtn_settings, ranking_model=rtn_ranking)
-database = Database(f"sqlite:///{settings.DATABASE_PATH}")
+
+database_url = (
+    settings.DATABASE_PATH
+    if settings.DATABASE_TYPE == "sqlite"
+    else settings.DATABASE_URL
+)
+database = Database(
+    f"{'sqlite' if settings.DATABASE_TYPE == 'sqlite' else 'postgresql+asyncpg'}://{'/' if settings.DATABASE_TYPE == 'sqlite' else ''}{database_url}"
+)

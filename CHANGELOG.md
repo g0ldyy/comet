@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.28.1](https://github.com/g0ldyy/comet/compare/v1.28.0...v1.28.1) (2024-08-27)
+
+
+### Bug Fixes
+
+* typo causing errors ([7584af6](https://github.com/g0ldyy/comet/commit/7584af66dd19d3a2c089f75b9f6cf1646ddbc25c))
+
+## [1.28.0](https://github.com/g0ldyy/comet/compare/v1.27.1...v1.28.0) (2024-08-27)
+
+
+### Features
+
+* PostgreSQL support ([8f46d7f](https://github.com/g0ldyy/comet/commit/8f46d7f1829148190d27adf0d35ed64bf233d029))
+
 ## [1.27.1](https://github.com/g0ldyy/comet/compare/v1.27.0...v1.27.1) (2024-08-27)
 
 
