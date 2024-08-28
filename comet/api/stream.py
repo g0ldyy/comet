@@ -496,11 +496,11 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             # Cache the new download link
             await database.execute(
-                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO download_links (debrid_key, hash, file_index, link, timestamp) VALUES (:debrid_key, :hash, :index, :link, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO download_links (debrid_key, hash, file_index, link, timestamp) VALUES (:debrid_key, :hash, :file_index, :link, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
                 {
                     "debrid_key": config["debridApiKey"],
                     "hash": hash,
-                    "index": index,
+                    "file_index": index,
                     "link": download_link,
                     "timestamp": current_time,
                 },
