@@ -80,8 +80,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 )
                 metadata = await get_metadata.json()
                 element = metadata["d"][
-                    0 if metadata["d"][0]["l"] != "Summer Watch Guide" else 1
+                    0 if metadata["d"][0]["id"] not in ["/imdbpicks/summer-watch-guide", "/emmys"] else 1
                 ]
+
+                for element in metadata["d"]:
+                    if element["id"] not in ["/imdbpicks/summer-watch-guide", "/emmys"]:
+                        break
+
                 name = element["l"]
                 year = element["y"]
         except Exception as e:
