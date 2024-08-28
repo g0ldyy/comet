@@ -82,9 +82,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 element = metadata["d"][
                     0 if metadata["d"][0]["id"] not in ["/imdbpicks/summer-watch-guide", "/emmys"] else 1
                 ]
-
+                
                 for element in metadata["d"]:
-                    if element["id"] not in ["/imdbpicks/summer-watch-guide", "/emmys"]:
+                    if element["id"] == id:
                         break
 
                 name = element["l"]
