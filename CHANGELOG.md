@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.4](https://github.com/g0ldyy/comet/compare/v1.28.3...v1.28.4) (2024-08-28)
+
+
+### Bug Fixes
+
+* metadata ([809e32b](https://github.com/g0ldyy/comet/commit/809e32bb9c727076be12ab88b073b86213b50e12))
+
 ## [1.28.3](https://github.com/g0ldyy/comet/compare/v1.28.2...v1.28.3) (2024-08-28)
 
 
