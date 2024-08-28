@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.3](https://github.com/g0ldyy/comet/compare/v1.28.2...v1.28.3) (2024-08-28)
+
+
+### Bug Fixes
+
+* sqlite download_link caching ([34c93c6](https://github.com/g0ldyy/comet/commit/34c93c6d3b0d77a8573e810e1f6cefff71a83e85))
+
 ## [1.28.2](https://github.com/g0ldyy/comet/compare/v1.28.1...v1.28.2) (2024-08-28)
 
 
