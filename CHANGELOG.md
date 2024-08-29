@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.5](https://github.com/g0ldyy/comet/compare/v1.28.4...v1.28.5) (2024-08-29)
+
+
+### Bug Fixes
+
+* debrid download link caching not working in certain case ([271dbb6](https://github.com/g0ldyy/comet/commit/271dbb6f43481c509e7a74018d0c804c263eadcd))
+
 ## [1.28.4](https://github.com/g0ldyy/comet/compare/v1.28.3...v1.28.4) (2024-08-28)
 
 
