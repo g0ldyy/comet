@@ -98,7 +98,7 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
       docker compose pull
     ```
 - Run
-     ```sh
+    ```sh
       docker compose up -d
     ```
 
