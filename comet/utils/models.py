@@ -36,7 +36,7 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = None
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = 100
-    PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = None
+    PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     TITLE_MATCH_CHECK: Optional[bool] = True
 

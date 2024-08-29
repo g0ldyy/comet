@@ -58,7 +58,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         episode = None
         if type == "series":
             info = id.split(":")
-            full_id = id
             id = info[0]
             season = int(info[1])
             episode = int(info[2])
@@ -454,6 +453,19 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
+    
+    if (
+        settings.PROXY_DEBRID_STREAM
+        and settings.PROXY_DEBRID_STREAM_PASSWORD
+        == config["debridStreamProxyPassword"]
+        and config["debridApiKey"] == ""
+    ):
+        config["debridService"] = (
+            settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
+        )
+        config["debridApiKey"] = (
+            settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+        )
 
     async with aiohttp.ClientSession() as session:
         # Check for cached download link
@@ -476,19 +488,6 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 )
 
         if not download_link:
-            if (
-                settings.PROXY_DEBRID_STREAM
-                and settings.PROXY_DEBRID_STREAM_PASSWORD
-                == config["debridStreamProxyPassword"]
-                and config["debridApiKey"] == ""
-            ):
-                config["debridService"] = (
-                    settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-                )
-                config["debridApiKey"] = (
-                    settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
-                )
-
             debrid = getDebrid(session, config)
             download_link = await debrid.generate_download_link(hash, index)
             if not download_link:
