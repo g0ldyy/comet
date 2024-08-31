@@ -354,40 +354,23 @@ async def get_zilean(
 ):
     results = []
     try:
-        if not season:
-            get_dmm = await session.post(
-                f"{settings.ZILEAN_URL}/dmm/search", json={"queryText": name}
-            )
-            get_dmm = await get_dmm.json()
+        show = f"&season={season}&episode={episode}"
+        get_dmm = await session.get(
+            f"{settings.ZILEAN_URL}/dmm/filtered?query={name}{show if season else ''}"
+        )
+        get_dmm = await get_dmm.json()
 
-            if isinstance(get_dmm, list):
-                take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
-                for result in take_first:
-                    object = {
-                        "Title": result["raw_title"],
-                        "InfoHash": result["info_hash"],
-                        "Size": result["size"],
-                        "Tracker": "DMM",
-                    }
+        if isinstance(get_dmm, list):
+            take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
+            for result in take_first:
+                object = {
+                    "Title": result["raw_title"],
+                    "InfoHash": result["info_hash"],
+                    "Size": result["size"],
+                    "Tracker": "DMM",
+                }
 
-                    results.append(object)
-        else:
-            get_dmm = await session.get(
-                f"{settings.ZILEAN_URL}/dmm/filtered?query={name}&season={season}&episode={episode}"
-            )
-            get_dmm = await get_dmm.json()
-
-            if isinstance(get_dmm, list):
-                take_first = get_dmm[: settings.ZILEAN_TAKE_FIRST]
-                for result in take_first:
-                    object = {
-                        "Title": result["raw_title"],
-                        "InfoHash": result["info_hash"],
-                        "Size": result["size"],
-                        "Tracker": "DMM",
-                    }
-
-                    results.append(object)
+                results.append(object)
 
         logger.info(f"{len(results)} torrents found for {log_name} with Zilean")
     except Exception as e:
