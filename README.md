@@ -1,4 +1,4 @@
-<h1 align="center" id="title">☄️ Comet - <a href="https://discord.com/invite/funky-penguin-396055506072109067">Discord</a></h1>
+<h1 align="center" id="title">☄️ Comet - <a href="https://discord.gg/rivenmedia">Discord</a></h1>
 <p align="center"><img src="https://socialify.git.ci/g0ldyy/comet/image?description=1&font=Raleway&forks=1&issues=1&language=1&logo=https%3A%2F%2Fi.imgur.com%2FGj0KQwB.png&name=1&owner=1&pattern=Solid&pulls=1&stargazers=1&theme=Dark" /></p>
 <p align="center">
   <a href="https://ko-fi.com/E1E7ZVMAD">
@@ -98,7 +98,7 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
       docker compose pull
     ```
 - Run
-     ```sh
+    ```sh
       docker compose up -d
     ```
 
