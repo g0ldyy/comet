@@ -14,7 +14,7 @@ from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
 
 languages_emojis = {
-    "dubbed": "🌎",
+    "multi": "🌎", # Dubbed
     "en": "🇬🇧",  # English
     "ja": "🇯🇵",  # Japanese
     "zh": "🇨🇳",  # Chinese
@@ -523,7 +523,7 @@ def get_balanced_hashes(hashes: dict, config: dict):
 
         if not include_all_languages and not any(
             lang in hash_info["languages"] for lang in config_languages
-        ):
+        ) and (not "multi" in languages if hash_info["dubbed"] else True):
             continue
 
         resolution = hash_info["resolution"]
@@ -602,11 +602,11 @@ def format_title(data: dict, config: dict):
 
     if "All" in config["resultFormat"] or "Languages" in config["resultFormat"]:
         languages = data["languages"]
+        if data["dubbed"]:
+            languages.insert(0, "multi")
         formatted_languages = (
             "/".join(get_language_emoji(language) for language in languages)
             if languages
-            else get_language_emoji("dubbed")
-            if data["dubbed"]
             else None
         )
         languages_str = "\n" + formatted_languages if formatted_languages else ""
