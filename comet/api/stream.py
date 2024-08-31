@@ -347,10 +347,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     files[hash]["title"],
                     hash,  # , correct_title=name, remove_trash=True
                 )
+
+                ranked_files.add(ranked_file)
             except:
                 pass
-
-            ranked_files.add(ranked_file)
 
         sorted_ranked_files = sort_torrents(ranked_files)
 

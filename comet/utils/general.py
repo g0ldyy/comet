@@ -14,7 +14,7 @@ from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
 
 languages_emojis = {
-    "multi": "🌎", # Dubbed
+    "multi": "🌎",  # Dubbed
     "en": "🇬🇧",  # English
     "ja": "🇯🇵",  # Japanese
     "zh": "🇨🇳",  # Chinese
@@ -504,9 +504,11 @@ def get_balanced_hashes(hashes: dict, config: dict):
         if max_size != 0 and hash_info["size"] > max_size:
             continue
 
-        if not include_all_languages and not any(
-            lang in hash_info["languages"] for lang in config_languages
-        ) and (not "multi" in languages if hash_info["dubbed"] else True):
+        if (
+            not include_all_languages
+            and not any(lang in hash_info["languages"] for lang in config_languages)
+            and ("multi" not in languages if hash_info["dubbed"] else True)
+        ):
             continue
 
         resolution = hash_info["resolution"]
