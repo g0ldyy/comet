@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.1](https://github.com/g0ldyy/comet/compare/v1.29.0...v1.29.1) (2024-08-31)
+
+
+### Bug Fixes
+
+* improves prowlarr compatibility ([7c0ee96](https://github.com/g0ldyy/comet/commit/7c0ee96dafb4a14db02c66e8cfaf2dd5ac05273c))
+
 ## [1.29.0](https://github.com/g0ldyy/comet/compare/v1.28.5...v1.29.0) (2024-08-31)
 
 
