@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.0](https://github.com/g0ldyy/comet/compare/v1.28.5...v1.29.0) (2024-08-31)
+
+
+### Features
+
+* faster than ever, better results ([19f9cc4](https://github.com/g0ldyy/comet/commit/19f9cc48ae83e27b43fdbb8541ec8d6b6f2878df))
+
 ## [1.28.5](https://github.com/g0ldyy/comet/compare/v1.28.4...v1.28.5) (2024-08-29)
 
 
