@@ -376,9 +376,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 "Tracker"
             ]
             sorted_ranked_files[hash]["data"]["size"] = files[hash]["size"]
-            sorted_ranked_files[hash]["data"]["torrent_size"] = torrents_by_hash[hash][
-                "Size"
-            ]
+            torrent_size = torrents_by_hash[hash]["Size"]
+            sorted_ranked_files[hash]["data"]["torrent_size"] = (
+                torrent_size if torrent_size else files[hash]["size"]
+            )
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
         json_data = json.dumps(sorted_ranked_files).replace("'", "''")
