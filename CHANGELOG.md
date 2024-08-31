@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.0](https://github.com/g0ldyy/comet/compare/v1.29.1...v1.30.0) (2024-08-31)
+
+
+### Features
+
+* add multi to languages ([da4d1d7](https://github.com/g0ldyy/comet/commit/da4d1d7cc2a4fc590c6acb0a7c0f43be9fc54568))
+
 ## [1.29.1](https://github.com/g0ldyy/comet/compare/v1.29.0...v1.29.1) (2024-08-31)
 
 
