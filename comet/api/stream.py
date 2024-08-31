@@ -79,9 +79,12 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 )
                 metadata = await get_metadata.json()
                 element = metadata["d"][
-                    0 if metadata["d"][0]["id"] not in ["/imdbpicks/summer-watch-guide", "/emmys"] else 1
+                    0
+                    if metadata["d"][0]["id"]
+                    not in ["/imdbpicks/summer-watch-guide", "/emmys"]
+                    else 1
                 ]
-                
+
                 for element in metadata["d"]:
                     if element["id"] == id:
                         break
@@ -166,7 +169,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                             data = hash_data["data"]
                             results.append(
                                 {
-                                    "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
+                                    "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
                                     "title": format_title(data, config),
                                     "torrentTitle": (
                                         data["torrent_title"]
@@ -241,7 +244,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
         else:
             logger.info(
-                f"No indexer {'manager ' if not indexer_manager_type else ' '}{'selected by user' if indexer_manager_type else 'defined'} for {log_name}"
+                f"No indexer {'manager ' if not indexer_manager_type else ''}{'selected by user' if indexer_manager_type else 'defined'} for {log_name}"
             )
 
         if settings.ZILEAN_URL:
@@ -339,23 +342,24 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         ranked_files = set()
         for hash in files:
-            # try:
-            ranked_file = rtn.rank(
-                files[hash]["title"],
-                hash,  # , correct_title=name, remove_trash=True
-            )
-            # except:
-            #     continue
+            try:
+                ranked_file = rtn.rank(
+                    files[hash]["title"],
+                    hash,  # , correct_title=name, remove_trash=True
+                )
+            except:
+                pass
 
             ranked_files.add(ranked_file)
 
         sorted_ranked_files = sort_torrents(ranked_files)
 
+        len_sorted_ranked_files = len(sorted_ranked_files)
         logger.info(
-            f"{len(sorted_ranked_files)} cached files found on {config['debridService']} for {log_name}"
+            f"{len_sorted_ranked_files} cached files found on {config['debridService']} for {log_name}"
         )
 
-        if len(sorted_ranked_files) == 0:
+        if len_sorted_ranked_files == 0:
             return {"streams": []}
 
         sorted_ranked_files = {
@@ -409,7 +413,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                     data = hash_data["data"]
                     results.append(
                         {
-                            "name": f"[{debrid_extension}⚡] Comet {data['resolution'][0] if data['resolution'] != [] else 'Unknown'}",
+                            "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
                             "title": format_title(data, config),
                             "torrentTitle": data["torrent_title"],
                             "torrentSize": data["torrent_size"],
@@ -453,19 +457,14 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
-    
+
     if (
         settings.PROXY_DEBRID_STREAM
-        and settings.PROXY_DEBRID_STREAM_PASSWORD
-        == config["debridStreamProxyPassword"]
+        and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
         and config["debridApiKey"] == ""
     ):
-        config["debridService"] = (
-            settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-        )
-        config["debridApiKey"] = (
-            settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
-        )
+        config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
+        config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
     async with aiohttp.ClientSession() as session:
         # Check for cached download link

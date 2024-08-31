@@ -75,14 +75,14 @@ class RealDebrid:
                             continue
 
                         filename_parsed = parse(filename)
-                        if episode not in filename_parsed.episode:
+                        if episode not in filename_parsed.episodes:
                             continue
 
                         if kitsu:
-                            if filename_parsed.season:
+                            if filename_parsed.seasons:
                                 continue
                         else:
-                            if season not in filename_parsed.season:
+                            if season not in filename_parsed.seasons:
                                 continue
 
                         files[hash] = {

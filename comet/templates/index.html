@@ -593,6 +593,55 @@
                 </sl-alert>
 
                 <script type="module">
+                    const languagesEmojis = {
+                        "English": "🇬🇧",
+                        "Japanese": "🇯🇵",
+                        "Chinese": "🇨🇳",
+                        "Russian": "🇷🇺",
+                        "Arabic": "🇸🇦",
+                        "Portuguese": "🇵🇹",
+                        "Spanish": "🇪🇸",
+                        "French": "🇫🇷",
+                        "German": "🇩🇪",
+                        "Italian": "🇮🇹",
+                        "Korean": "🇰🇷",
+                        "Hindi": "🇮🇳",
+                        "Bengali": "🇧🇩",
+                        "Punjabi": "🇵🇰",
+                        "Marathi": "🇮🇳",
+                        "Gujarati": "🇮🇳",
+                        "Tamil": "🇮🇳",
+                        "Telugu": "🇮🇳",
+                        "Kannada": "🇮🇳",
+                        "Malayalam": "🇮🇳",
+                        "Thai": "🇹🇭",
+                        "Vietnamese": "🇻🇳",
+                        "Indonesian": "🇮🇩",
+                        "Turkish": "🇹🇷",
+                        "Hebrew": "🇮🇱",
+                        "Persian": "🇮🇷",
+                        "Ukrainian": "🇺🇦",
+                        "Greek": "🇬🇷",
+                        "Lithuanian": "🇱🇹",
+                        "Latvian": "🇱🇻",
+                        "Estonian": "🇪🇪",
+                        "Polish": "🇵🇱",
+                        "Czech": "🇨🇿",
+                        "Slovak": "🇸🇰",
+                        "Hungarian": "🇭🇺",
+                        "Romanian": "🇷🇴",
+                        "Bulgarian": "🇧🇬",
+                        "Serbian": "🇷🇸",
+                        "Croatian": "🇭🇷",
+                        "Slovenian": "🇸🇮",
+                        "Dutch": "🇳🇱", 
+                        "Danish": "🇩🇰",
+                        "Finnish": "🇫🇮",
+                        "Swedish": "🇸🇪",
+                        "Norwegian": "🇳🇴",
+                        "Malay": "🇲🇾",
+                    };
+
                     let defaultLanguages = [];
                     let defaultResolutions = [];
                     let defaultResultFormat = [];
@@ -632,10 +681,21 @@
                         options.forEach(option => {
                             const optionElement = document.createElement("sl-option");
                             optionElement.value = option;
-                            optionElement.textContent = option;
+
+                            if (selectId === "languages") {
+                                // For languages, prepend the flag emoji if it exists
+                                const flag = languagesEmojis[option] || '';
+                                optionElement.textContent = `${flag} ${option}`;
+                            } else {
+                                // For other selects, just use the option text as is
+                                optionElement.textContent = option;
+                            }
+
                             selectElement.appendChild(optionElement);
                         });
-                        selectElement.value = options;
+
+                        // Set the default value
+                        selectElement.value = options; // Assuming first option as default
                     }
 
                     const installButton = document.querySelector("#install");

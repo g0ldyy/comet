@@ -90,14 +90,14 @@ class Premiumize:
 
                     filename = filenames[index]
                     filename_parsed = parse(filename)
-                    if episode not in filename_parsed.episode:
+                    if episode not in filename_parsed.episodes:
                         continue
 
                     if kitsu:
-                        if filename_parsed.season:
+                        if filename_parsed.seasons:
                             continue
                     else:
-                        if season not in filename_parsed.season:
+                        if season not in filename_parsed.seasons:
                             continue
 
                     files[hashes[index]] = {
@@ -156,8 +156,8 @@ class Premiumize:
                 if season is not None:
                     filename_parsed = parse(filename)
                     if (
-                        season in filename_parsed.season
-                        and episode in filename_parsed.episode
+                        season in filename_parsed.seasons
+                        and episode in filename_parsed.episodes
                     ):
                         return file["link"]
 

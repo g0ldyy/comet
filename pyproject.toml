@@ -23,7 +23,8 @@ orjson = "*"
 asyncpg = "*"
 aiosqlite = "*"
 jinja2 = "*"
-rank-torrent-name = "^0.2.23"
+rank-torrent-name = "*"
+parsett = "*"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -6,7 +6,7 @@ from typing import List, Optional
 from databases import Database
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from RTN import RTN, BaseRankingModel, SettingsModel
+from RTN import RTN, BestRanking, SettingsModel
 
 
 class AppSettings(BaseSettings):
@@ -107,29 +107,8 @@ class ConfigModel(BaseModel):
         return v
 
 
-class BestOverallRanking(BaseRankingModel):
-    uhd: int = 100
-    fhd: int = 90
-    hd: int = 80
-    sd: int = 70
-    dolby_video: int = 100
-    hdr: int = 80
-    hdr10: int = 90
-    dts_x: int = 100
-    dts_hd: int = 80
-    dts_hd_ma: int = 90
-    atmos: int = 90
-    truehd: int = 60
-    ddplus: int = 40
-    aac: int = 30
-    ac3: int = 20
-    remux: int = 150
-    bluray: int = 120
-    webdl: int = 90
-
-
 rtn_settings = SettingsModel()
-rtn_ranking = BestOverallRanking()
+rtn_ranking = BestRanking()
 
 # For use anywhere
 rtn = RTN(settings=rtn_settings, ranking_model=rtn_ranking)
