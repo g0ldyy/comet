@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.30.1](https://github.com/g0ldyy/comet/compare/v1.30.0...v1.30.1) (2024-08-31)
+
+
+### Bug Fixes
+
+* torrentio ([165cb25](https://github.com/g0ldyy/comet/commit/165cb256d2c4e27020eb775d52de299cddbdc0f5))
+* zilean ([6a272fc](https://github.com/g0ldyy/comet/commit/6a272fcf7638581a171ea7ea20aaa5854c3552cc))
+
 ## [1.30.0](https://github.com/g0ldyy/comet/compare/v1.29.1...v1.30.0) (2024-08-31)
 
 
