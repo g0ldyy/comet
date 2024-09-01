@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.0](https://github.com/g0ldyy/comet/compare/v1.30.1...v1.31.0) (2024-09-01)
+
+
+### Features
+
+* realdebrid real ip ([479aa8e](https://github.com/g0ldyy/comet/commit/479aa8e527ebfeec01ffcde5c825b0a5af19538e))
+
 ## [1.30.1](https://github.com/g0ldyy/comet/compare/v1.30.0...v1.30.1) (2024-08-31)
 
 
