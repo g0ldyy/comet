@@ -29,6 +29,7 @@ from comet.utils.general import (
     translate,
     get_balanced_hashes,
     format_title,
+    get_client_ip,
 )
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings
@@ -202,7 +203,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
             config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
-        debrid = getDebrid(session, config)
+        debrid = getDebrid(session, config, get_client_ip(request))
 
         check_premium = await debrid.check_premium()
         if not check_premium:
@@ -487,8 +488,9 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                     f"DELETE FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND file_index = '{index}'"
                 )
 
+        ip = get_client_ip(request)
         if not download_link:
-            debrid = getDebrid(session, config)
+            debrid = getDebrid(session, config, ip)
             download_link = await debrid.generate_download_link(hash, index)
             if not download_link:
                 return FileResponse("comet/assets/uncached.mp4")
@@ -512,11 +514,6 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         ):
             active_ip_connections = await database.fetch_all(
                 "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
-            )
-            ip = (
-                request.headers["cf-connecting-ip"]
-                if "cf-connecting-ip" in request.headers
-                else request.client.host
             )
             if any(
                 connection["ip"] == ip

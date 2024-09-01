@@ -9,6 +9,7 @@ import asyncio
 
 from RTN import parse, title_match
 from curl_cffi import requests
+from fastapi import Request
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
@@ -602,3 +603,11 @@ def format_title(data: dict, config: dict):
         title = "Empty result format configuration"
 
     return title
+
+
+def get_client_ip(request: Request):
+    return (
+        request.headers["cf-connecting-ip"]
+        if "cf-connecting-ip" in request.headers
+        else request.client.host
+    )
