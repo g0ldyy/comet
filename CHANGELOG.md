@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.2](https://github.com/g0ldyy/comet/compare/v1.31.1...v1.31.2) (2024-09-04)
+
+
+### Bug Fixes
+
+* fail build ([9e7407d](https://github.com/g0ldyy/comet/commit/9e7407d7ced4a1d570e11c350dd5b6ce4a878db6))
+
 ## [1.31.1](https://github.com/g0ldyy/comet/compare/v1.31.0...v1.31.1) (2024-09-04)
 
 
