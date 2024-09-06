@@ -62,6 +62,7 @@ languages_emojis = {
     "sv": "🇸🇪",  # Swedish
     "no": "🇳🇴",  # Norwegian
     "ms": "🇲🇾",  # Malay
+    "la": "💃🏻",  # Latino
 }
 
 
