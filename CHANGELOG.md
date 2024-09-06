@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.3](https://github.com/g0ldyy/comet/compare/v1.31.2...v1.31.3) (2024-09-06)
+
+
+### Bug Fixes
+
+* latin and spanish separated ([2421667](https://github.com/g0ldyy/comet/commit/24216678b8fca0ab8edd48d239fb772f06712b5f))
+
 ## [1.31.2](https://github.com/g0ldyy/comet/compare/v1.31.1...v1.31.2) (2024-09-04)
 
 
