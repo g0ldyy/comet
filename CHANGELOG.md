@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.4](https://github.com/g0ldyy/comet/compare/v1.31.3...v1.31.4) (2024-09-17)
+
+
+### Bug Fixes
+
+* bye samples ([efcf44d](https://github.com/g0ldyy/comet/commit/efcf44dbdff688031771e6834ca4d3244489fc3c))
+
 ## [1.31.3](https://github.com/g0ldyy/comet/compare/v1.31.2...v1.31.3) (2024-09-06)
 
 
