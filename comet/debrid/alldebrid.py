@@ -81,6 +81,9 @@ class AllDebrid:
                         if not is_video(filename):
                             continue
 
+                        if "sample" in filename:
+                            continue
+
                         filename_parsed = parse(filename)
                         if episode not in filename_parsed.episodes:
                             continue
@@ -112,6 +115,9 @@ class AllDebrid:
                         filename = file["n"]
 
                         if not is_video(filename):
+                            continue
+
+                        if "sample" in filename:
                             continue
 
                         files[magnet["hash"]] = {

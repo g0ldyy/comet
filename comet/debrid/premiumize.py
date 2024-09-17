@@ -89,6 +89,10 @@ class Premiumize:
                         continue
 
                     filename = filenames[index]
+
+                    if "sample" in filename:
+                        continue
+
                     filename_parsed = parse(filename)
                     if episode not in filename_parsed.episodes:
                         continue
@@ -122,6 +126,10 @@ class Premiumize:
                         continue
 
                     filename = filenames[index]
+
+                    if "sample" in filename:
+                        continue
+
                     files[hashes[index]] = {
                         "index": 0,
                         "title": filename,

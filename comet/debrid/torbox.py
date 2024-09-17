@@ -72,6 +72,9 @@ class TorBox:
                         if not is_video(filename):
                             continue
 
+                        if "sample" in filename:
+                            continue
+
                         filename_parsed = parse(filename)
                         if episode not in filename_parsed.episodes:
                             continue
@@ -101,6 +104,9 @@ class TorBox:
                         filename = file["name"].split("/")[1]
 
                         if not is_video(filename):
+                            continue
+
+                        if "sample" in filename:
                             continue
 
                         files[torrent["hash"]] = {

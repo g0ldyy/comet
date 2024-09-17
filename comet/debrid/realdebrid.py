@@ -75,6 +75,9 @@ class RealDebrid:
                         if not is_video(filename):
                             continue
 
+                        if "sample" in filename:
+                            continue
+
                         filename_parsed = parse(filename)
                         if episode not in filename_parsed.episodes:
                             continue
@@ -103,6 +106,9 @@ class RealDebrid:
                         filename = file["filename"]
 
                         if not is_video(filename):
+                            continue
+
+                        if "sample" in filename:
                             continue
 
                         files[hash] = {
