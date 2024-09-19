@@ -109,7 +109,5 @@ To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp con
 When creating your Comet instance, it's important to choose the right indexers.
 This choice should be based on speed, quantity of content and whether the indexer is served by cloudflare or has a ratelimit system (which should be avoided).
 
-Recommended indexers are: BitSearch, EZTV, The Pirate Bay, TheRARBG and YTS!
-
 ## Web UI Showcase
 <img src="https://i.imgur.com/SaD365F.png" />
