@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.1](https://github.com/g0ldyy/comet/compare/v1.32.0...v1.32.1) (2024-10-01)
+
+
+### Bug Fixes
+
+* title parsing ([732021c](https://github.com/g0ldyy/comet/commit/732021c99b8004192b15d29d5b63a39bce893568))
+
 ## [1.32.0](https://github.com/g0ldyy/comet/compare/v1.31.4...v1.32.0) (2024-09-18)
 
 
