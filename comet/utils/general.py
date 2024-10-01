@@ -434,6 +434,10 @@ async def filter(torrents: list, name: str, year: int):
             title = title.split("\n")[1]
 
         parsed = parse(title)
+
+        if not parsed.parsed_title:
+            continue
+
         if not title_match(name, parsed.parsed_title):
             results.append((index, False))
             continue
