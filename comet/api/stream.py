@@ -91,7 +91,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         break
 
                 name = element["l"]
-                year = element["y"]
+                year = element.get("y")
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
