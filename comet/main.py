@@ -103,6 +103,7 @@ config = uvicorn.Config(
     host=settings.FASTAPI_HOST,
     port=settings.FASTAPI_PORT,
     proxy_headers=True,
+    forwarded_allow_ips="*",
     workers=settings.FASTAPI_WORKERS,
     log_config=None,
 )
