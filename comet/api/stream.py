@@ -496,7 +496,13 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                     f"DELETE FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND file_index = '{index}'"
                 )
 
-        ip = get_client_ip(request)
+        ip = ""
+        if (
+            not settings.PROXY_DEBRID_STREAM
+            or settings.PROXY_DEBRID_STREAM_PASSWORD != config["debridStreamProxyPassword"]
+        ):
+            ip = get_client_ip(request)
+
         if not download_link:
             debrid = getDebrid(session, config, ip)
             download_link = await debrid.generate_download_link(hash, index)
