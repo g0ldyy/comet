@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.32.2](https://github.com/g0ldyy/comet/compare/v1.32.1...v1.32.2) (2024-10-04)
+
+
+### Bug Fixes
+
+* ip debrid ([057126b](https://github.com/g0ldyy/comet/commit/057126bbd00f818075969e5e73eff3e834a8ef1f))
+* missing year metadata ([4a4dfb6](https://github.com/g0ldyy/comet/commit/4a4dfb68923d4c496b8e837eb3a238d6ba21ae95))
+* realdebrid ip stuff ([6ee6b92](https://github.com/g0ldyy/comet/commit/6ee6b928a57351a82af284b3c6446bcbf01a8e10))
+* weird shit ([1176b2a](https://github.com/g0ldyy/comet/commit/1176b2a84233f705033b142b1492c2bdc7da5b77))
+
 ## [1.32.1](https://github.com/g0ldyy/comet/compare/v1.32.0...v1.32.1) (2024-10-01)
 
 
