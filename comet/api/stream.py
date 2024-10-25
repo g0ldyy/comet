@@ -33,6 +33,8 @@ from comet.utils.general import (
 )
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings
+from comet.utils.proxy import get_proxy_url, has_proxy_url_template
+from comet.utils.request import RequestClient
 
 streams = APIRouter()
 
@@ -499,7 +501,18 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         ip = get_client_ip(request)
 
         if not download_link:
-            debrid = getDebrid(session, config, ip if (not settings.PROXY_DEBRID_STREAM or settings.PROXY_DEBRID_STREAM_PASSWORD != config["debridStreamProxyPassword"]) else "")
+            debrid = getDebrid(
+                session,
+                config,
+                ip
+                if (
+                    not settings.PROXY_DEBRID_STREAM
+                    or not has_proxy_url_template()
+                    or settings.PROXY_DEBRID_STREAM_PASSWORD
+                    != config["debridStreamProxyPassword"]
+                )
+                else "",
+            )
             download_link = await debrid.generate_download_link(hash, index)
             if not download_link:
                 return FileResponse("comet/assets/uncached.mp4")
@@ -514,6 +527,12 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                     "link": download_link,
                     "timestamp": current_time,
                 },
+            )
+
+        if settings.PROXY_DEBRID_STREAM and has_proxy_url_template():
+            return RedirectResponse(
+                get_proxy_url(download_link, include_credential=True),
+                status_code=302,
             )
 
         if (

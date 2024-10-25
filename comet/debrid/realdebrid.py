@@ -6,20 +6,20 @@ from RTN import parse
 from comet.utils.general import is_video
 from comet.utils.logger import logger
 from comet.utils.models import settings
+from comet.utils.request import RequestClient
 
 
 class RealDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str, ip: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
-        self.session = session
+        self.client = RequestClient(
+            session, base_url="https://api.real-debrid.com/rest/1.0"
+        )
         self.ip = ip
-        self.proxy = None
-
-        self.api_url = "https://api.real-debrid.com/rest/1.0"
 
     async def check_premium(self):
         try:
-            check_premium = await self.session.get(f"{self.api_url}/user")
+            check_premium = await self.client.request("get", "/user")
             check_premium = await check_premium.text()
             if '"type": "premium"' in check_premium:
                 return True
@@ -32,8 +32,8 @@ class RealDebrid:
 
     async def get_instant(self, chunk: list):
         try:
-            response = await self.session.get(
-                f"{self.api_url}/torrents/instantAvailability/{'/'.join(chunk)}"
+            response = await self.client.request(
+                "get", f"/torrents/instantAvailability/{'/'.join(chunk)}"
             )
             return await response.json()
         except Exception as e:
@@ -123,36 +123,39 @@ class RealDebrid:
 
     async def generate_download_link(self, hash: str, index: str):
         try:
-            check_blacklisted = await self.session.get("https://real-debrid.com/vpn")
+            check_blacklisted = await self.client.request(
+                "get", "https://real-debrid.com/vpn"
+            )
             check_blacklisted = await check_blacklisted.text()
             if (
                 "Your ISP or VPN provider IP address is currently blocked on our website"
                 in check_blacklisted
             ):
-                self.proxy = settings.DEBRID_PROXY_URL
-                if not self.proxy:
+                if not self.client.enable_proxy():
                     logger.warning(
                         "Real-Debrid blacklisted server's IP. No proxy found."
                     )
                 else:
                     logger.warning(
-                        f"Real-Debrid blacklisted server's IP. Switching to proxy {self.proxy} for {hash}|{index}"
+                        f"Real-Debrid blacklisted server's IP. Switching to proxy {self.client.proxy} for {hash}|{index}"
                     )
 
-            add_magnet = await self.session.post(
-                f"{self.api_url}/torrents/addMagnet",
+            add_magnet = await self.client.request(
+                "post",
+                "/torrents/addMagnet",
                 data={"magnet": f"magnet:?xt=urn:btih:{hash}", "ip": self.ip},
-                proxy=self.proxy,
             )
             add_magnet = await add_magnet.json()
 
-            get_magnet_info = await self.session.get(
-                add_magnet["uri"], proxy=self.proxy
+            get_magnet_info = await self.client.request(
+                "get",
+                add_magnet["uri"],
             )
             get_magnet_info = await get_magnet_info.json()
 
-            await self.session.post(
-                f"{self.api_url}/torrents/selectFiles/{add_magnet['id']}",
+            await self.client.request(
+                "post",
+                f"/torrents/selectFiles/{add_magnet['id']}",
                 data={
                     "files": ",".join(
                         str(file["id"])
@@ -161,11 +164,11 @@ class RealDebrid:
                     ),
                     "ip": self.ip,
                 },
-                proxy=self.proxy,
             )
 
-            get_magnet_info = await self.session.get(
-                add_magnet["uri"], proxy=self.proxy
+            get_magnet_info = await self.client.request(
+                "get",
+                add_magnet["uri"],
             )
             get_magnet_info = await get_magnet_info.json()
 
@@ -178,10 +181,10 @@ class RealDebrid:
                 if file["selected"] != 1:
                     index -= 1
 
-            unrestrict_link = await self.session.post(
-                f"{self.api_url}/unrestrict/link",
+            unrestrict_link = await self.client.request(
+                "post",
+                "/unrestrict/link",
                 data={"link": get_magnet_info["links"][index - 1], "ip": self.ip},
-                proxy=self.proxy,
             )
             unrestrict_link = await unrestrict_link.json()
 

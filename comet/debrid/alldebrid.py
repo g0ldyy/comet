@@ -1,26 +1,25 @@
 import aiohttp
 import asyncio
+from urllib.parse import quote_plus
 
 from RTN import parse
 
 from comet.utils.general import is_video
 from comet.utils.logger import logger
-from comet.utils.models import settings
+from comet.utils.request import RequestClient
 
 
 class AllDebrid:
     def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
-        self.session = session
-        self.proxy = None
+        self.client = RequestClient(session, base_url="http://api.alldebrid.com/v4")
 
-        self.api_url = "http://api.alldebrid.com/v4"
         self.agent = "comet"
 
     async def check_premium(self):
         try:
-            check_premium = await self.session.get(
-                f"{self.api_url}/user?agent={self.agent}"
+            check_premium = await self.client.request(
+                "get", f"/user?agent={self.agent}"
             )
             check_premium = await check_premium.text()
             if '"isPremium":true' in check_premium:
@@ -34,8 +33,9 @@ class AllDebrid:
 
     async def get_instant(self, chunk: list):
         try:
-            get_instant = await self.session.get(
-                f"{self.api_url}/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(chunk)}"
+            get_instant = await self.client.request(
+                "get",
+                f"/magnet/instant?agent={self.agent}&magnets[]={'&magnets[]='.join(chunk)}",
             )
             return await get_instant.json()
         except Exception as e:
@@ -132,36 +132,35 @@ class AllDebrid:
 
     async def generate_download_link(self, hash: str, index: str):
         try:
-            check_blacklisted = await self.session.get(
-                f"{self.api_url}/magnet/upload?agent=comet&magnets[]={hash}"
+            check_blacklisted = await self.client.request(
+                "get", f"/magnet/upload?agent=comet&magnets[]={hash}"
             )
             check_blacklisted = await check_blacklisted.text()
             if "NO_SERVER" in check_blacklisted:
-                self.proxy = settings.DEBRID_PROXY_URL
-                if not self.proxy:
+                if not self.client.enable_proxy():
                     logger.warning(
                         "All-Debrid blacklisted server's IP. No proxy found."
                     )
                 else:
                     logger.warning(
-                        f"All-Debrid blacklisted server's IP. Switching to proxy {self.proxy} for {hash}|{index}"
+                        f"All-Debrid blacklisted server's IP. Switching to proxy {self.client.proxy} for {hash}|{index}"
                     )
 
-            upload_magnet = await self.session.get(
-                f"{self.api_url}/magnet/upload?agent=comet&magnets[]={hash}",
-                proxy=self.proxy,
+            upload_magnet = await self.client.request(
+                "get",
+                f"/magnet/upload?agent=comet&magnets[]={hash}",
             )
             upload_magnet = await upload_magnet.json()
 
-            get_magnet_status = await self.session.get(
-                f"{self.api_url}/magnet/status?agent=comet&id={upload_magnet['data']['magnets'][0]['id']}",
-                proxy=self.proxy,
+            get_magnet_status = await self.client.request(
+                "get",
+                f"/magnet/status?agent=comet&id={upload_magnet['data']['magnets'][0]['id']}",
             )
             get_magnet_status = await get_magnet_status.json()
 
-            unlock_link = await self.session.get(
-                f"{self.api_url}/link/unlock?agent=comet&link={get_magnet_status['data']['magnets']['links'][int(index)]['link']}",
-                proxy=self.proxy,
+            unlock_link = await self.client.request(
+                "get",
+                f"/link/unlock?agent=comet&link={quote_plus(get_magnet_status['data']['magnets']['links'][int(index)]['link'])}",
             )
             unlock_link = await unlock_link.json()
 
