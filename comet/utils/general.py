@@ -269,6 +269,7 @@ def get_debrid_extension(debridService: str, debridApiKey: str = None):
         "premiumize": "PM",
         "torbox": "TB",
         "debridlink": "DL",
+        "stremthru": "ST",
     }
 
     return debrid_extensions.get(debridService, None)
