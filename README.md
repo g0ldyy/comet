@@ -17,6 +17,7 @@
 - Proxy support to bypass debrid restrictions
 - Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported *(if you want other debrid services, please provide an account)*
 - [Kitsu](https://kitsu.io/) support (anime)
+- [StremThru](https://github.com/MunifTanjim/stremthru) support
 
 # Installation
 To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
