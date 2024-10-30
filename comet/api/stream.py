@@ -32,6 +32,7 @@ from comet.utils.general import (
     get_aliases,
     add_torrent_to_cache,
 )
+from comet.utils.config import is_proxy_stream_authed, is_proxy_stream_enabled, prepare_debrid_config, should_skip_proxy_stream
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings, trackers
 
@@ -135,19 +136,10 @@ async def stream(
         if type == "series":
             log_name = f"{name} S{season:02d}E{episode:02d}"
 
-        if (
-            settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            == config["debridStreamProxyPassword"]
-            and config["debridApiKey"] == ""
-        ):
-            config["debridService"] = (
-                settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-            )
-            config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+        prepare_debrid_config(config)
 
         if config["debridApiKey"] == "":
-            services = ["realdebrid", "alldebrid", "premiumize", "torbox", "debridlink"]
+            services = ["realdebrid", "alldebrid", "premiumize", "torbox", "debridlink", "stremthru"]
             debrid_emoji = "⬇️"
         else:
             services = [config["debridService"]]
@@ -155,10 +147,8 @@ async def stream(
 
         results = []
         if (
-            config["debridStreamProxyPassword"] != ""
-            and settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            != config["debridStreamProxyPassword"]
+            is_proxy_stream_enabled(config)
+            and not is_proxy_stream_authed(config)
         ):
             results.append(
                 {
@@ -480,10 +470,8 @@ async def stream(
 
         results = []
         if (
-            config["debridStreamProxyPassword"] != ""
-            and settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            != config["debridStreamProxyPassword"]
+            is_proxy_stream_enabled(config)
+            and not is_proxy_stream_authed(config)
         ):
             results.append(
                 {
@@ -545,13 +533,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
 
-    if (
-        settings.PROXY_DEBRID_STREAM
-        and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
-        and config["debridApiKey"] == ""
-    ):
-        config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-        config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+    prepare_debrid_config(config)
 
     async with aiohttp.ClientSession(raise_for_status=True) as session:
         # Check for cached download link
@@ -581,9 +563,8 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 config,
                 ip
                 if (
-                    not settings.PROXY_DEBRID_STREAM
-                    or settings.PROXY_DEBRID_STREAM_PASSWORD
-                    != config["debridStreamProxyPassword"]
+                    not is_proxy_stream_enabled(config)
+                    or not is_proxy_stream_authed(config)
                 )
                 else "",
             )
@@ -603,10 +584,12 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 },
             )
 
+        if should_skip_proxy_stream(config):
+            return RedirectResponse(download_link, status_code=302)
+
         if (
-            settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            == config["debridStreamProxyPassword"]
+            is_proxy_stream_enabled(config)
+            and is_proxy_stream_authed(config)
         ):
             if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
                 active_ip_connections = await database.fetch_all(
