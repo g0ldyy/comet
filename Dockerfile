@@ -22,7 +22,8 @@ RUN apk add --no-cache \
     make
 
 RUN pip install poetry
-COPY . .
+COPY pyproject.toml .
 RUN poetry install --no-cache --no-root --without dev
+COPY . .
 
 ENTRYPOINT ["poetry", "run", "python", "-m", "comet.main"]

@@ -31,6 +31,7 @@ from comet.utils.general import (
     format_title,
     get_client_ip,
 )
+from comet.utils.config import is_proxy_stream_authed, is_proxy_stream_enabled, prepare_debrid_config, should_skip_proxy_stream
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings
 
@@ -147,12 +148,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
 
                 results = []
-                if (
-                    config["debridStreamProxyPassword"] != ""
-                    and settings.PROXY_DEBRID_STREAM
-                    and settings.PROXY_DEBRID_STREAM_PASSWORD
-                    != config["debridStreamProxyPassword"]
-                ):
+                if is_proxy_stream_enabled(config) and not is_proxy_stream_authed(config):
                     results.append(
                         {
                             "name": "[⚠️] Comet",
@@ -196,17 +192,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         else:
             logger.info(f"No cache found for {log_name} with user configuration")
 
-        if (
-            settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            == config["debridStreamProxyPassword"]
-            and config["debridApiKey"] == ""
-        ):
-            config["debridService"] = (
-                settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-            )
-            config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
-
+        prepare_debrid_config(config)
         debrid = getDebrid(session, config, get_client_ip(request))
 
         check_premium = await debrid.check_premium()
@@ -399,12 +385,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
 
         results = []
-        if (
-            config["debridStreamProxyPassword"] != ""
-            and settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            != config["debridStreamProxyPassword"]
-        ):
+        if is_proxy_stream_enabled(config) and not is_proxy_stream_authed(config):
             results.append(
                 {
                     "name": "[⚠️] Comet",
@@ -468,13 +449,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
 
-    if (
-        settings.PROXY_DEBRID_STREAM
-        and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
-        and config["debridApiKey"] == ""
-    ):
-        config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-        config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+    prepare_debrid_config(config)
 
     async with aiohttp.ClientSession() as session:
         # Check for cached download link
@@ -499,7 +474,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         ip = get_client_ip(request)
 
         if not download_link:
-            debrid = getDebrid(session, config, ip if (not settings.PROXY_DEBRID_STREAM or settings.PROXY_DEBRID_STREAM_PASSWORD != config["debridStreamProxyPassword"]) else "")
+            debrid = getDebrid(session, config, ip if (not is_proxy_stream_enabled(config) or not is_proxy_stream_authed(config)) else "")
             download_link = await debrid.generate_download_link(hash, index)
             if not download_link:
                 return FileResponse("comet/assets/uncached.mp4")
@@ -516,11 +491,10 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 },
             )
 
-        if (
-            settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            == config["debridStreamProxyPassword"]
-        ):
+        if should_skip_proxy_stream(config):
+            return RedirectResponse(download_link, status_code=302)
+
+        if is_proxy_stream_enabled(config) and is_proxy_stream_authed(config):
             active_ip_connections = await database.fetch_all(
                 "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
             )

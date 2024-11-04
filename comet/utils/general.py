@@ -267,6 +267,8 @@ def get_debrid_extension(debridService: str):
         debrid_extension = "TB"
     elif debridService == "debridlink":
         debrid_extension = "DL"
+    elif debridService == "stremthru":
+        debrid_extension = "ST"
 
     return debrid_extension
 

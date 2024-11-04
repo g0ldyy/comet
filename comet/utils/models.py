@@ -39,6 +39,7 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     TITLE_MATCH_CHECK: Optional[bool] = True
+    STREMTHRU_DEFAULT_URL: Optional[str] = None
 
     @field_validator("DASHBOARD_ADMIN_PASSWORD")
     def set_dashboard_admin_password(cls, v, values):
@@ -72,6 +73,7 @@ class ConfigModel(BaseModel):
     debridService: str
     debridApiKey: str
     debridStreamProxyPassword: Optional[str] = ""
+    stremthruUrl: Optional[str] = None
 
     @field_validator("indexers")
     def check_indexers(cls, v, values):
@@ -102,7 +104,7 @@ class ConfigModel(BaseModel):
 
     @field_validator("debridService")
     def check_debrid_service(cls, v):
-        if v not in ["realdebrid", "alldebrid", "premiumize", "torbox", "debridlink"]:
+        if v not in ["realdebrid", "alldebrid", "premiumize", "torbox", "debridlink", "stremthru"]:
             raise ValueError("Invalid debridService")
         return v
 

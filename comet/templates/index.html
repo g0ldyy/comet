@@ -542,6 +542,7 @@
                     <sl-option value="premiumize">Premiumize</sl-option>
                     <sl-option value="torbox">TorBox</sl-option>
                     <sl-option value="debridlink">Debrid-Link</sl-option>
+                    <sl-option value="stremthru">StremThru</sl-option>
                 </sl-select>
             </div>
 
@@ -551,6 +552,10 @@
                     <a id="apiKeyLink" href="https://real-debrid.com/apitoken" target="_blank">Get It Here</a>
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
+            </div>
+
+            <div class="form-item">
+                <sl-input id="stremthruUrl" label="StremThru URL" placeholder="{{stremthruDefaultUrl}}" help-text="URL for StremThru."></sl-input>
             </div>
 
             <sl-details summary="Advanced Settings">
@@ -575,6 +580,8 @@
                         apiKeyLink.href = "https://torbox.app/settings";
                     } else if (selectedService === "debridlink") {
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
+                    } else if (selectedService === "stremthru") {
+                        apiKeyLink.href = "https://github.com/MunifTanjim/stremthru?tab=readme-ov-file#configuration";
                     }
                 });
             </script>
@@ -714,6 +721,7 @@
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
+                        const stremthruUrl = document.getElementById("stremthruUrl").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
@@ -728,6 +736,7 @@
                             languages: selectedLanguages,
                             debridService: debridService,
                             debridApiKey: debridApiKey,
+                            stremthruUrl: stremthruUrl,
                             debridStreamProxyPassword: debridStreamProxyPassword,
                         };
                     }
@@ -778,6 +787,7 @@
                         document.getElementById("debridService").value = settings.debridService;
                         document.getElementById("debridApiKey").value = settings.debridApiKey;
                         document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
+                        document.getElementById("stremthruUrl").value = settings.stremthruUrl;
                         document.getElementById("indexers").value = settings.indexers;
                         if (settings.languages != "All")
                             document.getElementById("languages").value = settings.languages;
