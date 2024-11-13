@@ -24,6 +24,7 @@ from comet.utils.general import (
     get_indexer_manager,
     get_zilean,
     get_torrentio,
+    get_mediafusion,
     filter,
     get_torrent_hash,
     translate,
@@ -257,6 +258,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
         if settings.SCRAPE_TORRENTIO:
             tasks.append(get_torrentio(log_name, type, full_id))
+
+        if settings.SCRAPE_MEDIAFUSION:
+            tasks.append(get_mediafusion(log_name, type, full_id))
 
         search_response = await asyncio.gather(*tasks)
         for results in search_response:
