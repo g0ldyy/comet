@@ -442,15 +442,10 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
 
         for torrent in get_mediafusion ["streams"]:
             description = torrent.get("description", None)
-
             if not description:
                 continue
 
-            url = torrent.get("url", "")
-            info_hash = None
-            if "info_hash=" in url:
-                info_hash = url.split("info_hash=")[1].split("&")[0] # "&" handles series hashes
-
+            info_hash = torrent.get("infoHash", None)
             if not info_hash:
                 continue
 
