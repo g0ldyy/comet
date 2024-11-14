@@ -424,6 +424,50 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
     return results
 
 
+async def get_mediafusion(log_name: str, type: str, full_id: str):
+    results = []
+    # https://mediafusion.elfhosted.com/stream/series/tt0903747:1:2.json
+    try:
+        try:
+            get_mediafusion = requests.get(
+                f"https://mediafusion.elfhosted.com/stream/{type}/{full_id}.json"
+            ).json()
+        except:
+            get_mediafusion = requests.get(
+                f"https://mediafusion.elfhosted.com/stream/{type}/{full_id}.json",
+                proxies={
+                    "http": settings.DEBRID_PROXY_URL,
+                    "https": settings.DEBRID_PROXY_URL,
+                },
+            ).json()
+
+        for torrent in get_mediafusion["streams"]:
+            title_full = torrent["description"]
+            title = title_full.split("\n")[0] if "\n" in title_full else title_full
+            tracker = title_full.split("🔗 ")[1] if "🔗" in title_full else "Unknown"
+
+            results.append(
+                {
+                    "Title": title,
+                    "InfoHash": torrent["infoHash"],
+                    "Size": torrent["behaviorHints"][
+                        "videoSize"
+                    ],  # not the pack size but still useful for prowlarr userss
+                    "Tracker": f"MediaFusion|{tracker}",
+                }
+            )
+
+        logger.info(f"{len(results)} torrents found for {log_name} with MediaFusion")
+
+    except Exception as e:
+        logger.warning(
+            f"Exception while getting torrents for {log_name} with MediaFusion, your IP is most likely blacklisted (you should try proxying Comet): {e}"
+        )
+        pass
+
+    return results
+
+
 async def filter(torrents: list, name: str, year: int):
     results = []
     for torrent in torrents:
