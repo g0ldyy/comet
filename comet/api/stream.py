@@ -130,11 +130,24 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             debrid_emoji = "⚡"
 
         results = []
-        seen_hashes = set()
+        if (
+            config["debridStreamProxyPassword"] != ""
+            and settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            != config["debridStreamProxyPassword"]
+        ):
+            results.append(
+                {
+                    "name": "[⚠️] Comet",
+                    "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
+                    "url": "https://comet.fast",
+                }
+            )
 
+        all_sorted_ranked_files = {}
         for debrid_service in services:
             cache_key = hashlib.md5(
-                json.dumps(
+                orjson.dumps(
                     {
                         "debridService": debrid_service,
                         "name": name,
@@ -142,7 +155,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         "episode": episode,
                         "indexers": config["indexers"],
                     }
-                ).encode("utf-8")
+                )
             ).hexdigest()
 
             cached = await database.fetch_one(
@@ -163,76 +176,59 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 sorted_ranked_files = await database.fetch_one(
                     f"SELECT results FROM cache WHERE cacheKey = '{cache_key}'"
                 )
-                sorted_ranked_files = json.loads(sorted_ranked_files[0])
+                sorted_ranked_files = orjson.loads(sorted_ranked_files[0])
 
-                debrid_extension = get_debrid_extension(
-                    debrid_service, config["debridApiKey"]
-                )
-                balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
+                all_sorted_ranked_files.update(sorted_ranked_files)
 
-                if (
-                    config["debridStreamProxyPassword"] != ""
-                    and settings.PROXY_DEBRID_STREAM
-                    and settings.PROXY_DEBRID_STREAM_PASSWORD
-                    != config["debridStreamProxyPassword"]
-                ):
-                    results.append(
-                        {
-                            "name": "[⚠️] Comet",
-                            "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
-                            "url": "https://comet.fast",
+        if len(all_sorted_ranked_files) != 0:
+            debrid_extension = get_debrid_extension(debrid_service, config["debridApiKey"])
+            balanced_hashes = get_balanced_hashes(all_sorted_ranked_files, config)
+
+            seen_hashes = set()
+            for hash, hash_data in all_sorted_ranked_files.items():
+                if hash in seen_hashes:
+                    continue
+
+                for resolution, hash_list in balanced_hashes.items():
+                    if hash in hash_list:
+                        data = hash_data["data"]
+
+                        the_stream = {
+                            "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
+                            "description": format_title(data, config),
+                            "torrentTitle": (
+                                data["torrent_title"] if "torrent_title" in data else None
+                            ),
+                            "torrentSize": (
+                                data["torrent_size"] if "torrent_size" in data else None
+                            ),
+                            "behaviorHints": {
+                                "filename": data["raw_title"],
+                                "bingeGroup": "comet|" + hash,
+                            },
                         }
-                    )
 
-                count = 0
-                for hash, hash_data in sorted_ranked_files.items():
-                    if hash in seen_hashes:
-                        continue
+                        if config["debridApiKey"] != "":
+                            the_stream["url"] = (
+                                f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}"
+                            )
+                        else:
+                            the_stream["infoHash"] = hash
+                            the_stream["fileIdx"] = int(data["index"])
 
-                    for resolution, hash_list in balanced_hashes.items():
-                        if hash in hash_list:
-                            count += 1
-                            data = hash_data["data"]
+                        results.append(the_stream)
 
-                            the_stream = {
-                                "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
-                                "description": format_title(data, config),
-                                "torrentTitle": (
-                                    data["torrent_title"]
-                                    if "torrent_title" in data
-                                    else None
-                                ),
-                                "torrentSize": (
-                                    data["torrent_size"]
-                                    if "torrent_size" in data
-                                    else None
-                                ),
-                                "behaviorHints": {
-                                    "filename": data["raw_title"],
-                                    "bingeGroup": "comet|" + hash,
-                                },
-                            }
-                            if config["debridApiKey"] != "":
-                                the_stream["url"] = (
-                                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}"
-                                )
-                            else:
-                                the_stream["infoHash"] = hash
-                                the_stream["fileIdx"] = int(data["index"])
-                            results.append(the_stream)
+                        seen_hashes.add(hash)
 
-                            seen_hashes.add(hash)
-                            break
+                        break
 
-                if count != 0:
-                    logger.info(
-                        f"{count} unique cached results found for {log_name} using {debrid_service}"
-                    )
+            results_count = len(results)
+            if results_count != 0:
+                logger.info(f"{results_count} cached results found for {log_name}")
 
-        if len(results) != 0:
-            return {"streams": results}
-        else:
-            logger.info(f"No cache found for {log_name} with user configuration")
+                return {"streams": results}
+            
+        logger.info(f"No cache found for {log_name} with user configuration")
 
         debrid = getDebrid(session, config, get_client_ip(request))
 
@@ -430,7 +426,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
-        json_data = json.dumps(sorted_ranked_files).replace("'", "''")
+        json_data = orjson.dumps(sorted_ranked_files).replace("'", "''")
         await database.execute(
             f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
             {"cache_key": cache_key, "json_data": json_data, "timestamp": time.time()},

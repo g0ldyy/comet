@@ -6,6 +6,7 @@ import aiohttp
 import bencodepy
 import PTT
 import asyncio
+import orjson
 
 from RTN import parse, title_match
 from curl_cffi import requests
@@ -248,7 +249,7 @@ def bytes_to_size(bytes: int):
 
 def config_check(b64config: str):
     try:
-        config = json.loads(base64.b64decode(b64config).decode())
+        config = orjson.loads(base64.b64decode(b64config).decode())
         validated_config = ConfigModel(**config)
         return validated_config.model_dump()
     except:
