@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.35.1](https://github.com/g0ldyy/comet/compare/v1.35.0...v1.35.1) (2024-11-14)
+
+
+### Bug Fixes
+
+* json dumps ([267a764](https://github.com/g0ldyy/comet/commit/267a76468ed90382ae2776089da7051cc4ccca05))
+* json lib is not used anymore ([af6d009](https://github.com/g0ldyy/comet/commit/af6d009651cca60b8a5fb3c04a4a585ac40039b0))
+
 ## [1.35.0](https://github.com/g0ldyy/comet/compare/v1.34.0...v1.35.0) (2024-11-14)
 
 
