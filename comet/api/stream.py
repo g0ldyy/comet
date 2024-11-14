@@ -32,7 +32,7 @@ from comet.utils.general import (
     get_client_ip,
 )
 from comet.utils.logger import logger
-from comet.utils.models import database, rtn, settings
+from comet.utils.models import database, rtn, settings, trackers
 
 streams = APIRouter()
 
@@ -180,7 +180,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 all_sorted_ranked_files.update(sorted_ranked_files)
 
         if len(all_sorted_ranked_files) != 0:
-            debrid_extension = get_debrid_extension(debrid_service, config["debridApiKey"])
+            debrid_extension = get_debrid_extension(
+                debrid_service, config["debridApiKey"]
+            )
             balanced_hashes = get_balanced_hashes(all_sorted_ranked_files, config)
 
             seen_hashes = set()
@@ -196,7 +198,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                             "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
                             "description": format_title(data, config),
                             "torrentTitle": (
-                                data["torrent_title"] if "torrent_title" in data else None
+                                data["torrent_title"]
+                                if "torrent_title" in data
+                                else None
                             ),
                             "torrentSize": (
                                 data["torrent_size"] if "torrent_size" in data else None
@@ -214,6 +218,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         else:
                             the_stream["infoHash"] = hash
                             the_stream["fileIdx"] = int(data["index"])
+                            the_stream["sources"] = trackers
 
                         results.append(the_stream)
 
@@ -226,7 +231,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 logger.info(f"{results_count} cached results found for {log_name}")
 
                 return {"streams": results}
-            
+
         logger.info(f"No cache found for {log_name} with user configuration")
 
         debrid = getDebrid(session, config, get_client_ip(request))
