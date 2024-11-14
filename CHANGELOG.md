@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.33.0](https://github.com/g0ldyy/comet/compare/v1.32.2...v1.33.0) (2024-11-14)
+
+
+### Features
+
+* add media fusion hashes ([ece4600](https://github.com/g0ldyy/comet/commit/ece4600ddec3bfc64cd39ce3fdb667b022c2cd35))
+* custom MediaFusion urls for elfhosted &lt;3 ([bc29eb9](https://github.com/g0ldyy/comet/commit/bc29eb9582dca426ad58cc770f7d7d4d0cd6acd0))
+
+
+### Bug Fixes
+
+* add missing env var ([77ef84a](https://github.com/g0ldyy/comet/commit/77ef84a89306fe1bb63dc0178024a6c28fe6c262))
+* I just want to release ([9bb4a4e](https://github.com/g0ldyy/comet/commit/9bb4a4ecc0c0e9449fc57b37b142025c314c5dda))
+* update hashinfo ([c15206b](https://github.com/g0ldyy/comet/commit/c15206b4b410fc685fbbcd7f31df574553ca6cd5))
+
 ## [1.32.2](https://github.com/g0ldyy/comet/compare/v1.32.1...v1.32.2) (2024-10-04)
 
 
