@@ -90,7 +90,7 @@ class Premiumize:
 
                     filename = filenames[index]
 
-                    if "sample" in filename:
+                    if "sample" in filename.lower():
                         continue
 
                     filename_parsed = parse(filename)
@@ -127,7 +127,7 @@ class Premiumize:
 
                     filename = filenames[index]
 
-                    if "sample" in filename:
+                    if "sample" in filename.lower():
                         continue
 
                     files[hashes[index]] = {

@@ -72,7 +72,7 @@ class TorBox:
                         if not is_video(filename):
                             continue
 
-                        if "sample" in filename:
+                        if "sample" in filename.lower():
                             continue
 
                         filename_parsed = parse(filename)
@@ -106,7 +106,7 @@ class TorBox:
                         if not is_video(filename):
                             continue
 
-                        if "sample" in filename:
+                        if "sample" in filename.lower():
                             continue
 
                         files[torrent["hash"]] = {
