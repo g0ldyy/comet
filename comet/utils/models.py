@@ -23,7 +23,7 @@ class AppSettings(BaseSettings):
     DATABASE_PATH: Optional[str] = "data/comet.db"
     CACHE_TTL: Optional[int] = 86400
     DEBRID_PROXY_URL: Optional[str] = None
-    INDEXER_MANAGER_TYPE: Optional[str] = "jackett"
+    INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: Optional[str] = None
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
@@ -33,6 +33,7 @@ class AppSettings(BaseSettings):
     ZILEAN_TAKE_FIRST: Optional[int] = 500
     SCRAPE_TORRENTIO: Optional[bool] = False
     SCRAPE_MEDIAFUSION: Optional[bool] = False
+    MEDIAFUSION_URL: Optional[str] = "https://mediafusion.elfhosted.com"
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = None

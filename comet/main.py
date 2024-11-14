@@ -144,7 +144,10 @@ def start_log():
         logger.log("COMET", "Zilean: False")
 
     logger.log("COMET", f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}")
-    logger.log("COMET", f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}")
+
+    mediafusion_url = f" - {settings.MEDIAFUSION_URL}"
+    logger.log("COMET", f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_url if settings.SCRAPE_MEDIAFUSION else ''}")
+    
     logger.log(
         "COMET",
         f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",

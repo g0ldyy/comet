@@ -426,15 +426,14 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
 
 async def get_mediafusion(log_name: str, type: str, full_id: str):
     results = []
-    # https://mediafusion.elfhosted.com/stream/series/tt0903747:1:2.json
     try:
         try:
             get_mediafusion = requests.get(
-                f"https://mediafusion.elfhosted.com/stream/{type}/{full_id}.json"
+                f"{settings.MEDIAFUSION_URL}/stream/{type}/{full_id}.json"
             ).json()
         except:
             get_mediafusion = requests.get(
-                f"https://mediafusion.elfhosted.com/stream/{type}/{full_id}.json",
+                f"{settings.MEDIAFUSION_URL}/stream/{type}/{full_id}.json",
                 proxies={
                     "http": settings.DEBRID_PROXY_URL,
                     "https": settings.DEBRID_PROXY_URL,
