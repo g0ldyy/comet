@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.36.1](https://github.com/g0ldyy/comet/compare/v1.36.0...v1.36.1) (2024-11-14)
+
+
+### Bug Fixes
+
+* something ([5b5a9ce](https://github.com/g0ldyy/comet/commit/5b5a9ce3c341a9e67c29cd6a623640aa3fd7d0cf))
+
 ## [1.36.0](https://github.com/g0ldyy/comet/compare/v1.35.3...v1.36.0) (2024-11-14)
 
 
