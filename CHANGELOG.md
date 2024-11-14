@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.35.3](https://github.com/g0ldyy/comet/compare/v1.35.2...v1.35.3) (2024-11-14)
+
+
+### Bug Fixes
+
+* add trackers to results ([9295fd2](https://github.com/g0ldyy/comet/commit/9295fd2f8315e0e1d4586a059d2910a9c348a62a))
+* magical db fix improving speed by 5000% ([67a20be](https://github.com/g0ldyy/comet/commit/67a20be6b1bac652085d97743e0251fbdaec01ae))
+
 ## [1.35.2](https://github.com/g0ldyy/comet/compare/v1.35.1...v1.35.2) (2024-11-14)
 
 
