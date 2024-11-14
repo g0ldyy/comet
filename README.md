@@ -16,6 +16,7 @@
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
 - Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported *(if you want other debrid services, please provide an account)*
+- Direct Torrent supported (do not specify a Debrid API Key on the configuration page (webui) to activate it - it will use the cached results of other users using debrid service)
 - [Kitsu](https://kitsu.io/) support (anime)
 
 # Installation
