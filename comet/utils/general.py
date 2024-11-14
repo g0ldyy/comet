@@ -255,20 +255,19 @@ def config_check(b64config: str):
         return False
 
 
-def get_debrid_extension(debridService: str):
-    debrid_extension = None
-    if debridService == "realdebrid":
-        debrid_extension = "RD"
-    elif debridService == "alldebrid":
-        debrid_extension = "AD"
-    elif debridService == "premiumize":
-        debrid_extension = "PM"
-    elif debridService == "torbox":
-        debrid_extension = "TB"
-    elif debridService == "debridlink":
-        debrid_extension = "DL"
+def get_debrid_extension(debridService: str, debridApiKey: str = None):
+    if debridApiKey == "":
+        return "TORRENT"
 
-    return debrid_extension
+    debrid_extensions = {
+        "realdebrid": "RD",
+        "alldebrid": "AD",
+        "premiumize": "PM",
+        "torbox": "TB",
+        "debridlink": "DL",
+    }
+
+    return debrid_extensions.get(debridService, None)
 
 
 async def get_indexer_manager(
