@@ -277,6 +277,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         indexer_manager_type,
                         "Zilean" if settings.ZILEAN_URL else None,
                         "Torrentio" if settings.SCRAPE_TORRENTIO else None,
+                        "MediaFusion" if settings.SCRAPE_MEDIAFUSION else None,
                     ]
                     if part
                 )
@@ -285,6 +286,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         indexer_manager_type,
                         settings.ZILEAN_URL,
                         settings.SCRAPE_TORRENTIO,
+                        settings.SCRAPE_MEDIAFUSION,
                     ]
                 )
                 else ""
@@ -369,6 +371,17 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
 
         if len_sorted_ranked_files == 0:
+            if config["debridApiKey"] == "realdebrid": 
+                return {
+                    "streams": [
+                        {
+                            "name": "[⚠️] Comet",
+                            "title": f"RealDebrid API is unstable!",
+                            "url": "https://comet.fast",
+                        }
+                    ]
+                }
+
             return {"streams": []}
 
         sorted_ranked_files = {
@@ -503,7 +516,17 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         ip = get_client_ip(request)
 
         if not download_link:
-            debrid = getDebrid(session, config, ip if (not settings.PROXY_DEBRID_STREAM or settings.PROXY_DEBRID_STREAM_PASSWORD != config["debridStreamProxyPassword"]) else "")
+            debrid = getDebrid(
+                session,
+                config,
+                ip
+                if (
+                    not settings.PROXY_DEBRID_STREAM
+                    or settings.PROXY_DEBRID_STREAM_PASSWORD
+                    != config["debridStreamProxyPassword"]
+                )
+                else "",
+            )
             download_link = await debrid.generate_download_link(hash, index)
             if not download_link:
                 return FileResponse("comet/assets/uncached.mp4")

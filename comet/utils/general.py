@@ -423,16 +423,17 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
 
     return results
 
+
 async def get_mediafusion(log_name: str, type: str, full_id: str):
     results = []
     # https://mediafusion.elfhosted.com/stream/series/tt0903747:1:2.json
     try:
         try:
-            get_mediafusion  = requests.get(
+            get_mediafusion = requests.get(
                 f"https://mediafusion.elfhosted.com/stream/{type}/{full_id}.json"
             ).json()
         except:
-            get_mediafusion  = requests.get(
+            get_mediafusion = requests.get(
                 f"https://mediafusion.elfhosted.com/stream/{type}/{full_id}.json",
                 proxies={
                     "http": settings.DEBRID_PROXY_URL,
@@ -440,23 +441,18 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
                 },
             ).json()
 
-        for torrent in get_mediafusion ["streams"]:
-            description = torrent.get("description", None)
-            if not description:
-                continue
-
-            info_hash = torrent.get("infoHash", None)
-            if not info_hash:
-                continue
-
-            title = description.split("\n")[0] if "\n" in description else description
-            tracker = description.split("🔗 ")[1] if "🔗" in description else "Unknown"
+        for torrent in get_mediafusion["streams"]:
+            title_full = torrent["description"]
+            title = title_full.split("\n")[0] if "\n" in title_full else title_full
+            tracker = title_full.split("🔗 ")[1] if "🔗" in title_full else "Unknown"
 
             results.append(
                 {
                     "Title": title,
-                    "InfoHash": info_hash,
-                    "Size": None,
+                    "InfoHash": torrent["infoHash"],
+                    "Size": torrent["behaviorHints"][
+                        "videoSize"
+                    ],  # not the pack size but still useful for prowlarr userss
                     "Tracker": f"MediaFusion|{tracker}",
                 }
             )
@@ -470,6 +466,7 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
         pass
 
     return results
+
 
 async def filter(torrents: list, name: str, year: int):
     results = []
