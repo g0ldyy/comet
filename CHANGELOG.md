@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.2](https://github.com/g0ldyy/comet/compare/v1.35.1...v1.35.2) (2024-11-14)
+
+
+### Bug Fixes
+
+* sample detection ([fe93bac](https://github.com/g0ldyy/comet/commit/fe93bacf23ee9911d450cd37631b813a7572af2b))
+
 ## [1.35.1](https://github.com/g0ldyy/comet/compare/v1.35.0...v1.35.1) (2024-11-14)
 
 
