@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.0](https://github.com/g0ldyy/comet/compare/v1.34.0...v1.35.0) (2024-11-14)
+
+
+### Features
+
+* faster json stuff and better result ordering ([d8571d1](https://github.com/g0ldyy/comet/commit/d8571d189bda8bf3130695e921d5225dabddf698))
+
 ## [1.34.0](https://github.com/g0ldyy/comet/compare/v1.33.0...v1.34.0) (2024-11-14)
 
 
