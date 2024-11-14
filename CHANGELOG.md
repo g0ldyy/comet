@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.36.0](https://github.com/g0ldyy/comet/compare/v1.35.3...v1.36.0) (2024-11-14)
+
+
+### Features
+
+* elfhosted debugging ([85912a2](https://github.com/g0ldyy/comet/commit/85912a273b12a5a3fae1b7a4d5546022d304b4de))
+
 ## [1.35.3](https://github.com/g0ldyy/comet/compare/v1.35.2...v1.35.3) (2024-11-14)
 
 
