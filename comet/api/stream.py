@@ -425,7 +425,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
-        json_data = orjson.dumps(sorted_ranked_files)
+        json_data = orjson.dumps(sorted_ranked_files).decode("utf-8")
         await database.execute(
             f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
             {"cache_key": cache_key, "json_data": json_data, "timestamp": time.time()},
