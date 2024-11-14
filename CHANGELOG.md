@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.0](https://github.com/g0ldyy/comet/compare/v1.33.0...v1.34.0) (2024-11-14)
+
+
+### Features
+
+* direct torrent!!! omg!!!! no way what ([e621c84](https://github.com/g0ldyy/comet/commit/e621c84237b3514d9b954666c182b135cc686f99))
+
 ## [1.33.0](https://github.com/g0ldyy/comet/compare/v1.32.2...v1.33.0) (2024-11-14)
 
 
