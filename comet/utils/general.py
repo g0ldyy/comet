@@ -502,7 +502,7 @@ async def filter(torrents: list, name: str, year: int):
 
         parsed = parse(title)
 
-        if parsed.parsed_title and not (match_titles(name, parsed.parsed_title)):
+        if parsed.parsed_title and not match_titles(name, parsed.parsed_title):
             results.append((index, False))
             continue
 
