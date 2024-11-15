@@ -38,6 +38,17 @@ streams = APIRouter()
 
 
 @streams.get("/stream/{type}/{id}.json")
+async def stream_noconfig(request: Request, type: str, id: str):
+        return {
+            "streams": [
+                {
+                    "name": "[⚠️] Comet",
+                    "description": f"{request.url.scheme}://{request.url.netloc}/configure",
+                    "url": "https://comet.fast",
+                }
+            ]
+        }
+
 @streams.get("/{b64config}/stream/{type}/{id}.json")
 async def stream(request: Request, b64config: str, type: str, id: str):
     config = config_check(b64config)
