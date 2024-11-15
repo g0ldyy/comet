@@ -108,7 +108,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         name = translate(name)
         log_name = name
         if type == "series":
-            log_name = f"{name} S0{season}E0{episode}"
+            log_name = f"{name} S{season:02d}E{episode:02d}"
 
         if (
             settings.PROXY_DEBRID_STREAM
@@ -266,8 +266,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             if type == "series":
                 search_terms = []
                 if not kitsu:
-                    search_terms.append(f"{name} S0{season}E0{episode}")
-                    search_terms.append(f"{name} s0{season}e0{episode}")
+                    search_terms.append(f"{name} S{season:02d}E{episode:02d}")
+                    search_terms.append(f"{name} s{season:02d}e{episode:02d}")
                 else:
                     search_terms.append(f"{name} {episode}")
             tasks.extend(
