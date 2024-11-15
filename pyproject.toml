@@ -26,6 +26,7 @@ jinja2 = "*"
 rank-torrent-name = "*"
 parsett = "*"
 fuzzywuzzy = "*"
+python-Levenshtein = "*"
 
 
 [tool.poetry.group.dev.dependencies]
