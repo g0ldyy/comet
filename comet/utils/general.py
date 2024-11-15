@@ -10,6 +10,7 @@ import orjson
 from RTN import parse, title_match
 from curl_cffi import requests
 from fastapi import Request
+from fuzzywuzzy import fuzz
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
@@ -465,13 +466,32 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
 
     return results
 
+def match_titles(imdb_title, torrent_title, threshold=80, token_overlap_threshold=0.5):
+    """
+    Match movie/TV show titles using a combination of fuzzy string matching and token overlap.
+
+    Parameters:
+    imdb_title (str): The title from the IMDB data source.
+    torrent_title (str): The title from the torrent data source.
+    threshold (int): The minimum fuzzy match ratio to consider the titles a match.
+    token_overlap_threshold (float): The minimum proportion of overlapping tokens to consider the titles a match.
+
+    Returns:
+    bool: True if the titles match, False otherwise.
+    """
+    # Calculate the fuzzy match ratio
+    match_ratio = fuzz.token_set_ratio(imdb_title, torrent_title)
+
+    # Calculate the proportion of overlapping tokens
+    imdb_tokens = set(imdb_title.lower().split())
+    torrent_tokens = set(torrent_title.lower().split())
+    common_tokens = imdb_tokens.intersection(torrent_tokens)
+    token_overlap_ratio = len(common_tokens) / max(len(imdb_tokens), len(torrent_tokens))
+
+    # Check if both the fuzzy match ratio and token overlap ratio meet the thresholds
+    return match_ratio >= threshold and token_overlap_ratio >= token_overlap_threshold
 
 async def filter(torrents: list, name: str, year: int):
-    def title_sub_match(imdb_title: str, torrent_title: str):
-        imdb_title = imdb_title.lower()
-        torrent_title = torrent_title.lower()
-        return imdb_title in torrent_title or torrent_title in imdb_title
-
     results = []
     for torrent in torrents:
         index = torrent[0]
@@ -482,7 +502,7 @@ async def filter(torrents: list, name: str, year: int):
 
         parsed = parse(title)
 
-        if parsed.parsed_title and not (title_match(name, parsed.parsed_title) or title_sub_match(name, parsed.parsed_title)):
+        if parsed.parsed_title and not (match_titles(name, parsed.parsed_title)):
             results.append((index, False))
             continue
 
