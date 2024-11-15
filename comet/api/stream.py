@@ -219,8 +219,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                             the_stream["infoHash"] = hash
 
                             index = data["index"]
-                            the_stream["fileIdx"] = 1 if "|" in index else int(index) # 1 because for Premiumize it's impossible to get the file index
-                            
+                            the_stream["fileIdx"] = (
+                                1 if "|" in index else int(index)
+                            )  # 1 because for Premiumize it's impossible to get the file index
+
                             the_stream["sources"] = trackers
 
                         results.append(the_stream)
@@ -235,6 +237,16 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 return {"streams": results}
 
+        if config["debridApiKey"] == "":
+            return {
+                "streams": [
+                    {
+                        "name": "[⚠️] Comet",
+                        "description": "No cache found for Direct Torrenting.",
+                        "url": "https://comet.fast",
+                    }
+                ]
+            }
         logger.info(f"No cache found for {log_name} with user configuration")
 
         debrid = getDebrid(session, config, get_client_ip(request))
