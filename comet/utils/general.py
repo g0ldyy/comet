@@ -467,6 +467,11 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
 
 
 async def filter(torrents: list, name: str, year: int):
+    def title_sub_match(correct_title: str, torrent_title: str):
+        correct_title = correct_title.lower()
+        torrent_title = torrent_title.lower()
+        return correct_title in torrent_title or torrent_title in correct_title
+
     results = []
     for torrent in torrents:
         index = torrent[0]
@@ -476,11 +481,6 @@ async def filter(torrents: list, name: str, year: int):
             title = title.split("\n")[1]
 
         parsed = parse(title)
-
-        def title_sub_match(correct_title: str, torrent_title: str):
-            correct_title = correct_title.lower()
-            torrent_title = torrent_title.lower()
-            return correct_title in torrent_title or torrent_title in correct_title
 
         if parsed.parsed_title and not (title_match(name, parsed.parsed_title) or title_sub_match(name, parsed.parsed_title)):
             results.append((index, False))
