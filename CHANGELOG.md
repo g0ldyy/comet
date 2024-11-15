@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.37.0](https://github.com/g0ldyy/comet/compare/v1.36.1...v1.37.0) (2024-11-15)
+
+
+### Features
+
+* different error message for no cache direct torrent ([10318de](https://github.com/g0ldyy/comet/commit/10318decebf4989fe6416181fceb03ef10b0186f))
+* error message in case its not configured ([c572274](https://github.com/g0ldyy/comet/commit/c572274fc9fc520c85d93bff407fcd033c0f0937))
+
+
+### Bug Fixes
+
+* index error ([e94c8e2](https://github.com/g0ldyy/comet/commit/e94c8e278a610f7ee88d513958407d389d2c0515))
+
 ## [1.36.1](https://github.com/g0ldyy/comet/compare/v1.36.0...v1.36.1) (2024-11-14)
 
 
