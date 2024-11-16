@@ -7,7 +7,7 @@ import PTT
 import asyncio
 import orjson
 
-from RTN import parse, title_match
+from RTN import parse
 from curl_cffi import requests
 from fastapi import Request
 from fuzzywuzzy import fuzz
@@ -466,30 +466,25 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
 
     return results
 
-def match_titles(imdb_title, torrent_title, threshold=80, token_overlap_threshold=0.5):
+
+def match_titles(imdb_title: str, torrent_title: str, threshold: int = 80) -> bool:
     """
-    Match movie/TV show titles using a combination of fuzzy string matching and token overlap.
+    Match movie/TV show titles using fuzzy string matching.
 
     Parameters:
     imdb_title (str): The title from the IMDB data source.
     torrent_title (str): The title from the torrent data source.
     threshold (int): The minimum fuzzy match ratio to consider the titles a match.
-    token_overlap_threshold (float): The minimum proportion of overlapping tokens to consider the titles a match.
 
     Returns:
     bool: True if the titles match, False otherwise.
     """
     # Calculate the fuzzy match ratio
-    match_ratio = fuzz.token_set_ratio(imdb_title, torrent_title)
+    match_ratio = fuzz.ratio(imdb_title, torrent_title)
 
-    # Calculate the proportion of overlapping tokens
-    imdb_tokens = set(imdb_title.lower().split())
-    torrent_tokens = set(torrent_title.lower().split())
-    common_tokens = imdb_tokens.intersection(torrent_tokens)
-    token_overlap_ratio = len(common_tokens) / max(len(imdb_tokens), len(torrent_tokens))
+    # Check if the fuzzy match ratio meets the thresholds
+    return match_ratio >= threshold
 
-    # Check if both the fuzzy match ratio and token overlap ratio meet the thresholds
-    return match_ratio >= threshold and token_overlap_ratio >= token_overlap_threshold
 
 async def filter(torrents: list, name: str, year: int):
     results = []
