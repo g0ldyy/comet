@@ -480,10 +480,15 @@ def match_titles(imdb_title: str, torrent_title: str, threshold: int = 80) -> bo
     bool: True if the titles match, False otherwise.
     """
     # Calculate the fuzzy match ratio
-    match_ratio = fuzz.ratio(imdb_title, torrent_title)
+    # The idea is that ratio will give very low score to garbage ratio but will also give mid/average 
+    # score to some good results. The WRatio will make sure these mid score passes the filter.
+    base_ratio = fuzz.ratio(imdb_title, torrent_title) # strict ratio
+    w_ratio = fuzz.WRatio(imdb_title, torrent_title) # less strict ratio
+    # The weight of the ratios needs to be adjusted because basic ratio is too strict.
+    match_ratio = (base_ratio*0.7 + w_ratio*1.3)/2
 
-    # Check if the fuzzy match ratio meets the thresholds
-    return match_ratio >= threshold
+    # Check if the fuzzy match ratio meets the thresholds 
+    return match_ratio >= threshold 
 
 
 async def filter(torrents: list, name: str, year: int):
