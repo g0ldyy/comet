@@ -601,17 +601,17 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
-            active_ip_connections = await database.fetch_all(
-                "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
-            )
-            if any(
-                connection["ip"] == ip
-                and connection["connections"]
-                >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
-                and settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1
-                for connection in active_ip_connections
-            ):
-                return FileResponse("comet/assets/proxylimit.mp4")
+            if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
+                active_ip_connections = await database.fetch_all(
+                    "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
+                )
+                if any(
+                    connection["ip"] == ip
+                    and connection["connections"]
+                    >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
+                    for connection in active_ip_connections
+                ):
+                    return FileResponse("comet/assets/proxylimit.mp4")
 
             proxy = None
 
