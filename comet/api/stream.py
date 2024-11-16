@@ -608,6 +608,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 connection["ip"] == ip
                 and connection["connections"]
                 >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
+                and settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1
                 for connection in active_ip_connections
             ):
                 return FileResponse("comet/assets/proxylimit.mp4")
