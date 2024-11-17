@@ -528,7 +528,7 @@ async def get_torrent_hash(session: aiohttp.ClientSession, torrent: tuple):
 
 def get_balanced_hashes(hashes: dict, config: dict):
     max_results = config["maxResults"]
-    max_results_per_resolution = config.get("maxResultsPerResolution", 0)
+    max_results_per_resolution = config["maxResultsPerResolution"]
 
     max_size = config["maxSize"]
     config_resolutions = [resolution.lower() for resolution in config["resolutions"]]
