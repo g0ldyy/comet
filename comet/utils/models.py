@@ -70,6 +70,7 @@ class ConfigModel(BaseModel):
     resolutions: Optional[List[str]] = ["All"]
     resultFormat: Optional[List[str]] = ["All"]
     maxResults: Optional[int] = 0
+    maxResultsPerResolution: Optional[int] = 0
     maxSize: Optional[float] = 0
     debridService: str
     debridApiKey: str
@@ -92,6 +93,12 @@ class ConfigModel(BaseModel):
 
     @field_validator("maxResults")
     def check_max_results(cls, v):
+        if v < 0:
+            v = 0
+        return v
+    
+    @field_validator("maxResultsPerResolution")
+    def check_max_results_per_resolution(cls, v):
         if v < 0:
             v = 0
         return v
