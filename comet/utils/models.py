@@ -96,7 +96,7 @@ class ConfigModel(BaseModel):
         if v < 0:
             v = 0
         return v
-    
+
     @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):
         if v < 0:
