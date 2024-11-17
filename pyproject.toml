@@ -23,7 +23,7 @@ orjson = "*"
 asyncpg = "*"
 aiosqlite = "*"
 jinja2 = "*"
-rank-torrent-name = "*"
+rank-torrent-name = "1.4.1"
 parsett = "*"
 
 
