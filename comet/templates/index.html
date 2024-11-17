@@ -528,6 +528,10 @@
             </div>
 
             <div class="form-item">
+                <sl-input id="maxResultsPerResolution" type="number" min=0 value=0 label="Max Results Per Resolution" placeholder="Enter max results per resolution"></sl-input>
+            </div>
+
+            <div class="form-item">
                 <sl-input id="maxSize" type="number" min=0 value=0 label="Max Size (GB)" placeholder="Enter max size in gigabytes"></sl-input>
             </div>
 
@@ -710,6 +714,7 @@
                         const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
+                        const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
@@ -722,6 +727,7 @@
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
+                            maxResultsPerResolution: parseInt(maxResultsPerResolution),
                             maxSize: parseFloat(maxSize * 1073741824),
                             resultFormat: selectedResultFormat,
                             resolutions: selectedResolutions,
@@ -774,6 +780,7 @@
 
                     function populateFormFromSettings(settings) {
                         document.getElementById("maxResults").value = settings.maxResults;
+                        document.getElementById("maxResultsPerResolution").value = settings.maxResultsPerResolution;
                         document.getElementById("maxSize").value = settings.maxSize / 1073741824; // Convert back from bytes to GB
                         document.getElementById("debridService").value = settings.debridService;
                         document.getElementById("debridApiKey").value = settings.debridApiKey;
