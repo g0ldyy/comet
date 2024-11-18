@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.40.1](https://github.com/g0ldyy/comet/compare/v1.40.0...v1.40.1) (2024-11-18)
+
+
+### Bug Fixes
+
+* oupsie ([43b7e37](https://github.com/g0ldyy/comet/commit/43b7e37db6f31e47bba15ef9f7b41b856c9ff1b7))
+
 ## [1.40.0](https://github.com/g0ldyy/comet/compare/v1.39.0...v1.40.0) (2024-11-18)
 
 
