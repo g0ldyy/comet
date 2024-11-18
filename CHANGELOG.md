@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.39.0](https://github.com/g0ldyy/comet/compare/v1.38.0...v1.39.0) (2024-11-18)
+
+
+### Features
+
+* shit filter and adult content check ([fe3ddb6](https://github.com/g0ldyy/comet/commit/fe3ddb6702aac23de8e3ad6b51c56899f3f3ea24))
+
+
+### Bug Fixes
+
+* webui config ([0487af5](https://github.com/g0ldyy/comet/commit/0487af542e3f03a2d95719b4cb7243bc21f8e119))
+
 ## [1.38.0](https://github.com/g0ldyy/comet/compare/v1.37.0...v1.38.0) (2024-11-17)
 
 
