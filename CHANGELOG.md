@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.40.0](https://github.com/g0ldyy/comet/compare/v1.39.0...v1.40.0) (2024-11-18)
+
+
+### Features
+
+* reverse order results ([15098f3](https://github.com/g0ldyy/comet/commit/15098f379e0e2012e229d275095afe618304567f))
+
+## [1.39.0](https://github.com/g0ldyy/comet/compare/v1.38.0...v1.39.0) (2024-11-18)
+
+
+### Features
+
+* shit filter and adult content check ([fe3ddb6](https://github.com/g0ldyy/comet/commit/fe3ddb6702aac23de8e3ad6b51c56899f3f3ea24))
+
+
+### Bug Fixes
+
+* webui config ([0487af5](https://github.com/g0ldyy/comet/commit/0487af542e3f03a2d95719b4cb7243bc21f8e119))
+
+## [1.38.0](https://github.com/g0ldyy/comet/compare/v1.37.0...v1.38.0) (2024-11-17)
+
+
+### Features
+
+* ability to disable max connection ([9ebcb71](https://github.com/g0ldyy/comet/commit/9ebcb71ef1cd48ed9ac3079838cf4b2da1575cc2))
+* ability to disable max connection [#2](https://github.com/g0ldyy/comet/issues/2) ([412699f](https://github.com/g0ldyy/comet/commit/412699fb55a77069ef17c0e5f826d87cca2d7c8d))
+* ability to disable max connection [#3](https://github.com/g0ldyy/comet/issues/3) ([05fe062](https://github.com/g0ldyy/comet/commit/05fe06294b0471a2cd8e7cfb3c3b96a9863e1f6a))
+* ability to disable max connection [#4](https://github.com/g0ldyy/comet/issues/4) ([a18dceb](https://github.com/g0ldyy/comet/commit/a18dceb01c49f4a0fee50b3afda11b5008da3085))
+* add max results per resolution configuration option ([fefc260](https://github.com/g0ldyy/comet/commit/fefc260b083e46ac062ede04abd694c9841f7c42))
+* add search term ([fdb62ab](https://github.com/g0ldyy/comet/commit/fdb62ab60adb046e92279f7f5c2578d9b54fd8bc))
+* language unknown support ([6f7c79f](https://github.com/g0ldyy/comet/commit/6f7c79f91dffabd28bcce667be6c72837711414b))
+
+
+### Bug Fixes
+
+* fix 2160p issue ([5ca4aa5](https://github.com/g0ldyy/comet/commit/5ca4aa59a0b704f77ab45190f2e03fc83e75023e))
+
 ## [1.37.0](https://github.com/g0ldyy/comet/compare/v1.36.1...v1.37.0) (2024-11-15)
 
 

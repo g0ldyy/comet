@@ -528,6 +528,10 @@
             </div>
 
             <div class="form-item">
+                <sl-input id="maxResultsPerResolution" type="number" min=0 value=0 label="Max Results Per Resolution" placeholder="Enter max results per resolution"></sl-input>
+            </div>
+
+            <div class="form-item">
                 <sl-input id="maxSize" type="number" min=0 value=0 label="Max Size (GB)" placeholder="Enter max size in gigabytes"></sl-input>
             </div>
 
@@ -555,6 +559,7 @@
 
             <sl-details summary="Advanced Settings">
                 <div class="form-item">
+                    <sl-checkbox id="reverseResultOrder" help-text="Reverse the order of the results for each resolution (useful for those who need small file sizes)">Reverse Result Order</sl-checkbox>
                     <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=10>
                     </sl-select>
                 </div>
@@ -594,6 +599,7 @@
 
                 <script type="module">
                     const languagesEmojis = {
+                        "Unknown": "❓",
                         "Multi": "🌎",
                         "English": "🇬🇧",
                         "Japanese": "🇯🇵",
@@ -655,7 +661,8 @@
                             customElements.whenDefined("sl-select"),
                             customElements.whenDefined("sl-input"),
                             customElements.whenDefined("sl-option"),
-                            customElements.whenDefined("sl-icon")
+                            customElements.whenDefined("sl-icon"),
+                            customElements.whenDefined("sl-checkbox")
                         ]);
 
                         const webConfig = {{webConfig|tojson}};
@@ -710,7 +717,9 @@
                         const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResults = document.getElementById("maxResults").value;
+                        const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
+                        const reverseResultOrder = document.getElementById("reverseResultOrder").checked;
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
@@ -722,7 +731,9 @@
                         return {
                             indexers: indexers,
                             maxResults: parseInt(maxResults),
+                            maxResultsPerResolution: parseInt(maxResultsPerResolution),
                             maxSize: parseFloat(maxSize * 1073741824),
+                            reverseResultOrder: reverseResultOrder,
                             resultFormat: selectedResultFormat,
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
@@ -773,17 +784,27 @@
                     }
 
                     function populateFormFromSettings(settings) {
-                        document.getElementById("maxResults").value = settings.maxResults;
-                        document.getElementById("maxSize").value = settings.maxSize / 1073741824; // Convert back from bytes to GB
-                        document.getElementById("debridService").value = settings.debridService;
-                        document.getElementById("debridApiKey").value = settings.debridApiKey;
-                        document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
-                        document.getElementById("indexers").value = settings.indexers;
-                        if (settings.languages != "All")
+                        if (settings.maxResults !== null)
+                            document.getElementById("maxResults").value = settings.maxResults;
+                        if (settings.reverseResultOrder !== null)
+                            document.getElementById("reverseResultOrder").checked = settings.reverseResultOrder;
+                        if (settings.maxResultsPerResolution !== null)
+                            document.getElementById("maxResultsPerResolution").value = settings.maxResultsPerResolution;
+                        if (settings.maxSize !== null)
+                            document.getElementById("maxSize").value = settings.maxSize / 1073741824;
+                        if (settings.debridService !== null)
+                            document.getElementById("debridService").value = settings.debridService;
+                        if (settings.debridApiKey !== null)
+                            document.getElementById("debridApiKey").value = settings.debridApiKey;
+                        if (settings.debridStreamProxyPassword !== null)
+                            document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
+                        if (settings.indexers !== null)
+                            document.getElementById("indexers").value = settings.indexers;
+                        if (settings.languages !== null && settings.languages != "All")
                             document.getElementById("languages").value = settings.languages;
-                        if (settings.resolutions != "All")
+                        if (settings.resolutions !== null && settings.resolutions != "All")
                             document.getElementById("resolutions").value = settings.resolutions;
-                        if (settings.resultFormat != "All")
+                        if (settings.resultFormat !== null && settings.resultFormat != "All")
                             document.getElementById("resultFormat").value = settings.resultFormat;
                     }
 

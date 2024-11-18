@@ -16,6 +16,7 @@ from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
 
 languages_emojis = {
+    "unknown": "❓",  # Unknown
     "multi": "🌎",  # Dubbed
     "en": "🇬🇧",  # English
     "ja": "🇯🇵",  # Japanese
@@ -553,6 +554,7 @@ async def get_torrent_hash(session: aiohttp.ClientSession, torrent: tuple):
 
 def get_balanced_hashes(hashes: dict, config: dict):
     max_results = config["maxResults"]
+    max_results_per_resolution = config["maxResultsPerResolution"]
 
     max_size = config["maxSize"]
     config_resolutions = [resolution.lower() for resolution in config["resolutions"]]
@@ -578,6 +580,7 @@ def get_balanced_hashes(hashes: dict, config: dict):
             not include_all_languages
             and not any(lang in hash_info["languages"] for lang in config_languages)
             and ("multi" not in languages if hash_info["dubbed"] else True)
+            and not (len(hash_info["languages"]) == 0 and "unknown" in languages)
         ):
             continue
 
@@ -589,16 +592,26 @@ def get_balanced_hashes(hashes: dict, config: dict):
             hashes_by_resolution[resolution] = []
         hashes_by_resolution[resolution].append(hash)
 
+    if config["reverseResultOrder"]:
+        for resolution in hashes_by_resolution:
+            hashes_by_resolution[resolution].reverse()
+
     total_resolutions = len(hashes_by_resolution)
-    if max_results == 0 or total_resolutions == 0:
+    if max_results == 0 and max_results_per_resolution == 0 or total_resolutions == 0:
         return hashes_by_resolution
 
-    hashes_per_resolution = max_results // total_resolutions
+    hashes_per_resolution = (
+        max_results // total_resolutions
+        if max_results > 0
+        else max_results_per_resolution
+    )
     extra_hashes = max_results % total_resolutions
 
     balanced_hashes = {}
     for resolution, hash_list in hashes_by_resolution.items():
         selected_count = hashes_per_resolution + (1 if extra_hashes > 0 else 0)
+        if max_results_per_resolution > 0:
+            selected_count = min(selected_count, max_results_per_resolution)
         balanced_hashes[resolution] = hash_list[:selected_count]
         if extra_hashes > 0:
             extra_hashes -= 1

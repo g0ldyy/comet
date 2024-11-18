@@ -39,15 +39,16 @@ streams = APIRouter()
 
 @streams.get("/stream/{type}/{id}.json")
 async def stream_noconfig(request: Request, type: str, id: str):
-        return {
-            "streams": [
-                {
-                    "name": "[⚠️] Comet",
-                    "description": f"{request.url.scheme}://{request.url.netloc}/configure",
-                    "url": "https://comet.fast",
-                }
-            ]
-        }
+    return {
+        "streams": [
+            {
+                "name": "[⚠️] Comet",
+                "description": f"{request.url.scheme}://{request.url.netloc}/configure",
+                "url": "https://comet.fast",
+            }
+        ]
+    }
+
 
 @streams.get("/{b64config}/stream/{type}/{id}.json")
 async def stream(request: Request, b64config: str, type: str, id: str):
@@ -196,51 +197,40 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
             balanced_hashes = get_balanced_hashes(all_sorted_ranked_files, config)
 
-            seen_hashes = set()
-            for hash, hash_data in all_sorted_ranked_files.items():
-                if hash in seen_hashes:
-                    continue
+            for resolution in balanced_hashes:
+                for hash in balanced_hashes[resolution]:
+                    data = all_sorted_ranked_files[hash]["data"]
 
-                for resolution, hash_list in balanced_hashes.items():
-                    if hash in hash_list:
-                        data = hash_data["data"]
+                    the_stream = {
+                        "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
+                        "description": format_title(data, config),
+                        "torrentTitle": (
+                            data["torrent_title"] if "torrent_title" in data else None
+                        ),
+                        "torrentSize": (
+                            data["torrent_size"] if "torrent_size" in data else None
+                        ),
+                        "behaviorHints": {
+                            "filename": data["raw_title"],
+                            "bingeGroup": "comet|" + hash,
+                        },
+                    }
 
-                        the_stream = {
-                            "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
-                            "description": format_title(data, config),
-                            "torrentTitle": (
-                                data["torrent_title"]
-                                if "torrent_title" in data
-                                else None
-                            ),
-                            "torrentSize": (
-                                data["torrent_size"] if "torrent_size" in data else None
-                            ),
-                            "behaviorHints": {
-                                "filename": data["raw_title"],
-                                "bingeGroup": "comet|" + hash,
-                            },
-                        }
+                    if config["debridApiKey"] != "":
+                        the_stream["url"] = (
+                            f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}"
+                        )
+                    else:
+                        the_stream["infoHash"] = hash
 
-                        if config["debridApiKey"] != "":
-                            the_stream["url"] = (
-                                f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}"
-                            )
-                        else:
-                            the_stream["infoHash"] = hash
+                        index = data["index"]
+                        the_stream["fileIdx"] = (
+                            1 if "|" in index else int(index)
+                        )  # 1 because for Premiumize it's impossible to get the file index
 
-                            index = data["index"]
-                            the_stream["fileIdx"] = (
-                                1 if "|" in index else int(index)
-                            )  # 1 because for Premiumize it's impossible to get the file index
+                        the_stream["sources"] = trackers
 
-                            the_stream["sources"] = trackers
-
-                        results.append(the_stream)
-
-                        seen_hashes.add(hash)
-
-                        break
+                    results.append(the_stream)
 
             results_count = len(results)
             if results_count != 0:
@@ -410,11 +400,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             try:
                 ranked_file = rtn.rank(
                     files[hash]["title"],
-                    hash,  # , correct_title=name, remove_trash=True
+                    hash,
+                    remove_trash=True,  # , correct_title=name, remove_trash=True
                 )
 
                 ranked_files.add(ranked_file)
-            except:
+            except Exception as e:
+                logger.info(f"Filtered out: {e}")
                 pass
 
         sorted_ranked_files = sort_torrents(ranked_files)
@@ -484,25 +476,22 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 }
             )
 
-        for hash, hash_data in sorted_ranked_files.items():
-            for resolution, hash_list in balanced_hashes.items():
-                if hash in hash_list:
-                    data = hash_data["data"]
-                    results.append(
-                        {
-                            "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
-                            "description": format_title(data, config),
-                            "torrentTitle": data["torrent_title"],
-                            "torrentSize": data["torrent_size"],
-                            "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
-                            "behaviorHints": {
-                                "filename": data["raw_title"],
-                                "bingeGroup": "comet|" + hash,
-                            },
-                        }
-                    )
-
-                    continue
+        for resolution in balanced_hashes:
+            for hash in balanced_hashes[resolution]:
+                data = sorted_ranked_files[hash]["data"]
+                results.append(
+                    {
+                        "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
+                        "description": format_title(data, config),
+                        "torrentTitle": data["torrent_title"],
+                        "torrentSize": data["torrent_size"],
+                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
+                        "behaviorHints": {
+                            "filename": data["raw_title"],
+                            "bingeGroup": "comet|" + hash,
+                        },
+                    }
+                )
 
         return {"streams": results}
 
@@ -602,16 +591,17 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
-            active_ip_connections = await database.fetch_all(
-                "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
-            )
-            if any(
-                connection["ip"] == ip
-                and connection["connections"]
-                >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
-                for connection in active_ip_connections
-            ):
-                return FileResponse("comet/assets/proxylimit.mp4")
+            if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
+                active_ip_connections = await database.fetch_all(
+                    "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
+                )
+                if any(
+                    connection["ip"] == ip
+                    and connection["connections"]
+                    >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
+                    for connection in active_ip_connections
+                ):
+                    return FileResponse("comet/assets/proxylimit.mp4")
 
             proxy = None
 
