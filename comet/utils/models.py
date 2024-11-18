@@ -93,18 +93,27 @@ class ConfigModel(BaseModel):
 
     @field_validator("maxResults")
     def check_max_results(cls, v):
+        if not isinstance(v, int):
+            v = 0
+
         if v < 0:
             v = 0
         return v
 
     @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):
+        if not isinstance(v, int):
+            v = 0
+
         if v < 0:
             v = 0
         return v
 
     @field_validator("maxSize")
     def check_max_size(cls, v):
+        if not isinstance(v, int):
+            v = 0
+        
         if v < 0:
             v = 0
         return v

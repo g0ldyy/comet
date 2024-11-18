@@ -780,18 +780,26 @@
                     }
 
                     function populateFormFromSettings(settings) {
-                        document.getElementById("maxResults").value = settings.maxResults;
-                        document.getElementById("maxResultsPerResolution").value = settings.maxResultsPerResolution;
-                        document.getElementById("maxSize").value = settings.maxSize / 1073741824; // Convert back from bytes to GB
-                        document.getElementById("debridService").value = settings.debridService;
-                        document.getElementById("debridApiKey").value = settings.debridApiKey;
-                        document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
-                        document.getElementById("indexers").value = settings.indexers;
-                        if (settings.languages != "All")
+                        console.log(settings.maxResultsPerResolution);
+                        if (settings.maxResults !== null)
+                            document.getElementById("maxResults").value = settings.maxResults;
+                        if (settings.maxResultsPerResolution !== null)
+                            document.getElementById("maxResultsPerResolution").value = settings.maxResultsPerResolution;
+                        if (settings.maxSize !== null)
+                            document.getElementById("maxSize").value = settings.maxSize / 1073741824;
+                        if (settings.debridService !== null)
+                            document.getElementById("debridService").value = settings.debridService;
+                        if (settings.debridApiKey !== null)
+                            document.getElementById("debridApiKey").value = settings.debridApiKey;
+                        if (settings.debridStreamProxyPassword !== null)
+                            document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
+                        if (settings.indexers !== null)
+                            document.getElementById("indexers").value = settings.indexers;
+                        if (settings.languages !== null && settings.languages != "All")
                             document.getElementById("languages").value = settings.languages;
-                        if (settings.resolutions != "All")
+                        if (settings.resolutions !== null && settings.resolutions != "All")
                             document.getElementById("resolutions").value = settings.resolutions;
-                        if (settings.resultFormat != "All")
+                        if (settings.resultFormat !== null && settings.resultFormat != "All")
                             document.getElementById("resultFormat").value = settings.resultFormat;
                     }
 
