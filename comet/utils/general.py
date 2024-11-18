@@ -567,6 +567,10 @@ def get_balanced_hashes(hashes: dict, config: dict):
             hashes_by_resolution[resolution] = []
         hashes_by_resolution[resolution].append(hash)
 
+    if config["reverseResultOrder"]:
+        for resolution in hashes_by_resolution:
+            hashes_by_resolution[resolution].reverse()
+
     total_resolutions = len(hashes_by_resolution)
     if max_results == 0 and max_results_per_resolution == 0 or total_resolutions == 0:
         return hashes_by_resolution

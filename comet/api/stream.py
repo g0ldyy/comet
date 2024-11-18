@@ -197,51 +197,40 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
             balanced_hashes = get_balanced_hashes(all_sorted_ranked_files, config)
 
-            seen_hashes = set()
-            for hash, hash_data in all_sorted_ranked_files.items():
-                if hash in seen_hashes:
-                    continue
+            for resolution in balanced_hashes:
+                for hash in balanced_hashes[resolution]:
+                    data = all_sorted_ranked_files[hash]["data"]
 
-                for resolution, hash_list in balanced_hashes.items():
-                    if hash in hash_list:
-                        data = hash_data["data"]
+                    the_stream = {
+                        "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
+                        "description": format_title(data, config),
+                        "torrentTitle": (
+                            data["torrent_title"] if "torrent_title" in data else None
+                        ),
+                        "torrentSize": (
+                            data["torrent_size"] if "torrent_size" in data else None
+                        ),
+                        "behaviorHints": {
+                            "filename": data["raw_title"],
+                            "bingeGroup": "comet|" + hash,
+                        },
+                    }
 
-                        the_stream = {
-                            "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
-                            "description": format_title(data, config),
-                            "torrentTitle": (
-                                data["torrent_title"]
-                                if "torrent_title" in data
-                                else None
-                            ),
-                            "torrentSize": (
-                                data["torrent_size"] if "torrent_size" in data else None
-                            ),
-                            "behaviorHints": {
-                                "filename": data["raw_title"],
-                                "bingeGroup": "comet|" + hash,
-                            },
-                        }
+                    if config["debridApiKey"] != "":
+                        the_stream["url"] = (
+                            f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}"
+                        )
+                    else:
+                        the_stream["infoHash"] = hash
 
-                        if config["debridApiKey"] != "":
-                            the_stream["url"] = (
-                                f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}"
-                            )
-                        else:
-                            the_stream["infoHash"] = hash
+                        index = data["index"]
+                        the_stream["fileIdx"] = (
+                            1 if "|" in index else int(index)
+                        )  # 1 because for Premiumize it's impossible to get the file index
 
-                            index = data["index"]
-                            the_stream["fileIdx"] = (
-                                1 if "|" in index else int(index)
-                            )  # 1 because for Premiumize it's impossible to get the file index
+                        the_stream["sources"] = trackers
 
-                            the_stream["sources"] = trackers
-
-                        results.append(the_stream)
-
-                        seen_hashes.add(hash)
-
-                        break
+                    results.append(the_stream)
 
             results_count = len(results)
             if results_count != 0:
@@ -416,7 +405,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 ranked_files.add(ranked_file)
             except Exception as e:
-                logger.info(f"Filtered: {e}")
+                logger.info(f"Filtered out: {e}")
                 pass
 
         sorted_ranked_files = sort_torrents(ranked_files)
