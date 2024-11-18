@@ -410,11 +410,13 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             try:
                 ranked_file = rtn.rank(
                     files[hash]["title"],
-                    hash,  # , correct_title=name, remove_trash=True
+                    hash,
+                    remove_trash=True,  # , correct_title=name, remove_trash=True
                 )
 
                 ranked_files.add(ranked_file)
-            except:
+            except Exception as e:
+                logger.info(f"Filtered: {e}")
                 pass
 
         sorted_ranked_files = sort_torrents(ranked_files)

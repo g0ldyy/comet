@@ -157,6 +157,7 @@ def start_log():
         f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",
     )
     logger.log("COMET", f"Title Match Check: {bool(settings.TITLE_MATCH_CHECK)}")
+    logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
 
