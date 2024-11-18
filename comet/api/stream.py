@@ -475,25 +475,22 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 }
             )
 
-        for hash, hash_data in sorted_ranked_files.items():
-            for resolution, hash_list in balanced_hashes.items():
-                if hash in hash_list:
-                    data = hash_data["data"]
-                    results.append(
-                        {
-                            "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
-                            "description": format_title(data, config),
-                            "torrentTitle": data["torrent_title"],
-                            "torrentSize": data["torrent_size"],
-                            "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
-                            "behaviorHints": {
-                                "filename": data["raw_title"],
-                                "bingeGroup": "comet|" + hash,
-                            },
-                        }
-                    )
-
-                    continue
+        for resolution in balanced_hashes:
+            for hash in balanced_hashes[resolution]:
+                data = sorted_ranked_files[hash]["data"]
+                results.append(
+                    {
+                        "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
+                        "description": format_title(data, config),
+                        "torrentTitle": data["torrent_title"],
+                        "torrentSize": data["torrent_size"],
+                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
+                        "behaviorHints": {
+                            "filename": data["raw_title"],
+                            "bingeGroup": "comet|" + hash,
+                        },
+                    }
+                )
 
         return {"streams": results}
 
