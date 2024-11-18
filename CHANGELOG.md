@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.40.0](https://github.com/g0ldyy/comet/compare/v1.39.0...v1.40.0) (2024-11-18)
+
+
+### Features
+
+* reverse order results ([15098f3](https://github.com/g0ldyy/comet/commit/15098f379e0e2012e229d275095afe618304567f))
+
 ## [1.39.0](https://github.com/g0ldyy/comet/compare/v1.38.0...v1.39.0) (2024-11-18)
 
 
