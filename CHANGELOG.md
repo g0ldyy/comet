@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.41.1](https://github.com/g0ldyy/comet/compare/v1.41.0...v1.41.1) (2024-11-19)
+
+
+### Bug Fixes
+
+* improve torrentio/mediafusion parsing ([1318772](https://github.com/g0ldyy/comet/commit/13187728d691b02b60820ba027b200272693c2d8))
+
 ## [1.41.0](https://github.com/g0ldyy/comet/compare/v1.40.1...v1.41.0) (2024-11-19)
 
 
