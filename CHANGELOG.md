@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.41.0](https://github.com/g0ldyy/comet/compare/v1.40.1...v1.41.0) (2024-11-19)
+
+
+### Features
+
+* title match check aliases system ([36323ac](https://github.com/g0ldyy/comet/commit/36323ac028dc4833c57200100f4e36a170bdb7c2))
+
 ## [1.40.1](https://github.com/g0ldyy/comet/compare/v1.40.0...v1.40.1) (2024-11-18)
 
 
