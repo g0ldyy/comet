@@ -120,7 +120,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         name = translate(name)
         log_name = name
         if type == "series":
-            log_name = f"{name} S{season:02d}E{episode:02d}"
+            log_name = f"{name} S0{season}E0{episode}"
 
         if (
             settings.PROXY_DEBRID_STREAM

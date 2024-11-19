@@ -7,10 +7,9 @@ import PTT
 import asyncio
 import orjson
 
-from RTN import parse
+from RTN import parse, title_match
 from curl_cffi import requests
 from fastapi import Request
-from fuzzywuzzy import fuzz
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, ConfigModel
@@ -468,30 +467,6 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
     return results
 
 
-def match_titles(imdb_title: str, torrent_title: str, threshold: int = 80) -> bool:
-    """
-    Match movie/TV show titles using fuzzy string matching.
-
-    Parameters:
-    imdb_title (str): The title from the IMDB data source.
-    torrent_title (str): The title from the torrent data source.
-    threshold (int): The minimum fuzzy match ratio to consider the titles a match.
-
-    Returns:
-    bool: True if the titles match, False otherwise.
-    """
-    # Calculate the fuzzy match ratio
-    # The idea is that ratio will give very low score to garbage ratio but will also give mid/average 
-    # score to some good results. The WRatio will make sure these mid score passes the filter.
-    base_ratio = fuzz.ratio(imdb_title, torrent_title) # strict ratio
-    w_ratio = fuzz.WRatio(imdb_title, torrent_title) # less strict ratio
-    # The weight of the ratios needs to be adjusted because basic ratio is too strict.
-    match_ratio = (base_ratio*0.7 + w_ratio*1.3)/2
-
-    # Check if the fuzzy match ratio meets the thresholds 
-    return match_ratio >= threshold 
-
-
 async def filter(torrents: list, name: str, year: int):
     results = []
     for torrent in torrents:
@@ -503,7 +478,7 @@ async def filter(torrents: list, name: str, year: int):
 
         parsed = parse(title)
 
-        if parsed.parsed_title and not match_titles(name, parsed.parsed_title):
+        if parsed.parsed_title and not title_match(name, parsed.parsed_title):
             results.append((index, False))
             continue
 
