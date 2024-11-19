@@ -406,10 +406,11 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         )
 
         ranked_files = set()
+        torrents_by_hash = {torrent["InfoHash"]: torrent for torrent in torrents}
         for hash in files:
             try:
                 ranked_file = rtn.rank(
-                    files[hash]["title"],
+                    torrents_by_hash[hash]["Title"],
                     hash,
                     remove_trash=True,  # , correct_title=name, remove_trash=True
                 )
@@ -444,7 +445,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             key: (value.model_dump() if isinstance(value, Torrent) else value)
             for key, value in sorted_ranked_files.items()
         }
-        torrents_by_hash = {torrent["InfoHash"]: torrent for torrent in torrents}
         for hash in sorted_ranked_files:  # needed for caching
             sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]
             sorted_ranked_files[hash]["data"]["torrent_title"] = torrents_by_hash[hash][
