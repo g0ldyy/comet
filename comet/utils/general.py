@@ -467,7 +467,7 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
     return results
 
 
-async def filter(torrents: list, name: str, year: int):
+async def filter(torrents: list, name: str, year: int, aliases: dict):
     results = []
     for torrent in torrents:
         index = torrent[0]
@@ -478,7 +478,9 @@ async def filter(torrents: list, name: str, year: int):
 
         parsed = parse(title)
 
-        if parsed.parsed_title and not title_match(name, parsed.parsed_title):
+        if parsed.parsed_title and not title_match(
+            name, parsed.parsed_title, aliases=aliases
+        ):
             results.append((index, False))
             continue
 
@@ -668,3 +670,14 @@ def get_client_ip(request: Request):
         if "cf-connecting-ip" in request.headers
         else request.client.host
     )
+
+
+async def get_aliases(session: aiohttp.ClientSession, media_type: str, media_id: str):
+    response = await session.get(
+        f"https://api.trakt.tv/{media_type}/{media_id}/aliases"
+    )
+
+    if not response.ok:
+        return set()
+
+    return {item["title"] for item in response.json()}

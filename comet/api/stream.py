@@ -30,6 +30,7 @@ from comet.utils.general import (
     get_balanced_hashes,
     format_title,
     get_client_ip,
+    get_aliases,
 )
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings, trackers
@@ -341,6 +342,11 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             return {"streams": []}
 
         if settings.TITLE_MATCH_CHECK:
+            # aliases = await get_aliases(
+            #     session, "movies" if type == "movie" else "series", id
+            # )
+            # print(aliases)
+
             indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
             chunk_size = 50
             chunks = [
@@ -350,7 +356,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             tasks = []
             for chunk in chunks:
-                tasks.append(filter(chunk, name, year))
+                tasks.append(filter(chunk, name, year, {}))
 
             filtered_torrents = await asyncio.gather(*tasks)
             index_less = 0
