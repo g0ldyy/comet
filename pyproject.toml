@@ -25,7 +25,6 @@ aiosqlite = "*"
 jinja2 = "*"
 rank-torrent-name = "*"
 parsett = "*"
-fuzzywuzzy = {extras = ["speedup"], version = "*"}
 
 
 [tool.poetry.group.dev.dependencies]
