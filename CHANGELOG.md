@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.42.0](https://github.com/g0ldyy/comet/compare/v1.41.1...v1.42.0) (2024-11-19)
+
+
+### Features
+
+* improve year check ([ede4e98](https://github.com/g0ldyy/comet/commit/ede4e98a40839e47de9e201f20ed2619cc03966b))
+
+
+### Bug Fixes
+
+* adult content filter fixed ([ad415dc](https://github.com/g0ldyy/comet/commit/ad415dc9b8ae5276e26a57984cd9a0302568cdf4))
+
 ## [1.41.1](https://github.com/g0ldyy/comet/compare/v1.41.0...v1.41.1) (2024-11-19)
 
 
