@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.43.0](https://github.com/g0ldyy/comet/compare/v1.42.0...v1.43.0) (2024-11-19)
+
+
+### Features
+
+* ability for the user to toggle trash removal ([89fa2d0](https://github.com/g0ldyy/comet/commit/89fa2d024dca6c7ccab0438893f6a5e45c475d07))
+
 ## [1.42.0](https://github.com/g0ldyy/comet/compare/v1.41.1...v1.42.0) (2024-11-19)
 
 
