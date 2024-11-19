@@ -356,9 +356,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 for i in range(0, len(indexed_torrents), chunk_size)
             ]
 
+            remove_adult_content = settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
             tasks = []
             for chunk in chunks:
-                tasks.append(filter(chunk, name, year, year_end, aliases))
+                tasks.append(filter(chunk, name, year, year_end, aliases, remove_adult_content))
 
             filtered_torrents = await asyncio.gather(*tasks)
             index_less = 0
