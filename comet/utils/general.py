@@ -401,13 +401,13 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
             ).json()
 
         for torrent in get_torrentio["streams"]:
-            title = torrent["title"]
-            title_full = title.split("\n👤")[0]
-            tracker = title.split("⚙️ ")[1].split("\n")[0]
+            title_full = torrent["title"]
+            title = title_full.split("\n")[0]
+            tracker = title_full.split("⚙️ ")[1]
 
             results.append(
                 {
-                    "Title": title_full,
+                    "Title": title,
                     "InfoHash": torrent["infoHash"],
                     "Size": None,
                     "Tracker": f"Torrentio|{tracker}",
@@ -442,8 +442,8 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
 
         for torrent in get_mediafusion["streams"]:
             title_full = torrent["description"]
-            title = title_full.split("\n")[0] if "\n" in title_full else title_full
-            tracker = title_full.split("🔗 ")[1] if "🔗" in title_full else "Unknown"
+            title = title_full.split("\n")[0].replace("📂 ", "").replace("/", "")
+            tracker = title_full.split("🔗 ")[1]
 
             results.append(
                 {
