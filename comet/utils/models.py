@@ -114,7 +114,7 @@ class ConfigModel(BaseModel):
 
     @field_validator("maxSize")
     def check_max_size(cls, v):
-        if not isinstance(v, int):
+        if not isinstance(v, float):
             v = 0
 
         if v < 0:
