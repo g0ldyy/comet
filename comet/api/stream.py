@@ -105,6 +105,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 name = element["l"]
                 year = element.get("y")
+
+                year_end = None
+                if "yr" in element:
+                    year_end = int(element["yr"].split("-")[1])
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
@@ -345,6 +349,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             aliases = await get_aliases(
                 session, "movies" if type == "movie" else "shows", id
             )
+            # print(aliases)
 
             indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
             chunk_size = 50
@@ -355,7 +360,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             tasks = []
             for chunk in chunks:
-                tasks.append(filter(chunk, name, year, aliases))
+                tasks.append(filter(chunk, name, year, year_end, aliases))
 
             filtered_torrents = await asyncio.gather(*tasks)
             index_less = 0

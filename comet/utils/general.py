@@ -467,7 +467,7 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
     return results
 
 
-async def filter(torrents: list, name: str, year: int, aliases: dict):
+async def filter(torrents: list, name: str, year: int, year_end: int, aliases: dict):
     results = []
     for torrent in torrents:
         index = torrent[0]
@@ -482,11 +482,20 @@ async def filter(torrents: list, name: str, year: int, aliases: dict):
             name, parsed.parsed_title, aliases=aliases
         ):
             results.append((index, False))
+            # print(title, "|", parsed.parsed_title, "| title mismatch")
             continue
 
-        if year and parsed.year and year != parsed.year:
-            results.append((index, False))
-            continue
+        if year and parsed.year:
+            if year_end is not None:
+                if not (year <= parsed.year <= year_end):
+                    # print(title, "|", year, "to", year_end, "!=", parsed.year, "| year mismatch")
+                    results.append((index, False))
+                    continue
+            else:
+                if year < (parsed.year - 1) or year > (parsed.year + 1):
+                    # print(title, "|", year, "!=", parsed.year, "| year mismatch")
+                    results.append((index, False))
+                    continue
 
         results.append((index, True))
 
