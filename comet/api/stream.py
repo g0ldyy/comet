@@ -342,10 +342,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             return {"streams": []}
 
         if settings.TITLE_MATCH_CHECK:
-            # aliases = await get_aliases(
-            #     session, "movies" if type == "movie" else "series", id
-            # )
-            # print(aliases)
+            aliases = await get_aliases(
+                session, "movies" if type == "movie" else "shows", id
+            )
 
             indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
             chunk_size = 50
@@ -356,7 +355,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
             tasks = []
             for chunk in chunks:
-                tasks.append(filter(chunk, name, year, {}))
+                tasks.append(filter(chunk, name, year, aliases))
 
             filtered_torrents = await asyncio.gather(*tasks)
             index_less = 0

@@ -673,11 +673,17 @@ def get_client_ip(request: Request):
 
 
 async def get_aliases(session: aiohttp.ClientSession, media_type: str, media_id: str):
-    response = await session.get(
-        f"https://api.trakt.tv/{media_type}/{media_id}/aliases"
-    )
+    aliases = {}
+    try:
+        response = await session.get(f"https://api.trakt.tv/{media_type}/{media_id}/aliases")
+        
+        for aliase in await response.json():
+            country = aliase["country"]
+            if not country in aliases:
+                aliases[country] = []
+            
+            aliases[country].append(aliase["title"])
+    except:
+        pass
 
-    if not response.ok:
-        return set()
-
-    return {item["title"] for item in response.json()}
+    return aliases
