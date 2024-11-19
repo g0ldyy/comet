@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.43.1](https://github.com/g0ldyy/comet/compare/v1.43.0...v1.43.1) (2024-11-19)
+
+
+### Bug Fixes
+
+* maxSize reset to 0 ([05ea53b](https://github.com/g0ldyy/comet/commit/05ea53b5b1cbef18b757afacc0c4806d3d90aa51))
+
 ## [1.43.0](https://github.com/g0ldyy/comet/compare/v1.42.0...v1.43.0) (2024-11-19)
 
 
