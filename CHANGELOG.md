@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.43.2](https://github.com/g0ldyy/comet/compare/v1.43.1...v1.43.2) (2024-11-19)
+
+
+### Bug Fixes
+
+* adult content filter ([f5afeff](https://github.com/g0ldyy/comet/commit/f5afeff6af73098bb11d08988f368d057764bb4c))
+
 ## [1.43.1](https://github.com/g0ldyy/comet/compare/v1.43.0...v1.43.1) (2024-11-19)
 
 
