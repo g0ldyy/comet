@@ -559,6 +559,7 @@
 
             <sl-details summary="Advanced Settings">
                 <div class="form-item">
+                    <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
                     <sl-checkbox id="reverseResultOrder" help-text="Reverse the order of the results for each resolution (useful for those who need small file sizes)">Reverse Result Order</sl-checkbox>
                     <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=10>
                     </sl-select>
@@ -720,6 +721,7 @@
                         const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
                         const reverseResultOrder = document.getElementById("reverseResultOrder").checked;
+                        const removeTrash = document.getElementById("removeTrash").checked;
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
@@ -734,6 +736,7 @@
                             maxResultsPerResolution: parseInt(maxResultsPerResolution),
                             maxSize: parseFloat(maxSize * 1073741824),
                             reverseResultOrder: reverseResultOrder,
+                            removeTrash: removeTrash,
                             resultFormat: selectedResultFormat,
                             resolutions: selectedResolutions,
                             languages: selectedLanguages,
@@ -788,6 +791,8 @@
                             document.getElementById("maxResults").value = settings.maxResults;
                         if (settings.reverseResultOrder !== null)
                             document.getElementById("reverseResultOrder").checked = settings.reverseResultOrder;
+                        if (settings.removeTrash !== null)
+                            document.getElementById("removeTrash").checked = settings.removeTrash;
                         if (settings.maxResultsPerResolution !== null)
                             document.getElementById("maxResultsPerResolution").value = settings.maxResultsPerResolution;
                         if (settings.maxSize !== null)

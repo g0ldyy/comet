@@ -70,6 +70,7 @@ class ConfigModel(BaseModel):
     languages: Optional[List[str]] = ["All"]
     resolutions: Optional[List[str]] = ["All"]
     reverseResultOrder: Optional[bool] = False
+    removeTrash: Optional[bool] = True
     resultFormat: Optional[List[str]] = ["All"]
     maxResults: Optional[int] = 0
     maxResultsPerResolution: Optional[int] = 0

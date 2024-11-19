@@ -196,7 +196,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                 all_sorted_ranked_files.update(sorted_ranked_files)
 
-        if len(all_sorted_ranked_files) != 0:
+        cached_count = len(all_sorted_ranked_files)
+        if cached_count != 0:
             debrid_extension = get_debrid_extension(
                 debrid_service, config["debridApiKey"]
             )
@@ -237,11 +238,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
 
                     results.append(the_stream)
 
-            results_count = len(results)
-            if results_count != 0:
-                logger.info(f"{results_count} cached results found for {log_name}")
+            logger.info(f"{cached_count} cached results found for {log_name}")
 
-                return {"streams": results}
+            return {"streams": results}
 
         if config["debridApiKey"] == "":
             return {
@@ -349,7 +348,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             aliases = await get_aliases(
                 session, "movies" if type == "movie" else "shows", id
             )
-            # print(aliases)
 
             indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
             chunk_size = 50
@@ -412,12 +410,14 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 ranked_file = rtn.rank(
                     torrents_by_hash[hash]["Title"],
                     hash,
-                    remove_trash=True,  # , correct_title=name, remove_trash=True
+                    remove_trash=False,  # user can choose if he wants to remove it
                 )
 
                 ranked_files.add(ranked_file)
-            except Exception as e:
-                logger.info(f"Filtered out: {e}")
+            # except Exception as e:
+            #     logger.info(f"Filtered out: {e}")
+            #     pass
+            except:
                 pass
 
         sorted_ranked_files = sort_torrents(ranked_files)

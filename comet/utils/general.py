@@ -482,18 +482,15 @@ async def filter(torrents: list, name: str, year: int, year_end: int, aliases: d
             name, parsed.parsed_title, aliases=aliases
         ):
             results.append((index, False))
-            # print(title, "|", parsed.parsed_title, "| title mismatch")
             continue
 
         if year and parsed.year:
             if year_end is not None:
                 if not (year <= parsed.year <= year_end):
-                    # print(title, "|", year, "to", year_end, "!=", parsed.year, "| year mismatch")
                     results.append((index, False))
                     continue
             else:
                 if year < (parsed.year - 1) or year > (parsed.year + 1):
-                    # print(title, "|", year, "!=", parsed.year, "| year mismatch")
                     results.append((index, False))
                     continue
 
@@ -545,6 +542,7 @@ def get_balanced_hashes(hashes: dict, config: dict):
     max_size = config["maxSize"]
     config_resolutions = [resolution.lower() for resolution in config["resolutions"]]
     include_all_resolutions = "all" in config_resolutions
+    remove_trash = config["removeTrash"]
 
     languages = [language.lower() for language in config["languages"]]
     include_all_languages = "all" in languages
@@ -557,6 +555,9 @@ def get_balanced_hashes(hashes: dict, config: dict):
 
     hashes_by_resolution = {}
     for hash, hash_data in hashes.items():
+        if remove_trash and not hash_data["fetch"]:
+            continue
+
         hash_info = hash_data["data"]
 
         if max_size != 0 and hash_info["size"] > max_size:
@@ -579,8 +580,9 @@ def get_balanced_hashes(hashes: dict, config: dict):
         hashes_by_resolution[resolution].append(hash)
 
     if config["reverseResultOrder"]:
-        for resolution in hashes_by_resolution:
-            hashes_by_resolution[resolution].reverse()
+        hashes_by_resolution = {
+            res: lst[::-1] for res, lst in hashes_by_resolution.items()
+        }
 
     total_resolutions = len(hashes_by_resolution)
     if max_results == 0 and max_results_per_resolution == 0 or total_resolutions == 0:
