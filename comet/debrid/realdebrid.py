@@ -60,7 +60,6 @@ class RealDebrid:
         for chunk in chunks:
             tasks.append(self.get_instant(chunk))
 
-        print(f"num tasks: {len(tasks)}")
 
         responses = await asyncio.gather(*tasks)
 
