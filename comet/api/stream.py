@@ -87,6 +87,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 name = metadata["data"]["attributes"]["canonicalTitle"]
                 season = 1
                 year = None
+                year_end = None
             else:
                 get_metadata = await session.get(
                     f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
