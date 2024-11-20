@@ -177,49 +177,46 @@ def translate(title: str):
 
 
 def is_video(title: str):
-    return title.endswith(
-        tuple(
-            [
-                ".m4v",
-                ".mpeg",
-                ".mpg",
-                ".3g2",
-                ".3gp",
-                ".avi",
-                ".flv",
-                ".mov",
-                ".wmv",
-                ".amv",
-                ".asf",
-                ".drc",
-                ".f4a",
-                ".f4b",
-                ".f4p",
-                ".f4v",
-                ".gif",
-                ".gifv",
-                ".m2v",
-                ".m4p",
-                ".mkv",
-                ".mng",
-                ".mp2",
-                ".mp4",
-                ".mpe",
-                ".mpv",
-                ".mxf",
-                ".nsv",
-                ".ogg",
-                ".ogv",
-                ".qt",
-                ".rm",
-                ".rmvb",
-                ".roq",
-                ".svi",
-                ".webm",
-                ".yuv",
-            ]
-        )
+    video_extensions = (
+        ".3g2",
+        ".3gp",
+        ".amv",
+        ".asf",
+        ".avi",
+        ".drc",
+        ".f4a",
+        ".f4b",
+        ".f4p",
+        ".f4v",
+        ".flv",
+        ".gif",
+        ".gifv",
+        ".m2v",
+        ".m4p",
+        ".m4v",
+        ".mkv",
+        ".mov",
+        ".mp2",
+        ".mp4",
+        ".mpg",
+        ".mpeg",
+        ".mpv",
+        ".mng",
+        ".mpe",
+        ".mxf",
+        ".nsv",
+        ".ogg",
+        ".ogv",
+        ".qt",
+        ".rm",
+        ".rmvb",
+        ".roq",
+        ".svi",
+        ".webm",
+        ".wmv",
+        ".yuv",
     )
+    return title.endswith(video_extensions)
 
 
 def bytes_to_size(bytes: int):
@@ -455,7 +452,14 @@ async def get_mediafusion(log_name: str, type: str, full_id: str):
     return results
 
 
-async def filter(torrents: list, name: str, year: int, year_end: int, aliases: dict, remove_adult_content: bool):
+async def filter(
+    torrents: list,
+    name: str,
+    year: int,
+    year_end: int,
+    aliases: dict,
+    remove_adult_content: bool,
+):
     results = []
     for torrent in torrents:
         index = torrent[0]
@@ -678,13 +682,15 @@ def get_client_ip(request: Request):
 async def get_aliases(session: aiohttp.ClientSession, media_type: str, media_id: str):
     aliases = {}
     try:
-        response = await session.get(f"https://api.trakt.tv/{media_type}/{media_id}/aliases")
-        
+        response = await session.get(
+            f"https://api.trakt.tv/{media_type}/{media_id}/aliases"
+        )
+
         for aliase in await response.json():
             country = aliase["country"]
             if not country in aliases:
                 aliases[country] = []
-            
+
             aliases[country].append(aliase["title"])
     except:
         pass
