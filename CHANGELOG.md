@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.43.3](https://github.com/g0ldyy/comet/compare/v1.43.2...v1.43.3) (2024-11-20)
+
+
+### Bug Fixes
+
+* a ([949b83b](https://github.com/g0ldyy/comet/commit/949b83b5f5c53dea7231cd57d829a85f8da533d5))
+* b ([665e840](https://github.com/g0ldyy/comet/commit/665e8407e3fcab3fe3ccb84b60b12c733fc609e8))
+* remove duplicate file extension because wtf ([f39a684](https://github.com/g0ldyy/comet/commit/f39a684f10668a1e2e2d9326bcf3ff5a54e71ac9))
+* year_end for kitsu ([f1f4224](https://github.com/g0ldyy/comet/commit/f1f422440df81cf0b02b469ff37ce9b65a963bea))
+
 ## [1.43.2](https://github.com/g0ldyy/comet/compare/v1.43.1...v1.43.2) (2024-11-19)
 
 
