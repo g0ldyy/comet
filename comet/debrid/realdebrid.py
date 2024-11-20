@@ -35,7 +35,13 @@ class RealDebrid:
             response = await self.session.get(
                 f"{self.api_url}/torrents/instantAvailability/{'/'.join(chunk)}"
             )
-            return await response.json()
+            response_json = await response.json()
+            if response.status != 200:
+                logger.warning(
+                    f"Request failed with status {response.status}: {response_json}"
+                )
+                return
+            return response_json
         except Exception as e:
             logger.warning(
                 f"Exception while checking hash instant availability on Real-Debrid: {e}"
@@ -54,6 +60,8 @@ class RealDebrid:
         for chunk in chunks:
             tasks.append(self.get_instant(chunk))
 
+        print(f"num tasks: {len(tasks)}")
+
         responses = await asyncio.gather(*tasks)
 
         availability = {}
@@ -65,10 +73,7 @@ class RealDebrid:
 
         if type == "series":
             for hash, details in availability.items():
-                if not isinstance(details, dict):
-                    continue
-
-                elif "rd" not in details:
+                if "rd" not in details:
                     continue
 
                 for variants in details["rd"]:
@@ -101,10 +106,7 @@ class RealDebrid:
                         break
         else:
             for hash, details in availability.items():
-                if not isinstance(details, dict):
-                    continue
-
-                elif "rd" not in details:
+                if "rd" not in details:
                     continue
 
                 for variants in details["rd"]:
