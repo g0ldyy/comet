@@ -60,7 +60,6 @@ class RealDebrid:
         for chunk in chunks:
             tasks.append(self.get_instant(chunk))
 
-
         responses = await asyncio.gather(*tasks)
 
         availability = {}
