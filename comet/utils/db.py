@@ -1,4 +1,5 @@
 import os
+import time
 
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
@@ -13,8 +14,23 @@ async def setup_database():
                 open(settings.DATABASE_PATH, "a").close()
 
         await database.connect()
+
+        if settings.DATABASE_TYPE == "postgresql":
+            check_query = """SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'cache' 
+                AND column_name = 'cachekey'"""
+        else:
+            check_query = """SELECT name FROM pragma_table_info('cache') 
+                WHERE name = 'cacheKey'"""
+
+        old_structure = await database.fetch_one(check_query)
+
+        if old_structure:
+            await database.execute("DROP TABLE IF EXISTS cache")
+
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS cache (cacheKey TEXT PRIMARY KEY, timestamp INTEGER, results TEXT)"
+            "CREATE TABLE IF NOT EXISTS cache (debridService TEXT, info_hash TEXT, name TEXT, season INTEGER, episode INTEGER, tracker TEXT, data TEXT, timestamp INTEGER)"
         )
         await database.execute(
             "CREATE TABLE IF NOT EXISTS download_links (debrid_key TEXT, hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, hash, file_index))"
@@ -22,6 +38,15 @@ async def setup_database():
         await database.execute("DROP TABLE IF EXISTS active_connections")
         await database.execute(
             "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
+        )
+
+        # clear expired entries
+        await database.execute(
+            """
+            DELETE FROM cache 
+            WHERE timestamp + :cache_ttl < :current_time
+            """,
+            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
         )
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")

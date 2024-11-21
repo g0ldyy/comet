@@ -1,12 +1,11 @@
 import asyncio
-import hashlib
 import time
 import aiohttp
 import httpx
 import uuid
 import orjson
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, BackgroundTasks
 from fastapi.responses import (
     RedirectResponse,
     StreamingResponse,
@@ -31,6 +30,7 @@ from comet.utils.general import (
     format_title,
     get_client_ip,
     get_aliases,
+    add_torrent_to_cache,
 )
 from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings, trackers
@@ -52,7 +52,13 @@ async def stream_noconfig(request: Request, type: str, id: str):
 
 
 @streams.get("/{b64config}/stream/{type}/{id}.json")
-async def stream(request: Request, b64config: str, type: str, id: str):
+async def stream(
+    request: Request,
+    b64config: str,
+    type: str,
+    id: str,
+    background_tasks: BackgroundTasks,
+):
     config = config_check(b64config)
     if not config:
         return {
@@ -66,7 +72,9 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         }
 
     connector = aiohttp.TCPConnector(limit=0)
-    async with aiohttp.ClientSession(connector=connector, raise_for_status=True) as session:
+    async with aiohttp.ClientSession(
+        connector=connector, raise_for_status=True
+    ) as session:
         full_id = id
         season = None
         episode = None
@@ -160,44 +168,51 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 }
             )
 
+        indexers = config["indexers"].copy()
+        if settings.SCRAPE_TORRENTIO:
+            indexers.append("torrentio")
+        if settings.SCRAPE_MEDIAFUSION:
+            indexers.append("mediafusion")
+        if settings.ZILEAN_URL:
+            indexers.append("dmm")
+        indexers_json = orjson.dumps(indexers).decode("utf-8")
+
         all_sorted_ranked_files = {}
+        trackers_found = (
+            set()
+        )  # we want to check that we have a cache for each of the user's trackers
+        the_time = time.time()
+        cache_ttl = settings.CACHE_TTL
+
         for debrid_service in services:
-            cache_key = hashlib.md5(
-                orjson.dumps(
-                    {
-                        "debridService": debrid_service,
-                        "name": name,
-                        "season": season,
-                        "episode": episode,
-                        "indexers": config["indexers"],
-                    }
-                )
-            ).hexdigest()
-
-            cached = await database.fetch_one(
-                f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cache_key}')"
+            cached_results = await database.fetch_all(
+                """
+                SELECT info_hash, tracker, data 
+                FROM cache 
+                WHERE debridService = :debrid_service 
+                AND name = :name 
+                AND ((:season IS NULL AND season IS NULL) OR season = :season)
+                AND ((:episode IS NULL AND episode IS NULL) OR episode = :episode)
+                AND tracker IN (SELECT value FROM json_each(:indexers))
+                AND timestamp + :cache_ttl >= :current_time
+                """,
+                {
+                    "debrid_service": debrid_service,
+                    "name": name,
+                    "season": season,
+                    "episode": episode,
+                    "indexers": indexers_json,
+                    "cache_ttl": cache_ttl,
+                    "current_time": the_time,
+                },
             )
-
-            if cached[0] != 0:
-                timestamp = await database.fetch_one(
-                    f"SELECT timestamp FROM cache WHERE cacheKey = '{cache_key}'"
+            for result in cached_results:
+                trackers_found.add(result["tracker"].lower())
+                all_sorted_ranked_files[result["info_hash"]] = orjson.loads(
+                    result["data"]
                 )
-                if timestamp[0] + settings.CACHE_TTL < time.time():
-                    await database.execute(
-                        f"DELETE FROM cache WHERE cacheKey = '{cache_key}'"
-                    )
-                    logger.info(f"Cache expired for {log_name} using {debrid_service}")
-                    continue
 
-                sorted_ranked_files = await database.fetch_one(
-                    f"SELECT results FROM cache WHERE cacheKey = '{cache_key}'"
-                )
-                sorted_ranked_files = orjson.loads(sorted_ranked_files[0])
-
-                all_sorted_ranked_files.update(sorted_ranked_files)
-
-        cached_count = len(all_sorted_ranked_files)
-        if cached_count != 0:
+        if len(all_sorted_ranked_files) != 0 and set(indexers).issubset(trackers_found):
             debrid_extension = get_debrid_extension(
                 debrid_service, config["debridApiKey"]
             )
@@ -206,7 +221,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             for resolution in balanced_hashes:
                 for hash in balanced_hashes[resolution]:
                     data = all_sorted_ranked_files[hash]["data"]
-
                     the_stream = {
                         "name": f"[{debrid_extension}{debrid_emoji}] Comet {data['resolution']}",
                         "description": format_title(data, config),
@@ -228,17 +242,17 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                         )
                     else:
                         the_stream["infoHash"] = hash
-
                         index = data["index"]
                         the_stream["fileIdx"] = (
                             1 if "|" in index else int(index)
                         )  # 1 because for Premiumize it's impossible to get the file index
-
                         the_stream["sources"] = trackers
 
                     results.append(the_stream)
 
-            logger.info(f"{cached_count} cached results found for {log_name}")
+            logger.info(
+                f"{len(all_sorted_ranked_files)} cached results found for {log_name}"
+            )
 
             return {"streams": results}
 
@@ -316,7 +330,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 torrents.append(result)
 
         logger.info(
-            f"{len(torrents)} torrents found for {log_name}"
+            f"{len(torrents)} unique torrents found for {log_name}"
             + (
                 " with "
                 + ", ".join(
@@ -419,9 +433,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 )
 
                 ranked_files.add(ranked_file)
-            # except Exception as e:
-            #     logger.info(f"Filtered out: {e}")
-            #     pass
             except:
                 pass
 
@@ -465,11 +476,10 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             )
             sorted_ranked_files[hash]["data"]["index"] = files[hash]["index"]
 
-        json_data = orjson.dumps(sorted_ranked_files).decode("utf-8")
-        await database.execute(
-            f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO cache (cacheKey, results, timestamp) VALUES (:cache_key, :json_data, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
-            {"cache_key": cache_key, "json_data": json_data, "timestamp": time.time()},
+        background_tasks.add_task(
+            add_torrent_to_cache, config, name, season, episode, sorted_ranked_files
         )
+
         logger.info(f"Results have been cached for {log_name}")
 
         debrid_extension = get_debrid_extension(config["debridService"])

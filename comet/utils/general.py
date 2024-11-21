@@ -6,13 +6,14 @@ import bencodepy
 import PTT
 import asyncio
 import orjson
+import time
 
 from RTN import parse, title_match
 from curl_cffi import requests
 from fastapi import Request
 
 from comet.utils.logger import logger
-from comet.utils.models import settings, ConfigModel
+from comet.utils.models import database, settings, ConfigModel
 
 languages_emojis = {
     "unknown": "❓",  # Unknown
@@ -388,7 +389,7 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
         for torrent in get_torrentio["streams"]:
             title_full = torrent["title"]
             title = title_full.split("\n")[0]
-            tracker = title_full.split("⚙️ ")[1]
+            tracker = title_full.split("⚙️ ")[1].split("\n")[0]
 
             results.append(
                 {
@@ -637,32 +638,34 @@ def format_metadata(data: dict):
 
 
 def format_title(data: dict, config: dict):
+    result_format = config["resultFormat"]
+    has_all = "All" in result_format
+
     title = ""
-    if "All" in config["resultFormat"] or "Title" in config["resultFormat"]:
+    if has_all or "Title" in result_format:
         title += f"{data['title']}\n"
 
-    if "All" in config["resultFormat"] or "Metadata" in config["resultFormat"]:
+    if has_all or "Metadata" in result_format:
         metadata = format_metadata(data)
         if metadata != "":
             title += f"💿 {metadata}\n"
 
-    if "All" in config["resultFormat"] or "Size" in config["resultFormat"]:
+    if has_all or "Size" in result_format:
         title += f"💾 {bytes_to_size(data['size'])} "
 
-    if "All" in config["resultFormat"] or "Tracker" in config["resultFormat"]:
+    if has_all or "Tracker" in result_format:
         title += f"🔎 {data['tracker'] if 'tracker' in data else '?'}"
 
-    if "All" in config["resultFormat"] or "Languages" in config["resultFormat"]:
+    if has_all or "Languages" in result_format:
         languages = data["languages"]
         if data["dubbed"]:
             languages.insert(0, "multi")
-        formatted_languages = (
-            "/".join(get_language_emoji(language) for language in languages)
-            if languages
-            else None
-        )
-        languages_str = "\n" + formatted_languages if formatted_languages else ""
-        title += f"{languages_str}"
+        if languages:
+            formatted_languages = "/".join(
+                get_language_emoji(language) for language in languages
+            )
+            languages_str = "\n" + formatted_languages
+            title += f"{languages_str}"
 
     if title == "":
         # Without this, Streamio shows SD as the result, which is confusing
@@ -688,7 +691,7 @@ async def get_aliases(session: aiohttp.ClientSession, media_type: str, media_id:
 
         for aliase in await response.json():
             country = aliase["country"]
-            if not country in aliases:
+            if country not in aliases:
                 aliases[country] = []
 
             aliases[country].append(aliase["title"])
@@ -696,3 +699,32 @@ async def get_aliases(session: aiohttp.ClientSession, media_type: str, media_id:
         pass
 
     return aliases
+
+
+async def add_torrent_to_cache(
+    config: dict, name: str, season: int, episode: int, sorted_ranked_files: dict
+):
+    values = [
+        {
+            "debridService": config["debridService"],
+            "info_hash": sorted_ranked_files[torrent]["infohash"],
+            "name": name,
+            "season": season,
+            "episode": episode,
+            "tracker": sorted_ranked_files[torrent]["data"]["tracker"]
+            .split("|")[0]
+            .lower(),
+            "data": orjson.dumps(sorted_ranked_files[torrent]).decode("utf-8"),
+            "timestamp": time.time(),
+        }
+        for torrent in sorted_ranked_files
+    ]
+
+    query = f"""
+        INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+        INTO cache (debridService, info_hash, name, season, episode, tracker, data, timestamp)
+        VALUES (:debridService, :info_hash, :name, :season, :episode, :tracker, :data, :timestamp)
+        {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+    """
+
+    await database.execute_many(query, values)

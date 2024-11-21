@@ -27,7 +27,7 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: Optional[str] = None
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
-    INDEXER_MANAGER_INDEXERS: List[str] = ["EXAMPLE1_CHANGETHIS", "EXAMPLE2_CHANGETHIS"]
+    INDEXER_MANAGER_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
     ZILEAN_URL: Optional[str] = None
     ZILEAN_TAKE_FIRST: Optional[int] = 500
