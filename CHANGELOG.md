@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.43.4](https://github.com/g0ldyy/comet/compare/v1.43.3...v1.43.4) (2024-11-21)
+
+
+### Bug Fixes
+
+* correctly handle unsuccessful api calls ([c14195e](https://github.com/g0ldyy/comet/commit/c14195e6027e9fa70cd16245b5bd916b4806901e))
+* redundant get_files on duplicate hashes ([854846f](https://github.com/g0ldyy/comet/commit/854846fb4bff4cff1df9159b2dc4997c35443857))
+
 ## [1.43.3](https://github.com/g0ldyy/comet/compare/v1.43.2...v1.43.3) (2024-11-20)
 
 
