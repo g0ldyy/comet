@@ -15,7 +15,7 @@
 - Caching system ft. SQLite / PostgreSQL
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
-- Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported *(if you want other debrid services, please provide an account)*
+- Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported
 - Direct Torrent supported (do not specify a Debrid API Key on the configuration page (webui) to activate it - it will use the cached results of other users using debrid service)
 - [Kitsu](https://kitsu.io/) support (anime)
 - Adult Content Filter
@@ -106,10 +106,6 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
 
 ## Debrid IP Blacklist
 To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
-
-## Suggested indexers
-When creating your Comet instance, it's important to choose the right indexers.
-This choice should be based on speed, quantity of content and whether the indexer is served by cloudflare or has a ratelimit system (which should be avoided).
 
 ## Web UI Showcase
 <img src="https://i.imgur.com/SaD365F.png" />
