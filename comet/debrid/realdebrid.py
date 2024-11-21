@@ -40,7 +40,7 @@ class RealDebrid:
                 logger.warning(
                     f"Request failed with status {response.status}: {response_json}"
                 )
-                return
+                return {}
             return response_json
         except Exception as e:
             logger.warning(
