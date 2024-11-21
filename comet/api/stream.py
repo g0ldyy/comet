@@ -66,7 +66,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
         }
 
     connector = aiohttp.TCPConnector(limit=0)
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession(connector=connector, raise_for_status=True) as session:
         full_id = id
         season = None
         episode = None
@@ -552,7 +552,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
         config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(raise_for_status=True) as session:
         # Check for cached download link
         cached_link = await database.fetch_one(
             f"SELECT link, timestamp FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND file_index = '{index}'"
