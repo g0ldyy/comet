@@ -76,6 +76,8 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             season = int(info[1])
             episode = int(info[2])
 
+        year = None
+        year_end = None
         try:
             kitsu = False
             if id == "kitsu":
@@ -86,8 +88,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 metadata = await get_metadata.json()
                 name = metadata["data"]["attributes"]["canonicalTitle"]
                 season = 1
-                year = None
-                year_end = None
             else:
                 get_metadata = await session.get(
                     f"https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
@@ -107,7 +107,6 @@ async def stream(request: Request, b64config: str, type: str, id: str):
                 name = element["l"]
                 year = element.get("y")
 
-                year_end = None
                 if "yr" in element:
                     year_end = int(element["yr"].split("-")[1])
         except Exception as e:
