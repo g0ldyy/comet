@@ -402,7 +402,7 @@ async def stream(request: Request, b64config: str, type: str, id: str):
             return {"streams": []}
 
         files = await debrid.get_files(
-            [hash[1] for hash in torrent_hashes if hash[1] is not None],
+            list({hash[1] for hash in torrent_hashes if hash[1] is not None}),
             type,
             season,
             episode,
