@@ -634,7 +634,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 def __init__(self, id: str):
                     self.id = id
 
-                    self.client = httpx.AsyncClient(proxy=proxy)
+                    self.client = httpx.AsyncClient(proxy=proxy, timeout=None)
                     self.response = None
 
                 async def stream_content(self, headers: dict):
