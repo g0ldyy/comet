@@ -7,6 +7,7 @@ import PTT
 import asyncio
 import orjson
 import time
+import copy
 
 from RTN import parse, title_match
 from curl_cffi import requests
@@ -704,6 +705,23 @@ async def get_aliases(session: aiohttp.ClientSession, media_type: str, media_id:
 async def add_torrent_to_cache(
     config: dict, name: str, season: int, episode: int, sorted_ranked_files: dict
 ):
+    # trace of which indexers were used when cache was created - not optimal
+    indexers = config["indexers"].copy()
+    if settings.SCRAPE_TORRENTIO:
+        indexers.append("torrentio")
+    if settings.SCRAPE_MEDIAFUSION:
+        indexers.append("mediafusion")
+    if settings.ZILEAN_URL:
+        indexers.append("dmm")
+    for indexer in indexers:
+        hash = f"searched-{indexer}-{name}-{season}-{episode}"
+
+        searched = copy.deepcopy(sorted_ranked_files[list(sorted_ranked_files.keys())[0]])
+        searched["infohash"] = hash
+        searched["data"]["tracker"] = indexer
+
+        sorted_ranked_files[hash] = searched
+
     values = [
         {
             "debridService": config["debridService"],
