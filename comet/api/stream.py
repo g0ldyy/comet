@@ -634,7 +634,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 def __init__(self, id: str):
                     self.id = id
 
-                    self.client = httpx.AsyncClient(proxy=proxy)
+                    self.client = httpx.AsyncClient(proxy=proxy, timeout=None)
                     self.response = None
 
                 async def stream_content(self, headers: dict):
@@ -656,17 +656,21 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
             range_header = request.headers.get("range", "bytes=0-")
 
-            response = await session.head(
-                download_link, headers={"Range": range_header}
-            )
-            if response.status == 503 and config["debridService"] == "alldebrid":
-                proxy = (
-                    settings.DEBRID_PROXY_URL
-                )  # proxy is not needed to proxy realdebrid stream
-
+            try:
                 response = await session.head(
-                    download_link, headers={"Range": range_header}, proxy=proxy
+                    download_link, headers={"Range": range_header}
                 )
+            except aiohttp.ClientResponseError as e:
+                if e.status == 503 and config["debridService"] == "alldebrid":
+                        proxy = (
+                            settings.DEBRID_PROXY_URL
+                        ) # proxy is not needed to proxy realdebrid stream
+
+                        response = await session.head(
+                            download_link, headers={"Range": range_header}, proxy=proxy
+                        )
+                else:
+                    raise
 
             if response.status == 206:
                 id = str(uuid.uuid4())
