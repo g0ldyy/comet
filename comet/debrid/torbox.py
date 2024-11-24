@@ -22,7 +22,7 @@ class TorBox:
                 f"{self.api_url}/user/me?settings=false"
             )
             check_premium = await check_premium.text()
-            if '"success":true' in check_premium and '"plan":0' not in check_premium:
+            if '"success":true' in check_premium:
                 return True
         except Exception as e:
             logger.warning(f"Exception while checking premium status on TorBox: {e}")
