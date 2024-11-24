@@ -131,92 +131,6 @@ async def stream(
         if type == "series":
             log_name = f"{name} S{season:02d}E{episode:02d}"
 
-        cache_key = hashlib.md5(
-            json.dumps(
-                {
-                    "debridService": config["debridService"],
-                    "name": name,
-                    "season": season,
-                    "episode": episode,
-                    "indexers": config["indexers"],
-                }
-            ).encode("utf-8")
-        ).hexdigest()
-        cached = await database.fetch_one(
-            f"SELECT EXISTS (SELECT 1 FROM cache WHERE cacheKey = '{cache_key}')"
-        )
-        if cached[0] != 0:
-            logger.info(f"Cache found for {log_name}")
-
-            timestamp = await database.fetch_one(
-                f"SELECT timestamp FROM cache WHERE cacheKey = '{cache_key}'"
-            )
-            if timestamp[0] + settings.CACHE_TTL < time.time():
-                await database.execute(
-                    f"DELETE FROM cache WHERE cacheKey = '{cache_key}'"
-                )
-
-                logger.info(f"Cache expired for {log_name}")
-            else:
-                sorted_ranked_files = await database.fetch_one(
-                    f"SELECT results FROM cache WHERE cacheKey = '{cache_key}'"
-                )
-                sorted_ranked_files = json.loads(sorted_ranked_files[0])
-
-                debrid_extension = get_debrid_extension(config["debridService"])
-
-                balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
-
-                results = []
-                if (
-                    config["debridStreamProxyPassword"] != ""
-                    and settings.PROXY_DEBRID_STREAM
-                    and settings.PROXY_DEBRID_STREAM_PASSWORD
-                    != config["debridStreamProxyPassword"]
-                ):
-                    results.append(
-                        {
-                            "name": "[⚠️] Comet",
-                            "title": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
-                            "url": "https://comet.fast",
-                        }
-                    )
-
-                for (
-                    hash,
-                    hash_data,
-                ) in sorted_ranked_files.items():
-                    for resolution, hash_list in balanced_hashes.items():
-                        if hash in hash_list:
-                            data = hash_data["data"]
-                            results.append(
-                                {
-                                    "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
-                                    "title": format_title(data, config),
-                                    "torrentTitle": (
-                                        data["torrent_title"]
-                                        if "torrent_title" in data
-                                        else None
-                                    ),
-                                    "torrentSize": (
-                                        data["torrent_size"]
-                                        if "torrent_size" in data
-                                        else None
-                                    ),
-                                    "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
-                                    "behaviorHints": {
-                                        "filename": data["raw_title"],
-                                        "bingeGroup": "comet|" + hash,
-                                    },
-                                }
-                            )
-
-                            continue
-
-                return {"streams": results}
-        else:
-            logger.info(f"No cache found for {log_name} with user configuration")
-
         if (
             settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
@@ -367,9 +281,9 @@ async def stream(
         tasks = []
         # get_aliases is always the first task.
         tasks.append(
-                get_aliases(
-            session, "movies" if type == "movie" else "shows", id
-        ))
+            get_aliases(
+                session, "movies" if type == "movie" else "shows", id
+            ))
 
         if indexer_manager_type and search_indexer:
             logger.info(
@@ -478,11 +392,11 @@ async def stream(
         )
 
         ranked_files = set()
-        torrents_by_hash = {torrent["InfoHash"]: torrent for torrent in torrents}
+        results_by_hash = {result.info_hash: result for result in results_with_hashes}
         for hash in files:
             try:
                 ranked_file = rtn.rank(
-                    torrents_by_hash[hash]["Title"],
+                    results_by_hash[hash].title,
                     hash,
                     remove_trash=False,  # user can choose if he wants to remove it
                 )
@@ -507,7 +421,6 @@ async def stream(
             key: (value.model_dump() if isinstance(value, Torrent) else value)
             for key, value in sorted_ranked_files.items()
         }
-        results_by_hash = {result.info_hash: result for result in results_with_hashes}
         for hash in sorted_ranked_files:  # needed for caching
             sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]
             sorted_ranked_files[hash]["data"]["torrent_title"] = results_by_hash[hash].title
@@ -621,7 +534,6 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 download_link = link
             else:
                 # Cache expired, remove old entry
-                # TODO: Don't block on removing from the cache.
                 await database.execute(
                     f"DELETE FROM download_links WHERE debrid_key = '{config['debridApiKey']}' AND hash = '{hash}' AND file_index = '{index}'"
                 )
@@ -645,7 +557,6 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 return FileResponse("comet/assets/uncached.mp4")
 
             # Cache the new download link
-            # TODO: Don't block on caching the link
             await database.execute(
                 f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO download_links (debrid_key, hash, file_index, link, timestamp) VALUES (:debrid_key, :hash, :file_index, :link, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
                 {
@@ -657,31 +568,32 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 },
             )
 
-        if (
+        if not (
             settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
-            if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
-                active_ip_connections = await database.fetch_all(
-                    "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
-                )
-                if any(
-                    connection["ip"] == ip
-                    and connection["connections"]
-                    >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
-                    for connection in active_ip_connections
-                ):
-                    return FileResponse("comet/assets/proxylimit.mp4")
+            return RedirectResponse(download_link, status_code=302)
+
+        if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
+            active_ip_connections = await database.fetch_all(
+                "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
+            )
+            if any(
+                connection["ip"] == ip
+                and connection["connections"]
+                >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
+                for connection in active_ip_connections
+            ):
+                return FileResponse("comet/assets/proxylimit.mp4")
 
         proxy = None
 
         class Streamer:
             def __init__(self, id: str):
                 self.id = id
-
-                    self.client = httpx.AsyncClient(proxy=proxy, timeout=None)
-                    self.response = None
+                self.client = httpx.AsyncClient(proxy=proxy, timeout=None)
+                self.response = None
 
             async def stream_content(self, headers: dict):
                 async with self.client.stream(
@@ -702,21 +614,21 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
 
         range_header = request.headers.get("range", "bytes=0-")
 
-            try:
-                response = await session.head(
-                    download_link, headers={"Range": range_header}
-                )
-            except aiohttp.ClientResponseError as e:
-                if e.status == 503 and config["debridService"] == "alldebrid":
-                        proxy = (
-                            settings.DEBRID_PROXY_URL
-                        ) # proxy is not needed to proxy realdebrid stream
+        try:
+            response = await session.head(
+                download_link, headers={"Range": range_header}
+            )
+        except aiohttp.ClientResponseError as e:
+            if e.status == 503 and config["debridService"] == "alldebrid":
+                    proxy = (
+                        settings.DEBRID_PROXY_URL
+                    ) # proxy is not needed to proxy realdebrid stream
 
-                        response = await session.head(
-                            download_link, headers={"Range": range_header}, proxy=proxy
-                        )
-                else:
-                    raise
+                    response = await session.head(
+                        download_link, headers={"Range": range_header}, proxy=proxy
+                    )
+            else:
+                raise
 
         if response.status != 206:
             return FileResponse("comet/assets/uncached.mp4")
@@ -744,4 +656,3 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             },
             background=BackgroundTask(streamer.close),
         )
-
