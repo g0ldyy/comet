@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.0](https://github.com/g0ldyy/comet/compare/v1.44.1...v1.45.0) (2024-11-24)
+
+
+### Features
+
+* debrid-link is now default ([253eadc](https://github.com/g0ldyy/comet/commit/253eadc322e8138f61b638567aaaed9d3c23b85a))
+
 ## [1.44.1](https://github.com/g0ldyy/comet/compare/v1.44.0...v1.44.1) (2024-11-24)
 
 
