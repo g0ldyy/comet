@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.44.1](https://github.com/g0ldyy/comet/compare/v1.44.0...v1.44.1) (2024-11-24)
+
+
+### Bug Fixes
+
+* postgresql support ([b61480b](https://github.com/g0ldyy/comet/commit/b61480b3091ed62b23e5a42be8a5cc7ad3679692))
+
 ## [1.44.0](https://github.com/g0ldyy/comet/compare/v1.43.4...v1.44.0) (2024-11-23)
 
 
