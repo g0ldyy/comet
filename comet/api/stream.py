@@ -187,10 +187,10 @@ async def stream(
         for debrid_service in services:
             cached_results = await database.fetch_all(
                 """
-                SELECT info_hash, tracker, data 
-                FROM cache 
-                WHERE debridService = :debrid_service 
-                AND name = :name 
+                SELECT info_hash, tracker, data
+                FROM cache
+                WHERE debridService = :debrid_service
+                AND name = :name
                 AND ((:season IS NULL AND season IS NULL) OR season = :season)
                 AND ((:episode IS NULL AND episode IS NULL) OR episode = :episode)
                 AND tracker IN (SELECT value FROM json_each(:indexers))
@@ -672,7 +672,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 else:
                     raise
 
-            if response.status == 206:
+            if response.status == 206 or (config["debridService"] == "torbox" and response.status == 200):
                 id = str(uuid.uuid4())
                 await database.execute(
                     f"INSERT  {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
@@ -690,8 +690,8 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                     streamer.stream_content({"Range": range_header}),
                     status_code=206,
                     headers={
-                        "Content-Range": response.headers["Content-Range"],
-                        "Content-Length": response.headers["Content-Length"],
+                        "Content-Range": response.headers.get("Content-Range", range_header),
+                        "Content-Length": response.headers.get("Content-Length"),
                         "Accept-Ranges": "bytes",
                     },
                     background=BackgroundTask(streamer.close),
