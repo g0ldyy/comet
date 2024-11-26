@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.47.0](https://github.com/g0ldyy/comet/compare/v1.46.0...v1.47.0) (2024-11-26)
+
+
+### Features
+
+* random addon id ([1b6a80b](https://github.com/g0ldyy/comet/commit/1b6a80bbe5800771774adeb469d861919dc3f70d))
+
 ## [1.46.0](https://github.com/g0ldyy/comet/compare/v1.45.0...v1.46.0) (2024-11-24)
 
 
