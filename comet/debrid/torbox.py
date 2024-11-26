@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+import time
 
 from RTN import parse
 
@@ -18,8 +19,10 @@ class TorBox:
 
     async def check_premium(self):
         try:
-            check_premium = await self.session.get(
-                f"{self.api_url}/user/me?settings=false"
+            check_premium = await retry(
+                self.session.get,
+                f"{self.api_url}/user/me?settings=false",
+                timeout=aiohttp.ClientTimeout(total=10)
             )
             check_premium = await check_premium.text()
             if '"success":true' in check_premium and '"plan":0' not in check_premium:
@@ -31,8 +34,10 @@ class TorBox:
 
     async def get_instant(self, chunk: list):
         try:
-            response = await self.session.get(
-                f"{self.api_url}/torrents/checkcached?hash={','.join(chunk)}&format=list&list_files=true"
+            response = await retry(
+                self.session.get,
+                f"{self.api_url}/torrents/checkcached?hash={','.join(chunk)}&format=list&list_files=true",
+                timeout=aiohttp.ClientTimeout(total=10)
             )
             return await response.json()
         except Exception as e:
@@ -120,42 +125,62 @@ class TorBox:
         return files
 
     async def generate_download_link(self, hash: str, index: str):
+      try:
+          get_torrents = await retry(
+              self.session.get,
+              f"{self.api_url}/torrents/mylist?bypass_cache=true",
+              timeout=aiohttp.ClientTimeout(total=10)
+          )
+          get_torrents = await get_torrents.json()
+          exists = False
+          for torrent in get_torrents["data"]:
+              if torrent["hash"] == hash:
+                  torrent_id = torrent["id"]
+                  exists = True
+                  break
+          if not exists:
+              create_torrent = await retry(
+                  self.session.post,
+                  f"{self.api_url}/torrents/createtorrent",
+                  data={"magnet": f"magnet:?xt=urn:btih:{hash}"},
+                  timeout=aiohttp.ClientTimeout(total=10)
+              )
+              create_torrent = await create_torrent.json()
+              torrent_id = create_torrent["data"]["torrent_id"]
+
+          get_download_link = await retry(
+              self.session.get,
+              f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={index}&zip=false",
+              timeout=aiohttp.ClientTimeout(total=10)
+          )
+          get_download_link = await get_download_link.json()
+          return get_download_link["data"]
+
+      except Exception as e:
+          logger.warning(
+              f"Exception while getting download link from TorBox for {hash}|{index}: {e}"
+          )
+
+
+async def retry(async_func, *args, max_retries=3, **kwargs):
+    retries = 0
+    # Get the URL from args (first argument for get/post requests)
+    url = args[0] if args else "unknown URL"
+
+    while retries < max_retries:
         try:
-            get_torrents = await self.session.get(
-                f"{self.api_url}/torrents/mylist?bypass_cache=true"
-            )
-            get_torrents = await get_torrents.json()
-            exists = False
-            for torrent in get_torrents["data"]:
-                if torrent["hash"] == hash:
-                    torrent_id = torrent["id"]
-                    exists = True
-                    break
-            if not exists:
-                create_torrent = await self.session.post(
-                    f"{self.api_url}/torrents/createtorrent",
-                    data={"magnet": f"magnet:?xt=urn:btih:{hash}"},
-                )
-                create_torrent = await create_torrent.json()
-                torrent_id = create_torrent["data"]["torrent_id"]
+            return await async_func(*args, **kwargs)
+        except aiohttp.ClientResponseError as e:
+            if e.status == 429:
+                retries += 1
+                if retries >= max_retries:
+                    raise Exception(f"Max retries ({max_retries}) exceeded for rate limit on {url}")
 
-                # get_torrents = await self.session.get(
-                #     f"{self.api_url}/torrents/mylist?bypass_cache=true"
-                # )
-                # get_torrents = await get_torrents.json()
+                reset_time = int(e.headers.get('x-ratelimit-reset', 0))
+                current_time = int(time.time())
+                wait_time = max(reset_time - current_time + 3, 0)
 
-            # for torrent in get_torrents["data"]:
-            #     if torrent["id"] == torrent_id:
-            #         file_id = torrent["files"][int(index)]["id"]
-            # Useless, we already have file index
-
-            get_download_link = await self.session.get(
-                f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={index}&zip=false",
-            )
-            get_download_link = await get_download_link.json()
-
-            return get_download_link["data"]
-        except Exception as e:
-            logger.warning(
-                f"Exception while getting download link from TorBox for {hash}|{index}: {e}"
-            )
+                logger.warning(f"Rate limited on {url}. Waiting for {wait_time} seconds before retry {retries}/{max_retries}...")
+                await asyncio.sleep(wait_time)
+                continue
+            raise
