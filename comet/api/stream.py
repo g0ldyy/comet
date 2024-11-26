@@ -23,8 +23,6 @@ from comet.utils.general import (
     get_zilean,
     get_torrentio,
     get_mediafusion,
-    filter,
-    get_torrent_hash,
     translate,
     get_balanced_hashes,
     format_title,
@@ -36,6 +34,20 @@ from comet.utils.logger import logger
 from comet.utils.models import database, rtn, settings, trackers
 
 streams = APIRouter()
+
+
+def error_result(error: str):
+    return {
+        "name": "[⚠️] Comet",
+        "description": error,
+        "url": "https://comet.fast",
+    }
+
+
+def stream_lookup_error(error: str):
+    return {
+        "streams": [error_result(error)]
+    }
 
 
 @streams.get("/stream/{type}/{id}.json")
@@ -61,15 +73,7 @@ async def stream(
 ):
     config = config_check(b64config)
     if not config:
-        return {
-            "streams": [
-                {
-                    "name": "[⚠️] Comet",
-                    "description": "Invalid Comet config.",
-                    "url": "https://comet.fast",
-                }
-            ]
-        }
+        return stream_lookup_error("Invalid Comet config.")        
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(
@@ -120,15 +124,7 @@ async def stream(
         except Exception as e:
             logger.warning(f"Exception while getting metadata for {id}: {e}")
 
-            return {
-                "streams": [
-                    {
-                        "name": "[⚠️] Comet",
-                        "description": f"Can't get metadata for {id}",
-                        "url": "https://comet.fast",
-                    }
-                ]
-            }
+            return stream_lookup_error(f"Can't get metadata for {id}")
 
         name = translate(name)
         log_name = name
@@ -275,27 +271,25 @@ async def stream(
 
         debrid = getDebrid(session, config, get_client_ip(request))
 
+        # TODO: cache whether the account has premium. Save ~400 ms for RD.
         check_premium = await debrid.check_premium()
         if not check_premium:
             additional_info = ""
             if config["debridService"] == "alldebrid":
                 additional_info = "\nCheck your email!"
 
-            return {
-                "streams": [
-                    {
-                        "name": "[⚠️] Comet",
-                        "description": f"Invalid {config['debridService']} account.{additional_info}",
-                        "url": "https://comet.fast",
-                    }
-                ]
-            }
+            return stream_lookup_error(f"Invalid {config['debridService']} account.{additional_info}")
 
         indexer_manager_type = settings.INDEXER_MANAGER_TYPE
 
         search_indexer = len(config["indexers"]) != 0
-        torrents = []
         tasks = []
+        # get_aliases is always the first task.
+        tasks.append(
+            get_aliases(
+                session, "movies" if type == "movie" else "shows", id
+            ))
+
         if indexer_manager_type and search_indexer:
             logger.info(
                 f"Start of {indexer_manager_type} search for {log_name} with indexers {config['indexers']}"
@@ -317,7 +311,7 @@ async def stream(
             )
         else:
             logger.info(
-                f"No indexer {'manager ' if not indexer_manager_type else ''}{'selected by user' if indexer_manager_type else 'defined'} for {log_name}"
+                f"No indexer {'selected by user' if indexer_manager_type else 'manager defined'} for {log_name}"
             )
 
         if settings.ZILEAN_URL:
@@ -329,13 +323,25 @@ async def stream(
         if settings.SCRAPE_MEDIAFUSION:
             tasks.append(get_mediafusion(log_name, type, full_id))
 
-        search_response = await asyncio.gather(*tasks)
-        for results in search_response:
-            for result in results:
-                torrents.append(result)
+        search_responses = await asyncio.gather(*tasks)
+
+        # get_aliases is always the first task.
+        aliases = search_responses[0]
+
+        remove_adult_content = (
+            settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
+        )
+
+        all_results = []
+        matching_results = []
+        for response in search_responses[1:]:
+            for result in response:
+                all_results.append(result)
+                if result.matches_title(name, year, year_end, aliases, remove_adult_content):
+                    matching_results.append(result)
 
         logger.info(
-            f"{len(torrents)} unique torrents found for {log_name}"
+            f"{len(all_results)} unique torrents found ({len(matching_results)} after name filtering) for {log_name}"
             + (
                 " with "
                 + ", ".join(
@@ -360,67 +366,30 @@ async def stream(
             )
         )
 
-        if len(torrents) == 0:
-            return {"streams": []}
+        name_matching_succeeded = False
+        # If we have results after name matching, use them.
+        if len(matching_results) > 0:
+            name_matching_succeeded = True
+            torrents = matching_results
+        elif len(all_results) > 0:
+            torrents = all_results
+        else:
+            return stream_lookup_error("No streams found!")
 
-        if settings.TITLE_MATCH_CHECK:
-            aliases = await get_aliases(
-                session, "movies" if type == "movie" else "shows", id
-            )
+        async with asyncio.TaskGroup() as tg:
+            for result in torrents:
+                # fetch_hash populates info_hash in result, if it's missing.
+                tg.create_task(result.fetch_hash(session))
 
-            indexed_torrents = [(i, torrents[i]["Title"]) for i in range(len(torrents))]
-            chunk_size = 50
-            chunks = [
-                indexed_torrents[i : i + chunk_size]
-                for i in range(0, len(indexed_torrents), chunk_size)
-            ]
+        results_with_hashes = [torrent for torrent in torrents if torrent.info_hash is not None]
 
-            remove_adult_content = (
-                settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
-            )
-            tasks = []
-            for chunk in chunks:
-                tasks.append(
-                    filter(chunk, name, year, year_end, aliases, remove_adult_content)
-                )
+        logger.info(f"{len(results_with_hashes)} info hashes found for {log_name}")
 
-            filtered_torrents = await asyncio.gather(*tasks)
-            index_less = 0
-            for result in filtered_torrents:
-                for filtered in result:
-                    if not filtered[1]:
-                        del torrents[filtered[0] - index_less]
-                        index_less += 1
-                        continue
-
-            logger.info(
-                f"{len(torrents)} torrents passed title match check for {log_name}"
-            )
-
-            if len(torrents) == 0:
-                return {"streams": []}
-
-        tasks = []
-        for i in range(len(torrents)):
-            tasks.append(get_torrent_hash(session, (i, torrents[i])))
-
-        torrent_hashes = await asyncio.gather(*tasks)
-        index_less = 0
-        for hash in torrent_hashes:
-            if not hash[1]:
-                del torrents[hash[0] - index_less]
-                index_less += 1
-                continue
-
-            torrents[hash[0] - index_less]["InfoHash"] = hash[1]
-
-        logger.info(f"{len(torrents)} info hashes found for {log_name}")
-
-        if len(torrents) == 0:
-            return {"streams": []}
+        if len(results_with_hashes) == 0:
+            return stream_lookup_error("No streams found!")
 
         files = await debrid.get_files(
-            list({hash[1] for hash in torrent_hashes if hash[1] is not None}),
+            [result.info_hash for result in results_with_hashes],
             type,
             season,
             episode,
@@ -428,11 +397,11 @@ async def stream(
         )
 
         ranked_files = set()
-        torrents_by_hash = {torrent["InfoHash"]: torrent for torrent in torrents}
+        results_by_hash = {result.info_hash: result for result in results_with_hashes}
         for hash in files:
             try:
                 ranked_file = rtn.rank(
-                    torrents_by_hash[hash]["Title"],
+                    results_by_hash[hash].title,
                     hash,
                     remove_trash=False,  # user can choose if he wants to remove it
                 )
@@ -450,16 +419,7 @@ async def stream(
 
         if len_sorted_ranked_files == 0:
             if config["debridApiKey"] == "realdebrid":
-                return {
-                    "streams": [
-                        {
-                            "name": "[⚠️] Comet",
-                            "description": "RealDebrid API is unstable!",
-                            "url": "https://comet.fast",
-                        }
-                    ]
-                }
-
+                return stream_lookup_error("RealDebrid API is unstable!")
             return {"streams": []}
 
         sorted_ranked_files = {
@@ -468,14 +428,10 @@ async def stream(
         }
         for hash in sorted_ranked_files:  # needed for caching
             sorted_ranked_files[hash]["data"]["title"] = files[hash]["title"]
-            sorted_ranked_files[hash]["data"]["torrent_title"] = torrents_by_hash[hash][
-                "Title"
-            ]
-            sorted_ranked_files[hash]["data"]["tracker"] = torrents_by_hash[hash][
-                "Tracker"
-            ]
+            sorted_ranked_files[hash]["data"]["torrent_title"] = results_by_hash[hash].title
+            sorted_ranked_files[hash]["data"]["tracker"] = results_by_hash[hash].tracker
             sorted_ranked_files[hash]["data"]["size"] = files[hash]["size"]
-            torrent_size = torrents_by_hash[hash]["Size"]
+            torrent_size = results_by_hash[hash].size
             sorted_ranked_files[hash]["data"]["torrent_size"] = (
                 torrent_size if torrent_size else files[hash]["size"]
             )
@@ -499,11 +455,12 @@ async def stream(
             != config["debridStreamProxyPassword"]
         ):
             results.append(
-                {
-                    "name": "[⚠️] Comet",
-                    "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
-                    "url": "https://comet.fast",
-                }
+                error_result("Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.")
+            )
+
+        if not name_matching_succeeded:
+            results.append(
+                error_result("Name matching failed! Results may not be correct.")
             )
 
         for resolution in balanced_hashes:
@@ -616,92 +573,91 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 },
             )
 
-        if (
+        if not (
             settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
-            if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
-                active_ip_connections = await database.fetch_all(
-                    "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
-                )
-                if any(
-                    connection["ip"] == ip
-                    and connection["connections"]
-                    >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
-                    for connection in active_ip_connections
-                ):
-                    return FileResponse("comet/assets/proxylimit.mp4")
+            return RedirectResponse(download_link, status_code=302)
 
-            proxy = None
+        if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS != -1:
+            active_ip_connections = await database.fetch_all(
+                "SELECT ip, COUNT(*) as connections FROM active_connections GROUP BY ip"
+            )
+            if any(
+                connection["ip"] == ip
+                and connection["connections"]
+                >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS
+                for connection in active_ip_connections
+            ):
+                return FileResponse("comet/assets/proxylimit.mp4")
 
-            class Streamer:
-                def __init__(self, id: str):
-                    self.id = id
+        proxy = None
 
-                    self.client = httpx.AsyncClient(proxy=proxy, timeout=None)
-                    self.response = None
+        class Streamer:
+            def __init__(self, id: str):
+                self.id = id
+                self.client = httpx.AsyncClient(proxy=proxy, timeout=None)
+                self.response = None
 
-                async def stream_content(self, headers: dict):
-                    async with self.client.stream(
-                        "GET", download_link, headers=headers
-                    ) as self.response:
-                        async for chunk in self.response.aiter_raw():
-                            yield chunk
+            async def stream_content(self, headers: dict):
+                async with self.client.stream(
+                    "GET", download_link, headers=headers
+                ) as self.response:
+                    async for chunk in self.response.aiter_raw():
+                        yield chunk
 
-                async def close(self):
-                    await database.execute(
-                        f"DELETE FROM active_connections WHERE id = '{self.id}'"
-                    )
-
-                    if self.response is not None:
-                        await self.response.aclose()
-                    if self.client is not None:
-                        await self.client.aclose()
-
-            range_header = request.headers.get("range", "bytes=0-")
-
-            try:
-                response = await session.head(
-                    download_link, headers={"Range": range_header}
-                )
-            except aiohttp.ClientResponseError as e:
-                if e.status == 503 and config["debridService"] == "alldebrid":
-                        proxy = (
-                            settings.DEBRID_PROXY_URL
-                        ) # proxy is not needed to proxy realdebrid stream
-
-                        response = await session.head(
-                            download_link, headers={"Range": range_header}, proxy=proxy
-                        )
-                else:
-                    raise
-
-            if response.status == 206:
-                id = str(uuid.uuid4())
+            async def close(self):
                 await database.execute(
-                    f"INSERT  {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
-                    {
-                        "id": id,
-                        "ip": ip,
-                        "content": str(response.url),
-                        "timestamp": current_time,
-                    },
+                    f"DELETE FROM active_connections WHERE id = '{self.id}'"
                 )
 
-                streamer = Streamer(id)
+                if self.response is not None:
+                    await self.response.aclose()
+                if self.client is not None:
+                    await self.client.aclose()
 
-                return StreamingResponse(
-                    streamer.stream_content({"Range": range_header}),
-                    status_code=206,
-                    headers={
-                        "Content-Range": response.headers["Content-Range"],
-                        "Content-Length": response.headers["Content-Length"],
-                        "Accept-Ranges": "bytes",
-                    },
-                    background=BackgroundTask(streamer.close),
-                )
+        range_header = request.headers.get("range", "bytes=0-")
 
+        try:
+            response = await session.head(
+                download_link, headers={"Range": range_header}
+            )
+        except aiohttp.ClientResponseError as e:
+            if e.status == 503 and config["debridService"] == "alldebrid":
+                    proxy = (
+                        settings.DEBRID_PROXY_URL
+                    ) # proxy is not needed to proxy realdebrid stream
+
+                    response = await session.head(
+                        download_link, headers={"Range": range_header}, proxy=proxy
+                    )
+            else:
+                raise
+
+        if response.status != 206:
             return FileResponse("comet/assets/uncached.mp4")
 
-        return RedirectResponse(download_link, status_code=302)
+        id = str(uuid.uuid4())
+        await database.execute(
+            f"INSERT  {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+            {
+                "id": id,
+                "ip": ip,
+                "content": str(response.url),
+                "timestamp": current_time,
+            },
+        )
+
+        streamer = Streamer(id)
+
+        return StreamingResponse(
+            streamer.stream_content({"Range": range_header}),
+            status_code=206,
+            headers={
+                "Content-Range": response.headers["Content-Range"],
+                "Content-Length": response.headers["Content-Length"],
+                "Accept-Ranges": "bytes",
+            },
+            background=BackgroundTask(streamer.close),
+        )
