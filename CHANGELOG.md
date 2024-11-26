@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.48.1](https://github.com/g0ldyy/comet/compare/v1.48.0...v1.48.1) (2024-11-26)
+
+
+### Bug Fixes
+
+* we don't want to spam debrid-link shit ([f9c0ec0](https://github.com/g0ldyy/comet/commit/f9c0ec0a84b6fa9a1e791990b690b6f8ffe0922d))
+
 ## [1.48.0](https://github.com/g0ldyy/comet/compare/v1.47.0...v1.48.0) (2024-11-26)
 
 
