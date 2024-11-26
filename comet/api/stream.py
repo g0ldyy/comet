@@ -617,7 +617,8 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             )
 
         if (
-            settings.PROXY_DEBRID_STREAM
+            config["debridService"] != "torbox"
+            and settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
@@ -677,7 +678,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 else:
                     raise
 
-            if response.status == 206 or (config["debridService"] == "torbox" and response.status == 200):
+            if response.status == 206:
                 id = str(uuid.uuid4())
                 await database.execute(
                     f"INSERT  {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO active_connections (id, ip, content, timestamp) VALUES (:id, :ip, :content, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
@@ -695,8 +696,8 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                     streamer.stream_content({"Range": range_header}),
                     status_code=206,
                     headers={
-                        "Content-Range": response.headers.get("Content-Range", range_header),
-                        "Content-Length": response.headers.get("Content-Length"),
+                        "Content-Range": response.headers["Content-Range"],
+                        "Content-Length": response.headers["Content-Length"],
                         "Accept-Ranges": "bytes",
                     },
                     background=BackgroundTask(streamer.close),
