@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.48.0](https://github.com/g0ldyy/comet/compare/v1.47.0...v1.48.0) (2024-11-26)
+
+
+### Features
+
+* GG Debrid-Link, restrictions defeated 🤓☝️ ([49cd90b](https://github.com/g0ldyy/comet/commit/49cd90bd0092fd25fe866c3a9120e966a855cd76))
+
 ## [1.47.0](https://github.com/g0ldyy/comet/compare/v1.46.0...v1.47.0) (2024-11-26)
 
 
