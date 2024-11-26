@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.49.0](https://github.com/g0ldyy/comet/compare/v1.48.1...v1.49.0) (2024-11-26)
+
+
+### Features
+
+* torbox speed improvement + torbox proxy stream fix ([30ecbce](https://github.com/g0ldyy/comet/commit/30ecbcec4560510b260c43ec2ed04a82e724c743))
+
 ## [1.48.1](https://github.com/g0ldyy/comet/compare/v1.48.0...v1.48.1) (2024-11-26)
 
 
