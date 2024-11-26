@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.46.0](https://github.com/g0ldyy/comet/compare/v1.45.0...v1.46.0) (2024-11-24)
+
+
+### Features
+
+* remove the need to have a pro torbox acc ([253bfea](https://github.com/g0ldyy/comet/commit/253bfeae4f37595bd59263cde8e1eca26d2fa8e2))
+
+## [1.45.0](https://github.com/g0ldyy/comet/compare/v1.44.1...v1.45.0) (2024-11-24)
+
+
+### Features
+
+* debrid-link is now default ([253eadc](https://github.com/g0ldyy/comet/commit/253eadc322e8138f61b638567aaaed9d3c23b85a))
+
+## [1.44.1](https://github.com/g0ldyy/comet/compare/v1.44.0...v1.44.1) (2024-11-24)
+
+
+### Bug Fixes
+
+* postgresql support ([b61480b](https://github.com/g0ldyy/comet/commit/b61480b3091ed62b23e5a42be8a5cc7ad3679692))
+
+## [1.44.0](https://github.com/g0ldyy/comet/compare/v1.43.4...v1.44.0) (2024-11-23)
+
+
+### Features
+
+* new db structure ([8c3a81a](https://github.com/g0ldyy/comet/commit/8c3a81a61fb9f0195c7edd67efcd577dfc2cf458))
+
+
+### Bug Fixes
+
+* db caching issue ([8122689](https://github.com/g0ldyy/comet/commit/812268971d0dcd030df36b004083ee8a922fda5d))
+
 ## [1.43.4](https://github.com/g0ldyy/comet/compare/v1.43.3...v1.43.4) (2024-11-21)
 
 

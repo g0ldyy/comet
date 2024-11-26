@@ -208,7 +208,12 @@ async def stream(
             )
             for result in cached_results:
                 trackers_found.add(result["tracker"].lower())
-                all_sorted_ranked_files[result["info_hash"]] = orjson.loads(
+
+                hash = result["info_hash"]
+                if "searched" in hash:
+                    continue
+
+                all_sorted_ranked_files[hash] = orjson.loads(
                     result["data"]
                 )
 
