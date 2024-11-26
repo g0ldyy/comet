@@ -303,10 +303,8 @@ async def stream(
 
             search_terms = [name]
             if type == "series":
-                search_terms = []
                 if not kitsu:
                     search_terms.append(f"{name} S{season:02d}E{episode:02d}")
-                    search_terms.append(f"{name} s{season:02d}e{episode:02d}")
                 else:
                     search_terms.append(f"{name} {episode}")
             tasks.extend(
