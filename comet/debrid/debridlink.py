@@ -33,7 +33,7 @@ class DebridLink:
         for hash in chunk:
             try:
                 add_torrent = await self.session.post(
-                    "https://debrid-link.com/api/v2/seedbox/add",
+                    f"{self.api_url}/seedbox/add",
                     data={"url": hash, "wait": True, "async": True},
                 )
                 add_torrent = await add_torrent.json()
@@ -42,10 +42,7 @@ class DebridLink:
                 await self.session.delete(f"{self.api_url}/seedbox/{torrent_id}/remove")
 
                 responses.append(add_torrent)
-            except Exception as e:
-                logger.warning(
-                    f"Exception while checking cached status on DebridLink for {hash}: {e}"
-                )
+            except:
                 pass
 
         return responses
