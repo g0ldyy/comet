@@ -1,3 +1,4 @@
+<p align="center"><img src="https://i.imgur.com/mkpkD6K.png" /></p>
 <h1 align="center" id="title">☄️ Comet - <a href="https://discord.gg/rivenmedia">Discord</a></h1>
 <p align="center"><img src="https://socialify.git.ci/g0ldyy/comet/image?description=1&font=Inter&forks=1&language=1&name=1&owner=1&pattern=Solid&stargazers=1&theme=Dark" /></p>
 <p align="center">

@@ -29,20 +29,28 @@ class DebridLink:
         return False
 
     async def get_instant(self, chunk: list):
-        try:
-            get_instant = await self.session.get(
-                f"{self.api_url}/seedbox/cached?url={','.join(chunk)}"
-            )
-            return await get_instant.json()
-        except Exception as e:
-            logger.warning(
-                f"Exception while checking hashes instant availability on Debrid-Link: {e}"
-            )
+        responses = []
+        for hash in chunk:
+            try:
+                add_torrent = await self.session.post(
+                    f"{self.api_url}/seedbox/add",
+                    data={"url": hash, "wait": True, "async": True},
+                )
+                add_torrent = await add_torrent.json()
+
+                torrent_id = add_torrent["value"]["id"]
+                await self.session.delete(f"{self.api_url}/seedbox/{torrent_id}/remove")
+
+                responses.append(add_torrent)
+            except:
+                pass
+
+        return responses
 
     async def get_files(
         self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
     ):
-        chunk_size = 250
+        chunk_size = 10
         chunks = [
             torrent_hashes[i : i + chunk_size]
             for i in range(0, len(torrent_hashes), chunk_size)
@@ -54,61 +62,67 @@ class DebridLink:
 
         responses = await asyncio.gather(*tasks)
 
-        availability = [
-            response for response in responses if response and response.get("success")
-        ]
+        availability = []
+        for response_list in responses:
+            for response in response_list:
+                availability.append(response)
 
         files = {}
 
         if type == "series":
             for result in availability:
-                for hash, torrent_data in result["value"].items():
-                    for file in torrent_data["files"]:
-                        filename = file["name"]
+                torrent_files = result["value"]["files"]
+                for file in torrent_files:
+                    if file["downloadPercent"] != 100:
+                        continue
 
-                        if not is_video(filename):
+                    filename = file["name"]
+
+                    if not is_video(filename):
+                        continue
+
+                    if "sample" in filename.lower():
+                        continue
+
+                    filename_parsed = parse(filename)
+                    if episode not in filename_parsed.episodes:
+                        continue
+
+                    if kitsu:
+                        if filename_parsed.seasons:
+                            continue
+                    else:
+                        if season not in filename_parsed.seasons:
                             continue
 
-                        if "sample" in filename.lower():
-                            continue
+                    files[result["value"]["hashString"]] = {
+                        "index": torrent_files.index(file),
+                        "title": filename,
+                        "size": file["size"],
+                    }
 
-                        filename_parsed = parse(filename)
-                        if episode not in filename_parsed.episodes:
-                            continue
-
-                        if kitsu:
-                            if filename_parsed.seasons:
-                                continue
-                        else:
-                            if season not in filename_parsed.seasons:
-                                continue
-
-                        files[hash] = {
-                            "index": torrent_data["files"].index(file),
-                            "title": filename,
-                            "size": file["size"],
-                        }
-
-                        break
+                    break
         else:
             for result in availability:
-                for hash, torrent_data in result["value"].items():
-                    for file in torrent_data["files"]:
-                        filename = file["name"]
+                value = result["value"]
+                torrent_files = value["files"]
+                for file in torrent_files:
+                    if file["downloadPercent"] != 100:
+                        continue
 
-                        if not is_video(filename):
-                            continue
+                    filename = file["name"]
 
-                        if "sample" in filename.lower():
-                            continue
+                    if not is_video(filename):
+                        continue
 
-                        files[hash] = {
-                            "index": torrent_data["files"].index(file),
-                            "title": filename,
-                            "size": file["size"],
-                        }
+                    if "sample" in filename.lower():
+                        continue
 
-                        break
+                    files[value["hashString"]] = {
+                        "index": torrent_files.index(file),
+                        "title": filename,
+                        "size": file["size"],
+                    }
 
         return files
 

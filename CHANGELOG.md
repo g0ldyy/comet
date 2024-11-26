@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.49.0](https://github.com/g0ldyy/comet/compare/v1.48.1...v1.49.0) (2024-11-26)
+
+
+### Features
+
+* torbox speed improvement + torbox proxy stream fix ([30ecbce](https://github.com/g0ldyy/comet/commit/30ecbcec4560510b260c43ec2ed04a82e724c743))
+
+## [1.48.1](https://github.com/g0ldyy/comet/compare/v1.48.0...v1.48.1) (2024-11-26)
+
+
+### Bug Fixes
+
+* we don't want to spam debrid-link shit ([f9c0ec0](https://github.com/g0ldyy/comet/commit/f9c0ec0a84b6fa9a1e791990b690b6f8ffe0922d))
+
+## [1.48.0](https://github.com/g0ldyy/comet/compare/v1.47.0...v1.48.0) (2024-11-26)
+
+
+### Features
+
+* GG Debrid-Link, restrictions defeated 🤓☝️ ([49cd90b](https://github.com/g0ldyy/comet/commit/49cd90bd0092fd25fe866c3a9120e966a855cd76))
+
+## [1.47.0](https://github.com/g0ldyy/comet/compare/v1.46.0...v1.47.0) (2024-11-26)
+
+
+### Features
+
+* random addon id ([1b6a80b](https://github.com/g0ldyy/comet/commit/1b6a80bbe5800771774adeb469d861919dc3f70d))
+
+## [1.46.0](https://github.com/g0ldyy/comet/compare/v1.45.0...v1.46.0) (2024-11-24)
+
+
+### Features
+
+* remove the need to have a pro torbox acc ([253bfea](https://github.com/g0ldyy/comet/commit/253bfeae4f37595bd59263cde8e1eca26d2fa8e2))
+
 ## [1.45.0](https://github.com/g0ldyy/comet/compare/v1.44.1...v1.45.0) (2024-11-24)
 
 

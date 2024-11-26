@@ -1,5 +1,7 @@
 import PTT
 import RTN
+import random
+import string
 
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
@@ -61,7 +63,7 @@ async def manifest(b64config: str = None):
     debrid_extension = get_debrid_extension(config["debridService"])
 
     return {
-        "id": settings.ADDON_ID,
+        "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",
         "name": f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}",
         "description": "Stremio's fastest torrent/debrid search add-on.",
         "version": "1.0.0",

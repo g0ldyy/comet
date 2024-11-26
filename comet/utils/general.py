@@ -716,7 +716,9 @@ async def add_torrent_to_cache(
     for indexer in indexers:
         hash = f"searched-{indexer}-{name}-{season}-{episode}"
 
-        searched = copy.deepcopy(sorted_ranked_files[list(sorted_ranked_files.keys())[0]])
+        searched = copy.deepcopy(
+            sorted_ranked_files[list(sorted_ranked_files.keys())[0]]
+        )
         searched["infohash"] = hash
         searched["data"]["tracker"] = indexer
 
