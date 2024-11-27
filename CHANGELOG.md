@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.50.0](https://github.com/g0ldyy/comet/compare/v1.49.0...v1.50.0) (2024-11-27)
+
+
+### Features
+
+* easydebrid support ([15b22e7](https://github.com/g0ldyy/comet/commit/15b22e75aa4c4e0d32e3dbc8d76cd1c45eeedde6))
+* revert back to old jackett queries ([d721246](https://github.com/g0ldyy/comet/commit/d7212465f18554f6d9e41b2faa94026a8eb10208))
+
 ## [1.49.0](https://github.com/g0ldyy/comet/compare/v1.48.1...v1.49.0) (2024-11-26)
 
 
