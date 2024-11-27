@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.50.1](https://github.com/g0ldyy/comet/compare/v1.50.0...v1.50.1) (2024-11-27)
+
+
+### Bug Fixes
+
+* easydebrid tv shows ([e40163f](https://github.com/g0ldyy/comet/commit/e40163f509fdbf41b914a136d6eea5ec2bacb891))
+* shit fix before easydebrid new api ([979c85d](https://github.com/g0ldyy/comet/commit/979c85d751d7fd8978559f9843abc5780a30e83b))
+
 ## [1.50.0](https://github.com/g0ldyy/comet/compare/v1.49.0...v1.50.0) (2024-11-27)
 
 
