@@ -82,8 +82,11 @@ class EasyDebrid:
                 for index, (is_cached, hash) in enumerate(zip(responses, hashes)):
                     if not is_cached:
                         continue
-
-                    hash_files = filenames[str(index)]
+                    
+                    try:
+                        hash_files = filenames[index]
+                    except:
+                        hash_files = filenames[str(index)]
 
                     for filename in hash_files:
                         if not is_video(filename):
@@ -124,7 +127,10 @@ class EasyDebrid:
                     if not is_cached:
                         continue
 
-                    hash_files = filenames[index]
+                    try:
+                        hash_files = filenames[index]
+                    except:
+                        hash_files = filenames[str(index)]
 
                     video_files = [f for f in hash_files if is_video(f)]
                     if not video_files:
