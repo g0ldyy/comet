@@ -83,7 +83,7 @@ class EasyDebrid:
                     if not is_cached:
                         continue
 
-                    hash_files = filenames[index]
+                    hash_files = filenames[str(index)]
 
                     for filename in hash_files:
                         if not is_video(filename):
