@@ -234,6 +234,22 @@ def bytes_to_size(bytes: int):
     return f"{round(bytes, 2)} {sizes[i]}"
 
 
+def size_to_bytes(size_str: str):
+    sizes = ["bytes", "kb", "mb", "gb", "tb"]
+    try:
+        value, unit = size_str.split()
+        value = float(value)
+        unit = unit.lower()
+
+        if unit not in sizes:
+            return None
+
+        multiplier = 1024 ** sizes.index(unit)
+        return int(value * multiplier)
+    except:
+        return None
+
+
 def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
@@ -253,6 +269,7 @@ def get_debrid_extension(debridService: str, debridApiKey: str = None):
         "premiumize": "PM",
         "torbox": "TB",
         "debridlink": "DL",
+        "easydebrid": "ED",
     }
 
     return debrid_extensions.get(debridService, None)
@@ -355,7 +372,7 @@ async def get_zilean(
                 object = {
                     "Title": result["raw_title"],
                     "InfoHash": result["info_hash"],
-                    "Size": result["size"],
+                    "Size": int(result["size"]),
                     "Tracker": "DMM",
                 }
 
@@ -391,12 +408,13 @@ async def get_torrentio(log_name: str, type: str, full_id: str):
             title_full = torrent["title"]
             title = title_full.split("\n")[0]
             tracker = title_full.split("⚙️ ")[1].split("\n")[0]
+            size = size_to_bytes(title_full.split("💾 ")[1].split(" ⚙️")[0])
 
             results.append(
                 {
                     "Title": title,
                     "InfoHash": torrent["infoHash"],
-                    "Size": None,
+                    "Size": size,
                     "Tracker": f"Torrentio|{tracker}",
                 }
             )
