@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.51.0](https://github.com/g0ldyy/comet/compare/v1.50.1...v1.51.0) (2024-11-28)
+
+
+### Features
+
+* remove the sketchy one ([d692201](https://github.com/g0ldyy/comet/commit/d6922010290ebe62b56bc782859e8ad07e14daeb))
+
 ## [1.50.1](https://github.com/g0ldyy/comet/compare/v1.50.0...v1.50.1) (2024-11-27)
 
 
