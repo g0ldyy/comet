@@ -542,7 +542,6 @@
             <div class="form-item">
                 <sl-select id="debridService" value="torbox" label="Debrid Service" placeholder="Select debrid service">
                     <sl-option value="torbox">TorBox</sl-option>
-                    <sl-option value="easydebrid">EasyDebrid</sl-option>
                     <sl-option value="debridlink">Debrid-Link</sl-option>
                     <sl-option value="alldebrid">All-Debrid</sl-option>
                     <sl-option value="premiumize">Premiumize</sl-option>
@@ -554,8 +553,6 @@
                 <label for="debridService">
                     Debrid API Key -
                     <a id="apiKeyLink" href="https://torbox.app/settings" target="_blank">Get It Here</a>
-                    <a id="support"></a>
-                    <a id="warning" href="https://rentry.co/easydebrid" target="_blank"></a>
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key" help-text="If no key is specified, you'll get direct torrents!"></sl-input>
             </div>
@@ -573,33 +570,17 @@
                 document.getElementById("debridService").addEventListener("sl-change", function(event) {
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
-                    support = document.getElementById("support");
-                    warning = document.getElementById("warning");
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
-                        support.textContent = "";
-                        warning.textContent = "";
                     } else if (selectedService === "alldebrid") {
                         apiKeyLink.href = "https://alldebrid.com/apikeys";
-                        support.textContent = "";
-                        warning.textContent = "";
                     } else if (selectedService === "premiumize") {
                         apiKeyLink.href = "https://premiumize.me/account";
-                        support.textContent = "";
-                        warning.textContent = "";
                     } else if (selectedService === "torbox") {
                         apiKeyLink.href = "https://torbox.app/settings";
-                        support.textContent = "";
-                        warning.textContent = "";
                     } else if (selectedService === "debridlink") {
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
-                        support.textContent = "";
-                        warning.textContent = "";
-                    } else if (selectedService === "easydebrid") {
-                        apiKeyLink.href = "https://paradise-cloud.com/products/easydebrid";
-                        support.textContent = " - Support me by using promo code 'goldy'! (5% OFF) - ";
-                        warning.textContent = "warning";
                     }
                 });
             </script>

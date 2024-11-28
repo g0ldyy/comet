@@ -123,7 +123,7 @@ class ConfigModel(BaseModel):
 
     @field_validator("debridService")
     def check_debrid_service(cls, v):
-        if v not in ["realdebrid", "alldebrid", "premiumize", "torbox", "debridlink", "easydebrid"]:
+        if v not in ["realdebrid", "alldebrid", "premiumize", "torbox", "debridlink"]:
             raise ValueError("Invalid debridService")
         return v
 
