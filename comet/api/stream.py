@@ -484,13 +484,17 @@ async def stream(
         for resolution in balanced_hashes:
             for hash in balanced_hashes[resolution]:
                 data = sorted_ranked_files[hash]["data"]
+                index = data['index']
+                if index == -1:
+                    index = data['title']
+                url = f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{index}"
                 results.append(
                     {
                         "name": f"[{debrid_extension}⚡] Comet {data['resolution']}",
                         "description": format_title(data, config),
                         "torrentTitle": data["torrent_title"],
                         "torrentSize": data["torrent_size"],
-                        "url": f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{hash}/{data['index']}",
+                        "url": url,
                         "behaviorHints": {
                             "filename": data["raw_title"],
                             "bingeGroup": "comet|" + hash,
