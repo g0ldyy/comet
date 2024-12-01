@@ -149,11 +149,14 @@ class StremThru:
             )
             magnet = await magnet.json()
 
+            if magnet["data"]["status"] != "downloaded":
+                return
+
             file = next(
                 (
                     file
                     for file in magnet["data"]["files"]
-                    if file["index"] == int(index)
+                    if str(file["index"]) == index or file["name"] == index
                 ),
                 None,
             )
