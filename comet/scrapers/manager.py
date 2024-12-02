@@ -83,7 +83,7 @@ class TorrentScraper:
     async def cache_torrents(self):
         def default(obj):
             if isinstance(obj, ParsedData):
-                return obj.model_dump()
+                return obj.model_dump_json()
             raise TypeError
 
         current_time = time.time()
@@ -108,7 +108,7 @@ class TorrentScraper:
 
         await database.execute_many(query, values)
 
-    async def _filter(self, torrents: list):
+    async def filter(self, torrents: list):
         title = self.title
         year = self.year
         year_end = self.year_end
@@ -150,6 +150,6 @@ class TorrentScraper:
         tasks = []
         for i in range(0, len(new_torrents), chunk_size):
             chunk = new_torrents[i : i + chunk_size]
-            tasks.append(self._filter(chunk))
+            tasks.append(self.filter(chunk))
 
         await asyncio.gather(*tasks)

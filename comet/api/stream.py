@@ -1,6 +1,7 @@
 import aiohttp
 import time
 import asyncio
+import orjson
 
 from fastapi import APIRouter, Request, BackgroundTasks
 
@@ -72,10 +73,12 @@ async def stream(
             settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
         )
 
+        cached = True
         await torrent_scraper.get_cached_torrents()
         if (
             len(torrent_scraper.torrents) == 0
         ):  # no torrent, we search for an ongoing search before starting a new one
+            cached = False
             ongoing_search = await database.fetch_one(
                 "SELECT * FROM ongoing_searches WHERE media_id = :media_id AND timestamp + 120 >= :current_time",
                 {"media_id": media_id, "current_time": time.time()},
@@ -97,5 +100,7 @@ async def stream(
 
             await torrent_scraper.scrape_torrents(session)
 
-        print(torrent_scraper.torrents)
+        for torrent in torrent_scraper.torrents:
+            torrent = orjson.loads(torrent) if cached else torrent
+            print(torrent["title"])
         print(len(torrent_scraper.torrents))

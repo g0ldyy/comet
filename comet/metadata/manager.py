@@ -17,24 +17,24 @@ class MetadataScraper:
         self.session = session
 
     async def fetch_metadata_and_aliases(self, media_type: str, media_id: str):
-        id, season, episode = self._parse_media_id(media_type, media_id)
+        id, season, episode = self.parse_media_id(media_type, media_id)
 
         real_id = id if id != "kitsu" else season
 
-        get_cached = await self._get_cached(
+        get_cached = await self.get_cached(
             real_id, season if id != "kitsu" else 1, episode
         )
         if get_cached is not None:
             return get_cached[0], get_cached[1]
 
-        metadata_task = asyncio.create_task(self._get_metadata(id, season, episode))
-        aliases_task = asyncio.create_task(self._get_aliases(media_type, id))
+        metadata_task = asyncio.create_task(self.get_metadata(id, season, episode))
+        aliases_task = asyncio.create_task(self.get_aliases(media_type, id))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
-        await self._cache_metadata(real_id, metadata, aliases)
+        await self.cache_metadata(real_id, metadata, aliases)
 
         return metadata, aliases
 
-    async def _get_cached(self, media_id: str, season: int, episode: int):
+    async def get_cached(self, media_id: str, season: int, episode: int):
         row = await database.fetch_one(
             """
                 SELECT title, year, year_end, aliases
@@ -60,7 +60,7 @@ class MetadataScraper:
 
         return None
 
-    async def _cache_metadata(self, media_id: str, metadata: dict, aliases: dict):
+    async def cache_metadata(self, media_id: str, metadata: dict, aliases: dict):
         await database.execute(
             f"""
                 INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO metadata_cache (media_id, title, year, year_end, aliases, timestamp)
@@ -76,13 +76,13 @@ class MetadataScraper:
             },
         )
 
-    def _parse_media_id(self, media_type: str, media_id: str) -> tuple:
+    def parse_media_id(self, media_type: str, media_id: str) -> tuple:
         if media_type == "series":
             info = media_id.split(":")
             return info[0], int(info[1]), int(info[2])
         return media_id, None, None
 
-    def _normalize_metadata(self, metadata: dict, season: int, episode: int):
+    def normalize_metadata(self, metadata: dict, season: int, episode: int):
         title, year, year_end = metadata
 
         if title is None:  # metadata retrieving failed
@@ -96,15 +96,15 @@ class MetadataScraper:
             "episode": episode,
         }
 
-    async def _get_metadata(self, id: str, season: int, episode: int):
+    async def get_metadata(self, id: str, season: int, episode: int):
         if id == "kitsu":
             raw_metadata = await get_kitsu_metadata(self.session, season)
-            return self._normalize_metadata(raw_metadata, 1, episode)
+            return self.normalize_metadata(raw_metadata, 1, episode)
         else:
             raw_metadata = await get_imdb_metadata(self.session, id)
-            return self._normalize_metadata(raw_metadata, season, episode)
+            return self.normalize_metadata(raw_metadata, season, episode)
 
-    async def _get_aliases(self, media_type: str, media_id: str):
+    async def get_aliases(self, media_type: str, media_id: str):
         if media_id == "kitsu":
             return {}
         return await get_trakt_aliases(self.session, media_type, media_id)
