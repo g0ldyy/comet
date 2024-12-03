@@ -261,7 +261,6 @@ class ConfigModel(BaseModel):
     reverseResultOrder: Optional[bool] = False
     removeTrash: Optional[bool] = True
     resultFormat: Optional[List[str]] = ["all"]
-    maxResults: Optional[int] = 0
     maxResultsPerResolution: Optional[int] = 0
     maxSize: Optional[float] = 0
     debridService: Optional[str] = "torrent"
@@ -269,15 +268,6 @@ class ConfigModel(BaseModel):
     debridStreamProxyPassword: Optional[str] = ""
     rtnSettings: Optional[SettingsModel] = rtn_settings_default
     rtnRanking: Optional[BestRanking] = rtn_ranking_default
-
-    @field_validator("maxResults")
-    def check_max_results(cls, v):
-        if not isinstance(v, int):
-            v = 0
-
-        if v < 0:
-            v = 0
-        return v
 
     @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):

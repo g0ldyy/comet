@@ -520,10 +520,6 @@
             </div>
 
             <div class="form-item">
-                <sl-input id="maxResults" type="number" min=0 value=0 label="Max Results" placeholder="Enter max results"></sl-input>
-            </div>
-
-            <div class="form-item">
                 <sl-input id="maxResultsPerResolution" type="number" min=0 value=0 label="Max Results Per Resolution" placeholder="Enter max results per resolution"></sl-input>
             </div>
 
@@ -720,7 +716,6 @@
                     function getSettings() {
                         const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
                         const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
-                        const maxResults = document.getElementById("maxResults").value;
                         const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
                         const reverseResultOrder = document.getElementById("reverseResultOrder").checked;
@@ -735,7 +730,6 @@
                         const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
                         return {
-                            maxResults: parseInt(maxResults),
                             maxResultsPerResolution: parseInt(maxResultsPerResolution),
                             maxSize: parseFloat(maxSize * 1073741824),
                             reverseResultOrder: reverseResultOrder,
@@ -790,8 +784,6 @@
                     }
 
                     function populateFormFromSettings(settings) {
-                        if (settings.maxResults !== null)
-                            document.getElementById("maxResults").value = settings.maxResults;
                         if (settings.reverseResultOrder !== null)
                             document.getElementById("reverseResultOrder").checked = settings.reverseResultOrder;
                         if (settings.removeTrash !== null)
