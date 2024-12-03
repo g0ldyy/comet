@@ -68,6 +68,117 @@ class AppSettings(BaseSettings):
 settings = AppSettings()
 
 
+default_settings = {
+    "profile": "default",
+    "require": [],
+    "exclude": [],
+    "preferred": [],
+    "resolutions": {
+        "r2160p": False,
+        "r1080p": True,
+        "r720p": True,
+        "r480p": False,
+        "r360p": False,
+        "unknown": True,
+    },
+    "options": {
+        "title_similarity": 0.85,
+        "remove_all_trash": True,
+        "remove_ranks_under": -10000,
+        "remove_unknown_languages": False,
+        "allow_english_in_languages": False,
+        "enable_fetch_speed_mode": True,
+        "remove_adult_content": True,
+    },
+    "languages": {
+        "required": [],
+        "exclude": ["ar", "hi", "fr", "es", "de", "ru", "pt", "it"],
+        "preferred": [],
+    },
+    "custom_ranks": {
+        "quality": {
+            "av1": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "avc": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "bluray": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dvd": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "hdtv": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "hevc": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "mpeg": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "remux": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "vhs": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "web": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "webdl": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "webmux": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "xvid": {"fetch": False, "use_custom_rank": False, "rank": 0},
+        },
+        "rips": {
+            "bdrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "brrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dvdrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "hdrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "ppvrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "satrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "tvrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "uhdrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "vhsrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "webdlrip": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "webrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
+        },
+        "hdr": {
+            "bit10": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dolby_vision": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "hdr": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "hdr10plus": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "sdr": {"fetch": True, "use_custom_rank": False, "rank": 0},
+        },
+        "audio": {
+            "aac": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "ac3": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "atmos": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dolby_digital": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dolby_digital_plus": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dts_lossy": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "dts_lossless": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "eac3": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "flac": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "mono": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "mp3": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "stereo": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "surround": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "Truehd": {"fetch": True, "use_custom_rank": False, "rank": 0},
+        },
+        "extras": {
+            "three_d": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "converted": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "documentary": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "dubbed": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "edition": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "hardcoded": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "network": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "proper": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "repack": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "retail": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "site": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "subbed": {"fetch": True, "use_custom_rank": False, "rank": 0},
+            "upscaled": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "scene": {"fetch": True, "use_custom_rank": False, "rank": 0},
+        },
+        "trash": {
+            "cam": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "clean_audio": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "pdtv": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "r5": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "screener": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "size": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "telecine": {"fetch": False, "use_custom_rank": False, "rank": 0},
+            "telesync": {"fetch": False, "use_custom_rank": False, "rank": 0},
+        },
+    },
+}
+rtn_settings_default = SettingsModel(**default_settings)
+rtn_ranking_default = BestRanking()
+
+
 class ConfigModel(BaseModel):
     languages: Optional[List[str]] = ["all"]
     resolutions: Optional[List[str]] = ["all"]
@@ -80,6 +191,8 @@ class ConfigModel(BaseModel):
     debridService: Optional[str] = "torrent"
     debridApiKey: Optional[str] = ""
     debridStreamProxyPassword: Optional[str] = ""
+    rtn_settings: Optional[SettingsModel] = rtn_settings_default
+    rtn_ranking: Optional[BestRanking] = rtn_ranking_default
 
     @field_validator("maxResults")
     def check_max_results(cls, v):
@@ -114,128 +227,19 @@ class ConfigModel(BaseModel):
             raise ValueError("Invalid debridService")
         return v
 
+    @field_validator("rtn_settings")
+    def json_to_model_settings(cls, v):
+        v = SettingsModel(**v)
+        return v
+
+    @field_validator("rtn_ranking")
+    def json_to_model_ranking(cls, v):
+        v = BestRanking(**v)
+        return v
+
 
 default_config = ConfigModel().model_dump()
 
-
-default_settings = {
-    "profile": "default",
-    "require": [],
-    "exclude": [],
-    "preferred": [],
-    "resolutions": {
-        "r2160p": True,
-        "r1080p": True,
-        "r720p": True,
-        "r480p": True,
-        "r360p": True,
-        "unknown": True,
-    },
-    "options": {
-        "title_similarity": 0.85,
-        "remove_all_trash": True,
-        "remove_ranks_under": -1000000000000000,
-        "remove_unknown_languages": False,
-        "allow_english_in_languages": True,
-        "enable_fetch_speed_mode": True,
-        "remove_adult_content": settings.REMOVE_ADULT_CONTENT,
-    },
-    "languages": {
-        "required": [],
-        "exclude": [
-            # "ar",
-            # "hi",
-            # "fr",
-            # "es",
-            # "de",
-            # "ru",
-            # "pt",
-            # "it"
-        ],
-        "preferred": [],
-    },
-    "custom_ranks": {
-        "quality": {
-            "av1": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "avc": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "bluray": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dvd": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "hdtv": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "hevc": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "mpeg": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "remux": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "vhs": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "web": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "webdl": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "webmux": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "xvid": {"fetch": True, "use_custom_rank": False, "rank": 0},
-        },
-        "rips": {
-            "bdrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "brrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dvdrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "hdrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "ppvrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "satrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "tvrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "uhdrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "vhsrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "webdlrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "webrip": {"fetch": True, "use_custom_rank": False, "rank": 0},
-        },
-        "hdr": {
-            "bit10": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dolby_vision": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "hdr": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "hdr10plus": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "sdr": {"fetch": True, "use_custom_rank": False, "rank": 0},
-        },
-        "audio": {
-            "aac": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "ac3": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "atmos": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dolby_digital": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dolby_digital_plus": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dts_lossy": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dts_lossless": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "eac3": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "flac": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "mono": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "mp3": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "stereo": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "surround": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "Truehd": {"fetch": True, "use_custom_rank": False, "rank": 0},
-        },
-        "extras": {
-            "three_d": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "converted": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "documentary": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "dubbed": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "edition": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "hardcoded": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "network": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "proper": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "repack": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "retail": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "site": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "subbed": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "upscaled": {"fetch": True, "use_custom_rank": False, "rank": 0},
-            "scene": {"fetch": True, "use_custom_rank": False, "rank": 0},
-        },
-        "trash": {
-            "cam": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "clean_audio": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "pdtv": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "r5": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "screener": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "size": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "telecine": {"fetch": False, "use_custom_rank": False, "rank": 0},
-            "telesync": {"fetch": False, "use_custom_rank": False, "rank": 0},
-        },
-    },
-}
-rtn_settings = SettingsModel(**default_settings)
-rtn_ranking = BestRanking()
 
 # Web Config Initialization
 languages = [language for language in PTT.parse.LANGUAGES_TRANSLATION_TABLE.values()]

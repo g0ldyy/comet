@@ -3,9 +3,9 @@ import time
 import asyncio
 
 from fastapi import APIRouter, Request, BackgroundTasks
-from RTN import get_rank
+from RTN import get_rank, SettingsModel, BestRanking
 
-from comet.utils.models import settings, database, rtn_settings, rtn_ranking
+from comet.utils.models import settings, database
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
 from comet.utils.general import (
@@ -90,7 +90,9 @@ async def stream(
                         {"media_id": media_id, "current_time": time.time()},
                     )
 
-            await torrent_manager.get_cached_torrents() # we verify that no cache is available
+            await (
+                torrent_manager.get_cached_torrents()
+            )  # we verify that no cache is available
             if len(torrent_manager.torrents) == 0:
                 cached = False
 
@@ -104,8 +106,15 @@ async def stream(
 
                 await torrent_manager.scrape_torrents(session)
 
-        await torrent_manager.rank_torrents(config["rtn_settings"], config["rtn_ranking"])
+        # await torrent_manager.rank_torrents(
+        #     config["rtn_settings"], config["rtn_ranking"]
+        # )
 
-        # for torrent in torrent_manager.torrents:
-        #     print(get_rank(torrent["parsed"], rtn_settings, rtn_ranking))
-        
+        for torrent in torrent_manager.torrents:
+            print(
+                get_rank(
+                    torrent["parsed"],
+                    SettingsModel(**config["rtn_settings"]),
+                    BestRanking(**config["rtn_ranking"]),
+                )
+            )
