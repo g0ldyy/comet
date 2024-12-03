@@ -1,11 +1,11 @@
 import aiohttp
 import time
 import asyncio
-import orjson
 
 from fastapi import APIRouter, Request, BackgroundTasks
+from RTN import get_rank
 
-from comet.utils.models import settings, database
+from comet.utils.models import settings, database, rtn_settings, rtn_ranking
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentScraper
 from comet.utils.general import (
@@ -73,34 +73,36 @@ async def stream(
             settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
         )
 
-        cached = True
         await torrent_scraper.get_cached_torrents()
         if (
             len(torrent_scraper.torrents) == 0
         ):  # no torrent, we search for an ongoing search before starting a new one
-            cached = False
+            cached = True
             ongoing_search = await database.fetch_one(
                 "SELECT * FROM ongoing_searches WHERE media_id = :media_id AND timestamp + 120 >= :current_time",
                 {"media_id": media_id, "current_time": time.time()},
             )
             if ongoing_search:
                 while ongoing_search:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(10)
                     ongoing_search = await database.fetch_one(
                         "SELECT * FROM ongoing_searches WHERE media_id = :media_id AND timestamp + 120 >= :current_time",
                         {"media_id": media_id, "current_time": time.time()},
                     )
 
-            await database.execute(
-                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches (media_id, timestamp) VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
-                {"media_id": media_id, "timestamp": time.time()},
-            )
+            await torrent_scraper.get_cached_torrents() # we verify that no cache is available
+            if len(torrent_scraper.torrents) == 0:
+                cached = False
 
-            background_tasks.add_task(remove_ongoing_search_from_database, media_id)
+            if not cached:
+                await database.execute(
+                    f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches (media_id, timestamp) VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                    {"media_id": media_id, "timestamp": time.time()},
+                )
 
-            await torrent_scraper.scrape_torrents(session)
+                background_tasks.add_task(remove_ongoing_search_from_database, media_id)
+
+                await torrent_scraper.scrape_torrents(session)
 
         for torrent in torrent_scraper.torrents:
-            torrent = orjson.loads(torrent) if cached else torrent
-            print(torrent["title"])
-        print(len(torrent_scraper.torrents))
+            print(get_rank(torrent["parsed"], rtn_settings, rtn_ranking))

@@ -77,14 +77,16 @@ class TorrentScraper:
             },
         )
         for row in rows:
-            data = row["data"]
+            data = orjson.loads(row["data"])
+
+            data["parsed"] = ParsedData(**data["parsed"])
+
             self.torrents.append(data)
 
     async def cache_torrents(self):
         def default(obj):
             if isinstance(obj, ParsedData):
-                return obj.model_dump_json()
-            raise TypeError
+                return obj.model_dump()
 
         current_time = time.time()
         values = [
