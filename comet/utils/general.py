@@ -1,6 +1,8 @@
 import base64
 import orjson
 
+from RTN import SettingsModel, BestRanking
+
 from comet.utils.models import ConfigModel, default_config
 
 
@@ -8,7 +10,12 @@ def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
         validated_config = ConfigModel(**config)
-        return validated_config.model_dump()
+        validated_config = validated_config.model_dump()
+        validated_config["rtnSettings"] = SettingsModel(
+            **validated_config["rtnSettings"]
+        )
+        validated_config["rtnRanking"] = BestRanking(**validated_config["rtnRanking"])
+        return validated_config
     except:
         return default_config  # if it doesn't pass, return default config
 

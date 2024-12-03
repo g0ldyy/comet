@@ -3,7 +3,6 @@ import time
 import asyncio
 
 from fastapi import APIRouter, Request, BackgroundTasks
-from RTN import get_rank, SettingsModel, BestRanking
 
 from comet.utils.models import settings, database
 from comet.metadata.manager import MetadataScraper
@@ -77,7 +76,7 @@ async def stream(
         if (
             len(torrent_manager.torrents) == 0
         ):  # no torrent, we search for an ongoing search before starting a new one
-            cached = True
+            cached = False
             ongoing_search = await database.fetch_one(
                 "SELECT * FROM ongoing_searches WHERE media_id = :media_id AND timestamp + 120 >= :current_time",
                 {"media_id": media_id, "current_time": time.time()},
@@ -90,11 +89,11 @@ async def stream(
                         {"media_id": media_id, "current_time": time.time()},
                     )
 
-            await (
-                torrent_manager.get_cached_torrents()
-            )  # we verify that no cache is available
-            if len(torrent_manager.torrents) == 0:
-                cached = False
+                await (
+                    torrent_manager.get_cached_torrents()
+                )  # we verify that no cache is available
+                if len(torrent_manager.torrents) != 0:
+                    cached = True
 
             if not cached:
                 await database.execute(
@@ -106,15 +105,14 @@ async def stream(
 
                 await torrent_manager.scrape_torrents(session)
 
-        # await torrent_manager.rank_torrents(
-        #     config["rtn_settings"], config["rtn_ranking"]
-        # )
+        torrent_manager.rank_torrents(
+            config["rtnSettings"],
+            config["rtnRanking"],
+            config["maxResultsPerResolution"],
+        )
+        print(torrent_manager.sorted_torrents)
+        print("=======")
+        print(torrent_manager.torrents)
 
-        for torrent in torrent_manager.torrents:
-            print(
-                get_rank(
-                    torrent["parsed"],
-                    SettingsModel(**config["rtn_settings"]),
-                    BestRanking(**config["rtn_ranking"]),
-                )
-            )
+        # for torrent in torrent_manager.torrents:
+        #     print(get_rank(torrent["parsed"], config["rtn_settings"], config["rtn_ranking"]))

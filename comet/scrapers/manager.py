@@ -3,7 +3,17 @@ import asyncio
 import orjson
 import time
 
-from RTN import parse, title_match, ParsedData
+from RTN import (
+    parse,
+    title_match,
+    get_rank,
+    check_fetch,
+    sort_torrents,
+    ParsedData,
+    SettingsModel,
+    BestRanking,
+    Torrent,
+)
 
 from comet.utils.models import settings, database
 
@@ -35,8 +45,9 @@ class TorrentManager:
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
 
-        self.seenHashes = set()
-        self.torrents = []
+        self.seen_hashes = set()
+        self.torrents = {}
+        self.sorted_torrents = {}
 
     async def scrape_torrents(
         self,
@@ -81,7 +92,7 @@ class TorrentManager:
 
             data["parsed"] = ParsedData(**data["parsed"])
 
-            self.torrents.append(data)
+            self.torrents[data["infoHash"]] = data
 
     async def cache_torrents(self):
         def default(obj):
@@ -91,14 +102,14 @@ class TorrentManager:
         current_time = time.time()
         values = [
             {
-                "info_hash": torrent["infoHash"],
+                "info_hash": info_hash,
                 "media_id": self.media_id,
                 "season": self.season,
                 "episode": self.episode,
                 "data": orjson.dumps(torrent, default),
                 "timestamp": current_time,
             }
-            for torrent in self.torrents
+            for info_hash, torrent in self.torrents.items()
         ]
 
         query = f"""
@@ -138,15 +149,15 @@ class TorrentManager:
 
             torrent["parsed"] = parsed
 
-            self.torrents.append(torrent)
+            self.torrents[torrent["infoHash"]] = torrent
 
     async def filter_manager(self, torrents: list):
         new_torrents = [
             torrent
             for torrent in torrents
-            if torrent["infoHash"] not in self.seenHashes
+            if torrent["infoHash"] not in self.seen_hashes
         ]
-        self.seenHashes.update(torrent["infoHash"] for torrent in new_torrents)
+        self.seen_hashes.update(torrent["infoHash"] for torrent in new_torrents)
 
         chunk_size = 50
         tasks = []
@@ -155,3 +166,41 @@ class TorrentManager:
             tasks.append(self.filter(chunk))
 
         await asyncio.gather(*tasks)
+
+    def rank_torrents(
+        self,
+        rtn_settings: SettingsModel,
+        rtn_ranking: BestRanking,
+        max_results_per_resolution: int,
+    ):
+        ranked_torrents = set()
+        for info_hash, torrent in self.torrents.items():
+            parsed_data = torrent["parsed"]
+            raw_title = torrent["title"]
+
+            is_fetchable, failed_keys = check_fetch(parsed_data, rtn_settings)
+            rank = get_rank(parsed_data, rtn_settings, rtn_ranking)
+
+            if rtn_settings.options["remove_all_trash"]:
+                if not is_fetchable:
+                    # print(f"'{raw_title}' denied by: {', '.join(failed_keys)}")
+                    continue
+
+            if rank < rtn_settings.options["remove_ranks_under"]:
+                # print(f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}")
+                continue
+
+            ranked_torrents.add(
+                Torrent(
+                    infohash=info_hash,
+                    raw_title=raw_title,
+                    data=parsed_data,
+                    fetch=is_fetchable,
+                    rank=rank,
+                    lev_ratio=0.0,
+                )
+            )
+
+        self.sorted_torrents = sort_torrents(
+            ranked_torrents, max_results_per_resolution
+        )
