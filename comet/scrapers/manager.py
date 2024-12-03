@@ -12,7 +12,7 @@ from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
 
 
-class TorrentScraper:
+class TorrentManager:
     def __init__(
         self,
         media_type: str,

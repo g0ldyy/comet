@@ -7,7 +7,7 @@ from RTN import get_rank
 
 from comet.utils.models import settings, database, rtn_settings, rtn_ranking
 from comet.metadata.manager import MetadataScraper
-from comet.scrapers.manager import TorrentScraper
+from comet.scrapers.manager import TorrentManager
 from comet.utils.general import (
     config_check,
 )
@@ -61,7 +61,7 @@ async def stream(
         if media_type == "series":
             log_title += f" S{season:02d}E{episode:02d}"
 
-        torrent_scraper = TorrentScraper(
+        torrent_manager = TorrentManager(
             media_type,
             media_id,
             title,
@@ -73,9 +73,9 @@ async def stream(
             settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
         )
 
-        await torrent_scraper.get_cached_torrents()
+        await torrent_manager.get_cached_torrents()
         if (
-            len(torrent_scraper.torrents) == 0
+            len(torrent_manager.torrents) == 0
         ):  # no torrent, we search for an ongoing search before starting a new one
             cached = True
             ongoing_search = await database.fetch_one(
@@ -90,8 +90,8 @@ async def stream(
                         {"media_id": media_id, "current_time": time.time()},
                     )
 
-            await torrent_scraper.get_cached_torrents() # we verify that no cache is available
-            if len(torrent_scraper.torrents) == 0:
+            await torrent_manager.get_cached_torrents() # we verify that no cache is available
+            if len(torrent_manager.torrents) == 0:
                 cached = False
 
             if not cached:
@@ -102,7 +102,9 @@ async def stream(
 
                 background_tasks.add_task(remove_ongoing_search_from_database, media_id)
 
-                await torrent_scraper.scrape_torrents(session)
+                await torrent_manager.scrape_torrents(session)
 
-        for torrent in torrent_scraper.torrents:
-            print(get_rank(torrent["parsed"], rtn_settings, rtn_ranking))
+        await torrent_manager.rank_torrents(config["rtn_settings"], config["rtn_ranking"])
+
+        # for torrent in torrent_manager.torrents:
+        #     print(get_rank(torrent["parsed"], rtn_settings, rtn_ranking))
