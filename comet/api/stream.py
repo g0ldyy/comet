@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, BackgroundTasks
 from comet.utils.models import settings, database
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
-from comet.utils.general import config_check, format_title
+from comet.utils.general import config_check, format_title, get_client_ip
 from comet.debrid.manager import get_debrid_extension
 
 streams = APIRouter()
@@ -103,7 +103,11 @@ async def stream(
                 background_tasks.add_task(remove_ongoing_search_from_database, media_id)
 
                 await torrent_manager.scrape_torrents(session)
-                # get cache availability here
+
+                if config["debridService"] != "torrent":
+                    await torrent_manager.get_cache_availability(
+                        session, config, get_client_ip(request)
+                    )
 
         torrent_manager.rank_torrents(
             config["rtnSettings"],

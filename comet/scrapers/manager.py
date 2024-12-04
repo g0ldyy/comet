@@ -16,7 +16,7 @@ from RTN import (
 )
 
 from comet.utils.models import settings, database
-
+from comet.debrid.manager import get_debrid
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
@@ -211,3 +211,8 @@ class TorrentManager:
         self.sorted_torrents = sort_torrents(
             ranked_torrents, max_results_per_resolution
         )
+
+    async def get_cache_availability(
+        self, session: aiohttp.ClientSession, config: dict, ip: str
+    ):
+        debrid = get_debrid(session, config, ip)

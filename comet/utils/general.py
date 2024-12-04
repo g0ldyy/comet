@@ -2,6 +2,7 @@ import base64
 import orjson
 
 from RTN import SettingsModel, BestRanking, ParsedData
+from fastapi import Request
 
 from comet.utils.models import ConfigModel, default_config
 
@@ -170,3 +171,11 @@ def format_title(
         title = "Empty result format configuration"
 
     return title
+
+
+def get_client_ip(request: Request):
+    return (
+        request.headers["cf-connecting-ip"]
+        if "cf-connecting-ip" in request.headers
+        else request.client.host
+    )
