@@ -172,9 +172,13 @@ class TorrentManager:
         rtn_settings: SettingsModel,
         rtn_ranking: BestRanking,
         max_results_per_resolution: int,
+        max_size: int,
     ):
         ranked_torrents = set()
         for info_hash, torrent in self.torrents.items():
+            if max_size != 0 and torrent["size"] > max_size:
+                continue
+
             parsed_data = torrent["parsed"]
             raw_title = torrent["title"]
 
@@ -190,16 +194,19 @@ class TorrentManager:
                 # print(f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}")
                 continue
 
-            ranked_torrents.add(
-                Torrent(
-                    infohash=info_hash,
-                    raw_title=raw_title,
-                    data=parsed_data,
-                    fetch=is_fetchable,
-                    rank=rank,
-                    lev_ratio=0.0,
+            try:
+                ranked_torrents.add(
+                    Torrent(
+                        infohash=info_hash,
+                        raw_title=raw_title,
+                        data=parsed_data,
+                        fetch=is_fetchable,
+                        rank=rank,
+                        lev_ratio=0.0,
+                    )
                 )
-            )
+            except:
+                pass
 
         self.sorted_torrents = sort_torrents(
             ranked_torrents, max_results_per_resolution

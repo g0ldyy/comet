@@ -108,6 +108,7 @@ async def stream(
             config["rtnSettings"],
             config["rtnRanking"],
             config["maxResultsPerResolution"],
+            config["maxSize"],
         )
 
         results = []

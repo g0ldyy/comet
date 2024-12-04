@@ -145,8 +145,8 @@ def format_title(
         if metadata != "":
             title += f"💿 {metadata}\n"
 
-    if has_all or "seeders" in result_format:
-        title += f"👤 {seeders if seeders else '?'} "
+    if (has_all or "seeders" in result_format) and seeders is not None:
+        title += f"👤 {seeders} "
 
     if has_all or "size" in result_format:
         title += f"💾 {bytes_to_size(size)} "
