@@ -5,18 +5,24 @@ from .alldebrid import AllDebrid
 from .premiumize import Premiumize
 from .torbox import TorBox
 from .debridlink import DebridLink
+from .torrent import Torrent
+
+debrid_services = {
+    "realdebrid": {"extension": "RD", "class": RealDebrid},
+    "alldebrid": {"extension": "AD", "class": AllDebrid},
+    "premiumize": {"extension": "PM", "class": Premiumize},
+    "torbox": {"extension": "TB", "class": TorBox},
+    "debridlink": {"extension": "DL", "class": DebridLink},
+    "torrent": {"extension": "TORRENT", "class": Torrent},
+}
 
 
-def getDebrid(session: aiohttp.ClientSession, config: dict, ip: str):
+def get_debrid_extension(debrid_service: str):
+    return debrid_services[debrid_service]["extension"]
+
+
+def get_debrid(session: aiohttp.ClientSession, config: dict, ip: str):
     debrid_service = config["debridService"]
     debrid_api_key = config["debridApiKey"]
-    if debrid_service == "realdebrid":
-        return RealDebrid(session, debrid_api_key, ip)
-    elif debrid_service == "alldebrid":
-        return AllDebrid(session, debrid_api_key)
-    elif debrid_service == "premiumize":
-        return Premiumize(session, debrid_api_key)
-    elif debrid_service == "torbox":
-        return TorBox(session, debrid_api_key)
-    elif debrid_service == "debridlink":
-        return DebridLink(session, debrid_api_key)
+
+    return debrid_services[debrid_service]["class"](session, debrid_api_key, ip)
