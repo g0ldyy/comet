@@ -21,7 +21,7 @@ async def get_zilean(
                 "infoHash": result["info_hash"],
                 "fileIndex": 0,
                 "seeders": None,
-                "size": result["size"],
+                "size": int(result["size"]),
                 "tracker": "DMM",
                 "sources": [],
             }

@@ -54,7 +54,6 @@ async def get_torrentio(manager, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        print("error", title_full.replace("\n", "\\n"))
         logger.warning(
             f"Exception while getting torrents for {media_id} with Torrentio, your IP is most likely blacklisted (you should try proxying Comet): {e}"
         )

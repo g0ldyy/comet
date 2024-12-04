@@ -7,9 +7,8 @@ from fastapi import APIRouter, Request, BackgroundTasks
 from comet.utils.models import settings, database
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
-from comet.utils.general import (
-    config_check,
-)
+from comet.utils.general import config_check, format_title
+from comet.debrid.manager import get_debrid_extension
 
 streams = APIRouter()
 
@@ -110,9 +109,34 @@ async def stream(
             config["rtnRanking"],
             config["maxResultsPerResolution"],
         )
-        print(torrent_manager.sorted_torrents)
-        print("=======")
-        print(torrent_manager.torrents)
 
-        # for torrent in torrent_manager.torrents:
-        #     print(get_rank(torrent["parsed"], config["rtn_settings"], config["rtn_ranking"]))
+        results = []
+        debrid_extension = get_debrid_extension(config["debridService"])
+        debrid_emoji = "🧲" if config["debridService"] == "torrent" else "⚡"
+        torrents = torrent_manager.torrents
+        for info_hash, torrent in torrent_manager.sorted_torrents.items():
+            torrent_data = torrents[info_hash]
+            rtn_data = torrent.data
+
+            results.append(
+                {
+                    "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
+                    "description": format_title(
+                        rtn_data,
+                        torrent_data["seeders"],
+                        torrent_data["size"],
+                        torrent_data["tracker"],
+                        config["resultFormat"],
+                    ),
+                    "infoHash": info_hash,
+                    "fileIdx": torrent_data["fileIndex"],
+                    "behaviorHints": {
+                        "bingeGroup": "comet|" + info_hash,
+                        "videoSize": torrent_data["size"],
+                        "filename": rtn_data.raw_title,
+                    },
+                    "sources": torrent_data["sources"],
+                }
+            )
+
+        return {"streams": results}

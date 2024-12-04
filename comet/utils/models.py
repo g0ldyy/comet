@@ -306,7 +306,7 @@ languages.insert(1, "Multi")
 web_config = {
     "languages": languages,
     "resolutions": [resolution.value for resolution in RTN.models.Resolution],
-    "resultFormat": ["Title", "Metadata", "Size", "Tracker", "Languages"],
+    "resultFormat": ["title", "metadata", "size", "tracker", "languages"],
 }
 
 database_url = (
