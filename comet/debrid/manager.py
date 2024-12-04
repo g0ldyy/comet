@@ -8,17 +8,17 @@ from .debridlink import DebridLink
 from .torrent import Torrent
 
 debrid_services = {
-    "realdebrid": {"debrid_extension": "RD", "class": RealDebrid},
-    "alldebrid": {"debrid_extension": "AD", "class": AllDebrid},
-    "premiumize": {"debrid_extension": "PM", "class": Premiumize},
-    "torbox": {"debrid_extension": "TB", "class": TorBox},
-    "debridlink": {"debrid_extension": "DL", "class": DebridLink},
-    "torrent": {"debrid_extension": "TORRENT", "class": Torrent},
+    "realdebrid": {"extension": "RD", "class": RealDebrid},
+    "alldebrid": {"extension": "AD", "class": AllDebrid},
+    "premiumize": {"extension": "PM", "class": Premiumize},
+    "torbox": {"extension": "TB", "class": TorBox},
+    "debridlink": {"extension": "DL", "class": DebridLink},
+    "torrent": {"extension": "TORRENT", "class": Torrent},
 }
 
 
 def get_debrid_extension(debrid_service: str):
-    return debrid_services[debrid_service]["debrid_extension"]
+    return debrid_services[debrid_service]["extension"]
 
 
 def get_debrid(session: aiohttp.ClientSession, config: dict, ip: str):
