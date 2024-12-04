@@ -34,7 +34,7 @@ def bytes_to_size(bytes: int):
 
 
 def size_to_bytes(size_str: str):
-    sizes = ["bytes", "kb", "mb", "gb", "tb"]
+    sizes = ["b", "kb", "mb", "gb", "tb"]
 
     value, unit = size_str.split()
     value = float(value)
