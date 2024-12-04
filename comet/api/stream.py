@@ -111,10 +111,11 @@ async def stream(
             config["maxSize"],
         )
 
-        results = []
         debrid_extension = get_debrid_extension(config["debridService"])
         debrid_emoji = "🧲" if config["debridService"] == "torrent" else "⚡"
         torrents = torrent_manager.torrents
+
+        results = []
         for info_hash, torrent in torrent_manager.sorted_torrents.items():
             torrent_data = torrents[info_hash]
             rtn_data = torrent.data
