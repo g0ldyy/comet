@@ -20,10 +20,10 @@ async def setup_database():
             "CREATE TABLE IF NOT EXISTS ongoing_searches (media_id TEXT PRIMARY KEY, timestamp INTEGER)"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS metadata_cache (media_id TEXT PRIMARY KEY, title TEXT, year INTEGER, year_end INTEGER, aliases BLOB, timestamp INTEGER)"
+            "CREATE TABLE IF NOT EXISTS metadata_cache (media_id TEXT PRIMARY KEY, title TEXT, year INTEGER, year_end INTEGER, aliases TEXT, timestamp INTEGER)"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data BLOB, timestamp INTEGER)"
+            "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
         )
         await database.execute(
             "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, hash, file_index))"
