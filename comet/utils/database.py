@@ -23,10 +23,13 @@ async def setup_database():
             "CREATE TABLE IF NOT EXISTS metadata_cache (media_id TEXT PRIMARY KEY, title TEXT, year INTEGER, year_end INTEGER, aliases TEXT, timestamp INTEGER)"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
+            "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash TEXT PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, hash, file_index))"
+            "CREATE TABLE IF NOT EXISTS availability_cache (debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size INTEGER, timestamp INTEGER, PRIMARY KEY (debrid_service, info_hash, season, episode))"
+        )
+        await database.execute(
+            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, file_index))"
         )
         await database.execute(
             "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
@@ -51,6 +54,15 @@ async def setup_database():
             {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
         )
 
+        await database.execute(
+            """
+            DELETE FROM availability_cache 
+            WHERE timestamp + :cache_ttl < :current_time;
+            """,
+            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
+        )
+
+        await database.execute("DELETE FROM download_links_cache")
         await database.execute("DELETE FROM active_connections")
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")

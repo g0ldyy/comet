@@ -103,6 +103,7 @@ async def stream(
                 background_tasks.add_task(remove_ongoing_search_from_database, media_id)
 
                 await torrent_manager.scrape_torrents(session)
+                # get cache availability here
 
         torrent_manager.rank_torrents(
             config["rtnSettings"],
