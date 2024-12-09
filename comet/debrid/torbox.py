@@ -8,7 +8,7 @@ from comet.utils.logger import logger
 
 
 class TorBox:
-    def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str):
+    def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str, ip: str):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
         self.proxy = None
@@ -40,9 +40,10 @@ class TorBox:
                 f"Exception while checking hash instant availability on TorBox: {e}"
             )
 
-    async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
-    ):
+    async def get_availability(self, torrent_hashes: list):
+        if not await self.check_premium():
+            return []
+
         chunk_size = 50
         chunks = [
             torrent_hashes[i : i + chunk_size]
@@ -57,65 +58,36 @@ class TorBox:
 
         availability = [response for response in responses if response is not None]
 
-        files = {}
+        files = []
+        for result in availability:
+            if not result["success"] or not result["data"]:
+                continue
 
-        if type == "series":
-            for result in availability:
-                if not result["success"] or not result["data"]:
-                    continue
+            for torrent in result["data"]:
+                torrent_files = torrent["files"]
+                for file in torrent_files:
+                    filename = file["name"].split("/")[1]
 
-                for torrent in result["data"]:
-                    torrent_files = torrent["files"]
-                    for file in torrent_files:
-                        filename = file["name"].split("/")[1]
+                    if not is_video(filename) or "sample" in filename.lower():
+                        continue
 
-                        if not is_video(filename):
-                            continue
+                    filename_parsed = parse(filename)
 
-                        if "sample" in filename.lower():
-                            continue
-
-                        filename_parsed = parse(filename)
-                        if episode not in filename_parsed.episodes:
-                            continue
-
-                        if kitsu:
-                            if filename_parsed.seasons:
-                                continue
-                        else:
-                            if season not in filename_parsed.seasons:
-                                continue
-
-                        files[torrent["hash"]] = {
+                    files.append(
+                        {
+                            "info_hash": torrent["hash"],
                             "index": torrent_files.index(file),
                             "title": filename,
                             "size": file["size"],
+                            "season": filename_parsed.seasons[0]
+                            if len(filename_parsed.seasons) != 0
+                            else None,
+                            "episode": filename_parsed.episodes[0]
+                            if len(filename_parsed.episodes) != 0
+                            else None,
+                            "file_data": filename_parsed,
                         }
-
-                        break
-        else:
-            for result in availability:
-                if not result["success"] or not result["data"]:
-                    continue
-
-                for torrent in result["data"]:
-                    torrent_files = torrent["files"]
-                    for file in torrent_files:
-                        filename = file["name"].split("/")[1]
-
-                        if not is_video(filename):
-                            continue
-
-                        if "sample" in filename.lower():
-                            continue
-
-                        files[torrent["hash"]] = {
-                            "index": torrent_files.index(file),
-                            "title": filename,
-                            "size": file["size"],
-                        }
-
-                        break
+                    )
 
         return files
 
@@ -139,20 +111,13 @@ class TorBox:
                 create_torrent = await create_torrent.json()
                 torrent_id = create_torrent["data"]["torrent_id"]
 
-                # get_torrents = await self.session.get(
-                #     f"{self.api_url}/torrents/mylist?bypass_cache=true"
-                # )
-                # get_torrents = await get_torrents.json()
-
-            # for torrent in get_torrents["data"]:
-            #     if torrent["id"] == torrent_id:
-            #         file_id = torrent["files"][int(index)]["id"]
-            # Useless, we already have file index
-
             get_download_link = await self.session.get(
                 f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={index}&zip=false",
             )
             get_download_link = await get_download_link.json()
+
+            if not get_download_link["success"]:
+                return
 
             return get_download_link["data"]
         except Exception as e:
