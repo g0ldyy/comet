@@ -192,7 +192,7 @@ class TorrentManager:
             parsed_data = torrent["parsed"]
 
             if self.media_type == "series":
-                if parsed_data.seasons and self.season not in parsed_data.seasons or parsed_data.episodes and self.episode not in parsed_data.episodes:
+                if parsed_data.episodes and self.episode not in parsed_data.episodes or parsed_data.seasons and self.season not in parsed_data.seasons:
                     continue
 
             raw_title = torrent["title"]
