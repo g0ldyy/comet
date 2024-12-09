@@ -256,7 +256,7 @@ rtn_ranking_default = BestRanking()
 class ConfigModel(BaseModel):
     languages: Optional[List[str]] = ["all"]
     resolutions: Optional[List[str]] = ["all"]
-    reverseResultOrder: Optional[bool] = False
+    cachedOnly: Optional[bool] = False
     removeTrash: Optional[bool] = True
     resultFormat: Optional[List[str]] = ["all"]
     maxResultsPerResolution: Optional[int] = 0

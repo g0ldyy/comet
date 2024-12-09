@@ -124,6 +124,8 @@ async def stream(
             config["rtnRanking"],
             config["maxResultsPerResolution"],
             config["maxSize"],
+            config["cachedOnly"],
+            config["removeTrash"],
         )
 
         debrid_extension = get_debrid_extension(debrid_service)

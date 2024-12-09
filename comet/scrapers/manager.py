@@ -180,11 +180,13 @@ class TorrentManager:
         rtn_ranking: BestRanking,
         max_results_per_resolution: int,
         max_size: int,
+        cached_only: int,
+        remove_trash: int,
     ):
         ranked_torrents = set()
         for info_hash, torrent in self.torrents.items():
-            # if self.debrid_service != "torrent" and not torrent["cached"]: only if he set his config to hide them
-            #     continue
+            if cached_only and self.debrid_service != "torrent" and not torrent["cached"]:
+                continue
 
             if max_size != 0 and torrent["size"] > max_size:
                 continue
@@ -200,14 +202,15 @@ class TorrentManager:
             is_fetchable, failed_keys = check_fetch(parsed_data, rtn_settings)
             rank = get_rank(parsed_data, rtn_settings, rtn_ranking)
 
-            if rtn_settings.options["remove_all_trash"]:
-                if not is_fetchable:
-                    # print(f"'{raw_title}' denied by: {', '.join(failed_keys)}")
-                    continue
+            if remove_trash:
+                if rtn_settings.options["remove_all_trash"]:
+                    if not is_fetchable:
+                        # print(f"'{raw_title}' denied by: {', '.join(failed_keys)}")
+                        continue
 
-            if rank < rtn_settings.options["remove_ranks_under"]:
-                # print(f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}")
-                continue
+                if rank < rtn_settings.options["remove_ranks_under"]:
+                    # print(f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}")
+                    continue
 
             try:
                 ranked_torrents.add(
