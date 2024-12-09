@@ -236,7 +236,7 @@ class TorrentManager:
         values = [
             {
                 "debrid_service": self.debrid_service,
-                "info_hash": info_hash,
+                "info_hash": file["info_hash"],
                 "season": file["season"],
                 "episode": file["episode"],
                 "file_index": file["index"],
@@ -244,7 +244,7 @@ class TorrentManager:
                 "size": file["size"],
                 "timestamp": current_time,
             }
-            for info_hash, file in availability.items()
+            for file in availability
         ]
 
         query = f"""

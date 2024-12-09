@@ -55,8 +55,7 @@ class TorBox:
 
         availability = [response for response in responses if response is not None]
 
-        files = {}
-
+        files = []
         for result in availability:
             if not result["success"] or not result["data"]:
                 continue
@@ -74,17 +73,19 @@ class TorBox:
 
                     filename_parsed = parse(filename)
 
-                    files[torrent["hash"]] = {
-                        "index": torrent_files.index(file),
-                        "title": filename,
-                        "size": file["size"],
-                        "season": filename_parsed.seasons[0]
-                        if len(filename_parsed.seasons) != 0
-                        else None,
-                        "episode": filename_parsed.episodes[0]
-                        if len(filename_parsed.episodes) != 0
-                        else None,
-                    }
+                    files.append(
+                        {
+                            "info_hash": torrent["hash"],
+                            "index": torrent_files.index(file),
+                            "title": filename,
+                            "size": file["size"],
+                            "season": filename_parsed.seasons[0]
+                            if len(filename_parsed.seasons) != 0
+                            else None,
+                            "episode": filename_parsed.episodes[0]
+                            if len(filename_parsed.episodes) != 0
+                            else None,
+                        }
+                    )
 
-        print(files, "results availa")
         return files
