@@ -71,7 +71,7 @@ class MetadataScraper:
                 "title": metadata["title"],
                 "year": metadata["year"],
                 "year_end": metadata["year_end"],
-                "aliases": orjson.dumps(aliases),
+                "aliases": orjson.dumps(aliases).decode("utf-8"),
                 "timestamp": time.time(),
             },
         )

@@ -1,4 +1,3 @@
-import PTT
 import os
 import random
 import string

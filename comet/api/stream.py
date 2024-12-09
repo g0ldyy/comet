@@ -106,18 +106,13 @@ async def stream(
                     {"media_id": media_id, "timestamp": time.time()},
                 )
                 background_tasks.add_task(remove_ongoing_search_from_database, media_id)
-
                 await torrent_manager.scrape_torrents(session)
 
-
-        await torrent_manager.get_cached_availability()                
-        if debrid_service != "torrent":
-            one_cached = False
-            for info_hash, torrent in torrent_manager.torrents.items():
-                if torrent["cached"]:
-                    one_cached = True
-            if not one_cached:
-                await torrent_manager.get_and_cache_debrid_availability(session)
+        await torrent_manager.get_cached_availability()
+        if debrid_service != "torrent" and not any(
+            torrent["cached"] for torrent in torrent_manager.torrents.values()
+        ):
+            await torrent_manager.get_and_cache_debrid_availability(session)
 
         torrent_manager.rank_torrents(
             config["rtnSettings"],
@@ -134,9 +129,9 @@ async def stream(
         results = []
         for info_hash, torrent in torrent_manager.ranked_torrents.items():
             torrent_data = torrents[info_hash]
-            rtn_data = torrent_data["parsed"] if torrent_data["cached"] else torrent.data
-
-            # here we put the config check with rtn_data
+            rtn_data = (
+                torrent_data["parsed"] if torrent_data["cached"] else torrent.data
+            )
 
             debrid_emoji = (
                 "🧲"

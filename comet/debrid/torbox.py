@@ -68,10 +68,7 @@ class TorBox:
                 for file in torrent_files:
                     filename = file["name"].split("/")[1]
 
-                    if not is_video(filename):
-                        continue
-
-                    if "sample" in filename.lower():
+                    if not is_video(filename) or "sample" in filename.lower():
                         continue
 
                     filename_parsed = parse(filename)
@@ -88,7 +85,7 @@ class TorBox:
                             "episode": filename_parsed.episodes[0]
                             if len(filename_parsed.episodes) != 0
                             else None,
-                            "file_data": filename_parsed
+                            "file_data": filename_parsed,
                         }
                     )
 
