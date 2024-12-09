@@ -19,7 +19,7 @@ class TorBox:
     async def check_premium(self):
         try:
             check_premium = await self.session.get(
-                f"{self.api_url}/user/me?settings=false", raise_for_status=False
+                f"{self.api_url}/user/me?settings=false"
             )
             check_premium = await check_premium.text()
             if '"success":true' in check_premium:
@@ -115,6 +115,9 @@ class TorBox:
                 f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={index}&zip=false",
             )
             get_download_link = await get_download_link.json()
+
+            if not get_download_link["success"]:
+                return
 
             return get_download_link["data"]
         except Exception as e:

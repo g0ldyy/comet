@@ -38,9 +38,7 @@ async def stream(
     config = config_check(b64config)
 
     connector = aiohttp.TCPConnector(limit=0)
-    async with aiohttp.ClientSession(
-        connector=connector, raise_for_status=True
-    ) as session:
+    async with aiohttp.ClientSession(connector=connector) as session:
         metadata, aliases = await MetadataScraper(session).fetch_metadata_and_aliases(
             media_type, media_id
         )
@@ -223,7 +221,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
         config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
-    async with aiohttp.ClientSession(raise_for_status=True) as session:
+    async with aiohttp.ClientSession() as session:
         current_time = time.time()
         cached_link = await database.fetch_one(
             f"SELECT download_url FROM download_links_cache WHERE debrid_key = '{config['debridApiKey']}' AND info_hash = '{hash}' AND file_index = '{index}' AND timestamp + 3600 >= :current_time",
