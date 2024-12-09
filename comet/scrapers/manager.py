@@ -190,6 +190,11 @@ class TorrentManager:
                 continue
 
             parsed_data = torrent["parsed"]
+
+            if self.media_type == "series":
+                if parsed_data.seasons and self.season not in parsed_data.seasons or parsed_data.episodes and self.episode not in parsed_data.episodes:
+                    continue
+
             raw_title = torrent["title"]
 
             is_fetchable, failed_keys = check_fetch(parsed_data, rtn_settings)
@@ -259,7 +264,7 @@ class TorrentManager:
         for file in availability:
             info_hash = file["info_hash"]
             self.torrents[info_hash]["cached"] = True
-            self.torrents[info_hash]["file_data"] = file["file_data"]
+            self.torrents[info_hash]["parsed"] = file["file_data"]
             self.torrents[info_hash]["fileIndex"] = file["index"]
             self.torrents[info_hash]["title"] = file["title"]
             self.torrents[info_hash]["size"] = file["size"]
@@ -293,7 +298,7 @@ class TorrentManager:
         for row in rows:
             info_hash = row["info_hash"]
             self.torrents[info_hash]["cached"] = True
-            self.torrents[info_hash]["file_data"] = ParsedData(**orjson.loads(row["file_data"]))
+            self.torrents[info_hash]["parsed"] = ParsedData(**orjson.loads(row["file_data"]))
             self.torrents[info_hash]["fileIndex"] = row["file_index"]
             self.torrents[info_hash]["title"] = row["title"]
             self.torrents[info_hash]["size"] = row["size"]

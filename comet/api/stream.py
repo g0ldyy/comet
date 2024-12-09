@@ -132,7 +132,7 @@ async def stream(
         results = []
         for info_hash, torrent in torrent_manager.ranked_torrents.items():
             torrent_data = torrents[info_hash]
-            rtn_data = torrent_data["file_data"] if torrent_data["cached"] else torrent.data
+            rtn_data = torrent_data["parsed"] if torrent_data["cached"] else torrent.data
 
             # here we put the config check with rtn_data
 
