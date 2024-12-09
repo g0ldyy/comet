@@ -29,11 +29,11 @@ async def setup_database():
             "CREATE TABLE IF NOT EXISTS availability_cache (id SERIAL PRIMARY KEY, debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size BIGINT, file_data TEXT, timestamp INTEGER, UNIQUE(debrid_service, info_hash, season, episode))"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, file_index))"
+            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, file_index TEXT, download_url TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, file_index))"
         )
-        await database.execute(
-            "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
-        )
+        # await database.execute(
+        #     "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
+        # )
 
         # clear expired entries
         await database.execute("DELETE FROM ongoing_searches")
@@ -63,7 +63,7 @@ async def setup_database():
         )
 
         await database.execute("DELETE FROM download_links_cache")
-        await database.execute("DELETE FROM active_connections")
+        # await database.execute("DELETE FROM active_connections")
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
         logger.exception(traceback.format_exc())

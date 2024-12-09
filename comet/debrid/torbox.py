@@ -90,3 +90,34 @@ class TorBox:
                     )
 
         return files
+
+    async def generate_download_link(self, hash: str, index: str):
+        try:
+            get_torrents = await self.session.get(
+                f"{self.api_url}/torrents/mylist?bypass_cache=true"
+            )
+            get_torrents = await get_torrents.json()
+            exists = False
+            for torrent in get_torrents["data"]:
+                if torrent["hash"] == hash:
+                    torrent_id = torrent["id"]
+                    exists = True
+                    break
+            if not exists:
+                create_torrent = await self.session.post(
+                    f"{self.api_url}/torrents/createtorrent",
+                    data={"magnet": f"magnet:?xt=urn:btih:{hash}"},
+                )
+                create_torrent = await create_torrent.json()
+                torrent_id = create_torrent["data"]["torrent_id"]
+
+            get_download_link = await self.session.get(
+                f"{self.api_url}/torrents/requestdl?token={self.debrid_api_key}&torrent_id={torrent_id}&file_id={index}&zip=false",
+            )
+            get_download_link = await get_download_link.json()
+
+            return get_download_link["data"]
+        except Exception as e:
+            logger.warning(
+                f"Exception while getting download link from TorBox for {hash}|{index}: {e}"
+            )

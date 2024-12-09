@@ -1,16 +1,20 @@
 import aiohttp
 import time
 import asyncio
+import mediaflow_proxy.handlers
+import mediaflow_proxy.utils.http_utils
 
 from fastapi import APIRouter, Request, BackgroundTasks
+from fastapi.responses import (
+    FileResponse,
+    RedirectResponse,
+)
 
 from comet.utils.models import settings, database
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
 from comet.utils.general import config_check, format_title, get_client_ip
-from comet.debrid.manager import (
-    get_debrid_extension,
-)
+from comet.debrid.manager import get_debrid_extension, get_debrid
 
 streams = APIRouter()
 
@@ -127,6 +131,20 @@ async def stream(
         torrents = torrent_manager.torrents
 
         results = []
+        if (
+            config["debridStreamProxyPassword"] != ""
+            and settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            != config["debridStreamProxyPassword"]
+        ):
+            results.append(
+                {
+                    "name": "[⚠️] Comet",
+                    "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
+                    "url": "https://comet.fast",
+                }
+            )
+
         for info_hash, torrent in torrent_manager.ranked_torrents.items():
             torrent_data = torrents[info_hash]
             rtn_data = (
@@ -168,3 +186,83 @@ async def stream(
             results.append(the_stream)
 
         return {"streams": results}
+
+
+# class CustomORJSONResponse(Response):
+#     media_type = "application/json"
+
+#     def render(self, content) -> bytes:
+#         assert orjson is not None, "orjson must be installed"
+#         return orjson.dumps(content, option=orjson.OPT_INDENT_2)
+
+
+# @streams.get("/active-connections", response_class=CustomORJSONResponse)
+# async def active_connections(request: Request, password: str):
+#     if password != settings.DASHBOARD_ADMIN_PASSWORD:
+#         return "Invalid Password"
+
+#     active_connections = await database.fetch_all("SELECT * FROM active_connections")
+
+#     return {
+#         "total_connections": len(active_connections),
+#         "active_connections": active_connections,
+#     }
+
+
+@streams.get("/{b64config}/playback/{hash}/{index}")
+async def playback(request: Request, b64config: str, hash: str, index: str):
+    config = config_check(b64config)
+    if not config:
+        return FileResponse("comet/assets/invalidconfig.mp4")
+
+    if (
+        settings.PROXY_DEBRID_STREAM
+        and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
+        and config["debridApiKey"] == ""
+    ):
+        config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
+        config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+
+    async with aiohttp.ClientSession(raise_for_status=True) as session:
+        current_time = time.time()
+        cached_link = await database.fetch_one(
+            f"SELECT download_url FROM download_links_cache WHERE debrid_key = '{config['debridApiKey']}' AND info_hash = '{hash}' AND file_index = '{index}' AND timestamp + 3600 >= :current_time",
+            {"current_time": current_time},
+        )
+
+        download_url = None
+        if cached_link:
+            download_url = cached_link["download_url"]
+
+        ip = get_client_ip(request)
+        if download_url is None:
+            debrid = get_debrid(
+                session, config["debridService"], config["debridApiKey"], ip
+            )
+            download_url = await debrid.generate_download_link(hash, index)
+            if not download_url:
+                return FileResponse("comet/assets/uncached.mp4")
+
+            await database.execute(
+                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO download_links_cache VALUES (:debrid_key, :info_hash, :file_index, :download_url, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                {
+                    "debrid_key": config["debridApiKey"],
+                    "info_hash": hash,
+                    "file_index": index,
+                    "download_url": download_url,
+                    "timestamp": current_time,
+                },
+            )
+
+        if (
+            settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            == config["debridStreamProxyPassword"]
+        ):
+            return await mediaflow_proxy.handlers.handle_stream_request(
+                request.method,
+                download_url,
+                mediaflow_proxy.utils.http_utils.get_proxy_headers(request),
+            )
+
+        return RedirectResponse(download_url, status_code=302)
