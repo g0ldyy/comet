@@ -109,7 +109,8 @@ async def stream(
 
                 await torrent_manager.scrape_torrents(session)
 
-        await torrent_manager.get_cached_availability()
+
+        await torrent_manager.get_cached_availability()                
         if debrid_service != "torrent":
             one_cached = False
             for info_hash, torrent in torrent_manager.torrents.items():
@@ -131,7 +132,10 @@ async def stream(
         results = []
         for info_hash, torrent in torrent_manager.ranked_torrents.items():
             torrent_data = torrents[info_hash]
-            rtn_data = torrent.data
+            rtn_data = torrent_data["file_data"] if torrent_data["cached"] else torrent.data
+
+            # here we put the config check with rtn_data
+
             debrid_emoji = (
                 "🧲"
                 if debrid_service == "torrent"

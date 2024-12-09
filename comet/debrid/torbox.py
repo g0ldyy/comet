@@ -19,7 +19,7 @@ class TorBox:
     async def check_premium(self):
         try:
             check_premium = await self.session.get(
-                f"{self.api_url}/user/me?settings=false"
+                f"{self.api_url}/user/me?settings=false", raise_for_status=False
             )
             check_premium = await check_premium.text()
             if '"success":true' in check_premium:
@@ -41,6 +41,9 @@ class TorBox:
             )
 
     async def get_availability(self, torrent_hashes: list):
+        if not await self.check_premium():
+            return []
+
         chunk_size = 50
         chunks = [
             torrent_hashes[i : i + chunk_size]
@@ -85,6 +88,7 @@ class TorBox:
                             "episode": filename_parsed.episodes[0]
                             if len(filename_parsed.episodes) != 0
                             else None,
+                            "file_data": filename_parsed
                         }
                     )
 

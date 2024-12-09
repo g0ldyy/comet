@@ -22,6 +22,11 @@ from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
 
 
+def default(obj):
+    if isinstance(obj, ParsedData):
+        return obj.model_dump()
+
+
 class TorrentManager:
     def __init__(
         self,
@@ -101,10 +106,6 @@ class TorrentManager:
             self.torrents[data["infoHash"]] = data
 
     async def cache_torrents(self):
-        def default(obj):
-            if isinstance(obj, ParsedData):
-                return obj.model_dump()
-
         current_time = time.time()
         values = [
             {
@@ -240,6 +241,7 @@ class TorrentManager:
                 "file_index": file["index"],
                 "title": file["title"],
                 "size": file["size"],
+                "file_data": orjson.dumps(file["file_data"], default),
                 "timestamp": current_time,
             }
             for file in availability
@@ -248,7 +250,7 @@ class TorrentManager:
         query = f"""
             INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
             INTO availability_cache
-            VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :timestamp)
+            VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :file_data, :timestamp)
             {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
         """
 
@@ -257,6 +259,7 @@ class TorrentManager:
         for file in availability:
             info_hash = file["info_hash"]
             self.torrents[info_hash]["cached"] = True
+            self.torrents[info_hash]["file_data"] = file["file_data"]
             self.torrents[info_hash]["fileIndex"] = file["index"]
             self.torrents[info_hash]["title"] = file["title"]
             self.torrents[info_hash]["size"] = file["size"]
@@ -269,7 +272,7 @@ class TorrentManager:
             return
 
         query = f"""
-            SELECT info_hash, file_index, title, size
+            SELECT info_hash, file_index, title, size, file_data
             FROM availability_cache
             WHERE info_hash IN (SELECT cast(value as TEXT) FROM {'json_array_elements_text' if settings.DATABASE_TYPE == 'postgresql' else 'json_each'}(:info_hashes))
             AND debrid_service = :debrid_service
@@ -290,6 +293,7 @@ class TorrentManager:
         for row in rows:
             info_hash = row["info_hash"]
             self.torrents[info_hash]["cached"] = True
+            self.torrents[info_hash]["file_data"] = ParsedData(**orjson.loads(row["file_data"]))
             self.torrents[info_hash]["fileIndex"] = row["file_index"]
             self.torrents[info_hash]["title"] = row["title"]
             self.torrents[info_hash]["size"] = row["size"]

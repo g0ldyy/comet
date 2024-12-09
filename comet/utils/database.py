@@ -26,7 +26,7 @@ async def setup_database():
             "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash TEXT PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
         )
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS availability_cache (debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size INTEGER, timestamp INTEGER, PRIMARY KEY (debrid_service, info_hash, season, episode))"
+            "CREATE TABLE IF NOT EXISTS availability_cache (debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size INTEGER, file_data TEXT, timestamp INTEGER, PRIMARY KEY (debrid_service, info_hash, season, episode))"
         )
         await database.execute(
             "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, file_index TEXT, link TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, file_index))"
