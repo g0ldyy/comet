@@ -55,11 +55,11 @@ async def retrieve_debrid_availability(
     info_hashes: list,
 ):
     if debrid_service == "torrent":
-        return info_hashes
+        return []
 
     if debrid_services[debrid_service]["cache_availability_endpoint"]:
         return await get_debrid(
             session, debrid_service, debrid_api_key, ip
         ).get_availability(info_hashes)
 
-    return {}
+    return []

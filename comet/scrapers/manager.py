@@ -75,8 +75,6 @@ class TorrentManager:
 
         await self.cache_torrents()
 
-        await self.get_debrid_availability(session)
-
     async def get_cached_torrents(self):
         rows = await database.fetch_all(
             """
@@ -223,7 +221,7 @@ class TorrentManager:
             ranked_torrents, max_results_per_resolution
         )
 
-    async def get_debrid_availability(self, session: aiohttp.ClientSession):
+    async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):
         info_hashes = list(self.torrents.keys())
         availability = await retrieve_debrid_availability(
             session, self.debrid_service, self.debrid_api_key, self.ip, info_hashes
@@ -255,6 +253,13 @@ class TorrentManager:
         """
 
         await database.execute_many(query, values)
+
+        for file in availability:
+            info_hash = file["info_hash"]
+            self.torrents[info_hash]["cached"] = True
+            self.torrents[info_hash]["fileIndex"] = file["index"]
+            self.torrents[info_hash]["title"] = file["title"]
+            self.torrents[info_hash]["size"] = file["size"]
 
     async def get_cached_availability(self):
         info_hashes = list(self.torrents.keys())
