@@ -8,7 +8,9 @@ from comet.utils.models import settings, database
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
 from comet.utils.general import config_check, format_title, get_client_ip
-from comet.debrid.manager import get_debrid_extension
+from comet.debrid.manager import (
+    get_debrid_extension,
+)
 
 streams = APIRouter()
 
@@ -59,7 +61,11 @@ async def stream(
         if media_type == "series":
             log_title += f" S{season:02d}E{episode:02d}"
 
+        debrid_service = config["debridService"]
         torrent_manager = TorrentManager(
+            debrid_service,
+            config["debridApiKey"],
+            get_client_ip(request),
             media_type,
             media_id,
             title,
@@ -96,7 +102,7 @@ async def stream(
 
             if not cached:
                 await database.execute(
-                    f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches (media_id, timestamp) VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                    f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
                     {"media_id": media_id, "timestamp": time.time()},
                 )
 
@@ -104,11 +110,7 @@ async def stream(
 
                 await torrent_manager.scrape_torrents(session)
 
-                if config["debridService"] != "torrent":
-                    await torrent_manager.get_cache_availability(
-                        session, config, get_client_ip(request)
-                    )
-
+        await torrent_manager.get_cached_availability()
         torrent_manager.rank_torrents(
             config["rtnSettings"],
             config["rtnRanking"],
@@ -116,34 +118,45 @@ async def stream(
             config["maxSize"],
         )
 
-        debrid_extension = get_debrid_extension(config["debridService"])
-        debrid_emoji = "🧲" if config["debridService"] == "torrent" else "⚡"
+        debrid_extension = get_debrid_extension(debrid_service)
         torrents = torrent_manager.torrents
 
         results = []
-        for info_hash, torrent in torrent_manager.sorted_torrents.items():
+        for info_hash, torrent in torrent_manager.ranked_torrents.items():
             torrent_data = torrents[info_hash]
             rtn_data = torrent.data
-
-            results.append(
-                {
-                    "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
-                    "description": format_title(
-                        rtn_data,
-                        torrent_data["seeders"],
-                        torrent_data["size"],
-                        torrent_data["tracker"],
-                        config["resultFormat"],
-                    ),
-                    "infoHash": info_hash,
-                    "fileIdx": torrent_data["fileIndex"],
-                    "behaviorHints": {
-                        "bingeGroup": "comet|" + info_hash,
-                        "videoSize": torrent_data["size"],
-                        "filename": rtn_data.raw_title,
-                    },
-                    "sources": torrent_data["sources"],
-                }
+            debrid_emoji = (
+                "🧲"
+                if debrid_service == "torrent"
+                else ("⚡" if torrent_data["cached"] else "⬇️")
             )
+
+            the_stream = {
+                "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
+                "description": format_title(
+                    rtn_data,
+                    torrent_data["title"],
+                    torrent_data["seeders"],
+                    torrent_data["size"],
+                    torrent_data["tracker"],
+                    config["resultFormat"],
+                ),
+                "behaviorHints": {
+                    "bingeGroup": "comet|" + info_hash,
+                    "videoSize": torrent_data["size"],
+                    "filename": rtn_data.raw_title,
+                },
+            }
+
+            if debrid_service == "torrent":
+                the_stream["infoHash"] = info_hash
+                the_stream["fileIdx"] = torrent_data["fileIndex"]
+                the_stream["sources"] = torrent_data["sources"]
+            else:
+                the_stream["url"] = (
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex']}"
+                )
+
+            results.append(the_stream)
 
         return {"streams": results}

@@ -10,8 +10,6 @@ from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import BestRanking, SettingsModel
 
-from comet.debrid.manager import debrid_services
-
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
@@ -289,7 +287,14 @@ class ConfigModel(BaseModel):
 
     @field_validator("debridService")
     def check_debrid_service(cls, v):
-        if v not in debrid_services:
+        if v not in [
+            "realdebrid",
+            "alldebrid",
+            "premiumize",
+            "torbox",
+            "debridlink",
+            "torrent",
+        ]:
             raise ValueError("Invalid debridService")
         return v
 

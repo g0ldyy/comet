@@ -16,7 +16,7 @@ from RTN import (
 )
 
 from comet.utils.models import settings, database
-from comet.debrid.manager import get_debrid
+from comet.debrid.manager import retrieve_debrid_availability
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
@@ -25,6 +25,9 @@ from .mediafusion import get_mediafusion
 class TorrentManager:
     def __init__(
         self,
+        debrid_service: str,
+        debrid_api_key: str,
+        ip: str,
         media_type: str,
         media_id: str,
         title: str,
@@ -35,6 +38,9 @@ class TorrentManager:
         aliases: dict,
         remove_adult_content: bool,
     ):
+        self.debrid_service = debrid_service
+        self.debrid_api_key = debrid_api_key
+        self.ip = ip
         self.media_type = media_type
         self.media_id = media_id
         self.title = title
@@ -47,7 +53,7 @@ class TorrentManager:
 
         self.seen_hashes = set()
         self.torrents = {}
-        self.sorted_torrents = {}
+        self.ranked_torrents = {}
 
     async def scrape_torrents(
         self,
@@ -68,6 +74,8 @@ class TorrentManager:
         await asyncio.gather(*tasks)
 
         await self.cache_torrents()
+
+        await self.get_debrid_availability(session)
 
     async def get_cached_torrents(self):
         rows = await database.fetch_all(
@@ -114,7 +122,7 @@ class TorrentManager:
 
         query = f"""
             INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-            INTO torrents_cache (info_hash, media_id, season, episode, data, timestamp)
+            INTO torrents_cache
             VALUES (:info_hash, :media_id, :season, :episode, :data, :timestamp)
             {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
         """
@@ -176,6 +184,9 @@ class TorrentManager:
     ):
         ranked_torrents = set()
         for info_hash, torrent in self.torrents.items():
+            # if self.debrid_service != "torrent" and not torrent["cached"]: only if he set his config to hide them
+            #     continue
+
             if max_size != 0 and torrent["size"] > max_size:
                 continue
 
@@ -208,11 +219,72 @@ class TorrentManager:
             except:
                 pass
 
-        self.sorted_torrents = sort_torrents(
+        self.ranked_torrents = sort_torrents(
             ranked_torrents, max_results_per_resolution
         )
 
-    async def get_cache_availability(
-        self, session: aiohttp.ClientSession, config: dict, ip: str
-    ):
-        debrid = get_debrid(session, config, ip)
+    async def get_debrid_availability(self, session: aiohttp.ClientSession):
+        info_hashes = list(self.torrents.keys())
+        availability = await retrieve_debrid_availability(
+            session, self.debrid_service, self.debrid_api_key, self.ip, info_hashes
+        )
+
+        if len(availability) == 0:
+            return
+
+        current_time = time.time()
+        values = [
+            {
+                "debrid_service": self.debrid_service,
+                "info_hash": info_hash,
+                "season": file["season"],
+                "episode": file["episode"],
+                "file_index": file["index"],
+                "title": file["title"],
+                "size": file["size"],
+                "timestamp": current_time,
+            }
+            for info_hash, file in availability.items()
+        ]
+
+        query = f"""
+            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+            INTO availability_cache
+            VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :timestamp)
+            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+        """
+
+        await database.execute_many(query, values)
+
+    async def get_cached_availability(self):
+        info_hashes = list(self.torrents.keys())
+        for hash in info_hashes:
+            self.torrents[hash]["cached"] = False
+        if self.debrid_service == "torrent" or len(info_hashes) == 0:
+            return
+
+        query = f"""
+            SELECT info_hash, file_index, title, size
+            FROM availability_cache
+            WHERE info_hash IN (SELECT cast(value as TEXT) FROM {'json_array_elements_text' if settings.DATABASE_TYPE == 'postgresql' else 'json_each'}(:info_hashes))
+            AND debrid_service = :debrid_service
+            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
+            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+            AND timestamp + :cache_ttl >= :current_time
+        """
+        params = {
+            "info_hashes": orjson.dumps(info_hashes),
+            "debrid_service": self.debrid_service,
+            "season": self.season,
+            "episode": self.episode,
+            "cache_ttl": settings.CACHE_TTL,
+            "current_time": time.time(),
+        }
+
+        rows = await database.fetch_all(query, params)
+        for row in rows:
+            info_hash = row["info_hash"]
+            self.torrents[info_hash]["cached"] = True
+            self.torrents[info_hash]["fileIndex"] = row["file_index"]
+            self.torrents[info_hash]["title"] = row["title"]
+            self.torrents[info_hash]["size"] = row["size"]

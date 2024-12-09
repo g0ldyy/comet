@@ -133,13 +133,18 @@ def format_metadata(data: ParsedData):
 
 
 def format_title(
-    data: ParsedData, seeders: int, size: int, tracker: str, result_format: list
+    data: ParsedData,
+    ttitle: str,
+    seeders: int,
+    size: int,
+    tracker: str,
+    result_format: list,
 ):
     has_all = "all" in result_format
 
     title = ""
     if has_all or "title" in result_format:
-        title += f"{data.raw_title}\n"
+        title += f"{ttitle}\n"
 
     if has_all or "metadata" in result_format:
         metadata = format_metadata(data)
@@ -179,3 +184,46 @@ def get_client_ip(request: Request):
         if "cf-connecting-ip" in request.headers
         else request.client.host
     )
+
+
+def is_video(title: str):
+    video_extensions = (
+        ".3g2",
+        ".3gp",
+        ".amv",
+        ".asf",
+        ".avi",
+        ".drc",
+        ".f4a",
+        ".f4b",
+        ".f4p",
+        ".f4v",
+        ".flv",
+        ".gif",
+        ".gifv",
+        ".m2v",
+        ".m4p",
+        ".m4v",
+        ".mkv",
+        ".mov",
+        ".mp2",
+        ".mp4",
+        ".mpg",
+        ".mpeg",
+        ".mpv",
+        ".mng",
+        ".mpe",
+        ".mxf",
+        ".nsv",
+        ".ogg",
+        ".ogv",
+        ".qt",
+        ".rm",
+        ".rmvb",
+        ".roq",
+        ".svi",
+        ".webm",
+        ".wmv",
+        ".yuv",
+    )
+    return title.endswith(video_extensions)
