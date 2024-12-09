@@ -254,8 +254,8 @@ rtn_ranking_default = BestRanking()
 
 
 class ConfigModel(BaseModel):
-    languages: Optional[List[str]] = ["all"]
-    resolutions: Optional[List[str]] = ["all"]
+    # languages: Optional[List[str]] = ["all"]
+    # resolutions: Optional[List[str]] = ["all"]
     cachedOnly: Optional[bool] = False
     removeTrash: Optional[bool] = True
     resultFormat: Optional[List[str]] = ["all"]
@@ -305,11 +305,11 @@ default_config["rtnRanking"] = BestRanking(**default_config["rtnRanking"])
 
 
 # Web Config Initialization
-languages = [language for language in PTT.parse.LANGUAGES_TRANSLATION_TABLE.values()]
-languages.insert(0, "Unknown")
-languages.insert(1, "Multi")
+# languages = [language for language in PTT.parse.LANGUAGES_TRANSLATION_TABLE.values()]
+# languages.insert(0, "Unknown")
+# languages.insert(1, "Multi")
 web_config = {
-    "languages": languages,
+    # "languages": languages,
     "resolutions": [resolution.value for resolution in RTN.models.Resolution],
     "resultFormat": ["title", "metadata", "seeders", "size", "tracker", "languages"],
 }

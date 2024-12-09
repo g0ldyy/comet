@@ -12,8 +12,8 @@
         <title>Comet - Stremio's fastest torrent/debrid search add-on.</title>
         <link id="favicon" rel="icon" type="image/x-icon" href="https://i.imgur.com/jmVoVMu.jpeg">
 
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/themes/dark.css" />
-        <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/shoelace-autoloader.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/themes/dark.css" />
+        <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/shoelace-autoloader.js"></script>
 
         <style>
             :not(:defined) {
@@ -511,13 +511,13 @@
         </div>
 
         <div class="form-container">
-            <div class="form-item">
+            <!-- <div class="form-item">
                 <sl-select id="languages" multiple clearable label="Languages" placeholder="Select languages"></sl-select>
             </div>
 
             <div class="form-item">
                 <sl-select id="resolutions" multiple clearable label="Resolutions" placeholder="Select resolutions"></sl-select>
-            </div>
+            </div> -->
 
             <div class="form-item">
                 <sl-input id="maxResultsPerResolution" type="number" min=0 value=0 label="Max Results Per Resolution" placeholder="Enter max results per resolution"></sl-input>
@@ -668,11 +668,11 @@
                         ]);
 
                         const webConfig = {{webConfig|tojson}};
-                        populateSelect("languages", webConfig.languages);
-                        populateSelect("resolutions", webConfig.resolutions);
+                        // populateSelect("languages", webConfig.languages);
+                        // populateSelect("resolutions", webConfig.resolutions);
                         populateSelect("resultFormat", webConfig.resultFormat);
                         document.body.classList.add("ready");
-                        defaultLanguages = webConfig.languages;
+                        // defaultLanguages = webConfig.languages;
                         defaultResolutions = webConfig.resolutions;
                         defaultResultFormat = webConfig.resultFormat;
 
@@ -714,8 +714,8 @@
                     const copyAlert = document.querySelector('#copyAlert');
 
                     function getSettings() {
-                        const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
-                        const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
+                        // const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
+                        // const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
                         const cachedOnly = document.getElementById("cachedOnly").checked;
@@ -725,8 +725,8 @@
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
 
-                        const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["all"] : languages;
-                        const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["all"] : resolutions;
+                        // const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["all"] : languages;
+                        // const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["all"] : resolutions;
                         const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
                         return {
@@ -735,8 +735,8 @@
                             cachedOnly: cachedOnly,
                             removeTrash: removeTrash,
                             resultFormat: selectedResultFormat,
-                            resolutions: selectedResolutions,
-                            languages: selectedLanguages,
+                            // resolutions: selectedResolutions,
+                            // languages: selectedLanguages,
                             debridService: debridService,
                             debridApiKey: debridApiKey,
                             debridStreamProxyPassword: debridStreamProxyPassword,
@@ -798,10 +798,10 @@
                             document.getElementById("debridApiKey").value = settings.debridApiKey;
                         if (settings.debridStreamProxyPassword !== null)
                             document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
-                        if (settings.languages !== null && settings.languages != "all")
-                            document.getElementById("languages").value = settings.languages;
-                        if (settings.resolutions !== null && settings.resolutions != "all")
-                            document.getElementById("resolutions").value = settings.resolutions;
+                        // if (settings.languages !== null && settings.languages != "all")
+                        //     document.getElementById("languages").value = settings.languages;
+                        // if (settings.resolutions !== null && settings.resolutions != "all")
+                        //     document.getElementById("resolutions").value = settings.resolutions;
                         if (settings.resultFormat !== null && settings.resultFormat != "all")
                             document.getElementById("resultFormat").value = settings.resultFormat;
                     }
