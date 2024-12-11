@@ -128,14 +128,15 @@ async def stream(
         debrid_extension = get_debrid_extension(debrid_service)
         torrents = torrent_manager.torrents
 
-        results = []
+        cached_results = []
+        non_cached_results = []
         if (
             config["debridStreamProxyPassword"] != ""
             and settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             != config["debridStreamProxyPassword"]
         ):
-            results.append(
+            cached_results.append(
                 {
                     "name": "[⚠️] Comet",
                     "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
@@ -181,9 +182,12 @@ async def stream(
                     f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex']}"
                 )
 
-            results.append(the_stream)
+            if torrent_data["cached"]:
+                cached_results.append(the_stream)
+            else:
+                non_cached_results.append(the_stream)
 
-        return {"streams": results}
+        return {"streams": cached_results + non_cached_results}
 
 
 # class CustomORJSONResponse(Response):
