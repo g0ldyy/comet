@@ -4,9 +4,10 @@ import sys
 import threading
 import time
 import traceback
+import uvicorn
+
 from contextlib import asynccontextmanager
 
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +16,7 @@ from starlette.requests import Request
 
 from comet.api.core import main
 from comet.api.stream import streams
-from comet.utils.db import setup_database, teardown_database
+from comet.utils.database import setup_database, teardown_database
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
@@ -47,7 +48,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Comet",
     summary="Stremio's fastest torrent/debrid search add-on.",
-    version="1.0.0",
     lifespan=lifespan,
     redoc_url=None,
 )
@@ -136,15 +136,17 @@ def start_log():
     else:
         logger.log("COMET", "Indexer Manager: False")
 
-    if settings.ZILEAN_URL:
-        logger.log(
-            "COMET",
-            f"Zilean: {settings.ZILEAN_URL} - Take first: {settings.ZILEAN_TAKE_FIRST}",
-        )
-    else:
-        logger.log("COMET", "Zilean: False")
+    zilean_url = f" - {settings.ZILEAN_URL}"
+    logger.log(
+        "COMET",
+        f"Zilean Scraper: {bool(settings.SCRAPE_ZILEAN)}{zilean_url if settings.SCRAPE_ZILEAN else ''}",
+    )
 
-    logger.log("COMET", f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}")
+    torrentio_url = f" - {settings.TORRENTIO_URL}"
+    logger.log(
+        "COMET",
+        f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}{torrentio_url if settings.SCRAPE_TORRENTIO else ''}",
+    )
 
     mediafusion_url = f" - {settings.MEDIAFUSION_URL}"
     logger.log(

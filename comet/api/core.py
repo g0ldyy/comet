@@ -1,5 +1,3 @@
-import PTT
-import RTN
 import random
 import string
 
@@ -7,33 +5,22 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from comet.utils.models import settings
-from comet.utils.general import config_check, get_debrid_extension
+from comet.utils.models import settings, web_config
+from comet.utils.general import config_check
+from comet.debrid.manager import get_debrid_extension
 
 templates = Jinja2Templates("comet/templates")
 main = APIRouter()
 
 
-@main.get("/", status_code=200)
+@main.get("/")
 async def root():
     return RedirectResponse("/configure")
 
 
-@main.get("/health", status_code=200)
+@main.get("/health")
 async def health():
     return {"status": "ok"}
-
-
-indexers = settings.INDEXER_MANAGER_INDEXERS
-languages = [language for language in PTT.parse.LANGUAGES_TRANSLATION_TABLE.values()]
-languages.insert(0, "Unknown")
-languages.insert(1, "Multi")
-web_config = {
-    "indexers": [indexer.replace(" ", "_").lower() for indexer in indexers],
-    "languages": languages,
-    "resolutions": [resolution.value for resolution in RTN.models.Resolution],
-    "resultFormat": ["Title", "Metadata", "Size", "Tracker", "Languages"],
-}
 
 
 @main.get("/configure")
@@ -47,7 +34,6 @@ async def configure(request: Request):
             if settings.CUSTOM_HEADER_HTML
             else "",
             "webConfig": web_config,
-            "indexerManager": settings.INDEXER_MANAGER_TYPE,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
         },
     )
@@ -57,9 +43,6 @@ async def configure(request: Request):
 @main.get("/{b64config}/manifest.json")
 async def manifest(b64config: str = None):
     config = config_check(b64config)
-    if not config:
-        config = {"debridService": None}
-
     debrid_extension = get_debrid_extension(config["debridService"])
 
     return {

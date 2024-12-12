@@ -25,6 +25,7 @@ aiosqlite = "*"
 jinja2 = "*"
 rank-torrent-name = "*"
 parsett = "*"
+mediaflow-proxy = "*"
 
 
 [tool.poetry.group.dev.dependencies]

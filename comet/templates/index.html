@@ -12,8 +12,8 @@
         <title>Comet - Stremio's fastest torrent/debrid search add-on.</title>
         <link id="favicon" rel="icon" type="image/x-icon" href="https://i.imgur.com/jmVoVMu.jpeg">
 
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/themes/dark.css" />
-        <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/shoelace-autoloader.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/themes/dark.css" />
+        <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/shoelace-autoloader.js"></script>
 
         <style>
             :not(:defined) {
@@ -511,21 +511,13 @@
         </div>
 
         <div class="form-container">
-            <div class="form-item">
-                <sl-select id="indexers" multiple clearable label="Indexers" placeholder="Select indexers" {% if not indexerManager %} disabled {% endif %}></sl-select>
-            </div>
-
-            <div class="form-item">
+            <!-- <div class="form-item">
                 <sl-select id="languages" multiple clearable label="Languages" placeholder="Select languages"></sl-select>
             </div>
 
             <div class="form-item">
                 <sl-select id="resolutions" multiple clearable label="Resolutions" placeholder="Select resolutions"></sl-select>
-            </div>
-
-            <div class="form-item">
-                <sl-input id="maxResults" type="number" min=0 value=0 label="Max Results" placeholder="Enter max results"></sl-input>
-            </div>
+            </div> -->
 
             <div class="form-item">
                 <sl-input id="maxResultsPerResolution" type="number" min=0 value=0 label="Max Results Per Resolution" placeholder="Enter max results per resolution"></sl-input>
@@ -540,7 +532,8 @@
             </div>
 
             <div class="form-item">
-                <sl-select id="debridService" value="torbox" label="Debrid Service" placeholder="Select debrid service">
+                <sl-select id="debridService" value="torrent" label="Debrid Service" placeholder="Select debrid service">
+                    <sl-option value="torrent">Torrent</sl-option>
                     <sl-option value="torbox">TorBox</sl-option>
                     <sl-option value="debridlink">Debrid-Link</sl-option>
                     <sl-option value="alldebrid">All-Debrid</sl-option>
@@ -551,16 +544,16 @@
 
             <div class="form-item">
                 <label for="debridService">
-                    Debrid API Key -
-                    <a id="apiKeyLink" href="https://torbox.app/settings" target="_blank">Get It Here</a>
+                    Debrid API Key
+                    <a id="apiKeyLink" href="" target="_blank"></a>
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key" help-text="If no key is specified, you'll get direct torrents!"></sl-input>
             </div>
 
             <sl-details summary="Advanced Settings">
                 <div class="form-item">
+                    <sl-checkbox id="cachedOnly" help-text="Show only content that has already been cached.">Show Cached Only</sl-checkbox>
                     <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
-                    <sl-checkbox id="reverseResultOrder" help-text="Reverse the order of the results for each resolution (useful for those who need small file sizes)">Reverse Result Order</sl-checkbox>
                     <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=10>
                     </sl-select>
                 </div>
@@ -573,14 +566,22 @@
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "alldebrid") {
                         apiKeyLink.href = "https://alldebrid.com/apikeys";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "premiumize") {
                         apiKeyLink.href = "https://premiumize.me/account";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "torbox") {
                         apiKeyLink.href = "https://torbox.app/settings";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "debridlink") {
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
+                        apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "torrent") {
+                        apiKeyLink.href = "";
+                        apiKeyLink.textContent = ""
                     }
                 });
             </script>
@@ -667,12 +668,11 @@
                         ]);
 
                         const webConfig = {{webConfig|tojson}};
-                        populateSelect("indexers", webConfig.indexers);
-                        populateSelect("languages", webConfig.languages);
-                        populateSelect("resolutions", webConfig.resolutions);
+                        // populateSelect("languages", webConfig.languages);
+                        // populateSelect("resolutions", webConfig.resolutions);
                         populateSelect("resultFormat", webConfig.resultFormat);
                         document.body.classList.add("ready");
-                        defaultLanguages = webConfig.languages;
+                        // defaultLanguages = webConfig.languages;
                         defaultResolutions = webConfig.resolutions;
                         defaultResultFormat = webConfig.resultFormat;
 
@@ -714,32 +714,29 @@
                     const copyAlert = document.querySelector('#copyAlert');
 
                     function getSettings() {
-                        const indexers = Array.from(document.getElementById("indexers").selectedOptions).map(option => option.value);
-                        const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
-                        const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
-                        const maxResults = document.getElementById("maxResults").value;
+                        // const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
+                        // const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
                         const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
-                        const reverseResultOrder = document.getElementById("reverseResultOrder").checked;
+                        const cachedOnly = document.getElementById("cachedOnly").checked;
                         const removeTrash = document.getElementById("removeTrash").checked;
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
-                        const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
-                        const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
-                        const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["All"] : resultFormat;
+
+                        // const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["all"] : languages;
+                        // const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["all"] : resolutions;
+                        const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
                         return {
-                            indexers: indexers,
-                            maxResults: parseInt(maxResults),
                             maxResultsPerResolution: parseInt(maxResultsPerResolution),
                             maxSize: parseFloat(maxSize * 1073741824),
-                            reverseResultOrder: reverseResultOrder,
+                            cachedOnly: cachedOnly,
                             removeTrash: removeTrash,
                             resultFormat: selectedResultFormat,
-                            resolutions: selectedResolutions,
-                            languages: selectedLanguages,
+                            // resolutions: selectedResolutions,
+                            // languages: selectedLanguages,
                             debridService: debridService,
                             debridApiKey: debridApiKey,
                             debridStreamProxyPassword: debridStreamProxyPassword,
@@ -787,10 +784,8 @@
                     }
 
                     function populateFormFromSettings(settings) {
-                        if (settings.maxResults !== null)
-                            document.getElementById("maxResults").value = settings.maxResults;
-                        if (settings.reverseResultOrder !== null)
-                            document.getElementById("reverseResultOrder").checked = settings.reverseResultOrder;
+                        if (settings.cachedOnly !== null)
+                            document.getElementById("cachedOnly").checked = settings.cachedOnly;
                         if (settings.removeTrash !== null)
                             document.getElementById("removeTrash").checked = settings.removeTrash;
                         if (settings.maxResultsPerResolution !== null)
@@ -803,13 +798,11 @@
                             document.getElementById("debridApiKey").value = settings.debridApiKey;
                         if (settings.debridStreamProxyPassword !== null)
                             document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
-                        if (settings.indexers !== null)
-                            document.getElementById("indexers").value = settings.indexers;
-                        if (settings.languages !== null && settings.languages != "All")
-                            document.getElementById("languages").value = settings.languages;
-                        if (settings.resolutions !== null && settings.resolutions != "All")
-                            document.getElementById("resolutions").value = settings.resolutions;
-                        if (settings.resultFormat !== null && settings.resultFormat != "All")
+                        // if (settings.languages !== null && settings.languages != "all")
+                        //     document.getElementById("languages").value = settings.languages;
+                        // if (settings.resolutions !== null && settings.resolutions != "all")
+                        //     document.getElementById("resolutions").value = settings.resolutions;
+                        if (settings.resultFormat !== null && settings.resultFormat != "all")
                             document.getElementById("resultFormat").value = settings.resultFormat;
                     }
 
