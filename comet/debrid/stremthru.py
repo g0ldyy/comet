@@ -15,6 +15,7 @@ class StremThru:
         url: str,
         token: str,
         debrid_service: str,
+        ip: str,
     ):
         if not self.is_supported_store(debrid_service):
             raise ValueError(f"unsupported store: {debrid_service}")
@@ -30,6 +31,7 @@ class StremThru:
         self.session = session
         self.base_url = f"{url}/v0/store"
         self.name = f"StremThru[{debrid_service}]" if debrid_service else "StremThru"
+        self.client_ip = ip
 
     @staticmethod
     def is_supported_store(name: Optional[str]):
@@ -44,7 +46,9 @@ class StremThru:
 
     async def check_premium(self):
         try:
-            user = await self.session.get(f"{self.base_url}/user")
+            user = await self.session.get(
+                f"{self.base_url}/user?client_ip={self.client_ip}"
+            )
             user = await user.json()
             return user["data"]["subscription_status"] == "premium"
         except Exception as e:
@@ -57,7 +61,7 @@ class StremThru:
     async def get_instant(self, magnets: list):
         try:
             magnet = await self.session.get(
-                f"{self.base_url}/magnets/check?magnet={','.join(magnets)}"
+                f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}"
             )
             return await magnet.json()
         except Exception as e:
@@ -144,7 +148,7 @@ class StremThru:
     async def generate_download_link(self, hash: str, index: str):
         try:
             magnet = await self.session.post(
-                f"{self.base_url}/magnets",
+                f"{self.base_url}/magnets?client_ip={self.client_ip}",
                 json={"magnet": f"magnet:?xt=urn:btih:{hash}"},
             )
             magnet = await magnet.json()
@@ -165,7 +169,7 @@ class StremThru:
                 return
 
             link = await self.session.post(
-                f"{self.base_url}/link/generate",
+                f"{self.base_url}/link/generate?client_ip={self.client_ip}",
                 json={"link": file["link"]},
             )
             link = await link.json()
