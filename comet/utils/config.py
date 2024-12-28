@@ -36,5 +36,8 @@ def prepare_debrid_config(config: dict[str, Any]):
         config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
         config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
-    if not config["stremthruUrl"]:
+    if (
+        not config["stremthruUrl"]
+        and config["debridService"] in settings.STREMTHRU_AUTO_ENABLED_DEBRID_SERVICES
+    ):
         config["stremthruUrl"] = settings.STREMTHRU_DEFAULT_URL
