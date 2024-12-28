@@ -20,6 +20,7 @@ def getDebrid(session: aiohttp.ClientSession, config: dict, ip: str):
             url=config["stremthruUrl"],
             debrid_service=debrid_service,
             token=debrid_api_key,
+            ip=ip,
         )
 
     if debrid_service == "realdebrid":
