@@ -58,11 +58,12 @@ class StremThru:
 
         return False
 
-    async def get_instant(self, magnets: list):
+    async def get_instant(self, magnets: list, sid: Optional[str] = None):
         try:
-            magnet = await self.session.get(
-                f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}"
-            )
+            url = f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}"
+            if sid:
+                url = f"{url}&sid={sid}"
+            magnet = await self.session.get(url)
             return await magnet.json()
         except Exception as e:
             logger.warning(
@@ -70,7 +71,14 @@ class StremThru:
             )
 
     async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
+        self,
+        torrent_hashes: list,
+        type: str,
+        season: str,
+        episode: str,
+        kitsu: bool,
+        video_id: Optional[str] = None,
+        **kwargs,
     ):
         chunk_size = 25
         chunks = [
@@ -80,7 +88,7 @@ class StremThru:
 
         tasks = []
         for chunk in chunks:
-            tasks.append(self.get_instant(chunk))
+            tasks.append(self.get_instant(chunk, sid=video_id))
 
         responses = await asyncio.gather(*tasks)
 

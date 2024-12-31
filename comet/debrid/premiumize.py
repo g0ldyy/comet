@@ -49,7 +49,7 @@ class Premiumize:
             )
 
     async def get_files(
-        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool
+        self, torrent_hashes: list, type: str, season: str, episode: str, kitsu: bool, **kwargs
     ):
         chunk_size = 100
         chunks = [

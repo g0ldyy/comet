@@ -411,6 +411,7 @@ async def stream(
             season,
             episode,
             kitsu,
+            video_id=full_id,
         )
 
         ranked_files = set()
