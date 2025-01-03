@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.52.0](https://github.com/g0ldyy/comet/compare/v1.51.0...v1.52.0) (2025-01-03)
+
+
+### Features
+
+* revert random manifest id ([f792529](https://github.com/g0ldyy/comet/commit/f7925298993e904a635041248079cf578d602818))
+
 ## [1.51.0](https://github.com/g0ldyy/comet/compare/v1.50.1...v1.51.0) (2024-11-28)
 
 
