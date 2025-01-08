@@ -20,10 +20,11 @@ class StremThru:
         if not self.is_supported_store(debrid_service):
             raise ValueError(f"unsupported store: {debrid_service}")
 
-        if debrid_service == "stremthru":
+        store, token = self.parse_store_creds(debrid_service, token)
+        if store == "stremthru":
             session.headers["Proxy-Authorization"] = f"Basic {token}"
         else:
-            session.headers["X-StremThru-Store-Name"] = debrid_service
+            session.headers["X-StremThru-Store-Name"] = store
             session.headers["X-StremThru-Store-Authorization"] = f"Bearer {token}"
 
         session.headers["User-Agent"] = "comet"
@@ -34,11 +35,21 @@ class StremThru:
         self.client_ip = ip
 
     @staticmethod
+    def parse_store_creds(debrid_service, token: str = ""):
+        if debrid_service != "stremthru":
+            return debrid_service, token
+        if ":" in token:
+            parts = token.split(":")
+            return parts[0], parts[1]
+        return debrid_service, token
+
+    @staticmethod
     def is_supported_store(name: Optional[str]):
         return (
             name == "stremthru"
             or name == "alldebrid"
             or name == "debridlink"
+            or name == "easydebrid"
             or name == "premiumize"
             or name == "realdebrid"
             or name == "torbox"

@@ -575,6 +575,7 @@
                 document.getElementById("debridService").addEventListener("sl-change", function(event) {
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
+                    const apiKeyInput = document.getElementById("debridApiKey");
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
@@ -588,6 +589,11 @@
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
                     } else if (selectedService === "stremthru") {
                         apiKeyLink.href = "https://github.com/MunifTanjim/stremthru?tab=readme-ov-file#configuration";
+                    }
+                    if (selectedService === "stremthru") {
+                      apiKeyInput.helpText = "Enter Credential ('store_name:store_token' or base64 encoded basic token from 'STREMTHRU_PROXY_AUTH' config)"
+                    } else {
+                      apiKeyInput.helpText = "If no key is specified, you'll get direct torrents!"
                     }
                 });
             </script>

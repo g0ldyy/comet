@@ -21,7 +21,11 @@ def should_use_stremthru(config: dict[str, Any]):
 
 
 def should_skip_proxy_stream(config: dict[str, Any]):
-    return config["stremthruUrl"] and config["debridService"] == "stremthru"
+    return (
+        config["stremthruUrl"]
+        and config["debridService"] == "stremthru"
+        and ":" not in config["debridApiKey"]
+    )
 
 
 def should_use_fallback_debrid_config(config: dict[str, Any]):
@@ -36,8 +40,8 @@ def prepare_debrid_config(config: dict[str, Any]):
         config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
         config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
-    if (
-        not config["stremthruUrl"]
-        and config["debridService"] in settings.STREMTHRU_AUTO_ENABLED_DEBRID_SERVICES
+    if not config["stremthruUrl"] and (
+        config["debridService"] == "stremthru"
+        or config["debridService"] in settings.STREMTHRU_AUTO_ENABLED_DEBRID_SERVICES
     ):
         config["stremthruUrl"] = settings.STREMTHRU_DEFAULT_URL

@@ -59,7 +59,7 @@ async def manifest(b64config: str = None):
     if not config:
         config = {"debridService": None}
 
-    debrid_extension = get_debrid_extension(config["debridService"])
+    debrid_extension = get_debrid_extension(config["debridService"], config["debridApiKey"])
 
     return {
         "id": settings.ADDON_ID,

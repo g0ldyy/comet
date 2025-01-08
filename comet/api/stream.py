@@ -465,7 +465,7 @@ async def stream(
 
         logger.info(f"Results have been cached for {log_name}")
 
-        debrid_extension = get_debrid_extension(config["debridService"])
+        debrid_extension = get_debrid_extension(config["debridService"], config["debridApiKey"])
 
         balanced_hashes = get_balanced_hashes(sorted_ranked_files, config)
 
