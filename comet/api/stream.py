@@ -235,7 +235,7 @@ async def stream(
                         )
                     else:
                         the_stream["infoHash"] = hash
-                        index = data["index"]
+                        index = str(data["index"])
                         the_stream["fileIdx"] = (
                             1 if "|" in index else int(index)
                         )  # 1 because for Premiumize it's impossible to get the file index
