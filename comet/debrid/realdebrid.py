@@ -33,7 +33,8 @@ class RealDebrid:
     async def get_instant(self, chunk: list):
         try:
             response = await self.session.get(
-                f"{self.api_url}/torrents/instantAvailability/{'/'.join(chunk)}"
+                f"{self.api_url}/torrents/instantAvailability/{'/'.join(chunk)}",
+                proxy=self.proxy,
             )
             return await response.json()
         except Exception as e:
