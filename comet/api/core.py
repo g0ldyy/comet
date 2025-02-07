@@ -47,6 +47,7 @@ async def configure(request: Request):
             "webConfig": web_config,
             "indexerManager": settings.INDEXER_MANAGER_TYPE,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
+            "stremthruDefaultUrl": settings.STREMTHRU_DEFAULT_URL or "",
         },
     )
 
@@ -58,7 +59,7 @@ async def manifest(b64config: str = None):
     if not config:
         config = {"debridService": None}
 
-    debrid_extension = get_debrid_extension(config["debridService"])
+    debrid_extension = get_debrid_extension(config["debridService"], config["debridApiKey"])
 
     return {
         "id": settings.ADDON_ID,

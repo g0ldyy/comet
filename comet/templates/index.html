@@ -546,6 +546,7 @@
                     <sl-option value="alldebrid">All-Debrid</sl-option>
                     <sl-option value="premiumize">Premiumize</sl-option>
                     <sl-option value="realdebrid">Real-Debrid</sl-option>
+                    <sl-option value="stremthru">StremThru</sl-option>
                 </sl-select>
             </div>
 
@@ -555,6 +556,10 @@
                     <a id="apiKeyLink" href="https://torbox.app/settings" target="_blank">Get It Here</a>
                 </label>
                 <sl-input id="debridApiKey" placeholder="Enter API key" help-text="If no key is specified, you'll get direct torrents!"></sl-input>
+            </div>
+
+            <div class="form-item">
+                <sl-input id="stremthruUrl" label="StremThru URL" placeholder="{{stremthruDefaultUrl}}" help-text="URL for StremThru."></sl-input>
             </div>
 
             <sl-details summary="Advanced Settings">
@@ -570,6 +575,7 @@
                 document.getElementById("debridService").addEventListener("sl-change", function(event) {
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
+                    const apiKeyInput = document.getElementById("debridApiKey");
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
@@ -581,6 +587,13 @@
                         apiKeyLink.href = "https://torbox.app/settings";
                     } else if (selectedService === "debridlink") {
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
+                    } else if (selectedService === "stremthru") {
+                        apiKeyLink.href = "https://github.com/MunifTanjim/stremthru?tab=readme-ov-file#configuration";
+                    }
+                    if (selectedService === "stremthru") {
+                      apiKeyInput.helpText = "Enter Credential ('store_name:store_token' or base64 encoded basic token from 'STREMTHRU_PROXY_AUTH' config)"
+                    } else {
+                      apiKeyInput.helpText = "If no key is specified, you'll get direct torrents!"
                     }
                 });
             </script>
@@ -725,6 +738,7 @@
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
+                        const stremthruUrl = document.getElementById("stremthruUrl").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
                         const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
                         const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
@@ -742,6 +756,7 @@
                             languages: selectedLanguages,
                             debridService: debridService,
                             debridApiKey: debridApiKey,
+                            stremthruUrl: stremthruUrl,
                             debridStreamProxyPassword: debridStreamProxyPassword,
                         };
                     }
@@ -807,6 +822,8 @@
                             document.getElementById("indexers").value = settings.indexers;
                         if (settings.languages !== null && settings.languages != "All")
                             document.getElementById("languages").value = settings.languages;
+                        if (settings.stremthruUrl !== null)
+                          document.getElementById("stremthruUrl").value = settings.stremthruUrl;
                         if (settings.resolutions !== null && settings.resolutions != "All")
                             document.getElementById("resolutions").value = settings.resolutions;
                         if (settings.resultFormat !== null && settings.resultFormat != "All")

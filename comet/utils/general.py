@@ -269,9 +269,15 @@ def get_debrid_extension(debridService: str, debridApiKey: str = None):
         "premiumize": "PM",
         "torbox": "TB",
         "debridlink": "DL",
+        "easydebrid": "ED",
+        "stremthru": "ST",
     }
 
-    return debrid_extensions.get(debridService, None)
+    extension = debrid_extensions.get(debridService, None)
+    if extension == "ST" and debridApiKey and ":" in debridApiKey:
+        ext = debrid_extensions[debridApiKey.split(":")[0]]
+        return f"{extension}({ext})" if extension != ext else extension
+    return extension
 
 
 async def get_indexer_manager(
