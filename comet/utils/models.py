@@ -47,7 +47,7 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = -1
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
-    STREMTHRU_DEFAULT_URL: Optional[str] = "https://stremthru.elfhosted.com"
+    STREMTHRU_DEFAULT_URL: Optional[str] = "https://stremthru.mooo.com" # 403 issues with https://stremthru.elfhosted.com
     TITLE_MATCH_CHECK: Optional[bool] = True
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
