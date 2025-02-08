@@ -26,6 +26,7 @@ jinja2 = "*"
 rank-torrent-name = "*"
 parsett = "*"
 mediaflow-proxy = "*"
+bencodepy = "*"
 
 
 [tool.poetry.group.dev.dependencies]

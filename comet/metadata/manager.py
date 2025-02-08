@@ -76,7 +76,7 @@ class MetadataScraper:
             },
         )
 
-    def parse_media_id(self, media_type: str, media_id: str) -> tuple:
+    def parse_media_id(self, media_type: str, media_id: str):
         if media_type == "series":
             info = media_id.split(":")
             return info[0], int(info[1]), int(info[2])

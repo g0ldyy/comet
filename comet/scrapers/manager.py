@@ -21,6 +21,8 @@ from comet.debrid.manager import retrieve_debrid_availability
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
+from .jackett import get_jackett
+from .prowlarr import get_prowlarr
 
 
 def default(obj):
@@ -76,6 +78,18 @@ class TorrentManager:
             tasks.append(
                 get_zilean(self, session, self.title, self.season, self.episode)
             )
+        if settings.INDEXER_MANAGER_API_KEY:
+            queries = [self.title]
+
+            if self.media_type == "series":
+                queries.append(f"{self.title} S{self.season:02d}")
+                queries.append(f"{self.title} S{self.season:02d}E{self.episode:02d}")
+
+            for query in queries:
+                if settings.INDEXER_MANAGER_TYPE == "jackett":
+                    tasks.append(get_jackett(self, session, query))
+                elif settings.INDEXER_MANAGER_TYPE == "prowlarr":
+                    tasks.append(get_prowlarr(self, session, query))
 
         await asyncio.gather(*tasks)
         await self.cache_torrents()
