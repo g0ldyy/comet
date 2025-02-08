@@ -4,18 +4,39 @@ import orjson
 from RTN import SettingsModel, BestRanking, ParsedData
 from fastapi import Request
 
-from comet.utils.models import ConfigModel, default_config
+from comet.utils.models import ConfigModel, default_config, settings
 
 
 def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
+
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump()
         validated_config["rtnSettings"] = SettingsModel(
             **validated_config["rtnSettings"]
         )
         validated_config["rtnRanking"] = BestRanking(**validated_config["rtnRanking"])
+
+        if (
+            settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            == validated_config["debridStreamProxyPassword"]
+            and validated_config["debridApiKey"] == ""
+        ):
+            validated_config["debridService"] = (
+                settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
+            )
+            validated_config["debridApiKey"] = (
+                settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
+            )
+
+        if (
+            not validated_config["stremthruUrl"]
+            and validated_config["debridService"] == "stremthru"
+        ):
+            validated_config["stremthruUrl"] = settings.STREMTHRU_DEFAULT_URL
+
         return validated_config
     except:
         return default_config  # if it doesn't pass, return default config
@@ -227,3 +248,9 @@ def is_video(title: str):
         ".yuv",
     )
     return title.endswith(video_extensions)
+
+
+def get_actual_debrid_service(debrid_service: str, debrid_api_key: str):
+    if debrid_service == "stremthru":
+        return debrid_api_key.split(":")[0].lower()
+    return debrid_service

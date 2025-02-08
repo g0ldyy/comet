@@ -65,6 +65,7 @@ async def stream(
 
         debrid_service = config["debridService"]
         torrent_manager = TorrentManager(
+            config["stremthruUrl"],
             debrid_service,
             config["debridApiKey"],
             get_client_ip(request),
@@ -125,7 +126,7 @@ async def stream(
             config["removeTrash"],
         )
 
-        debrid_extension = get_debrid_extension(debrid_service)
+        debrid_extension = get_debrid_extension(debrid_service, config["debridApiKey"])
         torrents = torrent_manager.torrents
 
         cached_results = []
@@ -190,40 +191,11 @@ async def stream(
         return {"streams": cached_results + non_cached_results}
 
 
-# class CustomORJSONResponse(Response):
-#     media_type = "application/json"
-
-#     def render(self, content) -> bytes:
-#         assert orjson is not None, "orjson must be installed"
-#         return orjson.dumps(content, option=orjson.OPT_INDENT_2)
-
-
-# @streams.get("/active-connections", response_class=CustomORJSONResponse)
-# async def active_connections(request: Request, password: str):
-#     if password != settings.DASHBOARD_ADMIN_PASSWORD:
-#         return "Invalid Password"
-
-#     active_connections = await database.fetch_all("SELECT * FROM active_connections")
-
-#     return {
-#         "total_connections": len(active_connections),
-#         "active_connections": active_connections,
-#     }
-
-
 @streams.get("/{b64config}/playback/{hash}/{index}")
 async def playback(request: Request, b64config: str, hash: str, index: str):
     config = config_check(b64config)
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
-
-    if (
-        settings.PROXY_DEBRID_STREAM
-        and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
-        and config["debridApiKey"] == ""
-    ):
-        config["debridService"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE
-        config["debridApiKey"] = settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
 
     async with aiohttp.ClientSession() as session:
         current_time = time.time()
@@ -239,7 +211,11 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         ip = get_client_ip(request)
         if download_url is None:
             debrid = get_debrid(
-                session, config["debridService"], config["debridApiKey"], ip
+                session,
+                config["stremthruUrl"],
+                config["debridService"],
+                config["debridApiKey"],
+                ip,
             )
             download_url = await debrid.generate_download_link(hash, index)
             if not download_url:

@@ -47,6 +47,7 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = -1
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
+    STREMTHRU_DEFAULT_URL: Optional[str] = "https://stremthru.elfhosted.com"
     TITLE_MATCH_CHECK: Optional[bool] = True
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
@@ -262,6 +263,7 @@ class ConfigModel(BaseModel):
     maxSize: Optional[float] = 0
     debridService: Optional[str] = "torrent"
     debridApiKey: Optional[str] = ""
+    stremthruUrl: Optional[str] = ""
     debridStreamProxyPassword: Optional[str] = ""
     rtnSettings: Optional[SettingsModel] = rtn_settings_default
     rtnRanking: Optional[BestRanking] = rtn_ranking_default
@@ -291,8 +293,10 @@ class ConfigModel(BaseModel):
             "alldebrid",
             "premiumize",
             "torbox",
+            "easydebrid",
             "debridlink",
             "torrent",
+            "stremthru",
         ]:
             raise ValueError("Invalid debridService")
         return v

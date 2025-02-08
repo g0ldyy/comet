@@ -16,6 +16,7 @@ from RTN import (
 )
 
 from comet.utils.models import settings, database
+from comet.utils.general import get_actual_debrid_service
 from comet.debrid.manager import retrieve_debrid_availability
 from .zilean import get_zilean
 from .torrentio import get_torrentio
@@ -30,6 +31,7 @@ def default(obj):
 class TorrentManager:
     def __init__(
         self,
+        stremthru_url: str,
         debrid_service: str,
         debrid_api_key: str,
         ip: str,
@@ -43,6 +45,7 @@ class TorrentManager:
         aliases: dict,
         remove_adult_content: bool,
     ):
+        self.stremthru_url = stremthru_url
         self.debrid_service = debrid_service
         self.debrid_api_key = debrid_api_key
         self.ip = ip
@@ -233,16 +236,26 @@ class TorrentManager:
     async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):
         info_hashes = list(self.torrents.keys())
         availability = await retrieve_debrid_availability(
-            session, self.debrid_service, self.debrid_api_key, self.ip, info_hashes
+            session,
+            self.stremthru_url,
+            self.debrid_service,
+            self.debrid_api_key,
+            self.ip,
+            info_hashes,
         )
 
         if len(availability) == 0:
             return
 
         current_time = time.time()
+
+        actual_debrid_service = get_actual_debrid_service(
+            self.debrid_service, self.debrid_api_key
+        )
+
         values = [
             {
-                "debrid_service": self.debrid_service,
+                "debrid_service": actual_debrid_service,
                 "info_hash": file["info_hash"],
                 "season": file["season"],
                 "episode": file["episode"],
@@ -279,6 +292,10 @@ class TorrentManager:
         if self.debrid_service == "torrent" or len(info_hashes) == 0:
             return
 
+        actual_debrid_service = get_actual_debrid_service(
+            self.debrid_service, self.debrid_api_key
+        )
+
         query = f"""
             SELECT info_hash, file_index, title, size, file_data
             FROM availability_cache
@@ -290,7 +307,7 @@ class TorrentManager:
         """
         params = {
             "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
-            "debrid_service": self.debrid_service,
+            "debrid_service": actual_debrid_service,
             "season": self.season,
             "episode": self.episode,
             "cache_ttl": settings.CACHE_TTL,
