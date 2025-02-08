@@ -11,6 +11,7 @@ class StremThru:
     def __init__(
         self,
         session: aiohttp.ClientSession,
+        video_id: str,
         url: str,
         token: str,
         ip: str,
@@ -25,6 +26,7 @@ class StremThru:
         self.base_url = f"{url}/v0/store"
         self.name = f"StremThru[{store}]"
         self.client_ip = ip
+        self.sid = video_id
 
     def parse_store_creds(self, token: str):
         parts = token.split(":")
@@ -46,7 +48,7 @@ class StremThru:
 
     async def get_instant(self, magnets: list):
         try:
-            url = f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}"
+            url = f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}&sid={self.sid}"
             magnet = await self.session.get(url)
             return await magnet.json()
         except Exception as e:

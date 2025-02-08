@@ -212,6 +212,7 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
         if download_url is None:
             debrid = get_debrid(
                 session,
+                None,
                 config["stremthruUrl"],
                 config["debridService"],
                 config["debridApiKey"],

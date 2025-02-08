@@ -237,6 +237,7 @@ class TorrentManager:
         info_hashes = list(self.torrents.keys())
         availability = await retrieve_debrid_availability(
             session,
+            self.media_id,
             self.stremthru_url,
             self.debrid_service,
             self.debrid_api_key,

@@ -54,13 +54,14 @@ debrid_services = {
 def get_debrid_extension(debrid_service: str, debrid_api_key: str):
     original_extension = debrid_services[debrid_service]["extension"]
     if debrid_service == "stremthru":
-        return f"{original_extension}|{debrid_services[get_actual_debrid_service(debrid_service, debrid_api_key)]['extension']}"
+        return f"{original_extension}-{debrid_services[get_actual_debrid_service(debrid_service, debrid_api_key)]['extension']}"
 
     return original_extension
 
 
 def get_debrid(
     session: aiohttp.ClientSession,
+    video_id: str,
     stremthru_url: str,
     debrid_service: str,
     debrid_api_key: str,
@@ -68,7 +69,7 @@ def get_debrid(
 ):
     if debrid_service == "stremthru":
         return debrid_services[debrid_service]["class"](
-            session, stremthru_url, debrid_api_key, ip
+            session, video_id, stremthru_url, debrid_api_key, ip
         )
 
     return debrid_services[debrid_service]["class"](session, debrid_api_key, ip)
@@ -76,6 +77,7 @@ def get_debrid(
 
 async def retrieve_debrid_availability(
     session: aiohttp.ClientSession,
+    video_id: str,
     stremthru_url: str,
     debrid_service: str,
     debrid_api_key: str,
@@ -87,7 +89,7 @@ async def retrieve_debrid_availability(
 
     if debrid_services[debrid_service]["cache_availability_endpoint"]:
         return await get_debrid(
-            session, stremthru_url, debrid_service, debrid_api_key, ip
+            session, video_id, stremthru_url, debrid_service, debrid_api_key, ip
         ).get_availability(info_hashes)
 
     return []
