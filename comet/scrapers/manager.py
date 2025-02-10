@@ -16,8 +16,7 @@ from RTN import (
 )
 
 from comet.utils.models import settings, database
-from comet.utils.general import get_actual_debrid_service
-from comet.debrid.manager import retrieve_debrid_availability
+from comet.debrid.manager import retrieve_debrid_availability, get_actual_debrid_service
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion

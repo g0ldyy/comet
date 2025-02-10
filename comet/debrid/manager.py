@@ -1,7 +1,5 @@
 import aiohttp
 
-from comet.utils.general import get_actual_debrid_service
-
 from .realdebrid import RealDebrid
 from .alldebrid import AllDebrid
 from .premiumize import Premiumize
@@ -49,6 +47,12 @@ debrid_services = {
         "class": Torrent,
     },
 }
+
+
+def get_actual_debrid_service(debrid_service: str, debrid_api_key: str):
+    if debrid_service == "stremthru":
+        return debrid_api_key.split(":")[0].lower()
+    return debrid_service
 
 
 def get_debrid_extension(debrid_service: str, debrid_api_key: str):

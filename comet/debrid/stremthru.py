@@ -29,8 +29,11 @@ class StremThru:
         self.sid = video_id
 
     def parse_store_creds(self, token: str):
-        parts = token.split(":")
-        return parts[0], parts[1]
+        if ":" in token:
+            parts = token.split(":")
+            return parts[0], parts[1]
+
+        return token, ""
 
     async def check_premium(self):
         try:

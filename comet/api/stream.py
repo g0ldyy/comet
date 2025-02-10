@@ -1,7 +1,6 @@
 import aiohttp
 import time
 import asyncio
-import mediaflow_proxy.handlers
 import mediaflow_proxy.utils.http_utils
 
 from fastapi import APIRouter, Request, BackgroundTasks
@@ -15,6 +14,7 @@ from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
 from comet.utils.general import config_check, format_title, get_client_ip
 from comet.debrid.manager import get_debrid_extension, get_debrid
+from comet.utils.streaming import custom_handle_stream_request
 
 streams = APIRouter()
 
@@ -238,10 +238,12 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
-            return await mediaflow_proxy.handlers.handle_stream_request(
+            return await custom_handle_stream_request(
                 request.method,
                 download_url,
                 mediaflow_proxy.utils.http_utils.get_proxy_headers(request),
+                media_id=hash,
+                ip=ip,
             )
 
         return RedirectResponse(download_url, status_code=302)

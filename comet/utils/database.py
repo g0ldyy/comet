@@ -60,6 +60,13 @@ async def setup_database():
             "CREATE INDEX IF NOT EXISTS idx_downloads_timestamp ON download_links_cache(timestamp)"
         )
 
+        await database.execute(
+            "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_connections_timestamp ON active_connections(timestamp)"
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA journal_mode=WAL")
             await database.execute("PRAGMA synchronous=NORMAL")
@@ -95,6 +102,8 @@ async def setup_database():
         )
 
         await database.execute("DELETE FROM download_links_cache")
+
+        await database.execute("DELETE FROM active_connections")
 
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")

@@ -248,9 +248,3 @@ def is_video(title: str):
         ".yuv",
     )
     return title.endswith(video_extensions)
-
-
-def get_actual_debrid_service(debrid_service: str, debrid_api_key: str):
-    if debrid_service == "stremthru":
-        return debrid_api_key.split(":")[0].lower()
-    return debrid_service

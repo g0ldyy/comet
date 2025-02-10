@@ -73,19 +73,14 @@ class CometSettingsModel(SettingsModel):
     model_config = SettingsConfigDict()
 
     resolutions: ResolutionConfig = ResolutionConfig(
-        r2160p=True,
-        r480p=True,
-        r360p=True
+        r2160p=True, r480p=True, r360p=True
     )
 
     options: OptionsConfig = OptionsConfig(
-        remove_ranks_under=-10000000000,
-        allow_english_in_languages=True
+        remove_ranks_under=-10000000000, allow_english_in_languages=True
     )
 
-    languages: LanguagesConfig = LanguagesConfig(
-        exclude=[]
-    )
+    languages: LanguagesConfig = LanguagesConfig(exclude=[])
 
 
 rtn_settings_default = CometSettingsModel()
