@@ -38,20 +38,10 @@ async def process_torrent(session: aiohttp.ClientSession, result: dict):
         "sources": [],
     }
 
-    if "InfoHash" in result and result["InfoHash"]:
-        torrent["infoHash"] = result["InfoHash"].lower()
-        torrent["sources"] = extract_trackers_from_magnet(result["MagnetUri"])
-        return torrent
-
     if result["Link"]:
         content, magnet_hash, magnet_url = await download_torrent(
             session, result["Link"]
         )
-
-        if magnet_hash:
-            torrent["infoHash"] = magnet_hash.lower()
-            torrent["sources"] = extract_trackers_from_magnet(magnet_url)
-            return torrent
 
         if content:
             metadata = extract_torrent_metadata(content, result["Title"])
@@ -60,6 +50,16 @@ async def process_torrent(session: aiohttp.ClientSession, result: dict):
                 torrent["sources"] = metadata["announce_list"]
                 torrent["fileIndex"] = metadata["file_index"]
                 torrent["size"] = metadata["total_size"]
+
+        if magnet_hash:
+            torrent["infoHash"] = magnet_hash.lower()
+            torrent["sources"] = extract_trackers_from_magnet(magnet_url)
+            return torrent
+
+    if "InfoHash" in result and result["InfoHash"]:
+        torrent["infoHash"] = result["InfoHash"].lower()
+        torrent["sources"] = extract_trackers_from_magnet(result["MagnetUri"])
+        return torrent
 
     return torrent
 

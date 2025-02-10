@@ -49,7 +49,7 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     STREMTHRU_DEFAULT_URL: Optional[str] = (
-        "https://stremthru.mooo.com"  # 403 issues with https://stremthru.elfhosted.com
+        "https://stremthru.13377001.xyz"  # 403 issues with https://stremthru.elfhosted.com
     )
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
