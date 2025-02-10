@@ -32,6 +32,12 @@ async def setup_database():
         await database.execute(
             "CREATE INDEX IF NOT EXISTS idx_metadata_title ON metadata_cache(title)"
         )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_year ON metadata_cache(year)"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_year_end ON metadata_cache(year_end)"
+        )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash TEXT PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
@@ -44,6 +50,13 @@ async def setup_database():
         )
 
         await database.execute(
+            "CREATE TABLE IF NOT EXISTS torrent_file_indexes (info_hash TEXT NOT NULL, season INTEGER, episode INTEGER, file_index INTEGER, file_size INTEGER, timestamp INTEGER NOT NULL, PRIMARY KEY (info_hash, season, episode))"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_torrent_file_indexes_timestamp ON torrent_file_indexes(timestamp)"
+        )
+
+        await database.execute(
             "CREATE TABLE IF NOT EXISTS availability_cache (id SERIAL PRIMARY KEY, debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size BIGINT, file_data TEXT, timestamp INTEGER, UNIQUE(debrid_service, info_hash, season, episode))"
         )
         await database.execute(
@@ -51,6 +64,9 @@ async def setup_database():
         )
         await database.execute(
             "CREATE INDEX IF NOT EXISTS idx_availability_timestamp ON availability_cache(timestamp)"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_availability_file_size ON availability_cache(size)"
         )
 
         await database.execute(
@@ -65,6 +81,9 @@ async def setup_database():
         )
         await database.execute(
             "CREATE INDEX IF NOT EXISTS idx_connections_timestamp ON active_connections(timestamp)"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_active_connections_ip ON active_connections(ip)"
         )
 
         if settings.DATABASE_TYPE == "sqlite":

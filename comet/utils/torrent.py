@@ -2,16 +2,18 @@ import hashlib
 import re
 import bencodepy
 import aiohttp
+import anyio
+
+from RTN import parse
 from urllib.parse import parse_qs, urlparse
+from demagnetize.core import Demagnetizer
+from torf import Magnet
 
 from comet.utils.logger import logger
 from comet.utils.models import settings
 from comet.utils.general import is_video
 
 info_hash_pattern = re.compile(r"btih:([a-fA-F0-9]{40})")
-episode_pattern = re.compile(
-    r"(?:s(\d{1,2})e(\d{1,2})|(\d{1,2})x(\d{1,2}))", re.IGNORECASE
-)
 
 
 def extract_trackers_from_magnet(magnet_uri: str):
@@ -21,93 +23,6 @@ def extract_trackers_from_magnet(magnet_uri: str):
         return params.get("tr", [])
     except:
         return []
-
-
-def normalize_name(name: str):
-    name = name.lower()
-    name = re.sub(r"[\s._-]+", ".", name)
-    name = re.sub(r"\[.*?\]|\(.*?\)|\{.*?\}", "", name)
-    name = re.sub(r"[^a-z0-9.]", "", name)
-    name = re.sub(r"\.+", ".", name)
-    name = name.strip(".")
-    return name
-
-
-def find_best_video_file(files: list, torrent_name: str, reference_title: str = None):
-    best_size = 0
-    best_index = 0
-    best_score = -1
-
-    ref_season = ref_episode = None
-    if reference_title:
-        match = episode_pattern.search(reference_title)
-        if match:
-            groups = match.groups()
-            if groups[0] is not None:
-                ref_season, ref_episode = int(groups[0]), int(groups[1])
-            elif groups[2] is not None:
-                ref_season, ref_episode = int(groups[2]), int(groups[3])
-
-    ref_title_norm = normalize_name(reference_title) if reference_title else None
-    torrent_name_norm = normalize_name(torrent_name) if torrent_name else None
-
-    for idx, file in enumerate(files):
-        try:
-            if b"path" in file:
-                path_parts = [part.decode() for part in file[b"path"]]
-                path = "/".join(path_parts)
-            else:
-                path = file[b"name"].decode() if b"name" in file else ""
-
-            if not path:
-                continue
-
-            if not is_video(path):
-                continue
-
-            path_norm = normalize_name(path)
-            size = file[b"length"]
-            score = size
-
-            if ref_season is not None and ref_episode is not None:
-                match = episode_pattern.search(path)
-                if match:
-                    groups = match.groups()
-                    if groups[0] is not None:
-                        season, episode = int(groups[0]), int(groups[1])
-                    elif groups[2] is not None:
-                        season, episode = int(groups[2]), int(groups[3])
-                    else:
-                        season = episode = None
-
-                    if season == ref_season and episode == ref_episode:
-                        score *= 3
-
-            if ref_title_norm:
-                clean_path = episode_pattern.sub("", path_norm)
-                clean_ref = episode_pattern.sub("", ref_title_norm)
-
-                if clean_ref in clean_path:
-                    score *= 2
-
-            if torrent_name_norm and torrent_name_norm in path_norm:
-                score *= 1.5
-
-            if "/" not in path:
-                score *= 1.1
-
-            score *= 1 + (size / (1024 * 1024 * 1024))
-
-            if score > best_score:
-                best_score = score
-                best_size = size
-                best_index = idx
-
-        except Exception as e:
-            logger.warning(f"Failed to find best video file: {e}")
-            continue
-
-    return best_index, best_size
 
 
 async def download_torrent(session: aiohttp.ClientSession, url: str):
@@ -128,31 +43,30 @@ async def download_torrent(session: aiohttp.ClientSession, url: str):
         return (None, None, None)
 
 
-def extract_torrent_metadata(content: bytes, reference_title: str = None):
+demagnetizer = Demagnetizer()
+
+
+async def get_torrent_from_magnet(magnet_uri: str):
+    try:
+        magnet = Magnet.from_string(magnet_uri)
+        with anyio.fail_after(settings.GET_TORRENT_TIMEOUT):
+            torrent_data = await demagnetizer.demagnetize(magnet)
+            if torrent_data:
+                return torrent_data.dump()
+    except:
+        return None
+
+
+def extract_torrent_metadata(content: bytes, season: str, episode: str):
     try:
         torrent_data = bencodepy.decode(content)
         info = torrent_data[b"info"]
-        info_encoded = bencodepy.encode(info)
         m = hashlib.sha1()
-        m.update(info_encoded)
         info_hash = m.hexdigest()
 
         torrent_name = info.get(b"name", b"").decode()
         if not torrent_name:
             return {}
-
-        if b"files" in info:
-            files = info[b"files"]
-            best_index, total_size = find_best_video_file(
-                files, torrent_name, reference_title
-            )
-        else:
-            total_size = info[b"length"]
-            best_index = 0
-
-            name = info[b"name"].decode()
-            if not is_video(name):
-                return {}
 
         announce_list = [
             tracker[0].decode() for tracker in torrent_data.get(b"announce-list", [])
@@ -161,13 +75,100 @@ def extract_torrent_metadata(content: bytes, reference_title: str = None):
         metadata = {
             "info_hash": info_hash.lower(),
             "announce_list": announce_list,
-            "total_size": total_size,
-            "torrent_name": torrent_name,
-            "file_index": best_index,
-            "torrent_file": content,
         }
+
+        if b"files" in info:
+            files = info[b"files"]
+            file_data = []
+            best_index = None
+            best_score = -1
+            best_size = 0
+            is_movie = True
+
+            for idx, file in enumerate(files):
+                if b"path" in file:
+                    path_parts = [part.decode() for part in file[b"path"]]
+                    path = "/".join(path_parts)
+                else:
+                    path = file[b"name"].decode() if b"name" in file else ""
+
+                if not path or not is_video(path):
+                    continue
+
+                size = file[b"length"]
+                score = size
+
+                file_parsed = parse(path)
+
+                season_exists = len(file_parsed.seasons) != 0
+                episode_exists = len(file_parsed.episodes) != 0
+
+                if season_exists or episode_exists:
+                    is_movie = False
+
+                if (
+                    season_exists
+                    and episode_exists
+                    and file_parsed.seasons[0] == season
+                    and file_parsed.episodes[0] == episode
+                ):
+                    score *= 3
+
+                file_info = {
+                    "index": idx,
+                    "size": size,
+                    "season": file_parsed.seasons[0] if season_exists else None,
+                    "episode": file_parsed.episodes[0] if episode_exists else None,
+                }
+
+                if score > best_score:
+                    best_score = score
+                    best_size = size
+                    best_index = idx
+                    best_file_info = file_info
+
+                if not is_movie:
+                    file_data.append(file_info)
+
+            if is_movie and best_index is not None:
+                file_data = [best_file_info]
+
+            metadata.update(
+                {
+                    "file_data": file_data,
+                    "file_index": best_index,
+                    "file_size": best_size,
+                }
+            )
+        else:
+            name = info[b"name"].decode()
+            if not is_video(name):
+                return {}
+
+            size = info[b"length"]
+
+            file_parsed = parse(name)
+
+            metadata.update(
+                {
+                    "file_index": 0,
+                    "file_size": size,
+                    "file_data": [
+                        {
+                            "index": 0,
+                            "size": size,
+                            "season": file_parsed.seasons[0]
+                            if len(file_parsed.seasons) != 0
+                            else None,
+                            "episode": file_parsed.episodes[0]
+                            if len(file_parsed.episodes) != 0
+                            else None,
+                        }
+                    ],
+                }
+            )
+
         return metadata
 
-    except Exception as e:
-        logger.warning(f"Failed to extract torrent metadata: {e}")
+    except:
         return {}

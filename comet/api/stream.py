@@ -9,7 +9,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
-from comet.utils.models import settings, database
+from comet.utils.models import settings, database, trackers
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
 from comet.utils.general import config_check, format_title, get_client_ip
@@ -182,6 +182,28 @@ async def stream(
                 torrent_data["parsed"] if torrent_data["cached"] else torrent.data
             )
 
+            cached_index = await database.fetch_one(
+                """
+                SELECT file_index, file_size 
+                FROM torrent_file_indexes 
+                WHERE info_hash = :info_hash
+                AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
+                AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+                AND timestamp + :cache_ttl >= :current_time
+                """,
+                {
+                    "info_hash": info_hash,
+                    "season": metadata["season"],
+                    "episode": metadata["episode"],
+                    "cache_ttl": settings.CACHE_TTL,
+                    "current_time": time.time(),
+                },
+            )
+
+            if cached_index:
+                torrent_data["fileIndex"] = cached_index["file_index"]
+                torrent_data["size"] = cached_index["file_size"]
+
             debrid_emoji = (
                 "🧲"
                 if debrid_service == "torrent"
@@ -208,7 +230,11 @@ async def stream(
             if debrid_service == "torrent":
                 the_stream["infoHash"] = info_hash
                 the_stream["fileIdx"] = torrent_data["fileIndex"]
-                the_stream["sources"] = torrent_data["sources"]
+
+                if torrent_data["tracker"] == "DMM":  # Generic trackers for DMM
+                    the_stream["sources"] = trackers
+                else:
+                    the_stream["sources"] = torrent_data["sources"]
             else:
                 the_stream["url"] = (
                     f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex']}"

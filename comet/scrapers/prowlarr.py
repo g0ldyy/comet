@@ -8,9 +8,12 @@ from comet.utils.torrent import (
     extract_torrent_metadata,
     extract_trackers_from_magnet,
 )
+from comet.utils.file_index_queue import file_index_queue
 
 
-async def process_torrent(session: aiohttp.ClientSession, result: dict):
+async def process_torrent(
+    session: aiohttp.ClientSession, result: dict, season: int, episode: int
+):
     torrent = {
         "title": result["title"],
         "infoHash": None,
@@ -27,23 +30,32 @@ async def process_torrent(session: aiohttp.ClientSession, result: dict):
         )
 
         if content:
-            metadata = extract_torrent_metadata(content, result["title"])
+            metadata = extract_torrent_metadata(content, season, episode)
             if metadata:
                 torrent["infoHash"] = metadata["info_hash"]
                 torrent["sources"] = metadata["announce_list"]
                 torrent["fileIndex"] = metadata["file_index"]
-                torrent["size"] = metadata["total_size"]
+                torrent["size"] = metadata["file_size"]
                 return torrent
-            
-        if magnet_hash:
+
+        if magnet_hash and magnet_url:
             torrent["infoHash"] = magnet_hash.lower()
             torrent["sources"] = extract_trackers_from_magnet(magnet_url)
+
+            await file_index_queue.add_torrent(
+                magnet_hash.lower(), magnet_url, season, episode
+            )
+
             return torrent
 
     if "infoHash" in result and result["infoHash"]:
         torrent["infoHash"] = result["infoHash"].lower()
-        torrent["sources"] = extract_trackers_from_magnet(result["guid"])
-        return torrent
+        if "guid" in result and result["guid"].startswith("magnet:"):
+            torrent["sources"] = extract_trackers_from_magnet(result["guid"])
+
+            await file_index_queue.add_torrent(
+                torrent["infoHash"], result["guid"], season, episode
+            )
 
     return torrent
 
@@ -73,7 +85,10 @@ async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str):
         )
         response = await response.json()
 
-        torrent_tasks = [process_torrent(session, result) for result in response]
+        torrent_tasks = [
+            process_torrent(session, result, manager.season, manager.episode)
+            for result in response
+        ]
         processed_torrents = await asyncio.gather(*torrent_tasks)
 
         torrents = [t for t in processed_torrents if t["infoHash"]]

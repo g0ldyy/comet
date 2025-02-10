@@ -17,6 +17,7 @@ from starlette.requests import Request
 from comet.api.core import main
 from comet.api.stream import streams
 from comet.utils.database import setup_database, teardown_database
+from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
@@ -41,6 +42,7 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_database()
+    await download_best_trackers()
     yield
     await teardown_database()
 
@@ -133,6 +135,7 @@ def start_log():
         )
         logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
         logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+        logger.log("COMET", f"Download Torrents: {bool(settings.DOWNLOAD_TORRENTS)}")
     else:
         logger.log("COMET", "Indexer Manager: False")
 

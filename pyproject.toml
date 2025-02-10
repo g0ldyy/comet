@@ -27,6 +27,7 @@ rank-torrent-name = "*"
 parsett = "*"
 mediaflow-proxy = "*"
 bencodepy = "*"
+demagnetize = "*"
 
 
 [tool.poetry.group.dev.dependencies]

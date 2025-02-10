@@ -1,6 +1,9 @@
 import sys
+import logging
 
 from loguru import logger
+
+logging.getLogger("demagnetize").setLevel(logging.CRITICAL) # disable demagnetize logging
 
 
 def setupLogger(level: str):
