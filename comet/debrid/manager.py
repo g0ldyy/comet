@@ -41,11 +41,6 @@ debrid_services = {
         "cache_availability_endpoint": True,
         "class": EasyDebrid,
     },
-    "torrent": {
-        "extension": "TORRENT",
-        "cache_availability_endpoint": False,
-        "class": Torrent,
-    },
 }
 
 
