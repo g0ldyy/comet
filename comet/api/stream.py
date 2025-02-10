@@ -182,27 +182,28 @@ async def stream(
                 torrent_data["parsed"] if torrent_data["cached"] else torrent.data
             )
 
-            cached_index = await database.fetch_one(
-                """
-                SELECT file_index, file_size 
-                FROM torrent_file_indexes 
-                WHERE info_hash = :info_hash
-                AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-                AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
-                AND timestamp + :cache_ttl >= :current_time
-                """,
-                {
-                    "info_hash": info_hash,
-                    "season": metadata["season"],
-                    "episode": metadata["episode"],
-                    "cache_ttl": settings.CACHE_TTL,
-                    "current_time": time.time(),
-                },
-            )
+            if debrid_service == "torrent":
+                cached_index = await database.fetch_one(
+                    """
+                    SELECT file_index, file_size 
+                    FROM torrent_file_indexes 
+                    WHERE info_hash = :info_hash
+                    AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
+                    AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+                    AND timestamp + :cache_ttl >= :current_time
+                    """,
+                    {
+                        "info_hash": info_hash,
+                        "season": metadata["season"],
+                        "episode": metadata["episode"],
+                        "cache_ttl": settings.CACHE_TTL,
+                        "current_time": time.time(),
+                    },
+                )
 
-            if cached_index:
-                torrent_data["fileIndex"] = cached_index["file_index"]
-                torrent_data["size"] = cached_index["file_size"]
+                if cached_index:
+                    torrent_data["fileIndex"] = cached_index["file_index"]
+                    torrent_data["size"] = cached_index["file_size"]
 
             debrid_emoji = (
                 "🧲"
