@@ -51,7 +51,6 @@ class AppSettings(BaseSettings):
     STREMTHRU_DEFAULT_URL: Optional[str] = (
         "https://stremthru.mooo.com"  # 403 issues with https://stremthru.elfhosted.com
     )
-    TITLE_MATCH_CHECK: Optional[bool] = True
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
     @field_validator("INDEXER_MANAGER_TYPE")

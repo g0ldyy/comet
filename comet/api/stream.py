@@ -15,6 +15,7 @@ from comet.scrapers.manager import TorrentManager
 from comet.utils.general import config_check, format_title, get_client_ip
 from comet.debrid.manager import get_debrid_extension, get_debrid
 from comet.utils.streaming import custom_handle_stream_request
+from comet.utils.logger import logger
 
 streams = APIRouter()
 
@@ -43,6 +44,7 @@ async def stream(
             media_type, media_id
         )
         if metadata is None:
+            logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
             return {
                 "streams": [
                     {
@@ -63,6 +65,8 @@ async def stream(
         if media_type == "series":
             log_title += f" S{season:02d}E{episode:02d}"
 
+        logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
+
         debrid_service = config["debridService"]
         torrent_manager = TorrentManager(
             config["stremthruUrl"],
@@ -81,15 +85,20 @@ async def stream(
         )
 
         await torrent_manager.get_cached_torrents()
-        if (
-            len(torrent_manager.torrents) == 0
-        ):  # no torrent, we search for an ongoing search before starting a new one
+        logger.log(
+            "SCRAPER", f"📦 Found cached torrents: {len(torrent_manager.torrents)}"
+        )
+
+        if len(torrent_manager.torrents) == 0:
             cached = False
             ongoing_search = await database.fetch_one(
                 "SELECT * FROM ongoing_searches WHERE media_id = :media_id AND timestamp + 120 >= :current_time",
                 {"media_id": media_id, "current_time": time.time()},
             )
             if ongoing_search:
+                logger.log(
+                    "SCRAPER", f"⏳ Ongoing search detected for {log_title}, waiting..."
+                )
                 while ongoing_search:
                     await asyncio.sleep(10)
                     ongoing_search = await database.fetch_one(
@@ -97,26 +106,44 @@ async def stream(
                         {"media_id": media_id, "current_time": time.time()},
                     )
 
-                await (
-                    torrent_manager.get_cached_torrents()
-                )  # we verify that no cache is available
+                await torrent_manager.get_cached_torrents()
                 if len(torrent_manager.torrents) != 0:
                     cached = True
+                    logger.log(
+                        "SCRAPER",
+                        f"✅ New cached torrents found: {len(torrent_manager.torrents)}",
+                    )
 
             if not cached:
+                logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
                 await database.execute(
                     f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
                     {"media_id": media_id, "timestamp": time.time()},
                 )
                 background_tasks.add_task(remove_ongoing_search_from_database, media_id)
+                initial_count = len(torrent_manager.torrents)
                 await torrent_manager.scrape_torrents(session)
+                logger.log(
+                    "SCRAPER",
+                    f"📥 Scraped torrents: {len(torrent_manager.torrents) - initial_count}",
+                )
 
         await torrent_manager.get_cached_availability()
+        cached_count = sum(
+            1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
+        )
+        logger.log(
+            "SCRAPER",
+            f"💾 Available cached torrents: {cached_count}/{len(torrent_manager.torrents)}",
+        )
+
         if debrid_service != "torrent" and not any(
             torrent["cached"] for torrent in torrent_manager.torrents.values()
         ):
+            logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
             await torrent_manager.get_and_cache_debrid_availability(session)
 
+        initial_torrent_count = len(torrent_manager.torrents)
         torrent_manager.rank_torrents(
             config["rtnSettings"],
             config["rtnRanking"],
@@ -124,6 +151,10 @@ async def stream(
             config["maxSize"],
             config["cachedOnly"],
             config["removeTrash"],
+        )
+        logger.log(
+            "SCRAPER",
+            f"⚖️ Torrents after RTN filtering: {len(torrent_manager.ranked_torrents)}/{initial_torrent_count}",
         )
 
         debrid_extension = get_debrid_extension(debrid_service, config["debridApiKey"])

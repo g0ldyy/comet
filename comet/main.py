@@ -160,7 +160,6 @@ def start_log():
     )
     if settings.STREMTHRU_DEFAULT_URL:
         logger.log("COMET", f"Default StremThru URL: {settings.STREMTHRU_DEFAULT_URL}")
-    logger.log("COMET", f"Title Match Check: {bool(settings.TITLE_MATCH_CHECK)}")
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
