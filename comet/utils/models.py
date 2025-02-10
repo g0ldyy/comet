@@ -98,7 +98,7 @@ class ConfigModel(BaseModel):
     debridApiKey: Optional[str] = ""
     stremthruUrl: Optional[str] = ""
     debridStreamProxyPassword: Optional[str] = ""
-    rtnSettings: Optional[SettingsModel] = rtn_settings_default
+    rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
     rtnRanking: Optional[BestRanking] = rtn_ranking_default
 
     @field_validator("maxResultsPerResolution")

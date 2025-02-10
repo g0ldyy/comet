@@ -10,12 +10,11 @@ from RTN import (
     check_fetch,
     sort_torrents,
     ParsedData,
-    SettingsModel,
     BestRanking,
     Torrent,
 )
 
-from comet.utils.models import settings, database
+from comet.utils.models import settings, database, CometSettingsModel
 from comet.debrid.manager import retrieve_debrid_availability, get_actual_debrid_service
 from .zilean import get_zilean
 from .torrentio import get_torrentio
@@ -184,7 +183,7 @@ class TorrentManager:
 
     def rank_torrents(
         self,
-        rtn_settings: SettingsModel,
+        rtn_settings: CometSettingsModel,
         rtn_ranking: BestRanking,
         max_results_per_resolution: int,
         max_size: int,

@@ -1,10 +1,10 @@
 import base64
 import orjson
 
-from RTN import SettingsModel, BestRanking, ParsedData
+from RTN import BestRanking, ParsedData
 from fastapi import Request
 
-from comet.utils.models import ConfigModel, default_config, settings
+from comet.utils.models import ConfigModel, CometSettingsModel, default_config, settings
 
 
 def config_check(b64config: str):
@@ -13,7 +13,7 @@ def config_check(b64config: str):
 
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump()
-        validated_config["rtnSettings"] = SettingsModel(
+        validated_config["rtnSettings"] = CometSettingsModel(
             **validated_config["rtnSettings"]
         )
         validated_config["rtnRanking"] = BestRanking(**validated_config["rtnRanking"])
