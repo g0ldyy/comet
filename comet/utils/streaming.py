@@ -10,28 +10,39 @@ import mediaflow_proxy.utils.http_utils
 
 
 async def on_stream_end(connection_id: str, ip: str):
-    await database.execute(
-        "DELETE FROM active_connections WHERE id = :connection_id AND ip = :ip",
-        {"connection_id": connection_id, "ip": ip},
-    )
-    logger.log("STREAM", f"Stream ended - Connection: {connection_id} from IP: {ip}")
+    try:
+        await database.execute(
+            "DELETE FROM active_connections WHERE id = :connection_id AND ip = :ip",
+            {"connection_id": connection_id, "ip": ip},
+        )
+        logger.log(
+            "STREAM", f"Stream ended - Connection: {connection_id} from IP: {ip}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"Error handling stream end for connection {connection_id} from IP {ip}: {e}"
+        )
 
 
 async def check_ip_connections(ip: str):
     if settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS <= -1:
         return True
 
-    count = await database.fetch_val(
-        "SELECT COUNT(*) FROM active_connections WHERE ip = :ip",
-        {"ip": ip},
-    )
-    if count >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS:
-        logger.log(
-            "STREAM",
-            f"Connection limit reached for IP: {ip} ({count} active connections)",
+    try:
+        count = await database.fetch_val(
+            "SELECT COUNT(*) FROM active_connections WHERE ip = :ip",
+            {"ip": ip},
         )
+        if count >= settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS:
+            logger.log(
+                "STREAM",
+                f"Connection limit reached for IP: {ip} ({count} active connections)",
+            )
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Error checking IP connections for {ip}: {e}")
         return False
-    return True
 
 
 async def add_active_connection(media_id: str, ip: str):

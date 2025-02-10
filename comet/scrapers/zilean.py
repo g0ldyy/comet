@@ -29,6 +29,5 @@ async def get_zilean(
             torrents.append(object)
     except Exception as e:
         logger.warning(f"Exception while getting torrents for {title} with Zilean: {e}")
-        pass
 
     await manager.filter_manager(torrents)

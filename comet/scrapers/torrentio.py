@@ -19,7 +19,11 @@ async def get_torrentio(manager, media_type: str, media_id: str):
             get_torrentio = requests.get(
                 f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json"
             ).json()
-        except:
+        except Exception as e:
+            logger.warning(
+                f"Failed to get Torrentio results without proxy for {media_id}: {e}"
+            )
+
             get_torrentio = requests.get(
                 f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json",
                 proxies={
@@ -57,6 +61,5 @@ async def get_torrentio(manager, media_type: str, media_id: str):
         logger.warning(
             f"Exception while getting torrents for {media_id} with Torrentio, your IP is most likely blacklisted (you should try proxying Comet): {e}"
         )
-        pass
 
     await manager.filter_manager(torrents)

@@ -11,7 +11,11 @@ async def get_mediafusion(manager, media_type: str, media_id: str):
             get_mediafusion = requests.get(
                 f"{settings.MEDIAFUSION_URL}/stream/{media_type}/{media_id}.json"
             ).json()
-        except:
+        except Exception as e:
+            logger.warning(
+                f"Failed to get MediaFusion results without proxy for {media_id}: {e}"
+            )
+
             get_mediafusion = requests.get(
                 f"{settings.MEDIAFUSION_URL}/stream/{media_type}/{media_id}.json",
                 proxies={

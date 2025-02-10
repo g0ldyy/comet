@@ -238,7 +238,7 @@ class TorrentManager:
                         lev_ratio=0.0,
                     )
                 )
-            except:
+            except Exception:
                 pass
 
         self.ranked_torrents = sort_torrents(

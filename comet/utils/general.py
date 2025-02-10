@@ -38,7 +38,7 @@ def config_check(b64config: str):
             validated_config["stremthruUrl"] = settings.STREMTHRU_DEFAULT_URL
 
         return validated_config
-    except:
+    except Exception:
         return default_config  # if it doesn't pass, return default config
 
 

@@ -23,7 +23,8 @@ def extract_trackers_from_magnet(magnet_uri: str):
         parsed = urlparse(magnet_uri)
         params = parse_qs(parsed.query)
         return params.get("tr", [])
-    except:
+    except Exception as e:
+        logger.warning(f"Failed to extract trackers from magnet URI: {e}")
         return []
 
 
@@ -55,7 +56,8 @@ async def get_torrent_from_magnet(magnet_uri: str):
             torrent_data = await demagnetizer.demagnetize(magnet)
             if torrent_data:
                 return torrent_data.dump()
-    except:
+    except Exception as e:
+        logger.warning(f"Failed to get torrent from magnet: {e}")
         return None
 
 
@@ -172,7 +174,8 @@ def extract_torrent_metadata(content: bytes, season: str, episode: str):
 
         return metadata
 
-    except:
+    except Exception as e:
+        logger.warning(f"Failed to extract torrent metadata: {e}")
         return {}
 
 
@@ -257,12 +260,10 @@ class FileIndexQueue:
                                     "SCRAPER",
                                     f"Updated file index and size for {info_hash}{additional}",
                                 )
-                    except:
-                        pass
                     finally:
                         self.queue.task_done()
 
-            except:
+            except Exception:
                 await asyncio.sleep(1)
 
         self.is_running = False
