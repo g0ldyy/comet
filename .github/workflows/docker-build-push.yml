@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - main
-#  release:
-#    types: [created]
+      - rewrite
   workflow_dispatch:
 
 jobs:
@@ -42,6 +41,19 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
+    - name: Get branch name
+      id: branch-name
+      run: echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+
+    - name: Set Docker tags
+      id: docker_tags
+      run: |
+        if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
+          echo "tags=ghcr.io/g0ldyy/comet:latest,docker.io/g0ldyy/comet:latest" >> $GITHUB_OUTPUT
+        else
+          echo "tags=ghcr.io/g0ldyy/comet:${{ steps.branch-name.outputs.branch }},docker.io/g0ldyy/comet:${{ steps.branch-name.outputs.branch }}" >> $GITHUB_OUTPUT
+        fi
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5.3.0
       with:
@@ -51,6 +63,4 @@ jobs:
         push: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        tags: |
-          ghcr.io/g0ldyy/comet:latest
-          docker.io/g0ldyy/comet:latest
+        tags: ${{ steps.docker_tags.outputs.tags }}
