@@ -535,11 +535,13 @@
                 <sl-select id="debridService" value="torrent" label="Debrid Service" placeholder="Select debrid service">
                     <sl-option value="torrent">Torrent</sl-option>
                     <sl-option value="torbox">TorBox</sl-option>
-                    <!-- <sl-option value="easydebrid">EasyDebrid</sl-option>
+                    <sl-option value="easydebrid">EasyDebrid</sl-option>
+                    <sl-option value="realdebrid">Real-Debrid</sl-option>
                     <sl-option value="debridlink">Debrid-Link</sl-option>
                     <sl-option value="alldebrid">All-Debrid</sl-option>
                     <sl-option value="premiumize">Premiumize</sl-option>
-                    <sl-option value="realdebrid">Real-Debrid</sl-option> -->
+                    <sl-option value="offcloud">Offcloud</sl-option>
+                    <sl-option value="offcloud">PikPak</sl-option>
                     <sl-option value="stremthru">StremThru</sl-option>
                 </sl-select>
             </div>
@@ -549,7 +551,7 @@
                     Debrid API Key
                     <a id="apiKeyLink" href="" target="_blank"></a>
                 </label>
-                <sl-input id="debridApiKey" placeholder="Enter API key" help-text="If no key is specified, you'll get direct torrents!"></sl-input>
+                <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
             </div>
 
             <div class="form-item">
@@ -570,6 +572,7 @@
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
                     const apiKeyInput = document.getElementById("debridApiKey");
+                    debridStreamProxyPasswordInput = document.getElementById("debridStreamProxyPassword");
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
@@ -589,6 +592,12 @@
                     } else if (selectedService === "debridlink") {
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
                         apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "offcloud") {
+                        apiKeyLink.href = "https://offcloud.com";
+                        apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "pikpak") {
+                        apiKeyLink.href = "https://mypikpak.com";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "torrent") {
                         apiKeyLink.href = "";
                         apiKeyLink.textContent = ""
@@ -598,9 +607,21 @@
                     }
 
                     if (selectedService === "stremthru") {
-                        apiKeyInput.helpText = "Enter Credential ('store_name:store_token')"
+                        apiKeyInput.helpText = "Enter Credential (`store_name:api-key` or `store_name:email:password` for offcloud and pikpak)"
+                    } else if (selectedService === "offcloud" || selectedService === "pikpak") {
+                        apiKeyInput.helpText = "Format: `email:password`"
+                    } else if (selectedService != "torrent") {
+                        apiKeyInput.helpText = "Format: `api-key`"
                     } else {
-                        apiKeyInput.helpText = "If no key is specified, you'll get direct torrents!"
+                        apiKeyInput.helpText = ""
+                    }
+
+                    if (selectedService === "torrent") {
+                        debridStreamProxyPasswordInput.disabled = true;
+                        apiKeyInput.disabled = true;
+                    } else {
+                        debridStreamProxyPasswordInput.disabled = false;
+                        apiKeyInput.disabled = false;
                     }
                 });
             </script>
@@ -703,6 +724,9 @@
                             console.log("Failed to retrieve or parse settings from URL:", error);
                         }
 
+                        // trigger sl-change event on debridService to set initial state
+                        const debridServiceSelect = document.getElementById("debridService");
+                        debridServiceSelect.dispatchEvent(new Event("sl-change"));
                     });
 
                     function populateSelect(selectId, options) {

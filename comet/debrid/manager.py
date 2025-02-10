@@ -1,5 +1,7 @@
 import aiohttp
 
+from comet.utils.models import settings
+
 from .realdebrid import RealDebrid
 from .alldebrid import AllDebrid
 from .premiumize import Premiumize
@@ -8,6 +10,8 @@ from .debridlink import DebridLink
 from .torrent import Torrent
 from .stremthru import StremThru
 from .easydebrid import EasyDebrid
+from .offcloud import Offcloud
+from .pikpak import PikPak
 
 debrid_services = {
     "realdebrid": {
@@ -41,6 +45,16 @@ debrid_services = {
         "cache_availability_endpoint": True,
         "class": EasyDebrid,
     },
+    "offcloud": {
+        "extension": "OC",
+        "cache_availability_endpoint": False,
+        "class": Offcloud,
+    },
+    "pikpak": {
+        "extension": "PP",
+        "cache_availability_endpoint": False,
+        "class": PikPak,
+    },
     "torrent": {
         "extension": "TORRENT",
         "cache_availability_endpoint": False,
@@ -63,6 +77,10 @@ def get_debrid_extension(debrid_service: str, debrid_api_key: str):
     return original_extension
 
 
+def build_stremthru_token(debrid_service: str, debrid_api_key: str):
+    return f"{debrid_service}:{debrid_api_key}"
+
+
 def get_debrid(
     session: aiohttp.ClientSession,
     video_id: str,
@@ -71,6 +89,15 @@ def get_debrid(
     debrid_api_key: str,
     ip: str,
 ):
+    if settings.FORCE_STREMTHRU and debrid_service != "torrent":
+        return debrid_services["stremthru"]["class"](
+            session,
+            video_id,
+            stremthru_url,
+            build_stremthru_token(debrid_service, debrid_api_key),
+            ip,
+        )
+
     if debrid_service == "stremthru":
         return debrid_services[debrid_service]["class"](
             session, video_id, stremthru_url, debrid_api_key, ip
@@ -91,7 +118,10 @@ async def retrieve_debrid_availability(
     if debrid_service == "torrent":
         return []
 
-    if debrid_services[debrid_service]["cache_availability_endpoint"]:
+    if (
+        settings.FORCE_STREMTHRU
+        or debrid_services[debrid_service]["cache_availability_endpoint"]
+    ):
         return await get_debrid(
             session, video_id, stremthru_url, debrid_service, debrid_api_key, ip
         ).get_availability(info_hashes)

@@ -30,7 +30,7 @@ class StremThru:
 
     def parse_store_creds(self, token: str):
         if ":" in token:
-            parts = token.split(":")
+            parts = token.split(":", 1)
             return parts[0], parts[1]
 
         return token, ""
@@ -63,7 +63,7 @@ class StremThru:
         if not await self.check_premium():
             return []
 
-        chunk_size = 25
+        chunk_size = 50
         chunks = [
             torrent_hashes[i : i + chunk_size]
             for i in range(0, len(torrent_hashes), chunk_size)

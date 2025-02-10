@@ -52,6 +52,7 @@ class AppSettings(BaseSettings):
     STREMTHRU_DEFAULT_URL: Optional[str] = (
         "https://stremthru.13377001.xyz"  # 403 issues with https://stremthru.elfhosted.com
     )
+    FORCE_STREMTHRU: Optional[bool] = True
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
     @field_validator("INDEXER_MANAGER_TYPE")
@@ -129,6 +130,8 @@ class ConfigModel(BaseModel):
             "torbox",
             "easydebrid",
             "debridlink",
+            "offcloud",
+            "pikpak",
             "torrent",
             "stremthru",
         ]:
