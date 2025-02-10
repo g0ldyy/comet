@@ -7,7 +7,7 @@ from comet.utils.torrent import (
     download_torrent,
     extract_torrent_metadata,
     extract_trackers_from_magnet,
-    file_index_queue
+    file_index_queue,
 )
 
 

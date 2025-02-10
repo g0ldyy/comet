@@ -1,16 +1,20 @@
 import random
 import string
+import secrets
+import orjson
 
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from comet.utils.models import settings, web_config
+from comet.utils.models import settings, web_config, database
 from comet.utils.general import config_check
 from comet.debrid.manager import get_debrid_extension
 
 templates = Jinja2Templates("comet/templates")
 main = APIRouter()
+security = HTTPBasic()
 
 
 @main.get("/")
@@ -66,3 +70,32 @@ async def manifest(b64config: str = None):
         "background": "https://i.imgur.com/WwnXB3k.jpeg",
         "behaviorHints": {"configurable": True, "configurationRequired": False},
     }
+
+
+class CustomORJSONResponse(Response):
+    media_type = "application/json"
+
+    def render(self, content) -> bytes:
+        assert orjson is not None, "orjson must be installed"
+        return orjson.dumps(content, option=orjson.OPT_INDENT_2)
+
+
+def verify_dashboard_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    is_correct = secrets.compare_digest(
+        credentials.password, settings.DASHBOARD_ADMIN_PASSWORD
+    )
+
+    if not is_correct:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return True
+
+
+@main.get("/dashboard", response_class=CustomORJSONResponse)
+async def dashboard(authenticated: bool = Depends(verify_dashboard_auth)):
+    rows = await database.fetch_all("SELECT * FROM active_connections")
+    return rows

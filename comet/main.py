@@ -120,7 +120,7 @@ def start_log():
     )
     logger.log(
         "COMET",
-        f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/active-connections?password={settings.DASHBOARD_ADMIN_PASSWORD}",
+        f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/dashboard",
     )
     logger.log(
         "COMET",
