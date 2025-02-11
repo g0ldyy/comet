@@ -63,8 +63,10 @@ class MetadataScraper:
     async def cache_metadata(self, media_id: str, metadata: dict, aliases: dict):
         await database.execute(
             f"""
-                INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO metadata_cache
-                VALUES (:media_id, :title, :year, :year_end, :aliases, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+                INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+                INTO metadata_cache
+                VALUES (:media_id, :title, :year, :year_end, :aliases, :timestamp)
+                {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
             """,
             {
                 "media_id": media_id,

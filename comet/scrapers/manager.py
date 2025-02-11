@@ -15,17 +15,13 @@ from RTN import (
 )
 
 from comet.utils.models import settings, database, CometSettingsModel
+from comet.utils.general import default_dump
 from comet.debrid.manager import retrieve_debrid_availability
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
 from .jackett import get_jackett
 from .prowlarr import get_prowlarr
-
-
-def default(obj):
-    if isinstance(obj, ParsedData):
-        return obj.model_dump()
 
 
 class TorrentManager:
@@ -121,7 +117,7 @@ class TorrentManager:
                 "media_id": self.media_id,
                 "season": self.season,
                 "episode": self.episode,
-                "data": orjson.dumps(torrent, default).decode("utf-8"),
+                "data": orjson.dumps(torrent, default_dump).decode("utf-8"),
                 "timestamp": current_time,
             }
             for info_hash, torrent in self.torrents.items()
@@ -277,7 +273,9 @@ class TorrentManager:
                 "file_index": str(file["index"]),
                 "title": file["title"],
                 "size": file["size"],
-                "file_data": orjson.dumps(file["file_data"], default).decode("utf-8"),
+                "file_data": orjson.dumps(file["file_data"], default_dump).decode(
+                    "utf-8"
+                ),
                 "timestamp": current_time,
             }
             for file in availability

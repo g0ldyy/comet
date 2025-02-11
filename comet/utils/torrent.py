@@ -225,11 +225,11 @@ async def update_torrent_file_index(
             },
         )
 
-        additional = (
-            f" S{season:02d}E{episode:02d}"
-            if season is not None and episode is not None
-            else ""
-        )
+        # additional = (
+        #     f" S{season:02d}E{episode:02d}"
+        #     if season is not None and episode is not None
+        #     else ""
+        # )
         # logger.log(
         #     "SCRAPER",
         #     f"Updated file index and size for {info_hash}{additional}",
@@ -308,12 +308,15 @@ class FileIndexQueue:
 
 file_index_queue = FileIndexQueue()
 
+
 class FileIndexUpdateQueue:
     def __init__(self):
         self.queue = asyncio.Queue()
         self.is_running = False
 
-    async def add_update(self, info_hash: str, season: str, episode: str, index: int, size: int):
+    async def add_update(
+        self, info_hash: str, season: str, episode: str, index: int, size: int
+    ):
         await self.queue.put((info_hash, season, episode, index, size))
         if not self.is_running:
             self.is_running = True
@@ -324,12 +327,15 @@ class FileIndexUpdateQueue:
             try:
                 info_hash, season, episode, index, size = await self.queue.get()
                 try:
-                    await update_torrent_file_index(info_hash, season, episode, index, size)
+                    await update_torrent_file_index(
+                        info_hash, season, episode, index, size
+                    )
                 finally:
                     self.queue.task_done()
             except Exception:
                 await asyncio.sleep(1)
 
         self.is_running = False
+
 
 file_index_update_queue = FileIndexUpdateQueue()

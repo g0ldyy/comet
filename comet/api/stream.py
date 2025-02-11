@@ -265,7 +265,11 @@ async def playback(
     async with aiohttp.ClientSession() as session:
         cached_link = await database.fetch_one(
             f"SELECT download_url FROM download_links_cache WHERE debrid_key = '{config['debridApiKey']}' AND info_hash = '{hash}' AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER)) AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER)) AND timestamp + 3600 >= :current_time",
-            {"current_time": time.time(), "season": season, "episode": episode},
+            {
+                "current_time": time.time(),
+                "season": season if season != "n" else None,
+                "episode": episode if episode != "n" else None,
+            },
         )
 
         download_url = None
@@ -300,8 +304,8 @@ async def playback(
                     "debrid_key": config["debridApiKey"],
                     "info_hash": hash,
                     "name": name,
-                    "season": season,
-                    "episode": episode,
+                    "season": season if season != "n" else None,
+                    "episode": episode if episode != "n" else None,
                     "download_url": download_url,
                     "timestamp": time.time(),
                 },

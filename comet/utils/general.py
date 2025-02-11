@@ -242,3 +242,8 @@ def is_video(title: str):
         ".yuv",
     )
     return title.endswith(video_extensions)
+
+
+def default_dump(obj):
+    if isinstance(obj, ParsedData):
+        return obj.model_dump()

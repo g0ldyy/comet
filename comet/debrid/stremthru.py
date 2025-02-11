@@ -1,10 +1,12 @@
 import aiohttp
 import asyncio
+import time
+import orjson
 
 from RTN import parse, title_match
 
-from comet.utils.models import settings
-from comet.utils.general import is_video
+from comet.utils.models import settings, database
+from comet.utils.general import is_video, default_dump
 from comet.utils.logger import logger
 from comet.utils.torrent import file_index_update_queue
 
@@ -26,6 +28,7 @@ class StremThru:
         self.session = session
         self.base_url = f"{settings.STREMTHRU_URL}/v0/store"
         self.name = f"StremThru-{store}"
+        self.real_debrid_name = store
         self.client_ip = ip
         self.sid = video_id
 
@@ -123,7 +126,9 @@ class StremThru:
                     }
 
                     files.append(file_info)
-                    await file_index_update_queue.add_update(hash, season, episode, index, size)
+                    await file_index_update_queue.add_update(
+                        hash, season, episode, index, size
+                    )
 
         return files
 
@@ -167,6 +172,28 @@ class StremThru:
 
             if not target_file:
                 return
+
+            await database.execute(
+                f"""
+                INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+                INTO availability_cache (debrid_service, info_hash, season, episode, file_index, title, size, file_data, timestamp)
+                VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :file_data, :timestamp)
+                {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+                """,
+                {
+                    "debrid_service": self.real_debrid_name,
+                    "info_hash": hash,
+                    "season": season,
+                    "episode": episode,
+                    "file_index": target_file["index"],
+                    "title": target_file["name"],
+                    "size": target_file["size"],
+                    "file_data": orjson.dumps(
+                        parse(target_file["name"]), default_dump
+                    ).decode("utf-8"),
+                    "timestamp": time.time(),
+                },
+            )
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",
