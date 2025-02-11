@@ -90,7 +90,7 @@ class TorrentManager:
                     tasks.append(get_prowlarr(self, session, query))
 
         await asyncio.gather(*tasks)
-        await self.cache_torrents()
+        asyncio.create_task(self.cache_torrents())
 
     async def get_cached_torrents(self):
         rows = await database.fetch_all(
@@ -260,8 +260,18 @@ class TorrentManager:
         if len(availability) == 0:
             return
 
-        current_time = time.time()
+        for file in availability:
+            info_hash = file["info_hash"]
+            self.torrents[info_hash]["cached"] = True
+            self.torrents[info_hash]["parsed"] = file["file_data"]
+            self.torrents[info_hash]["fileIndex"] = file["index"]
+            self.torrents[info_hash]["title"] = file["title"]
+            self.torrents[info_hash]["size"] = file["size"]
 
+        asyncio.create_task(self._background_cache_availability(availability))
+
+    async def _background_cache_availability(self, availability: list):
+        current_time = time.time()
         actual_debrid_service = get_actual_debrid_service(
             self.debrid_service, self.debrid_api_key
         )
@@ -289,14 +299,6 @@ class TorrentManager:
         """
 
         await database.execute_many(query, values)
-
-        for file in availability:
-            info_hash = file["info_hash"]
-            self.torrents[info_hash]["cached"] = True
-            self.torrents[info_hash]["parsed"] = file["file_data"]
-            self.torrents[info_hash]["fileIndex"] = file["index"]
-            self.torrents[info_hash]["title"] = file["title"]
-            self.torrents[info_hash]["size"] = file["size"]
 
     async def get_cached_availability(self):
         info_hashes = list(self.torrents.keys())

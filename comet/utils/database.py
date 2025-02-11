@@ -19,71 +19,60 @@ async def setup_database():
         await database.execute(
             "CREATE TABLE IF NOT EXISTS ongoing_searches (media_id TEXT PRIMARY KEY, timestamp INTEGER)"
         )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ongoing_searches_timestamp ON ongoing_searches(timestamp)"
-        )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS metadata_cache (media_id TEXT PRIMARY KEY, title TEXT, year INTEGER, year_end INTEGER, aliases TEXT, timestamp INTEGER)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_metadata_timestamp ON metadata_cache(timestamp)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_metadata_title ON metadata_cache(title)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_metadata_year ON metadata_cache(year)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_metadata_year_end ON metadata_cache(year_end)"
         )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash TEXT PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
         )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_torrents_media ON torrents_cache(media_id, season, episode)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_torrents_timestamp ON torrents_cache(timestamp)"
-        )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS torrent_file_indexes (info_hash TEXT, season INTEGER, episode INTEGER, file_index INTEGER, file_size INTEGER, timestamp INTEGER, PRIMARY KEY (info_hash, season, episode))"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_torrent_file_indexes_timestamp ON torrent_file_indexes(timestamp)"
         )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS availability_cache (id SERIAL PRIMARY KEY, debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size BIGINT, file_data TEXT, timestamp INTEGER, UNIQUE(debrid_service, info_hash, season, episode))"
         )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_availability_lookup ON availability_cache(info_hash, debrid_service, season, episode)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_availability_timestamp ON availability_cache(timestamp)"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_availability_file_size ON availability_cache(size)"
-        )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, file_index TEXT, download_url TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, file_index))"
-        )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_downloads_timestamp ON download_links_cache(timestamp)"
         )
 
         await database.execute(
             "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
         )
-        await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_connections_timestamp ON active_connections(timestamp)"
-        )
+
         await database.execute(
             "CREATE INDEX IF NOT EXISTS idx_active_connections_ip ON active_connections(ip)"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_active_connections_timestamp ON active_connections(timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ongoing_searches_timestamp ON ongoing_searches(timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_cache_timestamp ON metadata_cache(timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_torrents_cache_lookup ON torrents_cache(media_id, season, episode, timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_torrent_file_indexes_lookup ON torrent_file_indexes(info_hash, season, episode, timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_availability_cache_lookup ON availability_cache(debrid_service, info_hash, season, episode, timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_download_links_cache_lookup ON download_links_cache(debrid_key, info_hash, file_index, timestamp)"
         )
 
         if settings.DATABASE_TYPE == "sqlite":
