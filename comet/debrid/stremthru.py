@@ -158,8 +158,10 @@ class StremThru:
 
                 file_season = file_parsed.seasons[0] if file_parsed.seasons else None
                 file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
+                season = int(season) if season != "None" else None
+                episode = int(episode) if episode != "None" else None
 
-                if int(season) == file_season and int(episode) == file_episode:
+                if season == file_season and episode == file_episode:
                     target_file = file
                     break
 
