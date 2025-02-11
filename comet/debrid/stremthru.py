@@ -3,6 +3,7 @@ import asyncio
 
 from RTN import parse, title_match
 
+from comet.utils.models import settings
 from comet.utils.general import is_video
 from comet.utils.logger import logger
 from comet.utils.torrent import update_torrent_file_index
@@ -13,7 +14,6 @@ class StremThru:
         self,
         session: aiohttp.ClientSession,
         video_id: str,
-        url: str,
         token: str,
         ip: str,
     ):
@@ -24,8 +24,8 @@ class StremThru:
         session.headers["User-Agent"] = "comet"
 
         self.session = session
-        self.base_url = f"{url}/v0/store"
-        self.name = f"StremThru[{store}]"
+        self.base_url = f"{settings.STREMTHRU_URL}/v0/store"
+        self.name = f"StremThru-{store}"
         self.client_ip = ip
         self.sid = video_id
 
@@ -106,7 +106,7 @@ class StremThru:
                         if filename_parsed.episodes
                         else None
                     )
-                    if ":" in self.sid and season is None or episode is None:
+                    if ":" in self.sid and (season is None or episode is None):
                         continue
 
                     index = file["index"]
@@ -125,6 +125,7 @@ class StremThru:
                     files.append(file_info)
                     await update_torrent_file_index(hash, season, episode, index, size)
 
+        print(len(files))
         return files
 
     async def generate_download_link(
@@ -158,8 +159,8 @@ class StremThru:
 
                 file_season = file_parsed.seasons[0] if file_parsed.seasons else None
                 file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
-                season = int(season) if season != "None" else None
-                episode = int(episode) if episode != "None" else None
+                season = int(season) if season != "n" else None
+                episode = int(episode) if episode != "n" else None
 
                 if season == file_season and episode == file_episode:
                     target_file = file

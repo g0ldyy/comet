@@ -39,7 +39,6 @@ async def configure(request: Request):
             else "",
             "webConfig": web_config,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
-            "stremthruDefaultUrl": settings.STREMTHRU_DEFAULT_URL,
         },
     )
 
@@ -48,9 +47,7 @@ async def configure(request: Request):
 @main.get("/{b64config}/manifest.json")
 async def manifest(b64config: str = None):
     config = config_check(b64config)
-    debrid_extension = get_debrid_extension(
-        config["debridService"], config["debridApiKey"]
-    )
+    debrid_extension = get_debrid_extension(config["debridService"])
 
     return {
         "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",

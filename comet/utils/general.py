@@ -31,11 +31,6 @@ def config_check(b64config: str):
                 settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY
             )
 
-        if not validated_config["stremthruUrl"] and (
-            validated_config["debridService"] == "stremthru" or settings.FORCE_STREMTHRU
-        ):
-            validated_config["stremthruUrl"] = settings.STREMTHRU_DEFAULT_URL
-
         return validated_config
     except Exception:
         return default_config  # if it doesn't pass, return default config

@@ -8,7 +8,18 @@ from databases import Database
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import BestRanking, SettingsModel
-from RTN.models import ResolutionConfig, OptionsConfig, LanguagesConfig
+from RTN.models import (
+    ResolutionConfig,
+    OptionsConfig,
+    LanguagesConfig,
+    CustomRanksConfig,
+    CustomRank,
+    QualityRankModel,
+    RipsRankModel,
+    HdrRankModel,
+    AudioRankModel,
+    ExtrasRankModel,
+)
 
 
 class AppSettings(BaseSettings):
@@ -49,10 +60,9 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = -1
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
-    STREMTHRU_DEFAULT_URL: Optional[str] = (
+    STREMTHRU_URL: Optional[str] = (
         "https://stremthru.13377001.xyz"  # 403 issues with https://stremthru.elfhosted.com
     )
-    FORCE_STREMTHRU: Optional[bool] = True
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
     @field_validator("INDEXER_MANAGER_TYPE")
@@ -83,6 +93,42 @@ class CometSettingsModel(SettingsModel):
 
     languages: LanguagesConfig = LanguagesConfig(exclude=[])
 
+    custom_ranks: CustomRanksConfig = CustomRanksConfig(
+        quality=QualityRankModel(
+            av1=CustomRank(fetch=True),
+            dvd=CustomRank(fetch=True),
+            mpeg=CustomRank(fetch=True),
+            remux=CustomRank(fetch=True),
+            vhs=CustomRank(fetch=True),
+            webmux=CustomRank(fetch=True),
+            xvid=CustomRank(fetch=True),
+        ),
+        rips=RipsRankModel(
+            bdrip=CustomRank(fetch=True),
+            dvdrip=CustomRank(fetch=True),
+            ppvrip=CustomRank(fetch=True),
+            satrip=CustomRank(fetch=True),
+            tvrip=CustomRank(fetch=True),
+            uhdrip=CustomRank(fetch=True),
+            vhsrip=CustomRank(fetch=True),
+            webdlrip=CustomRank(fetch=True),
+        ),
+        hdr=HdrRankModel(
+            dolby_vision=CustomRank(fetch=True),
+        ),
+        audio=AudioRankModel(
+            mono=CustomRank(fetch=True),
+            mp3=CustomRank(fetch=True),
+        ),
+        extras=ExtrasRankModel(
+            three_d=CustomRank(fetch=True),
+            converted=CustomRank(fetch=True),
+            documentary=CustomRank(fetch=True),
+            site=CustomRank(fetch=True),
+            upscaled=CustomRank(fetch=True),
+        ),
+    )
+
 
 rtn_settings_default = CometSettingsModel()
 rtn_ranking_default = BestRanking()
@@ -98,7 +144,6 @@ class ConfigModel(BaseModel):
     maxSize: Optional[float] = 0
     debridService: Optional[str] = "torrent"
     debridApiKey: Optional[str] = ""
-    stremthruUrl: Optional[str] = ""
     debridStreamProxyPassword: Optional[str] = ""
     rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
     rtnRanking: Optional[BestRanking] = rtn_ranking_default
@@ -133,7 +178,6 @@ class ConfigModel(BaseModel):
             "offcloud",
             "pikpak",
             "torrent",
-            "stremthru",
         ]:
             raise ValueError("Invalid debridService")
         return v

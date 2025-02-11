@@ -69,7 +69,6 @@ async def stream(
 
         debrid_service = config["debridService"]
         torrent_manager = TorrentManager(
-            config["stremthruUrl"],
             debrid_service,
             config["debridApiKey"],
             get_client_ip(request),
@@ -157,7 +156,7 @@ async def stream(
             f"⚖️ Torrents after RTN filtering: {len(torrent_manager.ranked_torrents)}/{initial_torrent_count}",
         )
 
-        debrid_extension = get_debrid_extension(debrid_service, config["debridApiKey"])
+        debrid_extension = get_debrid_extension(debrid_service)
         torrents = torrent_manager.torrents
 
         cached_results = []
@@ -238,7 +237,7 @@ async def stream(
                     the_stream["sources"] = torrent_data["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex'] if torrent_data['cached'] else 'n'}/{title}/{season}/{episode}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex'] if torrent_data['cached'] else 'n'}/{title}/{season if season is not None else 'n'}/{episode if episode is not None else 'n'}"
                 )
 
             if torrent_data["cached"]:
@@ -278,7 +277,6 @@ async def playback(
             debrid = get_debrid(
                 session,
                 None,
-                config["stremthruUrl"],
                 config["debridService"],
                 config["debridApiKey"],
                 ip,
