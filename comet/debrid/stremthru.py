@@ -6,7 +6,7 @@ from RTN import parse, title_match
 from comet.utils.models import settings
 from comet.utils.general import is_video
 from comet.utils.logger import logger
-from comet.utils.torrent import update_torrent_file_index
+from comet.utils.torrent import file_index_update_queue
 
 
 class StremThru:
@@ -123,9 +123,8 @@ class StremThru:
                     }
 
                     files.append(file_info)
-                    await update_torrent_file_index(hash, season, episode, index, size)
+                    await file_index_update_queue.add_update(hash, season, episode, index, size)
 
-        print(len(files))
         return files
 
     async def generate_download_link(
