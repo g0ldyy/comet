@@ -91,7 +91,7 @@ class StremThru:
                 for file in torrent["files"]:
                     filename = file["name"]
 
-                    if not is_video(filename) or "sample" in filename:
+                    if not is_video(filename) or "sample" in filename.lower():
                         continue
 
                     filename_parsed = parse(filename)
@@ -119,7 +119,7 @@ class StremThru:
                     }
 
                     files.append(file_info)
-                    await update_torrent_file_index(hash, season, episode, index, size)
+                    asyncio.create_task(update_torrent_file_index(hash, season, episode, index, size))
 
         return files
 

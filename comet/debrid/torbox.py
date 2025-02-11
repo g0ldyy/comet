@@ -97,7 +97,7 @@ class TorBox:
                     }
 
                     files.append(file_info)
-                    await update_torrent_file_index(hash, season, episode, index, size)
+                    asyncio.create_task(update_torrent_file_index(hash, season, episode, index, size))
 
         return files
 
