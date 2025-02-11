@@ -1,7 +1,7 @@
 import aiohttp
 import asyncio
 
-from RTN import parse
+from RTN import parse, title_match
 
 from comet.utils.general import is_video
 from comet.utils.logger import logger
@@ -89,7 +89,7 @@ class StremThru:
                     continue
 
                 for file in torrent["files"]:
-                    filename = file["name"]
+                    filename = file["name"].split("/")[-1]
 
                     if not is_video(filename) or "sample" in filename.lower():
                         continue
@@ -97,6 +97,7 @@ class StremThru:
                     filename_parsed = parse(filename)
 
                     hash = torrent["hash"]
+
                     season = (
                         filename_parsed.seasons[0] if filename_parsed.seasons else None
                     )
@@ -105,6 +106,9 @@ class StremThru:
                         if filename_parsed.episodes
                         else None
                     )
+                    if ":" in self.sid and season is None or episode is None:
+                        continue
+
                     index = file["index"]
                     size = file["size"]
 
@@ -119,13 +123,13 @@ class StremThru:
                     }
 
                     files.append(file_info)
-                    asyncio.create_task(
-                        update_torrent_file_index(hash, season, episode, index, size)
-                    )
+                    await update_torrent_file_index(hash, season, episode, index, size)
 
         return files
 
-    async def generate_download_link(self, hash: str, index: str):
+    async def generate_download_link(
+        self, hash: str, index: str, name: str, season: int, episode: int
+    ):
         try:
             magnet = await self.session.post(
                 f"{self.base_url}/magnets?client_ip={self.client_ip}",
@@ -136,26 +140,38 @@ class StremThru:
             if magnet["data"]["status"] != "downloaded":
                 return
 
-            file = next(
-                (
-                    file
-                    for file in magnet["data"]["files"]
-                    if str(file["index"]) == index or file["name"] == index
-                ),
-                None,
-            )
+            name_parsed = parse(name)
+            target_file = None
 
-            if not file:
+            for file in magnet["data"]["files"]:
+                if str(file["index"]) == index:
+                    target_file = file
+                    break
+
+                filename = file["name"]
+                file_parsed = parse(filename)
+
+                if not is_video(filename) or not title_match(
+                    name_parsed.parsed_title, file_parsed.parsed_title
+                ):
+                    continue
+
+                file_season = file_parsed.seasons[0] if file_parsed.seasons else None
+                file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
+
+                if int(season) == file_season and int(episode) == file_episode:
+                    target_file = file
+                    break
+
+            if not target_file:
                 return
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",
-                json={"link": file["link"]},
+                json={"link": target_file["link"]},
             )
             link = await link.json()
 
             return link["data"]["link"]
         except Exception as e:
-            logger.warning(
-                f"Exception while getting download link from {self.name} for {hash}|{index}: {e}"
-            )
+            logger.warning(f"Exception while getting download link for {hash}: {e}")

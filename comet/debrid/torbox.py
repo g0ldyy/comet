@@ -9,13 +9,16 @@ from comet.utils.torrent import update_torrent_file_index
 
 
 class TorBox:
-    def __init__(self, session: aiohttp.ClientSession, debrid_api_key: str, ip: str):
+    def __init__(
+        self, session: aiohttp.ClientSession, video_id, debrid_api_key: str, ip: str
+    ):
         session.headers["Authorization"] = f"Bearer {debrid_api_key}"
         self.session = session
         self.proxy = None
 
         self.api_url = "https://api.torbox.app/v1/api"
         self.debrid_api_key = debrid_api_key
+        self.sid = video_id
 
     async def check_premium(self):
         try:
@@ -75,6 +78,7 @@ class TorBox:
                     filename_parsed = parse(filename)
 
                     hash = torrent["hash"]
+
                     season = (
                         filename_parsed.seasons[0] if filename_parsed.seasons else None
                     )
@@ -83,6 +87,9 @@ class TorBox:
                         if filename_parsed.episodes
                         else None
                     )
+                    if ":" in self.sid and season is None or episode is None:
+                        continue
+
                     index = torrent_files.index(file)
                     size = file["size"]
 
@@ -97,13 +104,13 @@ class TorBox:
                     }
 
                     files.append(file_info)
-                    asyncio.create_task(
-                        update_torrent_file_index(hash, season, episode, index, size)
-                    )
+                    await update_torrent_file_index(hash, season, episode, index, size)
 
         return files
 
-    async def generate_download_link(self, hash: str, index: str):
+    async def generate_download_link(
+        self, hash: str, index: str, name: str, season: int, episode: int
+    ):
         try:
             get_torrents = await self.session.get(
                 f"{self.api_url}/torrents/mylist?bypass_cache=true"

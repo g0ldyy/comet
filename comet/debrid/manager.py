@@ -103,7 +103,9 @@ def get_debrid(
             session, video_id, stremthru_url, debrid_api_key, ip
         )
 
-    return debrid_services[debrid_service]["class"](session, debrid_api_key, ip)
+    return debrid_services[debrid_service]["class"](
+        session, video_id, debrid_api_key, ip
+    )
 
 
 async def retrieve_debrid_availability(

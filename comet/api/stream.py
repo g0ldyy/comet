@@ -238,7 +238,7 @@ async def stream(
                     the_stream["sources"] = torrent_data["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex']}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex'] if torrent_data['cached'] else 'n'}/{title}/{season}/{episode}"
                 )
 
             if torrent_data["cached"]:
@@ -249,22 +249,34 @@ async def stream(
         return {"streams": cached_results + non_cached_results}
 
 
-@streams.get("/{b64config}/playback/{hash}/{index}")
-async def playback(request: Request, b64config: str, hash: str, index: str):
+@streams.get("/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}")
+async def playback(
+    request: Request,
+    b64config: str,
+    hash: str,
+    index: str,
+    name: str,
+    season: str,
+    episode: str,
+):
     config = config_check(b64config)
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
 
     async with aiohttp.ClientSession() as session:
-        current_time = time.time()
-        cached_link = await database.fetch_one(
-            f"SELECT download_url FROM download_links_cache WHERE debrid_key = '{config['debridApiKey']}' AND info_hash = '{hash}' AND file_index = '{index}' AND timestamp + 3600 >= :current_time",
-            {"current_time": current_time},
+        download_url = await database.fetch_val(
+            f"""
+            SELECT download_url 
+            FROM download_links_cache 
+            WHERE debrid_key = '{config['debridApiKey']}' 
+            AND info_hash = '{hash}' 
+            AND name = '{name}'
+            AND season = {season if season else 'NULL'}
+            AND episode = {episode if episode else 'NULL'}
+            AND timestamp + 3600 >= :current_time
+            """,
+            {"current_time": time.time()},
         )
-
-        download_url = None
-        if cached_link:
-            download_url = cached_link["download_url"]
 
         ip = get_client_ip(request)
         if download_url is None:
@@ -276,18 +288,29 @@ async def playback(request: Request, b64config: str, hash: str, index: str):
                 config["debridApiKey"],
                 ip,
             )
-            download_url = await debrid.generate_download_link(hash, index)
+            download_url = await debrid.generate_download_link(
+                hash, index, name, season, episode
+            )
             if not download_url:
                 return FileResponse("comet/assets/uncached.mp4")
 
+            query = f"""
+            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+            INTO download_links_cache (debrid_key, info_hash, name, season, episode, download_url, timestamp)
+            VALUES (:debrid_key, :info_hash, :name, :season, :episode, :download_url, :timestamp)
+            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+            """
+
             await database.execute(
-                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO download_links_cache VALUES (:debrid_key, :info_hash, :file_index, :download_url, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                query,
                 {
                     "debrid_key": config["debridApiKey"],
                     "info_hash": hash,
-                    "file_index": index,
+                    "name": name,
+                    "season": season,
+                    "episode": episode,
                     "download_url": download_url,
-                    "timestamp": current_time,
+                    "timestamp": time.time(),
                 },
             )
 

@@ -37,7 +37,7 @@ async def setup_database():
         )
 
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, file_index TEXT, download_url TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, file_index))"
+            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, name TEXT, season INTEGER, episode INTEGER, download_url TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, name, season, episode))"
         )
 
         await database.execute(
@@ -72,7 +72,7 @@ async def setup_database():
         )
 
         await database.execute(
-            "CREATE INDEX IF NOT EXISTS idx_download_links_cache_lookup ON download_links_cache(debrid_key, info_hash, file_index, timestamp)"
+            "CREATE INDEX IF NOT EXISTS idx_download_links_cache_lookup ON download_links_cache(debrid_key, info_hash, season, episode, timestamp)"
         )
 
         if settings.DATABASE_TYPE == "sqlite":
