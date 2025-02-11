@@ -78,6 +78,9 @@ def get_debrid_extension(debrid_service: str, debrid_api_key: str):
 
 
 def build_stremthru_token(debrid_service: str, debrid_api_key: str):
+    if debrid_service == "stremthru":
+        return debrid_api_key
+
     return f"{debrid_service}:{debrid_api_key}"
 
 
