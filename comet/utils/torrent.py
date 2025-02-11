@@ -52,7 +52,7 @@ demagnetizer = Demagnetizer()
 async def get_torrent_from_magnet(magnet_uri: str):
     try:
         magnet = Magnet.from_string(magnet_uri)
-        with anyio.fail_after(settings.GET_TORRENT_TIMEOUT):
+        with anyio.fail_after(60):
             torrent_data = await demagnetizer.demagnetize(magnet)
             if torrent_data:
                 return torrent_data.dump()
@@ -179,6 +179,65 @@ def extract_torrent_metadata(content: bytes, season: str, episode: str):
         return {}
 
 
+async def update_torrent_file_index(
+    info_hash: str, season: str, episode: str, index: int, size: int
+):
+    try:
+        if season is None and episode is None:
+            existing = await database.fetch_one(
+                """
+                SELECT file_index, file_size
+                FROM torrent_file_indexes 
+                WHERE info_hash = :info_hash 
+                AND season IS NULL
+                AND episode IS NULL
+                """,
+                {"info_hash": info_hash},
+            )  # for movies, we keep best file (largest size)
+
+            if existing and existing["file_size"] >= size:
+                return
+
+            await database.execute(
+                """
+                DELETE FROM torrent_file_indexes 
+                WHERE info_hash = :info_hash 
+                AND season IS NULL
+                AND episode IS NULL
+                """,
+                {"info_hash": info_hash},
+            )
+
+        await database.execute(
+            f"""
+            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+            INTO torrent_file_indexes 
+            VALUES (:info_hash, :season, :episode, :file_index, :file_size, :timestamp)
+            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+            """,
+            {
+                "info_hash": info_hash,
+                "season": season,
+                "episode": episode,
+                "file_index": index,
+                "file_size": size,
+                "timestamp": time.time(),
+            },
+        )
+
+        additional = (
+            f" S{season:02d}E{episode:02d}"
+            if season is not None and episode is not None
+            else ""
+        )
+        logger.log(
+            "SCRAPER",
+            f"Updated file index and size for {info_hash}{additional}",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to update file index for {info_hash}: {e}")
+
+
 class FileIndexQueue:
     def __init__(self, max_concurrent: int = 10):
         self.queue = asyncio.Queue()
@@ -231,35 +290,13 @@ class FileIndexQueue:
                             )
                             if metadata and "file_data" in metadata:
                                 for file_info in metadata["file_data"]:
-                                    file_season = file_info["season"]
-                                    file_episode = file_info["episode"]
-
-                                    await database.execute(
-                                        f"""
-                                        INSERT {'OR REPLACE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-                                        INTO torrent_file_indexes 
-                                        VALUES (:info_hash, :season, :episode, :file_index, :file_size, :timestamp)
-                                        {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
-                                        """,
-                                        {
-                                            "info_hash": info_hash,
-                                            "season": file_season,
-                                            "episode": file_episode,
-                                            "file_index": file_info["index"],
-                                            "file_size": file_info["size"],
-                                            "timestamp": time.time(),
-                                        },
+                                    await update_torrent_file_index(
+                                        info_hash,
+                                        file_info["season"],
+                                        file_info["episode"],
+                                        file_info["index"],
+                                        file_info["size"],
                                     )
-
-                                additional = (
-                                    f" S{file_season:02d}E{file_episode:02d}"
-                                    if file_season and file_episode
-                                    else ""
-                                )
-                                logger.log(
-                                    "SCRAPER",
-                                    f"Updated file index and size for {info_hash}{additional}",
-                                )
                     finally:
                         self.queue.task_done()
 

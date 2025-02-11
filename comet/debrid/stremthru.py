@@ -5,6 +5,7 @@ from RTN import parse
 
 from comet.utils.general import is_video
 from comet.utils.logger import logger
+from comet.utils.torrent import update_torrent_file_index
 
 
 class StremThru:
@@ -95,21 +96,30 @@ class StremThru:
 
                     filename_parsed = parse(filename)
 
-                    files.append(
-                        {
-                            "info_hash": torrent["hash"],
-                            "index": file["index"],
-                            "title": filename,
-                            "size": file["size"],
-                            "season": filename_parsed.seasons[0]
-                            if len(filename_parsed.seasons) != 0
-                            else None,
-                            "episode": filename_parsed.episodes[0]
-                            if len(filename_parsed.episodes) != 0
-                            else None,
-                            "file_data": filename_parsed,
-                        }
+                    hash = torrent["hash"]
+                    season = (
+                        filename_parsed.seasons[0] if filename_parsed.seasons else None
                     )
+                    episode = (
+                        filename_parsed.episodes[0]
+                        if filename_parsed.episodes
+                        else None
+                    )
+                    index = file["index"]
+                    size = file["size"]
+
+                    file_info = {
+                        "info_hash": hash,
+                        "index": index,
+                        "title": filename,
+                        "size": size,
+                        "season": season,
+                        "episode": episode,
+                        "file_data": filename_parsed,
+                    }
+
+                    files.append(file_info)
+                    await update_torrent_file_index(hash, season, episode, index, size)
 
         return files
 

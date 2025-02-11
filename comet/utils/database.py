@@ -50,7 +50,7 @@ async def setup_database():
         )
 
         await database.execute(
-            "CREATE TABLE IF NOT EXISTS torrent_file_indexes (info_hash TEXT NOT NULL, season INTEGER, episode INTEGER, file_index INTEGER, file_size INTEGER, timestamp INTEGER NOT NULL, PRIMARY KEY (info_hash, season, episode))"
+            "CREATE TABLE IF NOT EXISTS torrent_file_indexes (info_hash TEXT, season INTEGER, episode INTEGER, file_index INTEGER, file_size INTEGER, timestamp INTEGER, PRIMARY KEY (info_hash, season, episode))"
         )
         await database.execute(
             "CREATE INDEX IF NOT EXISTS idx_torrent_file_indexes_timestamp ON torrent_file_indexes(timestamp)"
