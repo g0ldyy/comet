@@ -39,8 +39,8 @@ async def get_mediafusion(manager, media_type: str, media_id: str):
             torrents.append(
                 {
                     "title": title,
-                    "infoHash": torrent["infoHash"],
-                    "fileIndex": torrent["fileIdx"] if "fileIdx" in torrent else 0,
+                    "infoHash": torrent["infoHash"].lower(),
+                    "fileIndex": torrent["fileIdx"] if "fileIdx" in torrent else None,
                     "seeders": seeders,
                     "size": torrent["behaviorHints"][
                         "videoSize"

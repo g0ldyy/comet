@@ -10,6 +10,7 @@ from fastapi.responses import (
 )
 
 from comet.utils.models import settings, database, trackers
+from comet.utils.general import parse_media_id
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
 from comet.utils.general import config_check, format_title, get_client_ip
@@ -25,6 +26,34 @@ async def remove_ongoing_search_from_database(media_id: str):
         "DELETE FROM ongoing_searches WHERE media_id = :media_id",
         {"media_id": media_id},
     )
+
+
+async def is_first_search(media_id: str) -> bool:
+    result = await database.fetch_one(
+        "SELECT media_id FROM first_searches WHERE media_id = :media_id",
+        {"media_id": media_id},
+    )
+    if not result:
+        await database.execute(
+            "INSERT INTO first_searches (media_id, timestamp) VALUES (:media_id, :timestamp)",
+            {"media_id": media_id, "timestamp": time.time()},
+        )
+        return True
+    return False
+
+
+async def background_availability_check(torrent_manager: TorrentManager, media_id: str):
+    try:
+        async with aiohttp.ClientSession() as new_session:
+            await torrent_manager.get_and_cache_debrid_availability(new_session)
+            logger.log(
+                "SCRAPER",
+                f"📥 Background availability check complete!",
+            )
+    except Exception as e:
+        logger.log("SCRAPER", f"❌ Background availability check failed: {e}")
+    finally:
+        await remove_ongoing_search_from_database(media_id)
 
 
 @streams.get("/stream/{media_type}/{media_id}.json")
@@ -67,6 +96,9 @@ async def stream(
 
         logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
 
+        id, season, episode = parse_media_id(media_type, media_id)
+        media_only_id = id if id != "kitsu" else season
+
         debrid_service = config["debridService"]
         torrent_manager = TorrentManager(
             debrid_service,
@@ -74,6 +106,7 @@ async def stream(
             get_client_ip(request),
             media_type,
             media_id,
+            media_only_id,
             title,
             year,
             year_end,
@@ -136,11 +169,30 @@ async def stream(
             f"💾 Available cached torrents: {cached_count}/{len(torrent_manager.torrents)}",
         )
 
-        if debrid_service != "torrent" and not any(
-            torrent["cached"] for torrent in torrent_manager.torrents.values()
-        ):
-            logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
-            await torrent_manager.get_and_cache_debrid_availability(session)
+        cached_results = []
+        non_cached_results = []
+
+        if debrid_service != "torrent":
+            is_first = await is_first_search(media_id)
+
+            if not any(
+                torrent["cached"] for torrent in torrent_manager.torrents.values()
+            ):
+                logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
+                await torrent_manager.get_and_cache_debrid_availability(session)
+            elif is_first:
+                logger.log("SCRAPER", f"🔄 Starting background availability check for {log_title}")
+                await database.execute(
+                    f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                    {"media_id": media_id, "timestamp": time.time()},
+                )
+                background_tasks.add_task(background_availability_check, torrent_manager, media_id)
+
+                cached_results.append({
+                    "name": "[🔄] Comet",
+                    "description": "First search for this media - Availability check in progress...",
+                    "url": "https://comet.fast"
+                })
 
         initial_torrent_count = len(torrent_manager.torrents)
         torrent_manager.rank_torrents(
@@ -157,10 +209,7 @@ async def stream(
         )
 
         debrid_extension = get_debrid_extension(debrid_service)
-        torrents = torrent_manager.torrents
 
-        cached_results = []
-        non_cached_results = []
         if (
             config["debridStreamProxyPassword"] != ""
             and settings.PROXY_DEBRID_STREAM
@@ -175,72 +224,50 @@ async def stream(
                 }
             )
 
-        for info_hash, torrent in torrent_manager.ranked_torrents.items():
-            torrent_data = torrents[info_hash]
-            rtn_data = (
-                torrent_data["parsed"] if torrent_data["cached"] else torrent.data
-            )
-
-            if debrid_service == "torrent":
-                cached_index = await database.fetch_one(
-                    """
-                    SELECT file_index, file_size 
-                    FROM torrent_file_indexes 
-                    WHERE info_hash = :info_hash
-                    AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-                    AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
-                    AND timestamp + :cache_ttl >= :current_time
-                    """,
-                    {
-                        "info_hash": info_hash,
-                        "season": metadata["season"],
-                        "episode": metadata["episode"],
-                        "cache_ttl": settings.CACHE_TTL,
-                        "current_time": time.time(),
-                    },
-                )
-
-                if cached_index:
-                    torrent_data["fileIndex"] = cached_index["file_index"]
-                    torrent_data["size"] = cached_index["file_size"]
+        torrents = torrent_manager.torrents
+        for info_hash in torrent_manager.ranked_torrents:
+            torrent = torrents[info_hash]
+            rtn_data = torrent["parsed"]
 
             debrid_emoji = (
                 "🧲"
                 if debrid_service == "torrent"
-                else ("⚡" if torrent_data["cached"] else "⬇️")
+                else ("⚡" if torrent["cached"] else "⬇️")
             )
 
             the_stream = {
                 "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
                 "description": format_title(
                     rtn_data,
-                    torrent_data["title"],
-                    torrent_data["seeders"],
-                    torrent_data["size"],
-                    torrent_data["tracker"],
+                    torrent["title"],
+                    torrent["seeders"],
+                    torrent["size"],
+                    torrent["tracker"],
                     config["resultFormat"],
                 ),
                 "behaviorHints": {
                     "bingeGroup": "comet|" + info_hash,
-                    "videoSize": torrent_data["size"],
+                    "videoSize": torrent["size"],
                     "filename": rtn_data.raw_title,
                 },
             }
 
             if debrid_service == "torrent":
                 the_stream["infoHash"] = info_hash
-                the_stream["fileIdx"] = torrent_data["fileIndex"]
-
-                if torrent_data["tracker"] == "DMM":  # Generic trackers for DMM
-                    the_stream["sources"] = trackers
-                else:
-                    the_stream["sources"] = torrent_data["sources"]
-            else:
-                the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent_data['fileIndex'] if torrent_data['cached'] else 'n'}/{title}/{season if season is not None else 'n'}/{episode if episode is not None else 'n'}"
+                the_stream["fileIdx"] = (
+                    torrent["fileIndex"] if torrent["fileIndex"] is not None else 0
                 )
 
-            if torrent_data["cached"]:
+                if torrent["tracker"] == "DMM":  # Generic trackers for DMM
+                    the_stream["sources"] = trackers
+                else:
+                    the_stream["sources"] = torrent["sources"]
+            else:
+                the_stream["url"] = (
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] else 'n'}/{title}/{season if season is not None else 'n'}/{episode if episode is not None else 'n'}"
+                )
+
+            if torrent["cached"]:
                 cached_results.append(the_stream)
             else:
                 non_cached_results.append(the_stream)

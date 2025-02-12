@@ -36,7 +36,7 @@ class AppSettings(BaseSettings):
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
-    CACHE_TTL: Optional[int] = 86400
+    CACHE_TTL: Optional[int] = 1296000
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"

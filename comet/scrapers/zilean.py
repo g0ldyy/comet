@@ -18,8 +18,8 @@ async def get_zilean(
         for result in get_dmm:
             object = {
                 "title": result["raw_title"],
-                "infoHash": result["info_hash"],
-                "fileIndex": 0,
+                "infoHash": result["info_hash"].lower(),
+                "fileIndex": None,
                 "seeders": None,
                 "size": int(result["size"]),
                 "tracker": "DMM",
