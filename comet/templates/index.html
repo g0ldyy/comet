@@ -527,8 +527,8 @@
                 <sl-input id="maxSize" type="number" min=0 value=0 label="Max Size (GB)" placeholder="Enter max size in gigabytes"></sl-input>
             </div>
 
-            <div class="form-item">
-                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="{% if not proxyDebridStream %}Configuration required, see docs{% else %}Enter password{% endif %}" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!" {% if not proxyDebridStream %} disabled {% endif %}></sl-input>
+            <div class="form-item" {% if not proxyDebridStream %}style="display: none"{% endif %}>
+                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="Enter password" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
             </div>
 
             <div class="form-item">
