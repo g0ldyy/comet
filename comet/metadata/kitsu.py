@@ -16,22 +16,3 @@ async def get_kitsu_metadata(session: aiohttp.ClientSession, id: str):
     except Exception as e:
         logger.warning(f"Exception while getting Kitsu metadata for {id}: {e}")
         return None, None, None
-
-
-async def get_kitsu_aliases(session: aiohttp.ClientSession, id: str):
-    aliases = {}
-    try:
-        response = await session.get(f"https://kitsu.io/api/edge/anime/{id}")
-        response = await response.json()
-        titles = response["data"]["attributes"]["titles"]
-
-        aliases["ez"] = []
-        for country in titles:
-            aliases["ez"].append(titles[country])
-
-        for title in response["data"]["attributes"]["abbreviatedTitles"]:
-            aliases["ez"].append(title)
-    except Exception as e:
-        logger.warning(f"Exception while getting Kitsu aliases for {id}: {e}")
-
-    return aliases

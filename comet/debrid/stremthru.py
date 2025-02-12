@@ -122,18 +122,12 @@ class StremThru:
                         "size": size,
                         "season": season,
                         "episode": episode,
-                        "parsed": filename_parsed,
+                        "file_data": filename_parsed,
                     }
 
                     files.append(file_info)
                     await file_index_update_queue.add_update(
-                        hash,
-                        season,
-                        episode,
-                        index,
-                        filename,
-                        size,
-                        filename_parsed,
+                        hash, season, episode, index, size
                     )
 
         return files
@@ -179,37 +173,26 @@ class StremThru:
             if not target_file:
                 return
 
-            parsed = parse(target_file["name"])
-
             await database.execute(
                 f"""
                 INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-                INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
+                INTO availability_cache (debrid_service, info_hash, season, episode, file_index, title, size, file_data, timestamp)
+                VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :file_data, :timestamp)
                 {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
                 """,
                 {
                     "debrid_service": self.real_debrid_name,
                     "info_hash": hash,
-                    "file_index": target_file["index"],
-                    "title": target_file["name"],
                     "season": season,
                     "episode": episode,
+                    "file_index": target_file["index"],
+                    "title": target_file["name"],
                     "size": target_file["size"],
-                    "parsed": orjson.dumps(parsed, default=default_dump).decode(
-                        "utf-8"
-                    ),
+                    "file_data": orjson.dumps(
+                        parse(target_file["name"]), default_dump
+                    ).decode("utf-8"),
                     "timestamp": time.time(),
                 },
-            )
-            await file_index_update_queue.add_update(
-                hash,
-                season,
-                episode,
-                target_file["index"],
-                target_file["name"],
-                target_file["size"],
-                parsed,
             )
 
             link = await self.session.post(

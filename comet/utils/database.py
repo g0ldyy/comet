@@ -17,97 +17,62 @@ async def setup_database():
         await database.connect()
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS ongoing_searches (
-                    media_id TEXT PRIMARY KEY, 
-                    timestamp INTEGER
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS ongoing_searches (media_id TEXT PRIMARY KEY, timestamp INTEGER)"
         )
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS first_searches (
-                    media_id TEXT PRIMARY KEY, 
-                    timestamp INTEGER
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS metadata_cache (media_id TEXT PRIMARY KEY, title TEXT, year INTEGER, year_end INTEGER, aliases TEXT, timestamp INTEGER)"
         )
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS metadata_cache (
-                    media_id TEXT PRIMARY KEY, 
-                    title TEXT, 
-                    year INTEGER, 
-                    year_end INTEGER, 
-                    aliases TEXT, 
-                    timestamp INTEGER
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS torrents_cache (info_hash TEXT PRIMARY KEY, media_id TEXT, season INTEGER, episode INTEGER, data TEXT, timestamp INTEGER)"
         )
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS torrents (
-                    media_id TEXT,
-                    info_hash TEXT,
-                    file_index INTEGER,
-                    season INTEGER,
-                    episode INTEGER,
-                    title TEXT,
-                    seeders INTEGER,
-                    size BIGINT,
-                    tracker TEXT,
-                    sources TEXT,
-                    parsed TEXT,
-                    timestamp INTEGER,
-                    PRIMARY KEY (media_id, info_hash, season, episode)
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS torrent_file_indexes (info_hash TEXT, season INTEGER, episode INTEGER, file_index INTEGER, file_size INTEGER, timestamp INTEGER, PRIMARY KEY (info_hash, season, episode))"
         )
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS debrid_availability (
-                    debrid_service TEXT,
-                    info_hash TEXT,
-                    file_index TEXT,
-                    title TEXT,
-                    season INTEGER,
-                    episode INTEGER,
-                    size BIGINT,
-                    parsed TEXT,
-                    timestamp INTEGER,
-                    PRIMARY KEY (debrid_service, info_hash, season, episode)
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS availability_cache (id SERIAL PRIMARY KEY, debrid_service TEXT, info_hash TEXT, season INTEGER, episode INTEGER, file_index TEXT, title TEXT, size BIGINT, file_data TEXT, timestamp INTEGER, UNIQUE(debrid_service, info_hash, season, episode))"
         )
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS download_links_cache (
-                    debrid_key TEXT, 
-                    info_hash TEXT, 
-                    name TEXT, 
-                    season INTEGER, 
-                    episode INTEGER, 
-                    download_url TEXT, 
-                    timestamp INTEGER, 
-                    PRIMARY KEY (debrid_key, info_hash, name, season, episode)
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS download_links_cache (debrid_key TEXT, info_hash TEXT, name TEXT, season INTEGER, episode INTEGER, download_url TEXT, timestamp INTEGER, PRIMARY KEY (debrid_key, info_hash, name, season, episode))"
         )
 
         await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS active_connections (
-                    id TEXT PRIMARY KEY, 
-                    ip TEXT, 
-                    content TEXT, 
-                    timestamp INTEGER
-                )
-            """
+            "CREATE TABLE IF NOT EXISTS active_connections (id TEXT PRIMARY KEY, ip TEXT, content TEXT, timestamp INTEGER)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_active_connections_ip ON active_connections(ip)"
+        )
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_active_connections_timestamp ON active_connections(timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ongoing_searches_timestamp ON ongoing_searches(timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metadata_cache_timestamp ON metadata_cache(timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_torrents_cache_lookup ON torrents_cache(media_id, season, episode, timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_torrent_file_indexes_lookup ON torrent_file_indexes(info_hash, season, episode, timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_availability_cache_lookup ON availability_cache(debrid_service, info_hash, season, episode, timestamp)"
+        )
+
+        await database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_download_links_cache_lookup ON download_links_cache(debrid_key, info_hash, season, episode, timestamp)"
         )
 
         if settings.DATABASE_TYPE == "sqlite":
@@ -122,14 +87,6 @@ async def setup_database():
 
         await database.execute(
             """
-            DELETE FROM first_searches 
-            WHERE timestamp + :cache_ttl < :current_time;
-            """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
-        )
-
-        await database.execute(
-            """
             DELETE FROM metadata_cache 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
@@ -138,7 +95,7 @@ async def setup_database():
 
         await database.execute(
             """
-            DELETE FROM torrents
+            DELETE FROM torrents_cache 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
             {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
@@ -146,15 +103,7 @@ async def setup_database():
 
         await database.execute(
             """
-            DELETE FROM debrid_availability
-            WHERE timestamp + :cache_ttl < :current_time;
-            """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
-        )
-
-        await database.execute(
-            """
-            DELETE FROM torrents
+            DELETE FROM availability_cache 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
             {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
