@@ -64,12 +64,12 @@ async def fetch_jackett_results(
     session: aiohttp.ClientSession, indexer: str, query: str
 ):
     try:
-        async with session.get(
+        response = await session.get(
             f"{settings.INDEXER_MANAGER_URL}/api/v2.0/indexers/all/results?apikey={settings.INDEXER_MANAGER_API_KEY}&Query={query}&Tracker[]={indexer}",
             timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
-        ) as response:
-            response_json = await response.json()
-            return response_json.get("Results", [])
+        )
+        response = await response.json()
+        return response.get("Results", [])
     except Exception as e:
         logger.warning(
             f"Exception while fetching Jackett results for indexer {indexer}: {e}"
