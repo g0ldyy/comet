@@ -372,11 +372,6 @@ class TorrentUpdateQueue:
                         """
                         await database.execute(delete_query, params)
 
-                if len(self.batches["to_delete"]) > 0:
-                    logger.log(
-                        "SCRAPER",
-                        f"Deleted {len(self.batches['to_delete'])} season-only entries in batch",
-                    )
                 self.batches["to_delete"] = []
 
             if self.batches["inserts"]:

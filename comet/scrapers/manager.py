@@ -184,29 +184,22 @@ class TorrentManager:
         remove_adult_content = self.remove_adult_content
 
         for torrent in torrents:
-            # if not is_video(torrent["title"]) or "sample" in torrent["title"].lower():
-            #     continue
-
             parsed = parse(torrent["title"])
 
             if remove_adult_content and parsed.adult:
-                # print(f"Removing adult content: {torrent['title']}")
                 continue
 
             if parsed.parsed_title and not title_match(
                 title, parsed.parsed_title, aliases=aliases
             ):
-                # print(f"Title mismatch: {torrent['title']}")
                 continue
 
             if year and parsed.year:
                 if year_end is not None:
                     if not (year <= parsed.year <= year_end):
-                        # print(f"Year mismatch: {torrent['title']}")
                         continue
                 else:
                     if year < (parsed.year - 1) or year > (parsed.year + 1):
-                        # print(f"Year mismatch: {torrent['title']}")
                         continue
 
             torrent["parsed"] = parsed
@@ -283,6 +276,9 @@ class TorrentManager:
         )
 
     async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):
+        if self.debrid_service == "torrent" or len(self.torrents) == 0:
+            return
+
         info_hashes = list(self.torrents.keys())
 
         seeders_map = {hash: self.torrents[hash]["seeders"] for hash in info_hashes}
@@ -352,7 +348,8 @@ class TorrentManager:
         info_hashes = list(self.torrents.keys())
         for hash in info_hashes:
             self.torrents[hash]["cached"] = False
-        if self.debrid_service == "torrent" or len(info_hashes) == 0:
+
+        if self.debrid_service == "torrent" or len(self.torrents) == 0:
             return
 
         query = f"""

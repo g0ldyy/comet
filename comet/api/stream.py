@@ -28,23 +28,38 @@ async def remove_ongoing_search_from_database(media_id: str):
 
 
 async def is_first_search(media_id: str) -> bool:
-    result = await database.fetch_one(
-        "SELECT media_id FROM first_searches WHERE media_id = :media_id",
-        {"media_id": media_id},
-    )
-    if not result:
+    try:
         await database.execute(
             "INSERT INTO first_searches (media_id, timestamp) VALUES (:media_id, :timestamp)",
             {"media_id": media_id, "timestamp": time.time()},
         )
+
         return True
-    return False
+    except:
+        return False
 
 
-async def background_scrape(torrent_manager: TorrentManager, media_id: str):
+async def background_scrape(torrent_manager: TorrentManager, media_id: str, debrid_service: str):
     try:
         async with aiohttp.ClientSession() as new_session:
             await torrent_manager.scrape_torrents(new_session)
+
+            if debrid_service != "torrent":
+                await torrent_manager.get_and_cache_debrid_availability(new_session)
+            
+            logger.log(
+                "SCRAPER",
+                "📥 Background scrape + availability check complete!",
+            )
+    except Exception as e:
+        logger.log("SCRAPER", f"❌ Background scrape + availability check failed: {e}")
+    finally:
+        await remove_ongoing_search_from_database(media_id)
+
+
+async def background_availability_check(torrent_manager: TorrentManager, media_id: str):
+    try:
+        async with aiohttp.ClientSession() as new_session:
             await torrent_manager.get_and_cache_debrid_availability(new_session)
             logger.log(
                 "SCRAPER",
@@ -73,18 +88,15 @@ async def stream(
     )
 
     if ongoing_search:
-        if time.time() - ongoing_search["timestamp"] > 30:
-            await remove_ongoing_search_from_database(media_id)
-        else:
-            return {
-                "streams": [
-                    {
-                        "name": "[🔄] Comet",
-                        "description": "Search in progress, please try again in a few seconds...",
-                        "url": "https://comet.fast",
-                    }
-                ]
-            }
+        return {
+            "streams": [
+                {
+                    "name": "[🔄] Comet",
+                    "description": "Search in progress, please try again in a few seconds...",
+                    "url": "https://comet.fast",
+                }
+            ]
+        }
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -154,11 +166,10 @@ async def stream(
             )
             background_tasks.add_task(remove_ongoing_search_from_database, media_id)
 
-            initial_count = len(torrent_manager.torrents)
             await torrent_manager.scrape_torrents(session)
             logger.log(
                 "SCRAPER",
-                f"📥 Scraped torrents: {len(torrent_manager.torrents) - initial_count}",
+                f"📥 Scraped torrents: {len(torrent_manager.torrents)}",
             )
 
         elif is_first and has_cached_results:
@@ -171,31 +182,44 @@ async def stream(
                 {"media_id": media_id, "timestamp": time.time()},
             )
 
-            if debrid_service != "torrent":
-                cached_results.append(
-                    {
-                        "name": "[🔄] Comet",
-                        "description": "First search for this media - More results will be available in a few seconds...",
-                        "url": "https://comet.fast",
-                    }
-                )
+            cached_results.append(
+                {
+                    "name": "[🔄] Comet",
+                    "description": "First search for this media - More results will be available in a few seconds...",
+                    "url": "https://comet.fast",
+                }
+            )
 
-                background_tasks.add_task(background_scrape, torrent_manager, media_id)
+            background_tasks.add_task(background_scrape, torrent_manager, media_id, debrid_service)
 
         await torrent_manager.get_cached_availability()
-        if debrid_service != "torrent" and is_first and not has_cached_results:
+        if is_first and not has_cached_results and debrid_service != "torrent":
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
             await torrent_manager.get_and_cache_debrid_availability(session)
 
-        cached_count = sum(
-            1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
-        )
-        logger.log(
-            "SCRAPER",
-            f"💾 Available cached torrents: {cached_count}/{len(torrent_manager.torrents)}",
-        )
+        cached_count = 0
+        if debrid_service != "torrent":
+            cached_count = sum(
+                1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
+            )
+            logger.log(
+                "SCRAPER",
+                f"💾 Available cached torrents: {cached_count}/{len(torrent_manager.torrents)}",
+            )
+
+        if cached_count == 0 and len(torrent_manager.torrents) > 0 and not is_first and debrid_service != "torrent":
+            logger.log(
+                "SCRAPER",
+                f"🔄 Starting background availability check for {log_title}",
+            )
+            await database.execute(
+                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
+                {"media_id": media_id, "timestamp": time.time()},
+            )
+            background_tasks.add_task(background_availability_check, torrent_manager, media_id)
 
         initial_torrent_count = len(torrent_manager.torrents)
+
         torrent_manager.rank_torrents(
             config["rtnSettings"],
             config["rtnRanking"],
