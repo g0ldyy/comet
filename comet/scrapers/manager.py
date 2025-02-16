@@ -31,8 +31,7 @@ class TorrentManager:
         debrid_api_key: str,
         ip: str,
         media_type: str,
-        media_full_id: str,
-        media_only_id: str,
+        media_id: str,
         title: str,
         year: int,
         year_end: int,
@@ -45,8 +44,7 @@ class TorrentManager:
         self.debrid_api_key = debrid_api_key
         self.ip = ip
         self.media_type = media_type
-        self.media_id = media_full_id
-        self.media_only_id = media_only_id
+        self.media_id = media_id
         self.title = title
         self.year = year
         self.year_end = year_end
@@ -57,7 +55,6 @@ class TorrentManager:
 
         self.seen_hashes = set()
         self.torrents = {}
-        self.ready_to_cache = []
         self.ranked_torrents = {}
 
     async def scrape_torrents(
@@ -80,50 +77,27 @@ class TorrentManager:
                 queries.append(f"{self.title} S{self.season:02d}")
                 queries.append(f"{self.title} S{self.season:02d}E{self.episode:02d}")
 
-            seen_already = set()
             for query in queries:
                 if settings.INDEXER_MANAGER_TYPE == "jackett":
-                    tasks.append(get_jackett(self, session, query, seen_already))
+                    tasks.append(get_jackett(self, session, query))
                 elif settings.INDEXER_MANAGER_TYPE == "prowlarr":
-                    tasks.append(get_prowlarr(self, session, query, seen_already))
+                    tasks.append(get_prowlarr(self, session, query))
 
         await asyncio.gather(*tasks)
         asyncio.create_task(self.cache_torrents())
 
-        for torrent in self.ready_to_cache:
-            season = torrent["parsed"].seasons[0] if torrent["parsed"].seasons else None
-            episode = (
-                torrent["parsed"].episodes[0] if torrent["parsed"].episodes else None
-            )
-
-            if (season is not None and season != self.season) or (
-                episode is not None and episode != self.episode
-            ):
-                continue
-
-            info_hash = torrent["infoHash"]
-            self.torrents[info_hash] = {
-                "fileIndex": torrent["fileIndex"],
-                "title": torrent["title"],
-                "seeders": torrent["seeders"],
-                "size": torrent["size"],
-                "tracker": torrent["tracker"],
-                "sources": torrent["sources"],
-                "parsed": torrent["parsed"],
-            }
-
     async def get_cached_torrents(self):
         rows = await database.fetch_all(
             """
-                SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed
-                FROM torrents
+                SELECT data
+                FROM torrents_cache
                 WHERE media_id = :media_id
                 AND ((season IS NOT NULL AND season = cast(:season as INTEGER)) OR (season IS NULL AND cast(:season as INTEGER) IS NULL))
                 AND (episode IS NULL OR episode = cast(:episode as INTEGER))
                 AND timestamp + :cache_ttl >= :current_time
             """,
             {
-                "media_id": self.media_only_id,
+                "media_id": self.media_id,
                 "season": self.season,
                 "episode": self.episode,
                 "cache_ttl": settings.CACHE_TTL,
@@ -132,21 +106,15 @@ class TorrentManager:
         )
 
         for row in rows:
-            info_hash = row["info_hash"]
-            self.torrents[info_hash] = {
-                "fileIndex": row["file_index"],
-                "title": row["title"],
-                "seeders": row["seeders"],
-                "size": row["size"],
-                "tracker": row["tracker"],
-                "sources": orjson.loads(row["sources"]),
-                "parsed": ParsedData(**orjson.loads(row["parsed"])),
-            }
+            data = orjson.loads(row["data"])
+            data["parsed"] = ParsedData(**data["parsed"])
+            self.torrents[data["infoHash"]] = data
 
     async def cache_torrents(self):
         current_time = time.time()
         values = [
             {
+<<<<<<< HEAD
                 "media_id": self.media_only_id,
                 "info_hash": torrent["infoHash"],
                 "file_index": torrent["fileIndex"],
@@ -162,18 +130,24 @@ class TorrentManager:
                 "tracker": torrent["tracker"],
                 "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
                 "parsed": orjson.dumps(torrent["parsed"], default_dump).decode("utf-8"),
+=======
+                "info_hash": info_hash,
+                "media_id": self.media_id,
+                "season": self.season,
+                "episode": self.episode,
+                "data": orjson.dumps(torrent, default_dump).decode("utf-8"),
+>>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
                 "timestamp": current_time,
             }
-            for torrent in self.ready_to_cache
+            for info_hash, torrent in self.torrents.items()
         ]
 
         query = f"""
             INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-            INTO torrents
-            VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
+            INTO torrents_cache
+            VALUES (:info_hash, :media_id, :season, :episode, :data, :timestamp)
             {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
         """
-
         await database.execute_many(query, values)
 
     async def filter(self, torrents: list):
@@ -184,43 +158,34 @@ class TorrentManager:
         remove_adult_content = self.remove_adult_content
 
         for torrent in torrents:
-            # if not is_video(torrent["title"]) or "sample" in torrent["title"].lower():
-            #     continue
-
             parsed = parse(torrent["title"])
 
             if remove_adult_content and parsed.adult:
-                # print(f"Removing adult content: {torrent['title']}")
                 continue
 
             if parsed.parsed_title and not title_match(
                 title, parsed.parsed_title, aliases=aliases
             ):
-                # print(f"Title mismatch: {torrent['title']}")
                 continue
 
             if year and parsed.year:
                 if year_end is not None:
                     if not (year <= parsed.year <= year_end):
-                        # print(f"Year mismatch: {torrent['title']}")
                         continue
                 else:
                     if year < (parsed.year - 1) or year > (parsed.year + 1):
-                        # print(f"Year mismatch: {torrent['title']}")
                         continue
 
             torrent["parsed"] = parsed
-            self.ready_to_cache.append(torrent)
+            self.torrents[torrent["infoHash"]] = torrent
 
     async def filter_manager(self, torrents: list):
         new_torrents = [
             torrent
             for torrent in torrents
-            if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
+            if torrent["infoHash"] not in self.seen_hashes
         ]
-        self.seen_hashes.update(
-            (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
-        )
+        self.seen_hashes.update(torrent["infoHash"] for torrent in new_torrents)
 
         chunk_size = 50
         tasks = [
@@ -250,12 +215,21 @@ class TorrentManager:
             if max_size != 0 and torrent["size"] > max_size:
                 continue
 
-            parsed = torrent["parsed"]
+            parsed_data = torrent["parsed"]
+
+            if self.media_type == "series":
+                if (
+                    parsed_data.episodes
+                    and self.episode not in parsed_data.episodes
+                    or parsed_data.seasons
+                    and self.season not in parsed_data.seasons
+                ):
+                    continue
 
             raw_title = torrent["title"]
 
-            is_fetchable, failed_keys = check_fetch(parsed, rtn_settings)
-            rank = get_rank(parsed, rtn_settings, rtn_ranking)
+            is_fetchable, failed_keys = check_fetch(parsed_data, rtn_settings)
+            rank = get_rank(parsed_data, rtn_settings, rtn_ranking)
 
             if remove_trash:
                 if rtn_settings.options["remove_all_trash"]:
@@ -269,7 +243,7 @@ class TorrentManager:
                     Torrent(
                         infohash=info_hash,
                         raw_title=raw_title,
-                        data=parsed,
+                        data=parsed_data,
                         fetch=is_fetchable,
                         rank=rank,
                         lev_ratio=0.0,
@@ -305,16 +279,9 @@ class TorrentManager:
             return
 
         for file in availability:
-            season = file["season"]
-            episode = file["episode"]
-            if (season is not None and season != self.season) or (
-                episode is not None and episode != self.episode
-            ):
-                continue
-
             info_hash = file["info_hash"]
             self.torrents[info_hash]["cached"] = True
-            self.torrents[info_hash]["parsed"] = file["parsed"]
+            self.torrents[info_hash]["parsed"] = file["file_data"]
             self.torrents[info_hash]["fileIndex"] = file["index"]
             self.torrents[info_hash]["title"] = file["title"]
             self.torrents[info_hash]["size"] = file["size"]
@@ -328,12 +295,14 @@ class TorrentManager:
             {
                 "debrid_service": self.debrid_service,
                 "info_hash": file["info_hash"],
-                "file_index": str(file["index"]),
-                "title": file["title"],
                 "season": file["season"],
                 "episode": file["episode"],
+                "file_index": str(file["index"]),
+                "title": file["title"],
                 "size": file["size"],
-                "parsed": orjson.dumps(file["parsed"], default_dump).decode("utf-8"),
+                "file_data": orjson.dumps(file["file_data"], default_dump).decode(
+                    "utf-8"
+                ),
                 "timestamp": current_time,
             }
             for file in availability
@@ -341,8 +310,8 @@ class TorrentManager:
 
         query = f"""
             INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-            INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
-            VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
+            INTO availability_cache (debrid_service, info_hash, season, episode, file_index, title, size, file_data, timestamp)
+            VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :file_data, :timestamp)
             {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
         """
 
@@ -356,8 +325,8 @@ class TorrentManager:
             return
 
         query = f"""
-            SELECT info_hash, file_index, title, size, parsed
-            FROM debrid_availability
+            SELECT info_hash, file_index, title, size, file_data
+            FROM availability_cache
             WHERE info_hash IN (SELECT cast(value as TEXT) FROM {'json_array_elements_text' if settings.DATABASE_TYPE == 'postgresql' else 'json_each'}(:info_hashes))
             AND debrid_service = :debrid_service
             AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
@@ -378,7 +347,7 @@ class TorrentManager:
             info_hash = row["info_hash"]
             self.torrents[info_hash]["cached"] = True
             self.torrents[info_hash]["parsed"] = ParsedData(
-                **orjson.loads(row["parsed"])
+                **orjson.loads(row["file_data"])
             )
             self.torrents[info_hash]["fileIndex"] = row["file_index"]
             self.torrents[info_hash]["title"] = row["title"]

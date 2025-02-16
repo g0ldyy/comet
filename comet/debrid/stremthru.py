@@ -135,6 +135,7 @@ class StremThru:
                         "size": size,
                         "season": season,
                         "episode": episode,
+<<<<<<< HEAD
                         "parsed": filename_parsed,
                         "seeders": seeders,
                         "tracker": tracker,
@@ -143,6 +144,15 @@ class StremThru:
 
                     files.append(file_info)
                     await torrent_update_queue.add_torrent_info(file_info, media_id)
+=======
+                        "file_data": filename_parsed,
+                    }
+
+                    files.append(file_info)
+                    await file_index_update_queue.add_update(
+                        hash, season, episode, index, size
+                    )
+>>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
 
         logger.log(
             "SCRAPER",
@@ -194,18 +204,19 @@ class StremThru:
             await database.execute(
                 f"""
                 INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-                INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
+                INTO availability_cache (debrid_service, info_hash, season, episode, file_index, title, size, file_data, timestamp)
+                VALUES (:debrid_service, :info_hash, :season, :episode, :file_index, :title, :size, :file_data, :timestamp)
                 {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
                 """,
                 {
                     "debrid_service": self.real_debrid_name,
                     "info_hash": hash,
-                    "file_index": target_file["index"],
-                    "title": target_file["name"],
                     "season": season,
                     "episode": episode,
+                    "file_index": target_file["index"],
+                    "title": target_file["name"],
                     "size": target_file["size"],
+<<<<<<< HEAD
                     "parsed": orjson.dumps(file_parsed, default=default_dump).decode(
                         "utf-8"
                     ),
@@ -221,6 +232,14 @@ class StremThru:
             #     target_file["size"],
             #     parsed,
             # )
+=======
+                    "file_data": orjson.dumps(
+                        parse(target_file["name"]), default_dump
+                    ).decode("utf-8"),
+                    "timestamp": time.time(),
+                },
+            )
+>>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",

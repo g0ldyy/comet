@@ -6,9 +6,8 @@ import orjson
 from RTN.patterns import normalize_title
 
 from comet.utils.models import database, settings
-from comet.utils.general import parse_media_id
 
-from .kitsu import get_kitsu_metadata, get_kitsu_aliases
+from .kitsu import get_kitsu_metadata
 from .imdb import get_imdb_metadata
 from .trakt import get_trakt_aliases
 
@@ -18,7 +17,7 @@ class MetadataScraper:
         self.session = session
 
     async def fetch_metadata_and_aliases(self, media_type: str, media_id: str):
-        id, season, episode = parse_media_id(media_type, media_id)
+        id, season, episode = self.parse_media_id(media_type, media_id)
 
         real_id = id if id != "kitsu" else season
 
@@ -29,7 +28,7 @@ class MetadataScraper:
             return get_cached[0], get_cached[1]
 
         metadata_task = asyncio.create_task(self.get_metadata(id, season, episode))
-        aliases_task = asyncio.create_task(self.get_aliases(media_type, id, season))
+        aliases_task = asyncio.create_task(self.get_aliases(media_type, id))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
         await self.cache_metadata(real_id, metadata, aliases)
 
@@ -79,6 +78,12 @@ class MetadataScraper:
             },
         )
 
+    def parse_media_id(self, media_type: str, media_id: str):
+        if media_type == "series":
+            info = media_id.split(":")
+            return info[0], int(info[1]), int(info[2])
+        return media_id, None, None
+
     def normalize_metadata(self, metadata: dict, season: int, episode: int):
         title, year, year_end = metadata
 
@@ -101,8 +106,7 @@ class MetadataScraper:
             raw_metadata = await get_imdb_metadata(self.session, id)
             return self.normalize_metadata(raw_metadata, season, episode)
 
-    async def get_aliases(self, media_type: str, media_id: str, kitsu_id: str):
+    async def get_aliases(self, media_type: str, media_id: str):
         if media_id == "kitsu":
-            return await get_kitsu_aliases(self.session, kitsu_id)
-
+            return {}
         return await get_trakt_aliases(self.session, media_type, media_id)
