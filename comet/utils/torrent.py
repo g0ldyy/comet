@@ -4,24 +4,17 @@ import bencodepy
 import aiohttp
 import anyio
 import asyncio
-<<<<<<< HEAD
 import orjson
-=======
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
 import time
 
-from RTN import parse
 from urllib.parse import parse_qs, urlparse
 from demagnetize.core import Demagnetizer
 from torf import Magnet
-<<<<<<< HEAD
 from RTN import ParsedData, parse
-=======
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, database
-from comet.utils.general import is_video
+from comet.utils.general import is_video, default_dump
 
 info_hash_pattern = re.compile(r"btih:([a-fA-F0-9]{40})")
 
@@ -69,122 +62,38 @@ async def get_torrent_from_magnet(magnet_uri: str):
         return None
 
 
-def extract_torrent_metadata(content: bytes, season: str, episode: str):
+def extract_torrent_metadata(content: bytes):
     try:
         torrent_data = bencodepy.decode(content)
         info = torrent_data[b"info"]
+        info_encoded = bencodepy.encode(info)
         m = hashlib.sha1()
+        m.update(info_encoded)
         info_hash = m.hexdigest()
-
-        torrent_name = info.get(b"name", b"").decode()
-        if not torrent_name:
-            return {}
 
         announce_list = [
             tracker[0].decode() for tracker in torrent_data.get(b"announce-list", [])
         ]
 
-        metadata = {
-            "info_hash": info_hash.lower(),
-            "announce_list": announce_list,
-        }
+        metadata = {"info_hash": info_hash, "announce_list": announce_list, "files": []}
 
-        if b"files" in info:
-            files = info[b"files"]
-            file_data = []
-            best_index = None
-            best_score = -1
-            best_size = 0
-            is_movie = True
-
-            for idx, file in enumerate(files):
-                if b"path" in file:
-                    path_parts = [part.decode() for part in file[b"path"]]
-                    path = "/".join(path_parts)
-                else:
-                    path = file[b"name"].decode() if b"name" in file else ""
-
-                if not path or not is_video(path):
-                    continue
-
-                size = file[b"length"]
-                score = size
-
-                file_parsed = parse(path)
-
-                season_exists = len(file_parsed.seasons) != 0
-                episode_exists = len(file_parsed.episodes) != 0
-
-                if season_exists or episode_exists:
-                    is_movie = False
-
-                if (
-                    season_exists
-                    and episode_exists
-                    and file_parsed.seasons[0] == season
-                    and file_parsed.episodes[0] == episode
-                ):
-                    score *= 3
-
-                file_info = {
-                    "index": idx,
-                    "size": size,
-                    "season": file_parsed.seasons[0] if season_exists else None,
-                    "episode": file_parsed.episodes[0] if episode_exists else None,
-                }
-
-                if score > best_score:
-                    best_score = score
-                    best_size = size
-                    best_index = idx
-                    best_file_info = file_info
-
-                if not is_movie:
-                    file_data.append(file_info)
-
-            if is_movie and best_index is not None:
-                file_data = [best_file_info]
-
-            metadata.update(
-                {
-                    "file_data": file_data,
-                    "file_index": best_index,
-                    "file_size": best_size,
-                }
+        files = info[b"files"] if b"files" in info else [info]
+        for idx, file in enumerate(files):
+            name = (
+                file[b"path"][-1].decode()
+                if b"path" in file
+                else file[b"name"].decode()
             )
-        else:
-            name = info[b"name"].decode()
-            if not is_video(name):
-                return {}
 
-            size = info[b"length"]
+            if not is_video(name) or "sample" in name.lower():
+                continue
 
-            file_parsed = parse(name)
+            size = file[b"length"]
 
-<<<<<<< HEAD
             parsed = parse(name)
 
             metadata["files"].append(
                 {"index": idx, "name": name, "size": size, "parsed": parsed}
-=======
-            metadata.update(
-                {
-                    "file_index": 0,
-                    "file_size": size,
-                    "file_data": [
-                        {
-                            "index": 0,
-                            "size": size,
-                            "season": file_parsed.seasons[0]
-                            if len(file_parsed.seasons) != 0
-                            else None,
-                            "episode": file_parsed.episodes[0]
-                            if len(file_parsed.episodes) != 0
-                            else None,
-                        }
-                    ],
-                }
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
             )
 
         return metadata
@@ -194,7 +103,6 @@ def extract_torrent_metadata(content: bytes, season: str, episode: str):
         return {}
 
 
-<<<<<<< HEAD
 async def add_torrent(
     info_hash: str,
     seeders: int,
@@ -227,40 +135,10 @@ async def add_torrent(
             logger.log(
                 "SCRAPER",
                 f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
-=======
-async def update_torrent_file_index(
-    info_hash: str, season: str, episode: str, index: int, size: int
-):
-    try:
-        if season is None and episode is None:
-            existing = await database.fetch_one(
-                """
-                SELECT file_index, file_size
-                FROM torrent_file_indexes 
-                WHERE info_hash = :info_hash 
-                AND season IS NULL
-                AND episode IS NULL
-                """,
-                {"info_hash": info_hash},
-            )  # for movies, we keep best file (largest size)
-
-            if existing and existing["file_size"] >= size:
-                return
-
-            await database.execute(
-                """
-                DELETE FROM torrent_file_indexes 
-                WHERE info_hash = :info_hash 
-                AND season IS NULL
-                AND episode IS NULL
-                """,
-                {"info_hash": info_hash},
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
             )
 
         await database.execute(
             f"""
-<<<<<<< HEAD
                 INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
                 INTO torrents
                 VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
@@ -278,19 +156,6 @@ async def update_torrent_file_index(
                 "tracker": tracker,
                 "sources": orjson.dumps(sources).decode("utf-8"),
                 "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-=======
-            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
-            INTO torrent_file_indexes 
-            VALUES (:info_hash, :season, :episode, :file_index, :file_size, :timestamp)
-            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
-            """,
-            {
-                "info_hash": info_hash,
-                "season": season,
-                "episode": episode,
-                "file_index": index,
-                "file_size": size,
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
                 "timestamp": time.time(),
             },
         )
@@ -323,31 +188,7 @@ class AddTorrentQueue:
         if not settings.DOWNLOAD_TORRENTS:
             return
 
-<<<<<<< HEAD
         await self.queue.put((magnet_url, seeders, tracker, media_id, search_season))
-=======
-        cached = await database.fetch_one(
-            """
-            SELECT file_index 
-            FROM torrent_file_indexes 
-            WHERE info_hash = :info_hash 
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
-            AND timestamp + :cache_ttl >= :current_time
-            """,
-            {
-                "info_hash": info_hash,
-                "season": season,
-                "episode": episode,
-                "cache_ttl": settings.CACHE_TTL,
-                "current_time": time.time(),
-            },
-        )
-        if cached:
-            return
-
-        await self.queue.put((info_hash, magnet_url, season, episode))
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
         if not self.is_running:
             self.is_running = True
             asyncio.create_task(self._process_queue())
@@ -355,7 +196,6 @@ class AddTorrentQueue:
     async def _process_queue(self):
         while self.is_running:
             try:
-<<<<<<< HEAD
                 (
                     magnet_url,
                     seeders,
@@ -363,15 +203,11 @@ class AddTorrentQueue:
                     media_id,
                     search_season,
                 ) = await self.queue.get()
-=======
-                info_hash, magnet_url, season, episode = await self.queue.get()
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
 
                 async with self.semaphore:
                     try:
                         content = await get_torrent_from_magnet(magnet_url)
                         if content:
-<<<<<<< HEAD
                             metadata = extract_torrent_metadata(content)
                             for file in metadata["files"]:
                                 await add_torrent(
@@ -386,20 +222,6 @@ class AddTorrentQueue:
                                     file["size"],
                                     file["parsed"],
                                 )
-=======
-                            metadata = extract_torrent_metadata(
-                                content, season, episode
-                            )
-                            if metadata and "file_data" in metadata:
-                                for file_info in metadata["file_data"]:
-                                    await update_torrent_file_index(
-                                        info_hash,
-                                        file_info["season"],
-                                        file_info["episode"],
-                                        file_info["index"],
-                                        file_info["size"],
-                                    )
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
                     finally:
                         self.queue.task_done()
 
@@ -422,15 +244,8 @@ class TorrentUpdateQueue:
         self.last_error_time = 0
         self.error_backoff = 1
 
-<<<<<<< HEAD
     async def add_torrent_info(self, file_info: dict, media_id: str = None):
         await self.queue.put((file_info, media_id))
-=======
-    async def add_update(
-        self, info_hash: str, season: str, episode: str, index: int, size: int
-    ):
-        await self.queue.put((info_hash, season, episode, index, size))
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
         if not self.is_running:
             self.is_running = True
             asyncio.create_task(self._process_queue())
@@ -440,7 +255,6 @@ class TorrentUpdateQueue:
 
         while self.is_running:
             try:
-<<<<<<< HEAD
                 while not self.queue.empty():
                     try:
                         file_info, media_id = self.queue.get_nowait()
@@ -473,17 +287,6 @@ class TorrentUpdateQueue:
 
         if any(len(batch) > 0 for batch in self.batches.values()):
             await self._flush_batch()
-=======
-                info_hash, season, episode, index, size = await self.queue.get()
-                try:
-                    await update_torrent_file_index(
-                        info_hash, season, episode, index, size
-                    )
-                finally:
-                    self.queue.task_done()
-            except Exception:
-                await asyncio.sleep(1)
->>>>>>> d16a8c377b2b562c49647dc997792749ce0bd35b
 
         self.is_running = False
 

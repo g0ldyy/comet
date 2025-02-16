@@ -18,5 +18,5 @@ async def get_trakt_aliases(
             aliases[country].append(aliase["title"])
     except Exception as e:
         logger.warning(f"Exception while getting Trakt aliases for {media_id}: {e}")
-        pass
+
     return aliases
