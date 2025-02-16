@@ -7,18 +7,18 @@ from comet.utils.torrent import (
     download_torrent,
     extract_torrent_metadata,
     extract_trackers_from_magnet,
-    file_index_queue,
+    add_torrent_queue,
 )
 
 
 async def process_torrent(
-    session: aiohttp.ClientSession, result: dict, season: int, episode: int
+    session: aiohttp.ClientSession, result: dict, media_id: str, season: int
 ):
     base_torrent = {
         "title": result["Title"],
         "infoHash": None,
         "fileIndex": None,
-        "seeders": result.get("Seeders"),
+        "seeders": result["Seeders"],
         "size": result["Size"],
         "tracker": result["Tracker"],
         "sources": [],
@@ -48,8 +48,12 @@ async def process_torrent(
             base_torrent["infoHash"] = magnet_hash.lower()
             base_torrent["sources"] = extract_trackers_from_magnet(magnet_url)
 
-            await file_index_queue.add_torrent(
-                base_torrent["infoHash"], magnet_url, season, episode
+            await add_torrent_queue.add_torrent(
+                magnet_url,
+                base_torrent["seeders"],
+                base_torrent["tracker"],
+                media_id,
+                season,
             )
 
             torrents.append(base_torrent)
@@ -57,11 +61,15 @@ async def process_torrent(
 
     if "InfoHash" in result and result["InfoHash"]:
         base_torrent["infoHash"] = result["InfoHash"].lower()
-        if "MagnetUri" in result and result["MagnetUri"]:
+        if result["MagnetUri"] is not None:
             base_torrent["sources"] = extract_trackers_from_magnet(result["MagnetUri"])
 
-            await file_index_queue.add_torrent(
-                base_torrent["infoHash"], result["MagnetUri"], season, episode
+            await add_torrent_queue.add_torrent(
+                result["MagnetUri"],
+                base_torrent["seeders"],
+                base_torrent["tracker"],
+                media_id,
+                season,
             )
 
         torrents.append(base_torrent)
@@ -103,7 +111,9 @@ async def get_jackett(manager, session: aiohttp.ClientSession, title: str, seen:
 
                 seen.add(result["Details"])
                 torrent_tasks.append(
-                    process_torrent(session, result, manager.season, manager.episode)
+                    process_torrent(
+                        session, result, manager.media_only_id, manager.season
+                    )
                 )
 
         processed_torrents = await asyncio.gather(*torrent_tasks)

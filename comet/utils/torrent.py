@@ -5,11 +5,12 @@ import aiohttp
 import anyio
 import asyncio
 import orjson
+import time
 
 from urllib.parse import parse_qs, urlparse
 from demagnetize.core import Demagnetizer
 from torf import Magnet
-from RTN import ParsedData
+from RTN import ParsedData, parse
 
 from comet.utils.logger import logger
 from comet.utils.models import settings, database
@@ -89,7 +90,11 @@ def extract_torrent_metadata(content: bytes):
 
             size = file[b"length"]
 
-            metadata["files"].append({"index": idx, "name": name, "size": size})
+            parsed = parse(name)
+
+            metadata["files"].append(
+                {"index": idx, "name": name, "size": size, "parsed": parsed}
+            )
 
         return metadata
 
@@ -98,55 +103,74 @@ def extract_torrent_metadata(content: bytes):
         return {}
 
 
-async def update_torrent_file_index(
+async def add_torrent(
     info_hash: str,
-    season: int,
-    episode: int,
-    index: int,
+    seeders: int,
+    tracker: str,
+    media_id: str,
+    search_season: int,
+    sources: list,
+    file_index: int,
     title: str,
     size: int,
     parsed: ParsedData,
 ):
     try:
-        season = season if season != "n" else None
-        episode = episode if episode != "n" else None
+        parsed_season = parsed.seasons[0] if parsed.seasons else search_season
+        parsed_episode = parsed.episodes[0] if parsed.episodes else None
+
+        if parsed_episode is not None:
+            await database.execute(
+                """
+                DELETE FROM torrents
+                WHERE info_hash = :info_hash
+                AND season = :season 
+                AND episode IS NULL
+                """,
+                {
+                    "info_hash": info_hash,
+                    "season": parsed_season,
+                },
+            )
+            logger.log(
+                "SCRAPER",
+                f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
+            )
 
         await database.execute(
-            """
-            UPDATE torrents
-            SET file_index = :index,
-                title = :title,
-                size = :size,
-                parsed = :parsed
-            WHERE info_hash = :info_hash
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+            f"""
+                INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+                INTO torrents
+                VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
+                {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
             """,
             {
-                "index": index,
-                "title": title,
-                "size": size,
-                "parsed": orjson.dumps(parsed, default=default_dump).decode("utf-8"),
+                "media_id": media_id,
                 "info_hash": info_hash,
-                "season": season,
-                "episode": episode,
+                "file_index": file_index,
+                "season": parsed_season,
+                "episode": parsed_episode,
+                "title": title,
+                "seeders": seeders,
+                "size": size,
+                "tracker": tracker,
+                "sources": orjson.dumps(sources).decode("utf-8"),
+                "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
+                "timestamp": time.time(),
             },
         )
 
-        # additional = (
-        #     f" S{season:02d}E{episode:02d}"
-        #     if season is not None and episode is not None
-        #     else ""
-        # )
-        # logger.log(
-        #     "SCRAPER",
-        #     f"Updated file index and size for {info_hash}{additional}",
-        # )
+        additional = ""
+        if parsed_season:
+            additional += f" - S{parsed_season:02d}"
+            additional += f"E{parsed_episode:02d}" if parsed_episode else ""
+
+        logger.log("SCRAPER", f"Added torrent for {media_id} - {title}{additional}")
     except Exception as e:
-        logger.warning(f"Failed to update file index for {info_hash}: {e}")
+        logger.warning(f"Failed to add torrent for {info_hash}: {e}")
 
 
-class FileIndexQueue:
+class AddTorrentQueue:
     def __init__(self, max_concurrent: int = 10):
         self.queue = asyncio.Queue()
         self.max_concurrent = max_concurrent
@@ -154,30 +178,17 @@ class FileIndexQueue:
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
     async def add_torrent(
-        self, info_hash: str, magnet_url: str, season: int, episode: int
+        self,
+        magnet_url: str,
+        seeders: int,
+        tracker: str,
+        media_id: str,
+        search_season: int,
     ):
         if not settings.DOWNLOAD_TORRENTS:
             return
 
-        cached = await database.fetch_one(
-            """
-            SELECT file_index 
-            FROM torrents 
-            WHERE info_hash = :info_hash 
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
-            AND file_index IS NOT NULL
-            """,
-            {
-                "info_hash": info_hash,
-                "season": season,
-                "episode": episode,
-            },
-        )
-        if cached:
-            return
-
-        await self.queue.put((info_hash, magnet_url, season, episode))
+        await self.queue.put((magnet_url, seeders, tracker, media_id, search_season))
         if not self.is_running:
             self.is_running = True
             asyncio.create_task(self._process_queue())
@@ -185,22 +196,32 @@ class FileIndexQueue:
     async def _process_queue(self):
         while self.is_running:
             try:
-                info_hash, magnet_url = await self.queue.get()
+                (
+                    magnet_url,
+                    seeders,
+                    tracker,
+                    media_id,
+                    search_season,
+                ) = await self.queue.get()
 
                 async with self.semaphore:
                     try:
                         content = await get_torrent_from_magnet(magnet_url)
                         if content:
                             metadata = extract_torrent_metadata(content)
-                            if metadata and "file_data" in metadata:
-                                for file_info in metadata["file_data"]:
-                                    await update_torrent_file_index(
-                                        info_hash,
-                                        file_info["season"],
-                                        file_info["episode"],
-                                        file_info["index"],
-                                        file_info["size"],
-                                    )
+                            for file in metadata["files"]:
+                                await add_torrent(
+                                    metadata["info_hash"],
+                                    seeders,
+                                    tracker,
+                                    media_id,
+                                    search_season,
+                                    metadata["announce_list"],
+                                    file["index"],
+                                    file["name"],
+                                    file["size"],
+                                    file["parsed"],
+                                )
                     finally:
                         self.queue.task_done()
 
@@ -210,51 +231,262 @@ class FileIndexQueue:
         self.is_running = False
 
 
-file_index_queue = FileIndexQueue()
+add_torrent_queue = AddTorrentQueue()
 
 
-class FileIndexUpdateQueue:
-    def __init__(self):
+class TorrentUpdateQueue:
+    def __init__(self, batch_size: int = 100, flush_interval: float = 5.0):
         self.queue = asyncio.Queue()
+        self.batch_size = batch_size
+        self.flush_interval = flush_interval
         self.is_running = False
+        self.batches = {"to_check": [], "to_delete": [], "inserts": [], "updates": []}
+        self.last_error_time = 0
+        self.error_backoff = 1
 
-    async def add_update(
-        self,
-        info_hash: str,
-        season: str,
-        episode: str,
-        index: int,
-        title: str,
-        size: int,
-        parsed: ParsedData,
-    ):
-        await self.queue.put((info_hash, season, episode, index, title, size, parsed))
+    async def add_torrent_info(self, file_info: dict, media_id: str = None):
+        await self.queue.put((file_info, media_id))
         if not self.is_running:
             self.is_running = True
             asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
+        last_flush_time = time.time()
+
         while self.is_running:
             try:
-                (
-                    info_hash,
-                    season,
-                    episode,
-                    index,
-                    title,
-                    size,
-                    parsed,
-                ) = await self.queue.get()
-                try:
-                    await update_torrent_file_index(
-                        info_hash, season, episode, index, title, size, parsed
-                    )
-                finally:
-                    self.queue.task_done()
-            except Exception:
-                await asyncio.sleep(1)
+                while not self.queue.empty():
+                    try:
+                        file_info, media_id = self.queue.get_nowait()
+                        await self._process_file_info(file_info, media_id)
+                    except asyncio.QueueEmpty:
+                        break
+
+                current_time = time.time()
+
+                if (
+                    current_time - last_flush_time >= self.flush_interval
+                    or self.queue.empty()
+                ) and any(len(batch) > 0 for batch in self.batches.values()):
+                    await self._flush_batch()
+                    last_flush_time = current_time
+
+                if self.queue.empty() and not any(
+                    len(batch) > 0 for batch in self.batches.values()
+                ):
+                    self.is_running = False
+                    break
+
+                await asyncio.sleep(0.1)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Error in _process_queue: {e}")
+                await self._handle_error(e)
+
+        if any(len(batch) > 0 for batch in self.batches.values()):
+            await self._flush_batch()
 
         self.is_running = False
 
+    async def _flush_batch(self):
+        try:
+            if self.batches["to_check"]:
+                sub_batch_size = 100
+                for i in range(0, len(self.batches["to_check"]), sub_batch_size):
+                    sub_batch = self.batches["to_check"][i : i + sub_batch_size]
+                    check_params = []
+                    for item in sub_batch:
+                        check_params.append(
+                            {
+                                "info_hash": item["info_hash"],
+                                "season": item["season"],
+                                "episode": item["episode"],
+                            }
+                        )
 
-file_index_update_queue = FileIndexUpdateQueue()
+                    placeholders = []
+                    params = {}
+                    for idx, check in enumerate(check_params):
+                        key_suffix = f"_{idx}"
+                        condition = (
+                            f"(info_hash = :info_hash{key_suffix} AND "
+                            f"((:season{key_suffix} IS NULL AND season IS NULL) OR season = :season{key_suffix}) AND "
+                            f"((:episode{key_suffix} IS NULL AND episode IS NULL) OR episode = :episode{key_suffix}))"
+                        )
+                        placeholders.append(condition)
+                        params[f"info_hash{key_suffix}"] = check["info_hash"]
+                        params[f"season{key_suffix}"] = check["season"]
+                        params[f"episode{key_suffix}"] = check["episode"]
+
+                    query = f"""
+                        SELECT info_hash, season, episode
+                        FROM torrents 
+                        WHERE {" OR ".join(placeholders)}
+                    """
+
+                    async with database.transaction():
+                        existing_rows = await database.fetch_all(query, params)
+
+                        existing_set = {
+                            (
+                                row["info_hash"],
+                                row["season"] if row["season"] is not None else None,
+                                row["episode"] if row["episode"] is not None else None,
+                            )
+                            for row in existing_rows
+                        }
+
+                        for item in sub_batch:
+                            key = (item["info_hash"], item["season"], item["episode"])
+                            if key in existing_set:
+                                self.batches["updates"].append(item["params"])
+                            else:
+                                self.batches["inserts"].append(item["params"])
+
+                self.batches["to_check"] = []
+
+            if self.batches["to_delete"]:
+                sub_batch_size = 100
+                for i in range(0, len(self.batches["to_delete"]), sub_batch_size):
+                    sub_batch = self.batches["to_delete"][i : i + sub_batch_size]
+
+                    placeholders = []
+                    params = {}
+                    for idx, item in enumerate(sub_batch):
+                        key_suffix = f"_{idx}"
+                        placeholders.append(
+                            f"(:info_hash{key_suffix}, :season{key_suffix})"
+                        )
+                        params[f"info_hash{key_suffix}"] = item["info_hash"]
+                        params[f"season{key_suffix}"] = item["season"]
+
+                    async with database.transaction():
+                        delete_query = f"""
+                            DELETE FROM torrents
+                            WHERE (info_hash, season) IN (
+                                {",".join(placeholders)}
+                            )
+                            AND episode IS NULL
+                        """
+                        await database.execute(delete_query, params)
+
+                if len(self.batches["to_delete"]) > 0:
+                    logger.log(
+                        "SCRAPER",
+                        f"Deleted {len(self.batches['to_delete'])} season-only entries in batch",
+                    )
+                self.batches["to_delete"] = []
+
+            if self.batches["inserts"]:
+                sub_batch_size = 100
+                for i in range(0, len(self.batches["inserts"]), sub_batch_size):
+                    sub_batch = self.batches["inserts"][i : i + sub_batch_size]
+                    async with database.transaction():
+                        insert_query = f"""
+                            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+                            INTO torrents
+                            VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
+                            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+                        """
+                        await database.execute_many(insert_query, sub_batch)
+
+                if len(self.batches["inserts"]) > 0:
+                    logger.log(
+                        "SCRAPER",
+                        f"Inserted {len(self.batches['inserts'])} new torrents in batch",
+                    )
+                self.batches["inserts"] = []
+
+            if self.batches["updates"]:
+                sub_batch_size = 100
+                for i in range(0, len(self.batches["updates"]), sub_batch_size):
+                    sub_batch = self.batches["updates"][i : i + sub_batch_size]
+                    async with database.transaction():
+                        update_query = """
+                            UPDATE torrents 
+                            SET title = :title,
+                                file_index = :file_index,
+                                size = :size,
+                                seeders = :seeders,
+                                tracker = :tracker,
+                                sources = :sources,
+                                parsed = :parsed,
+                                timestamp = :timestamp,
+                                media_id = :media_id
+                            WHERE info_hash = :info_hash 
+                            AND (:season IS NULL AND season IS NULL OR season = :season)
+                            AND (:episode IS NULL AND episode IS NULL OR episode = :episode)
+                        """
+                        await database.execute_many(update_query, sub_batch)
+
+                if len(self.batches["updates"]) > 0:
+                    logger.log(
+                        "SCRAPER",
+                        f"Updated {len(self.batches['updates'])} existing torrents in batch",
+                    )
+                self.batches["updates"] = []
+
+            self.error_backoff = 1
+
+        except Exception as e:
+            await self._handle_error(e)
+
+    async def _process_file_info(self, file_info: dict, media_id: str = None):
+        try:
+            params = {
+                "info_hash": file_info["info_hash"],
+                "file_index": file_info["index"],
+                "season": file_info["season"],
+                "episode": file_info["episode"],
+                "title": file_info["title"],
+                "seeders": file_info["seeders"],
+                "size": file_info["size"],
+                "tracker": file_info["tracker"],
+                "sources": orjson.dumps(file_info["sources"]).decode("utf-8"),
+                "parsed": orjson.dumps(
+                    file_info["parsed"], default=default_dump
+                ).decode("utf-8"),
+                "timestamp": time.time(),
+                "media_id": media_id,
+            }
+
+            self.batches["to_check"].append(
+                {
+                    "info_hash": file_info["info_hash"],
+                    "season": file_info["season"],
+                    "episode": file_info["episode"],
+                    "params": params,
+                }
+            )
+
+            if file_info["episode"] is not None:
+                self.batches["to_delete"].append(
+                    {"info_hash": file_info["info_hash"], "season": file_info["season"]}
+                )
+
+            await self._check_batch_size()
+
+        finally:
+            self.queue.task_done()
+
+    async def _check_batch_size(self):
+        if any(len(batch) >= self.batch_size for batch in self.batches.values()):
+            await self._flush_batch()
+            self.error_backoff = 1
+
+    async def _handle_error(self, e: Exception):
+        current_time = time.time()
+        if current_time - self.last_error_time < 5:
+            self.error_backoff = min(self.error_backoff * 2, 30)
+        else:
+            self.error_backoff = 1
+
+        self.last_error_time = current_time
+        logger.warning(f"Database error in torrent batch processing: {e}")
+        logger.warning(f"Waiting {self.error_backoff} seconds before retry")
+        await asyncio.sleep(self.error_backoff)
+
+
+torrent_update_queue = TorrentUpdateQueue()

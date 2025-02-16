@@ -8,7 +8,7 @@ from RTN import parse, title_match
 from comet.utils.models import settings, database
 from comet.utils.general import is_video, default_dump
 from comet.utils.logger import logger
-from comet.utils.torrent import file_index_update_queue
+from comet.utils.torrent import torrent_update_queue
 
 
 class StremThru:
@@ -63,9 +63,17 @@ class StremThru:
                 f"Exception while checking hash instant availability on {self.name}: {e}"
             )
 
-    async def get_availability(self, torrent_hashes: list):
+    async def get_availability(
+        self,
+        torrent_hashes: list,
+        seeders_map: dict,
+        tracker_map: dict,
+        sources_map: dict,
+    ):
         if not await self.check_premium():
             return []
+
+        media_id = self.sid.split(":")[0] if ":" in self.sid else self.sid
 
         chunk_size = 50
         chunks = [
@@ -86,10 +94,17 @@ class StremThru:
         ]
 
         files = []
+        cached_count = 0
         for result in availability:
             for torrent in result:
                 if torrent["status"] != "cached":
                     continue
+
+                cached_count += 1
+                hash = torrent["hash"]
+                seeders = seeders_map[hash]
+                tracker = tracker_map[hash]
+                sources = sources_map[hash]
 
                 for file in torrent["files"]:
                     filename = file["name"].split("/")[-1]
@@ -98,8 +113,6 @@ class StremThru:
                         continue
 
                     filename_parsed = parse(filename)
-
-                    hash = torrent["hash"]
 
                     season = (
                         filename_parsed.seasons[0] if filename_parsed.seasons else None
@@ -123,19 +136,18 @@ class StremThru:
                         "season": season,
                         "episode": episode,
                         "parsed": filename_parsed,
+                        "seeders": seeders,
+                        "tracker": tracker,
+                        "sources": sources,
                     }
 
                     files.append(file_info)
-                    await file_index_update_queue.add_update(
-                        hash,
-                        season,
-                        episode,
-                        index,
-                        filename,
-                        size,
-                        filename_parsed,
-                    )
+                    await torrent_update_queue.add_torrent_info(file_info, media_id)
 
+        logger.log(
+            "SCRAPER",
+            f"{self.name}: Found {cached_count} cached torrents with {len(files)} valid files",
+        )
         return files
 
     async def generate_download_link(
@@ -155,12 +167,12 @@ class StremThru:
             target_file = None
 
             for file in magnet["data"]["files"]:
+                filename = file["name"]
+                file_parsed = parse(filename)
+
                 if str(file["index"]) == index:
                     target_file = file
                     break
-
-                filename = file["name"]
-                file_parsed = parse(filename)
 
                 if not is_video(filename) or not title_match(
                     name_parsed.parsed_title, file_parsed.parsed_title
@@ -179,8 +191,6 @@ class StremThru:
             if not target_file:
                 return
 
-            parsed = parse(target_file["name"])
-
             await database.execute(
                 f"""
                 INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
@@ -196,21 +206,21 @@ class StremThru:
                     "season": season,
                     "episode": episode,
                     "size": target_file["size"],
-                    "parsed": orjson.dumps(parsed, default=default_dump).decode(
+                    "parsed": orjson.dumps(file_parsed, default=default_dump).decode(
                         "utf-8"
                     ),
                     "timestamp": time.time(),
                 },
             )
-            await file_index_update_queue.add_update(
-                hash,
-                season,
-                episode,
-                target_file["index"],
-                target_file["name"],
-                target_file["size"],
-                parsed,
-            )
+            # await file_index_update_queue.add_update(
+            #     hash,
+            #     season,
+            #     episode,
+            #     target_file["index"],
+            #     target_file["name"],
+            #     target_file["size"],
+            #     parsed,
+            # )
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",

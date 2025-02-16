@@ -118,8 +118,8 @@ class TorrentManager:
                 SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed
                 FROM torrents
                 WHERE media_id = :media_id
-                AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-                AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+                AND ((season IS NOT NULL AND season = cast(:season as INTEGER)) OR (season IS NULL AND cast(:season as INTEGER) IS NULL))
+                AND (episode IS NULL OR episode = cast(:episode as INTEGER))
                 AND timestamp + :cache_ttl >= :current_time
             """,
             {
@@ -130,6 +130,7 @@ class TorrentManager:
                 "current_time": time.time(),
             },
         )
+
         for row in rows:
             info_hash = row["info_hash"]
             self.torrents[info_hash] = {
@@ -154,7 +155,7 @@ class TorrentManager:
                 else self.season,
                 "episode": torrent["parsed"].episodes[0]
                 if torrent["parsed"].episodes
-                else self.episode,
+                else None,
                 "title": torrent["title"],
                 "seeders": torrent["seeders"],
                 "size": torrent["size"],
@@ -283,6 +284,11 @@ class TorrentManager:
 
     async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):
         info_hashes = list(self.torrents.keys())
+
+        seeders_map = {hash: self.torrents[hash]["seeders"] for hash in info_hashes}
+        tracker_map = {hash: self.torrents[hash]["tracker"] for hash in info_hashes}
+        sources_map = {hash: self.torrents[hash]["sources"] for hash in info_hashes}
+
         availability = await retrieve_debrid_availability(
             session,
             self.media_id,
@@ -290,6 +296,9 @@ class TorrentManager:
             self.debrid_api_key,
             self.ip,
             info_hashes,
+            seeders_map,
+            tracker_map,
+            sources_map,
         )
 
         if len(availability) == 0:

@@ -111,12 +111,16 @@ async def setup_database():
         )
 
         if settings.DATABASE_TYPE == "sqlite":
-            await database.execute("PRAGMA journal_mode=WAL")
-            await database.execute("PRAGMA synchronous=NORMAL")
+            await database.execute("PRAGMA journal_mode=OFF")
+            await database.execute("PRAGMA synchronous=OFF")
             await database.execute("PRAGMA temp_store=MEMORY")
             await database.execute("PRAGMA mmap_size=30000000000")
             await database.execute("PRAGMA page_size=4096")
             await database.execute("PRAGMA cache_size=-2000")
+            await database.execute("PRAGMA foreign_keys=OFF")
+            await database.execute("PRAGMA count_changes=OFF")
+            await database.execute("PRAGMA secure_delete=OFF")
+            await database.execute("PRAGMA auto_vacuum=OFF")
 
         await database.execute("DELETE FROM ongoing_searches")
 

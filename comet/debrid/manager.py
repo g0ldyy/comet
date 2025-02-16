@@ -94,10 +94,13 @@ async def retrieve_debrid_availability(
     debrid_api_key: str,
     ip: str,
     info_hashes: list,
+    seeders_map: dict,
+    tracker_map: dict,
+    sources_map: dict,
 ):
     if debrid_service == "torrent":
         return []
 
     return await get_debrid(
         session, video_id, debrid_service, debrid_api_key, ip
-    ).get_availability(info_hashes)
+    ).get_availability(info_hashes, seeders_map, tracker_map, sources_map)
