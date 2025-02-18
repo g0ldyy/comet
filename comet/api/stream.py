@@ -35,18 +35,20 @@ async def is_first_search(media_id: str) -> bool:
         )
 
         return True
-    except:
+    except Exception:
         return False
 
 
-async def background_scrape(torrent_manager: TorrentManager, media_id: str, debrid_service: str):
+async def background_scrape(
+    torrent_manager: TorrentManager, media_id: str, debrid_service: str
+):
     try:
         async with aiohttp.ClientSession() as new_session:
             await torrent_manager.scrape_torrents(new_session)
 
             if debrid_service != "torrent":
                 await torrent_manager.get_and_cache_debrid_availability(new_session)
-            
+
             logger.log(
                 "SCRAPER",
                 "📥 Background scrape + availability check complete!",
@@ -190,7 +192,9 @@ async def stream(
                 }
             )
 
-            background_tasks.add_task(background_scrape, torrent_manager, media_id, debrid_service)
+            background_tasks.add_task(
+                background_scrape, torrent_manager, media_id, debrid_service
+            )
 
         await torrent_manager.get_cached_availability()
         if is_first and not has_cached_results and debrid_service != "torrent":
@@ -207,7 +211,12 @@ async def stream(
                 f"💾 Available cached torrents: {cached_count}/{len(torrent_manager.torrents)}",
             )
 
-        if cached_count == 0 and len(torrent_manager.torrents) > 0 and not is_first and debrid_service != "torrent":
+        if (
+            cached_count == 0
+            and len(torrent_manager.torrents) > 0
+            and not is_first
+            and debrid_service != "torrent"
+        ):
             logger.log(
                 "SCRAPER",
                 f"🔄 Starting background availability check for {log_title}",
@@ -216,7 +225,9 @@ async def stream(
                 f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
                 {"media_id": media_id, "timestamp": time.time()},
             )
-            background_tasks.add_task(background_availability_check, torrent_manager, media_id)
+            background_tasks.add_task(
+                background_availability_check, torrent_manager, media_id
+            )
 
         initial_torrent_count = len(torrent_manager.torrents)
 
@@ -344,10 +355,10 @@ async def playback(
                 return FileResponse("comet/assets/uncached.mp4")
 
             query = f"""
-            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
             INTO download_links_cache (debrid_key, info_hash, name, season, episode, download_url, timestamp)
             VALUES (:debrid_key, :info_hash, :name, :season, :episode, :download_url, :timestamp)
-            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
             """
 
             await database.execute(

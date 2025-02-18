@@ -1,22 +1,48 @@
 import base64
 import orjson
 
-from RTN import SettingsModel, BestRanking, ParsedData
+from RTN import ParsedData
 from fastapi import Request
 
-from comet.utils.models import ConfigModel, default_config, settings
+from comet.utils.models import (
+    ConfigModel,
+    default_config,
+    settings,
+    rtn_settings_default,
+    rtn_ranking_default,
+)
 
 
 def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
-
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump()
-        validated_config["rtnSettings"] = SettingsModel(
-            **validated_config["rtnSettings"]
+
+        for key in list(validated_config["options"].keys()):
+            if key not in ["remove_ranks_under"]:
+                validated_config["options"].pop(key)
+
+        validated_config["options"]["remove_all_trash"] = validated_config[
+            "removeTrash"
+        ]
+
+        rtn_settings = rtn_settings_default.model_copy(
+            update={
+                "resolutions": rtn_settings_default.resolutions.model_copy(
+                    update=validated_config["resolutions"]
+                ),
+                "options": rtn_settings_default.options.model_copy(
+                    update=validated_config["options"]
+                ),
+                "languages": rtn_settings_default.languages.model_copy(
+                    update=validated_config["languages"]
+                ),
+            }
         )
-        validated_config["rtnRanking"] = BestRanking(**validated_config["rtnRanking"])
+
+        validated_config["rtnSettings"] = rtn_settings
+        validated_config["rtnRanking"] = rtn_ranking_default
 
         if (
             settings.PROXY_DEBRID_STREAM
@@ -177,8 +203,6 @@ def format_title(
 
     if has_all or "languages" in result_format:
         languages = data.languages
-        if data.dubbed:
-            languages.insert(0, "multi")
         if languages:
             formatted_languages = "/".join(
                 get_language_emoji(language) for language in languages

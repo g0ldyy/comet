@@ -193,10 +193,10 @@ class StremThru:
 
             await database.execute(
                 f"""
-                INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
                 INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-                {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
                 """,
                 {
                     "debrid_service": self.real_debrid_name,

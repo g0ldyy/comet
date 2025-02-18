@@ -168,10 +168,10 @@ class TorrentManager:
         ]
 
         query = f"""
-            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
             INTO torrents
             VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
-            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
         """
 
         await database.execute_many(query, values)
@@ -251,10 +251,10 @@ class TorrentManager:
             rank = get_rank(parsed, rtn_settings, rtn_ranking)
 
             if remove_trash:
-                if rtn_settings.options["remove_all_trash"]:
-                    if not is_fetchable:
-                        continue
-                if rank < rtn_settings.options["remove_ranks_under"]:
+                if (
+                    not is_fetchable
+                    or rank < rtn_settings.options["remove_ranks_under"]
+                ):
                     continue
 
             try:
@@ -336,10 +336,10 @@ class TorrentManager:
         ]
 
         query = f"""
-            INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}
+            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
             INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
             VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-            {' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}
+            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
         """
 
         await database.execute_many(query, values)
@@ -355,7 +355,7 @@ class TorrentManager:
         query = f"""
             SELECT info_hash, file_index, title, size, parsed
             FROM debrid_availability
-            WHERE info_hash IN (SELECT cast(value as TEXT) FROM {'json_array_elements_text' if settings.DATABASE_TYPE == 'postgresql' else 'json_each'}(:info_hashes))
+            WHERE info_hash IN (SELECT cast(value as TEXT) FROM {"json_array_elements_text" if settings.DATABASE_TYPE == "postgresql" else "json_each"}(:info_hashes))
             AND debrid_service = :debrid_service
             AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
             AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))

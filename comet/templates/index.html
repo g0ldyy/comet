@@ -511,13 +511,24 @@
         </div>
 
         <div class="form-container">
-            <!-- <div class="form-item">
-                <sl-select id="languages" multiple clearable label="Languages" placeholder="Select languages"></sl-select>
+            <div class="form-item">
+                <sl-select id="languages_preferred" multiple clearable label="Preferred Languages" placeholder="Select preferred languages"></sl-select>
             </div>
 
             <div class="form-item">
-                <sl-select id="resolutions" multiple clearable label="Resolutions" placeholder="Select resolutions"></sl-select>
-            </div> -->
+                <sl-select id="languages_excluded" multiple clearable label="Excluded Languages" placeholder="Select excluded languages"></sl-select>
+            </div>
+
+            <div class="form-item">
+                <sl-select id="resolutions" multiple clearable label="Resolutions" placeholder="Select resolutions">
+                    <sl-option value="r2160p">4K - 2160p</sl-option>
+                    <sl-option value="r1080p">Full HD - 1080p</sl-option>
+                    <sl-option value="r720p">HD - 720p</sl-option>
+                    <sl-option value="r480p">SD - 480p</sl-option>
+                    <sl-option value="r360p">LD - 360p</sl-option>
+                    <sl-option value="unknown">Unknown</sl-option>
+                </sl-select>
+            </div>
 
             <div class="form-item">
                 <sl-input id="maxResultsPerResolution" type="number" min=0 value=0 label="Max Results Per Resolution" placeholder="Enter max results per resolution"></sl-input>
@@ -555,8 +566,10 @@
 
             <sl-details summary="Advanced Settings">
                 <div class="form-item">
+                    <sl-select id="languages_required" multiple clearable label="Required Languages" placeholder="Select required languages"></sl-select>
+                    <sl-input id="rankThreshold" type="number" value="-10000000000" label="Minimum Rank Threshold" placeholder="Enter minimum rank threshold" help-text="Results with rank below this value will be filtered out"></sl-input>
                     <sl-checkbox id="cachedOnly" help-text="Show only content that has already been cached.">Show Cached Only</sl-checkbox>
-                    <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
+                    <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (if disabled, your filters will not be applied - Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
                     <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=10>
                     </sl-select>
                 </div>
@@ -631,59 +644,55 @@
 
                 <script type="module">
                     const languagesEmojis = {
-                        "Unknown": "❓",
-                        "Multi": "🌎",
-                        "English": "🇬🇧",
-                        "Japanese": "🇯🇵",
-                        "Chinese": "🇨🇳",
-                        "Russian": "🇷🇺",
-                        "Arabic": "🇸🇦",
-                        "Portuguese": "🇵🇹",
-                        "Spanish": "🇪🇸",
-                        "French": "🇫🇷",
-                        "German": "🇩🇪",
-                        "Italian": "🇮🇹",
-                        "Korean": "🇰🇷",
-                        "Hindi": "🇮🇳",
-                        "Bengali": "🇧🇩",
-                        "Punjabi": "🇵🇰",
-                        "Marathi": "🇮🇳",
-                        "Gujarati": "🇮🇳",
-                        "Tamil": "🇮🇳",
-                        "Telugu": "🇮🇳",
-                        "Kannada": "🇮🇳",
-                        "Malayalam": "🇮🇳",
-                        "Thai": "🇹🇭",
-                        "Vietnamese": "🇻🇳",
-                        "Indonesian": "🇮🇩",
-                        "Turkish": "🇹🇷",
-                        "Hebrew": "🇮🇱",
-                        "Persian": "🇮🇷",
-                        "Ukrainian": "🇺🇦",
-                        "Greek": "🇬🇷",
-                        "Lithuanian": "🇱🇹",
-                        "Latvian": "🇱🇻",
-                        "Estonian": "🇪🇪",
-                        "Polish": "🇵🇱",
-                        "Czech": "🇨🇿",
-                        "Slovak": "🇸🇰",
-                        "Hungarian": "🇭🇺",
-                        "Romanian": "🇷🇴",
-                        "Bulgarian": "🇧🇬",
-                        "Serbian": "🇷🇸",
-                        "Croatian": "🇭🇷",
-                        "Slovenian": "🇸🇮",
-                        "Dutch": "🇳🇱", 
-                        "Danish": "🇩🇰",
-                        "Finnish": "🇫🇮",
-                        "Swedish": "🇸🇪",
-                        "Norwegian": "🇳🇴",
-                        "Malay": "🇲🇾",
-                        "Latino": "💃🏻",
+                        "multi": "🌎",
+                        "en": "🇬🇧",  // English
+                        "ja": "🇯🇵",  // Japanese
+                        "zh": "🇨🇳",  // Chinese
+                        "ru": "🇷🇺",  // Russian
+                        "ar": "🇸🇦",  // Arabic
+                        "pt": "🇵🇹",  // Portuguese
+                        "es": "🇪🇸",  // Spanish
+                        "fr": "🇫🇷",  // French
+                        "de": "🇩🇪",  // German
+                        "it": "🇮🇹",  // Italian
+                        "ko": "🇰🇷",  // Korean
+                        "hi": "🇮🇳",  // Hindi
+                        "bn": "🇧🇩",  // Bengali
+                        "pa": "🇵🇰",  // Punjabi
+                        "mr": "🇮🇳",  // Marathi
+                        "gu": "🇮🇳",  // Gujarati
+                        "ta": "🇮🇳",  // Tamil
+                        "te": "🇮🇳",  // Telugu
+                        "kn": "🇮🇳",  // Kannada
+                        "ml": "🇮🇳",  // Malayalam
+                        "th": "🇹🇭",  // Thai
+                        "vi": "🇻🇳",  // Vietnamese
+                        "id": "🇮🇩",  // Indonesian
+                        "tr": "🇹🇷",  // Turkish
+                        "he": "🇮🇱",  // Hebrew
+                        "fa": "🇮🇷",  // Persian
+                        "uk": "🇺🇦",  // Ukrainian
+                        "el": "🇬🇷",  // Greek
+                        "lt": "🇱🇹",  // Lithuanian
+                        "lv": "🇱🇻",  // Latvian
+                        "et": "🇪🇪",  // Estonian
+                        "pl": "🇵🇱",  // Polish
+                        "cs": "🇨🇿",  // Czech
+                        "sk": "🇸🇰",  // Slovak
+                        "hu": "🇭🇺",  // Hungarian
+                        "ro": "🇷🇴",  // Romanian
+                        "bg": "🇧🇬",  // Bulgarian
+                        "sr": "🇷🇸",  // Serbian
+                        "hr": "🇭🇷",  // Croatian
+                        "sl": "🇸🇮",  // Slovenian
+                        "nl": "🇳🇱",  // Dutch
+                        "da": "🇩🇰",  // Danish
+                        "fi": "🇫🇮",  // Finnish
+                        "sv": "🇸🇪",  // Swedish
+                        "no": "🇳🇴",  // Norwegian
+                        "ms": "🇲🇾",  // Malay
+                        "la": "💃🏻",  // Latino
                     };
-
-                    let defaultLanguages = [];
-                    let defaultResolutions = [];
                     let defaultResultFormat = [];
 
                     document.addEventListener("DOMContentLoaded", async () => {
@@ -698,13 +707,14 @@
                         ]);
 
                         const webConfig = {{webConfig|tojson}};
-                        // populateSelect("languages", webConfig.languages);
-                        // populateSelect("resolutions", webConfig.resolutions);
+
+                        const resolutionsSelect = document.getElementById("resolutions");
+                        resolutionsSelect.value = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
+
                         populateSelect("resultFormat", webConfig.resultFormat);
-                        document.body.classList.add("ready");
-                        // defaultLanguages = webConfig.languages;
-                        defaultResolutions = webConfig.resolutions;
                         defaultResultFormat = webConfig.resultFormat;
+                        const resultFormatSelect = document.getElementById("resultFormat");
+                        resultFormatSelect.value = defaultResultFormat;
 
                         // try populate the form from previous settings
                         try {
@@ -717,28 +727,83 @@
                         // trigger sl-change event on debridService to set initial state
                         const debridServiceSelect = document.getElementById("debridService");
                         debridServiceSelect.dispatchEvent(new Event("sl-change"));
+
+                        // Populate language selects
+                        populateSelect("languages_required", Object.keys(languagesEmojis));
+                        populateSelect("languages_excluded", Object.keys(languagesEmojis));
+                        populateSelect("languages_preferred", Object.keys(languagesEmojis));
+                    
+                        document.body.classList.add("ready");
                     });
 
                     function populateSelect(selectId, options) {
                         const selectElement = document.getElementById(selectId);
+
+                        const languageNames = {
+                            "multi": "Multi",
+                            "en": "English",
+                            "ja": "Japanese",
+                            "zh": "Chinese",
+                            "ru": "Russian",
+                            "ar": "Arabic",
+                            "pt": "Portuguese",
+                            "es": "Spanish",
+                            "fr": "French",
+                            "de": "German",
+                            "it": "Italian",
+                            "ko": "Korean",
+                            "hi": "Hindi",
+                            "bn": "Bengali",
+                            "pa": "Punjabi",
+                            "mr": "Marathi",
+                            "gu": "Gujarati",
+                            "ta": "Tamil",
+                            "te": "Telugu",
+                            "kn": "Kannada",
+                            "ml": "Malayalam",
+                            "th": "Thai",
+                            "vi": "Vietnamese",
+                            "id": "Indonesian",
+                            "tr": "Turkish",
+                            "he": "Hebrew",
+                            "fa": "Persian",
+                            "uk": "Ukrainian",
+                            "el": "Greek",
+                            "lt": "Lithuanian",
+                            "lv": "Latvian",
+                            "et": "Estonian",
+                            "pl": "Polish",
+                            "cs": "Czech",
+                            "sk": "Slovak",
+                            "hu": "Hungarian",
+                            "ro": "Romanian",
+                            "bg": "Bulgarian",
+                            "sr": "Serbian",
+                            "hr": "Croatian",
+                            "sl": "Slovenian",
+                            "nl": "Dutch",
+                            "da": "Danish",
+                            "fi": "Finnish",
+                            "sv": "Swedish",
+                            "no": "Norwegian",
+                            "ms": "Malay",
+                            "la": "Latino"
+                        };
+
                         options.forEach(option => {
                             const optionElement = document.createElement("sl-option");
                             optionElement.value = option;
 
-                            if (selectId === "languages") {
-                                // For languages, prepend the flag emoji if it exists
+                            if (selectId.startsWith('languages')) {
                                 const flag = languagesEmojis[option] || '';
-                                optionElement.textContent = `${flag} ${option}`;
+                                const fullName = languageNames[option] || option;
+                                optionElement.textContent = `${flag} ${fullName}`;
                             } else {
-                                // For other selects, just use the option text as is
                                 optionElement.textContent = option;
                             }
 
                             selectElement.appendChild(optionElement);
                         });
-
-                        // Set the default value
-                        selectElement.value = options; // Assuming first option as default
                     }
 
                     const installButton = document.querySelector("#install");
@@ -747,8 +812,19 @@
                     const copyAlert = document.querySelector('#copyAlert');
 
                     function getSettings() {
-                        // const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
-                        // const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
+                        const languages_required = Array.from(document.getElementById("languages_required").selectedOptions).map(option => option.value);
+                        const languages_excluded = Array.from(document.getElementById("languages_excluded").selectedOptions).map(option => option.value);
+                        const languages_preferred = Array.from(document.getElementById("languages_preferred").selectedOptions).map(option => option.value);
+                        const selectedResolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
+                        const allResolutions = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
+                        const resolutions = allResolutions.reduce((obj, res) => {
+                            // Only include resolutions that are NOT selected (disabled) as false
+                            if (!selectedResolutions.includes(res)) {
+                                obj[res] = false;
+                            }
+                            return obj;
+                        }, {});
+                        const rankThreshold = document.getElementById("rankThreshold").value;
                         const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
                         const cachedOnly = document.getElementById("cachedOnly").checked;
@@ -758,8 +834,6 @@
                         const debridApiKey = document.getElementById("debridApiKey").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
 
-                        // const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["all"] : languages;
-                        // const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["all"] : resolutions;
                         const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
                         return {
@@ -768,11 +842,18 @@
                             cachedOnly: cachedOnly,
                             removeTrash: removeTrash,
                             resultFormat: selectedResultFormat,
-                            // resolutions: selectedResolutions,
-                            // languages: selectedLanguages,
                             debridService: debridService,
                             debridApiKey: debridApiKey,
                             debridStreamProxyPassword: debridStreamProxyPassword,
+                            languages: {
+                                required: languages_required,
+                                exclude: languages_excluded,
+                                preferred: languages_preferred
+                            },
+                            resolutions: resolutions,
+                            options: {
+                                remove_ranks_under: parseFloat(rankThreshold)
+                            }
                         };
                     }
 
@@ -831,12 +912,23 @@
                             document.getElementById("debridApiKey").value = settings.debridApiKey;
                         if (settings.debridStreamProxyPassword !== null)
                             document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
-                        // if (settings.languages !== null && settings.languages != "all")
-                        //     document.getElementById("languages").value = settings.languages;
-                        // if (settings.resolutions !== null && settings.resolutions != "all")
-                        //     document.getElementById("resolutions").value = settings.resolutions;
                         if (settings.resultFormat !== null && settings.resultFormat != "all")
                             document.getElementById("resultFormat").value = settings.resultFormat;
+                        if (settings.languages) {
+                            if (settings.languages.required)
+                                document.getElementById("languages_required").value = settings.languages.required;
+                            if (settings.languages.exclude)
+                                document.getElementById("languages_excluded").value = settings.languages.exclude;
+                            if (settings.languages.preferred)
+                                document.getElementById("languages_preferred").value = settings.languages.preferred;
+                        }
+                        if (settings.resolutions) {
+                            const allResolutions = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
+                            const enabledResolutions = allResolutions.filter(res => settings.resolutions[res] !== false);
+                            document.getElementById("resolutions").value = enabledResolutions;
+                        }
+                        if (settings.options?.remove_ranks_under !== undefined)
+                            document.getElementById("rankThreshold").value = settings.options.remove_ranks_under;
                     }
 
                 </script>
