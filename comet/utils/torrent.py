@@ -90,11 +90,7 @@ def extract_torrent_metadata(content: bytes):
 
             size = file[b"length"]
 
-            parsed = parse(name)
-
-            metadata["files"].append(
-                {"index": idx, "name": name, "size": size, "parsed": parsed}
-            )
+            metadata["files"].append({"index": idx, "name": name, "size": size})
 
         return metadata
 
@@ -210,6 +206,8 @@ class AddTorrentQueue:
                         if content:
                             metadata = extract_torrent_metadata(content)
                             for file in metadata["files"]:
+                                parsed = parse(file["name"])
+
                                 await add_torrent(
                                     metadata["info_hash"],
                                     seeders,
@@ -220,7 +218,7 @@ class AddTorrentQueue:
                                     file["index"],
                                     file["name"],
                                     file["size"],
-                                    file["parsed"],
+                                    parsed,
                                 )
                     finally:
                         self.queue.task_done()
@@ -296,29 +294,19 @@ class TorrentUpdateQueue:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["to_check"]), sub_batch_size):
                     sub_batch = self.batches["to_check"][i : i + sub_batch_size]
-                    check_params = []
-                    for item in sub_batch:
-                        check_params.append(
-                            {
-                                "info_hash": item["info_hash"],
-                                "season": item["season"],
-                                "episode": item["episode"],
-                            }
-                        )
-
                     placeholders = []
                     params = {}
-                    for idx, check in enumerate(check_params):
-                        key_suffix = f"_{idx}"
-                        condition = (
-                            f"(info_hash = :info_hash{key_suffix} AND "
-                            f"((:season{key_suffix} IS NULL AND season IS NULL) OR season = :season{key_suffix}) AND "
-                            f"((:episode{key_suffix} IS NULL AND episode IS NULL) OR episode = :episode{key_suffix}))"
+
+                    for idx, item in enumerate(sub_batch):
+                        key = str(idx)
+                        placeholders.append(
+                            f"(CAST(:info_hash_{key} AS TEXT) = info_hash AND "
+                            f"(CAST(:season_{key} AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season_{key} AS INTEGER)) AND "
+                            f"(CAST(:episode_{key} AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode_{key} AS INTEGER)))"
                         )
-                        placeholders.append(condition)
-                        params[f"info_hash{key_suffix}"] = check["info_hash"]
-                        params[f"season{key_suffix}"] = check["season"]
-                        params[f"episode{key_suffix}"] = check["episode"]
+                        params[f"info_hash_{key}"] = item["info_hash"]
+                        params[f"season_{key}"] = item["season"]
+                        params[f"episode_{key}"] = item["episode"]
 
                     query = f"""
                         SELECT info_hash, season, episode
@@ -357,7 +345,7 @@ class TorrentUpdateQueue:
                     for idx, item in enumerate(sub_batch):
                         key_suffix = f"_{idx}"
                         placeholders.append(
-                            f"(:info_hash{key_suffix}, :season{key_suffix})"
+                            f"(CAST(:info_hash{key_suffix} AS TEXT), CAST(:season{key_suffix} AS INTEGER))"
                         )
                         params[f"info_hash{key_suffix}"] = item["info_hash"]
                         params[f"season{key_suffix}"] = item["season"]
@@ -382,7 +370,20 @@ class TorrentUpdateQueue:
                         insert_query = f"""
                             INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
                             INTO torrents
-                            VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
+                            VALUES (
+                                :media_id,
+                                :info_hash,
+                                :file_index,
+                                :season,
+                                :episode,
+                                :title,
+                                :seeders,
+                                :size,
+                                :tracker,
+                                :sources,
+                                :parsed,
+                                :timestamp
+                            )
                             {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
                         """
                         await database.execute_many(insert_query, sub_batch)
@@ -401,18 +402,18 @@ class TorrentUpdateQueue:
                     async with database.transaction():
                         update_query = """
                             UPDATE torrents 
-                            SET title = :title,
-                                file_index = :file_index,
-                                size = :size,
-                                seeders = :seeders,
-                                tracker = :tracker,
-                                sources = :sources,
-                                parsed = :parsed,
-                                timestamp = :timestamp,
-                                media_id = :media_id
-                            WHERE info_hash = :info_hash 
-                            AND (:season IS NULL AND season IS NULL OR season = :season)
-                            AND (:episode IS NULL AND episode IS NULL OR episode = :episode)
+                            SET title = CAST(:title AS TEXT),
+                                file_index = CAST(:file_index AS INTEGER),
+                                size = CAST(:size AS BIGINT),
+                                seeders = CAST(:seeders AS INTEGER),
+                                tracker = CAST(:tracker AS TEXT),
+                                sources = CAST(:sources AS TEXT),
+                                parsed = CAST(:parsed AS TEXT),
+                                timestamp = CAST(:timestamp AS FLOAT),
+                                media_id = CAST(:media_id AS TEXT)
+                            WHERE info_hash = CAST(:info_hash AS TEXT)
+                            AND (CAST(:season AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season AS INTEGER))
+                            AND (CAST(:episode AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode AS INTEGER))
                         """
                         await database.execute_many(update_query, sub_batch)
 

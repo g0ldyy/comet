@@ -160,7 +160,7 @@ async def stream(
         cached_results = []
         non_cached_results = []
 
-        if is_first and not has_cached_results:
+        if not has_cached_results:
             logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
             await database.execute(
                 f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
@@ -197,7 +197,7 @@ async def stream(
             )
 
         await torrent_manager.get_cached_availability()
-        if is_first and not has_cached_results and debrid_service != "torrent":
+        if not has_cached_results and debrid_service != "torrent":
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
             await torrent_manager.get_and_cache_debrid_availability(session)
 

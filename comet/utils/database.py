@@ -61,9 +61,40 @@ async def setup_database():
                     tracker TEXT,
                     sources TEXT,
                     parsed TEXT,
-                    timestamp INTEGER,
-                    PRIMARY KEY (media_id, info_hash, season, episode)
+                    timestamp INTEGER
                 )
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS torrents_series_both_idx 
+            ON torrents (media_id, info_hash, season, episode) 
+            WHERE season IS NOT NULL AND episode IS NOT NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS torrents_season_only_idx 
+            ON torrents (media_id, info_hash, season) 
+            WHERE season IS NOT NULL AND episode IS NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS torrents_episode_only_idx 
+            ON torrents (media_id, info_hash, episode) 
+            WHERE season IS NULL AND episode IS NOT NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS torrents_no_season_episode_idx 
+            ON torrents (media_id, info_hash) 
+            WHERE season IS NULL AND episode IS NULL
             """
         )
 
@@ -78,9 +109,40 @@ async def setup_database():
                     episode INTEGER,
                     size BIGINT,
                     parsed TEXT,
-                    timestamp INTEGER,
-                    PRIMARY KEY (debrid_service, info_hash, season, episode)
+                    timestamp INTEGER
                 )
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS debrid_series_both_idx 
+            ON debrid_availability (debrid_service, info_hash, season, episode) 
+            WHERE season IS NOT NULL AND episode IS NOT NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS debrid_season_only_idx 
+            ON debrid_availability (debrid_service, info_hash, season) 
+            WHERE season IS NOT NULL AND episode IS NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS debrid_episode_only_idx 
+            ON debrid_availability (debrid_service, info_hash, episode) 
+            WHERE season IS NULL AND episode IS NOT NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS debrid_no_season_episode_idx 
+            ON debrid_availability (debrid_service, info_hash) 
+            WHERE season IS NULL AND episode IS NULL
             """
         )
 
@@ -90,12 +152,43 @@ async def setup_database():
                     debrid_key TEXT, 
                     info_hash TEXT, 
                     name TEXT, 
-                    season INTEGER, 
-                    episode INTEGER, 
+                    season INTEGER,
+                    episode INTEGER,
                     download_url TEXT, 
-                    timestamp INTEGER, 
-                    PRIMARY KEY (debrid_key, info_hash, name, season, episode)
+                    timestamp INTEGER
                 )
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_series_both_idx 
+            ON download_links_cache (debrid_key, info_hash, name, season, episode) 
+            WHERE season IS NOT NULL AND episode IS NOT NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_season_only_idx 
+            ON download_links_cache (debrid_key, info_hash, name, season) 
+            WHERE season IS NOT NULL AND episode IS NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_episode_only_idx 
+            ON download_links_cache (debrid_key, info_hash, name, episode) 
+            WHERE season IS NULL AND episode IS NOT NULL
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_no_season_episode_idx 
+            ON download_links_cache (debrid_key, info_hash, name) 
+            WHERE season IS NULL AND episode IS NULL
             """
         )
 
