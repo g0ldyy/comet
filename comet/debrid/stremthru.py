@@ -170,6 +170,11 @@ class StremThru:
                 filename = file["name"]
                 file_parsed = parse(filename)
 
+                file_season = file_parsed.seasons[0] if file_parsed.seasons else None
+                file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
+                season = int(season) if season != "n" else None
+                episode = int(episode) if episode != "n" else None
+
                 if str(file["index"]) == index:
                     target_file = file
                     break
@@ -178,11 +183,6 @@ class StremThru:
                     name_parsed.parsed_title, file_parsed.parsed_title
                 ):
                     continue
-
-                file_season = file_parsed.seasons[0] if file_parsed.seasons else None
-                file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
-                season = int(season) if season != "n" else None
-                episode = int(episode) if episode != "n" else None
 
                 if season == file_season and episode == file_episode:
                     target_file = file
@@ -201,7 +201,7 @@ class StremThru:
                 {
                     "debrid_service": self.real_debrid_name,
                     "info_hash": hash,
-                    "file_index": target_file["index"],
+                    "file_index": str(target_file["index"]),
                     "title": target_file["name"],
                     "season": season,
                     "episode": episode,
