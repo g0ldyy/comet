@@ -166,14 +166,15 @@ class StremThru:
             name_parsed = parse(name)
             target_file = None
 
+            season = int(season) if season != "n" else None
+            episode = int(episode) if episode != "n" else None
+
             for file in magnet["data"]["files"]:
                 filename = file["name"]
                 file_parsed = parse(filename)
 
                 file_season = file_parsed.seasons[0] if file_parsed.seasons else None
                 file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
-                season = int(season) if season != "n" else None
-                episode = int(episode) if episode != "n" else None
 
                 if str(file["index"]) == index:
                     target_file = file
