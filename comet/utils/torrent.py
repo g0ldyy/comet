@@ -181,7 +181,7 @@ class AddTorrentQueue:
         media_id: str,
         search_season: int,
     ):
-        if not settings.DOWNLOAD_TORRENTS:
+        if not settings.DOWNLOAD_TORRENT_FILES:
             return
 
         await self.queue.put((magnet_url, seeders, tracker, media_id, search_season))

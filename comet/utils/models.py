@@ -43,7 +43,7 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
-    DOWNLOAD_TORRENTS: Optional[bool] = True
+    DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_MEDIAFUSION: Optional[bool] = False
     SCRAPE_ZILEAN: Optional[bool] = False
     ZILEAN_URL: Optional[str] = "https://zilean.elfhosted.com"
