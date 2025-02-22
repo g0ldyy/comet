@@ -135,7 +135,9 @@ def start_log():
         )
         logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
         logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
-        logger.log("COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}")
+        logger.log(
+            "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
+        )
     else:
         logger.log("COMET", "Indexer Manager: False")
 

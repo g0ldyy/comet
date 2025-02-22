@@ -300,6 +300,7 @@ class TorrentManager:
         if len(availability) == 0:
             return
 
+        is_not_offcloud = self.debrid_service != "offcloud"
         for file in availability:
             season = file["season"]
             episode = file["episode"]
@@ -310,26 +311,31 @@ class TorrentManager:
 
             info_hash = file["info_hash"]
             self.torrents[info_hash]["cached"] = True
-            self.torrents[info_hash]["parsed"] = file["parsed"]
-            self.torrents[info_hash]["fileIndex"] = file["index"]
-            self.torrents[info_hash]["title"] = file["title"]
-            self.torrents[info_hash]["size"] = file["size"]
+
+            if is_not_offcloud:
+                self.torrents[info_hash]["parsed"] = file["parsed"]
+                self.torrents[info_hash]["fileIndex"] = file["index"]
+                self.torrents[info_hash]["title"] = file["title"]
+                self.torrents[info_hash]["size"] = file["size"]
 
         asyncio.create_task(self._background_cache_availability(availability))
 
     async def _background_cache_availability(self, availability: list):
         current_time = time.time()
 
+        is_not_offcloud = self.debrid_service != "offcloud"
         values = [
             {
                 "debrid_service": self.debrid_service,
                 "info_hash": file["info_hash"],
-                "file_index": str(file["index"]),
+                "file_index": str(file["index"]) if is_not_offcloud else None,
                 "title": file["title"],
                 "season": file["season"],
                 "episode": file["episode"],
                 "size": file["size"],
-                "parsed": orjson.dumps(file["parsed"], default_dump).decode("utf-8"),
+                "parsed": orjson.dumps(file["parsed"], default_dump).decode("utf-8")
+                if is_not_offcloud
+                else None,
                 "timestamp": current_time,
             }
             for file in availability
@@ -357,26 +363,33 @@ class TorrentManager:
             FROM debrid_availability
             WHERE info_hash IN (SELECT cast(value as TEXT) FROM {"json_array_elements_text" if settings.DATABASE_TYPE == "postgresql" else "json_each"}(:info_hashes))
             AND debrid_service = :debrid_service
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
             AND timestamp + :cache_ttl >= :current_time
         """
         params = {
             "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
             "debrid_service": self.debrid_service,
-            "season": self.season,
-            "episode": self.episode,
             "cache_ttl": settings.CACHE_TTL,
             "current_time": time.time(),
         }
+        if self.debrid_service != "offcloud":
+            query += """
+            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
+            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+            """
+            params["season"] = self.season
+            params["episode"] = self.episode
+
+        is_not_offcloud = self.debrid_service != "offcloud"
 
         rows = await database.fetch_all(query, params)
         for row in rows:
             info_hash = row["info_hash"]
             self.torrents[info_hash]["cached"] = True
-            self.torrents[info_hash]["parsed"] = ParsedData(
-                **orjson.loads(row["parsed"])
-            )
-            self.torrents[info_hash]["fileIndex"] = row["file_index"]
-            self.torrents[info_hash]["title"] = row["title"]
-            self.torrents[info_hash]["size"] = row["size"]
+
+            if is_not_offcloud:
+                self.torrents[info_hash]["parsed"] = ParsedData(
+                    **orjson.loads(row["parsed"])
+                )
+                self.torrents[info_hash]["fileIndex"] = row["file_index"]
+                self.torrents[info_hash]["title"] = row["title"]
+                self.torrents[info_hash]["size"] = row["size"]

@@ -230,7 +230,7 @@ async def stream(
             background_tasks.add_task(
                 background_availability_check, torrent_manager, media_id
             )
-            
+
             cached_results.append(
                 {
                     "name": "[🔄] Comet",
@@ -269,6 +269,10 @@ async def stream(
                     "url": "https://comet.fast",
                 }
             )
+
+        is_not_offcloud = debrid_service != "offcloud"
+        result_season = season if season is not None else "n"
+        result_episode = episode if episode is not None else "n"
 
         torrents = torrent_manager.torrents
         for info_hash in torrent_manager.ranked_torrents:
@@ -310,7 +314,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] else 'n'}/{title}/{season if season is not None else 'n'}/{episode if episode is not None else 'n'}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and is_not_offcloud else 'n'}/{title}/{result_season}/{result_episode}"
                 )
 
             if torrent["cached"]:

@@ -93,6 +93,8 @@ class StremThru:
             if response and "data" in response
         ]
 
+        is_offcloud = self.real_debrid_name == "offcloud"
+
         files = []
         cached_count = 0
         for result in availability:
@@ -106,43 +108,58 @@ class StremThru:
                 tracker = tracker_map[hash]
                 sources = sources_map[hash]
 
-                for file in torrent["files"]:
-                    filename = file["name"].split("/")[-1]
-
-                    if not is_video(filename) or "sample" in filename.lower():
-                        continue
-
-                    filename_parsed = parse(filename)
-
-                    season = (
-                        filename_parsed.seasons[0] if filename_parsed.seasons else None
-                    )
-                    episode = (
-                        filename_parsed.episodes[0]
-                        if filename_parsed.episodes
-                        else None
-                    )
-                    if ":" in self.sid and (season is None or episode is None):
-                        continue
-
-                    index = file["index"]
-                    size = file["size"]
-
+                if is_offcloud:
                     file_info = {
                         "info_hash": hash,
-                        "index": index,
-                        "title": filename,
-                        "size": size,
-                        "season": season,
-                        "episode": episode,
-                        "parsed": filename_parsed,
-                        "seeders": seeders,
-                        "tracker": tracker,
-                        "sources": sources,
+                        "index": None,
+                        "title": None,
+                        "size": None,
+                        "season": None,
+                        "episode": None,
+                        "parsed": None,
                     }
 
                     files.append(file_info)
-                    await torrent_update_queue.add_torrent_info(file_info, media_id)
+                else:
+                    for file in torrent["files"]:
+                        filename = file["name"].split("/")[-1]
+
+                        if not is_video(filename) or "sample" in filename.lower():
+                            continue
+
+                        filename_parsed = parse(filename)
+
+                        season = (
+                            filename_parsed.seasons[0]
+                            if filename_parsed.seasons
+                            else None
+                        )
+                        episode = (
+                            filename_parsed.episodes[0]
+                            if filename_parsed.episodes
+                            else None
+                        )
+                        if ":" in self.sid and (season is None or episode is None):
+                            continue
+
+                        index = file["index"]
+                        size = file["size"]
+
+                        file_info = {
+                            "info_hash": hash,
+                            "index": index,
+                            "title": filename,
+                            "size": size,
+                            "season": season,
+                            "episode": episode,
+                            "parsed": filename_parsed,
+                            "seeders": seeders,
+                            "tracker": tracker,
+                            "sources": sources,
+                        }
+
+                        files.append(file_info)
+                        await torrent_update_queue.add_torrent_info(file_info, media_id)
 
         logger.log(
             "SCRAPER",
