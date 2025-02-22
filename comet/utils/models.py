@@ -59,10 +59,20 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = -1
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
-    STREMTHRU_URL: Optional[str] = (
-        "https://stremthru.13377001.xyz"  # 403 issues with https://stremthru.elfhosted.com
-    )
+    STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
     REMOVE_ADULT_CONTENT: Optional[bool] = False
+
+    @field_validator(
+        "INDEXER_MANAGER_URL",
+        "ZILEAN_URL",
+        "TORRENTIO_URL",
+        "MEDIAFUSION_URL",
+        "STREMTHRU_URL",
+    )
+    def remove_trailing_slash(cls, v):
+        if v and v.endswith("/"):
+            return v[:-1]
+        return v
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
@@ -72,7 +82,7 @@ class AppSettings(BaseSettings):
 
     @field_validator("INDEXER_MANAGER_INDEXERS")
     def indexer_manager_indexers_normalization(cls, v, values):
-        v = [indexer.replace(" ", "_").lower() for indexer in v]  # to equal webui
+        v = [indexer.replace(" ", "").lower() for indexer in v]
         return v
 
 

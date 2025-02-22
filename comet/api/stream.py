@@ -324,7 +324,7 @@ async def playback(
     config = config_check(b64config)
     if not config:
         return FileResponse("comet/assets/invalidconfig.mp4")
-    
+
     season = int(season) if season != "n" else None
     episode = int(episode) if episode != "n" else None
 

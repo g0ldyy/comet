@@ -97,10 +97,10 @@ async def fetch_jackett_results(
 async def get_jackett(manager, session: aiohttp.ClientSession, title: str, seen: set):
     torrents = []
     try:
-        indexers = [
-            indexer.replace("_", " ") for indexer in settings.INDEXER_MANAGER_INDEXERS
+        tasks = [
+            fetch_jackett_results(session, indexer, title)
+            for indexer in settings.INDEXER_MANAGER_INDEXERS
         ]
-        tasks = [fetch_jackett_results(session, indexer, title) for indexer in indexers]
         all_results = await asyncio.gather(*tasks)
 
         torrent_tasks = []

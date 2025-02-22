@@ -43,7 +43,7 @@ async def download_torrent(session: aiohttp.ClientSession, url: str):
                     return (None, match.group(1), location)
             return (None, None, None)
     except Exception as e:
-        logger.warning(f"Failed to download torrent from {url}: {e}")
+        logger.warning(f"Failed to download torrent from {url}: {e} (in most cases, you can ignore this error)")
         return (None, None, None)
 
 

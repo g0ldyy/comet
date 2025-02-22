@@ -11,12 +11,24 @@ async def get_trakt_aliases(
         response = await session.get(
             f"https://api.trakt.tv/{'movies' if media_type == 'movie' else 'shows'}/{media_id}/aliases"
         )
-        for aliase in await response.json():
+        data = await response.json()
+        total_aliases = 0
+        for aliase in data:
             country = aliase["country"]
             if country not in aliases:
                 aliases[country] = []
             aliases[country].append(aliase["title"])
-    except Exception as e:
-        logger.warning(f"Exception while getting Trakt aliases for {media_id}: {e}")
+            total_aliases += 1
 
-    return aliases
+        if total_aliases > 0:
+            logger.log(
+                "SCRAPER",
+                f"📜 Found {total_aliases} Trakt aliases for {media_id} across {len(aliases)} countries",
+            )
+            return aliases
+    except Exception:
+        pass
+
+    logger.log("SCRAPER", f"📜 No Trakt aliases found for {media_id}")
+
+    return {}
