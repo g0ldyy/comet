@@ -184,16 +184,16 @@ async def stream(
                 {"media_id": media_id, "timestamp": time.time()},
             )
 
+            background_tasks.add_task(
+                background_scrape, torrent_manager, media_id, debrid_service
+            )
+
             cached_results.append(
                 {
                     "name": "[🔄] Comet",
                     "description": "First search for this media - More results will be available in a few seconds...",
                     "url": "https://comet.fast",
                 }
-            )
-
-            background_tasks.add_task(
-                background_scrape, torrent_manager, media_id, debrid_service
             )
 
         await torrent_manager.get_cached_availability()
@@ -221,12 +221,22 @@ async def stream(
                 "SCRAPER",
                 f"🔄 Starting background availability check for {log_title}",
             )
+
             await database.execute(
                 f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
                 {"media_id": media_id, "timestamp": time.time()},
             )
+
             background_tasks.add_task(
                 background_availability_check, torrent_manager, media_id
+            )
+            
+            cached_results.append(
+                {
+                    "name": "[🔄] Comet",
+                    "description": "Checking debrid availability in background - More results will be available in a few seconds...",
+                    "url": "https://comet.fast",
+                }
             )
 
         initial_torrent_count = len(torrent_manager.torrents)
