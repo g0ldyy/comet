@@ -45,7 +45,7 @@ class MetadataScraper:
             """,
             {
                 "media_id": media_id,
-                "cache_ttl": settings.CACHE_TTL,
+                "cache_ttl": settings.METADATA_CACHE_TTL,
                 "current_time": time.time(),
             },
         )

@@ -223,7 +223,7 @@ async def setup_database():
             DELETE FROM first_searches 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": time.time()},
         )
 
         await database.execute(
@@ -231,7 +231,7 @@ async def setup_database():
             DELETE FROM metadata_cache 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": time.time()},
         )
 
         await database.execute(
@@ -239,7 +239,7 @@ async def setup_database():
             DELETE FROM torrents
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": time.time()},
         )
 
         await database.execute(
@@ -247,15 +247,7 @@ async def setup_database():
             DELETE FROM debrid_availability
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
-        )
-
-        await database.execute(
-            """
-            DELETE FROM torrents
-            WHERE timestamp + :cache_ttl < :current_time;
-            """,
-            {"cache_ttl": settings.CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": time.time()},
         )
 
         await database.execute("DELETE FROM download_links_cache")

@@ -22,7 +22,7 @@ from RTN.models import (
 
 
 class AppSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     ADDON_ID: Optional[str] = "stremio.comet.fast"
     ADDON_NAME: Optional[str] = "Comet"
@@ -35,7 +35,9 @@ class AppSettings(BaseSettings):
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
-    CACHE_TTL: Optional[int] = 1296000
+    METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
+    TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
+    DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"

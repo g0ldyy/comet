@@ -114,6 +114,7 @@ server = Server(config=config)
 
 
 def start_log():
+    print(settings.model_dump())
     logger.log(
         "COMET",
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
@@ -124,7 +125,7 @@ def start_log():
     )
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: {settings.CACHE_TTL}s",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s",
     )
     logger.log("COMET", f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
 

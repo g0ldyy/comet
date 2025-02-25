@@ -126,7 +126,7 @@ class TorrentManager:
                 "media_id": self.media_only_id,
                 "season": self.season,
                 "episode": self.episode,
-                "cache_ttl": settings.CACHE_TTL,
+                "cache_ttl": settings.TORRENT_CACHE_TTL,
                 "current_time": time.time(),
             },
         )
@@ -368,7 +368,7 @@ class TorrentManager:
         params = {
             "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
             "debrid_service": self.debrid_service,
-            "cache_ttl": settings.CACHE_TTL,
+            "cache_ttl": settings.DEBRID_CACHE_TTL,
             "current_time": time.time(),
         }
         if self.debrid_service != "offcloud":
