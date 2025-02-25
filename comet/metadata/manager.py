@@ -20,7 +20,7 @@ class MetadataScraper:
     async def fetch_metadata_and_aliases(self, media_type: str, media_id: str):
         id, season, episode = parse_media_id(media_type, media_id)
 
-        real_id = id if id != "kitsu" else season
+        real_id = id if id != "kitsu" else str(season)
 
         get_cached = await self.get_cached(
             real_id, season if id != "kitsu" else 1, episode
