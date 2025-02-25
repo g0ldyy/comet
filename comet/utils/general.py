@@ -20,7 +20,7 @@ def config_check(b64config: str):
         validated_config = validated_config.model_dump()
 
         for key in list(validated_config["options"].keys()):
-            if key not in ["remove_ranks_under"]:
+            if key not in ["remove_ranks_under", "allow_english_in_languages"]:
                 validated_config["options"].pop(key)
 
         validated_config["options"]["remove_all_trash"] = validated_config[

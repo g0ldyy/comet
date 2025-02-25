@@ -572,6 +572,7 @@
                 <div class="form-item">
                     <sl-input id="rankThreshold" type="number" value="-10000000000" label="Minimum Rank Threshold" placeholder="Enter minimum rank threshold" help-text="Results with rank below this value will be filtered out"></sl-input>
                     <sl-checkbox id="cachedOnly" help-text="Show only content that has already been cached.">Show Cached Only</sl-checkbox>
+                    <sl-checkbox id="allowEnglishInLanguages" help-text="Allows English language torrents to be included even if you excluded English from your language preferences.">Allow English in Languages</sl-checkbox>
                     <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (if disabled, your filters will not be applied - Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
                     <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=10>
                     </sl-select>
@@ -832,6 +833,7 @@
                         const maxSize = document.getElementById("maxSize").value;
                         const cachedOnly = document.getElementById("cachedOnly").checked;
                         const removeTrash = document.getElementById("removeTrash").checked;
+                        const allowEnglishInLanguages = document.getElementById("allowEnglishInLanguages").checked;
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
@@ -855,7 +857,8 @@
                             },
                             resolutions: resolutions,
                             options: {
-                                remove_ranks_under: parseFloat(rankThreshold)
+                                remove_ranks_under: parseFloat(rankThreshold),
+                                allow_english_in_languages: allowEnglishInLanguages
                             }
                         };
                     }
@@ -932,8 +935,9 @@
                         }
                         if (settings.options?.remove_ranks_under !== undefined)
                             document.getElementById("rankThreshold").value = settings.options.remove_ranks_under;
+                        if (settings.options?.allow_english_in_languages !== undefined)
+                            document.getElementById("allowEnglishInLanguages").checked = settings.options.allow_english_in_languages;
                     }
-
                 </script>
             </div>
         </div>

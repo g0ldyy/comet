@@ -22,7 +22,9 @@ from RTN.models import (
 
 
 class AppSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     ADDON_ID: Optional[str] = "stremio.comet.fast"
     ADDON_NAME: Optional[str] = "Comet"
@@ -98,9 +100,7 @@ class CometSettingsModel(SettingsModel):
         r2160p=True, r480p=True, r360p=True
     )
 
-    options: OptionsConfig = OptionsConfig(
-        remove_ranks_under=-10000000000, allow_english_in_languages=True
-    )
+    options: OptionsConfig = OptionsConfig(remove_ranks_under=-10000000000)
 
     languages: LanguagesConfig = LanguagesConfig(exclude=[])
 
@@ -167,7 +167,7 @@ rtn_settings_default_dumped = rtn_settings_default.model_dump()
 #         "remove_all_trash":true,
 #         "remove_ranks_under":-10000000000,
 #         "remove_unknown_languages":false,
-#         "allow_english_in_languages":true,
+#         "allow_english_in_languages":false,
 #         "enable_fetch_speed_mode":true,
 #         "remove_adult_content":true
 #     },
