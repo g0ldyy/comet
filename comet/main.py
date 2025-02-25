@@ -114,7 +114,6 @@ server = Server(config=config)
 
 
 def start_log():
-    print(settings.model_dump())
     logger.log(
         "COMET",
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
