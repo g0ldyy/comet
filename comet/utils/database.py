@@ -204,6 +204,7 @@ async def setup_database():
         )
 
         if settings.DATABASE_TYPE == "sqlite":
+            await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=OFF")
             await database.execute("PRAGMA synchronous=OFF")
             await database.execute("PRAGMA temp_store=MEMORY")

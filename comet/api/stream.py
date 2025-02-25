@@ -208,7 +208,7 @@ async def stream(
             )
             logger.log(
                 "SCRAPER",
-                f"💾 Available cached torrents: {cached_count}/{len(torrent_manager.torrents)}",
+                f"💾 Available cached torrents on {debrid_service}: {cached_count}/{len(torrent_manager.torrents)}",
             )
 
         if (
@@ -304,9 +304,9 @@ async def stream(
 
             if debrid_service == "torrent":
                 the_stream["infoHash"] = info_hash
-                the_stream["fileIdx"] = (
-                    torrent["fileIndex"] if torrent["fileIndex"] is not None else 0
-                )
+
+                if torrent["fileIndex"] is not None:
+                    the_stream["fileIdx"] = torrent["fileIndex"]
 
                 if len(torrent["sources"]) == 0:
                     the_stream["sources"] = trackers

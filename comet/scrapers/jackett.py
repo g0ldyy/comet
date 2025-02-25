@@ -44,7 +44,7 @@ async def process_torrent(
                     torrents.append(torrent)
                 return torrents
 
-        if magnet_hash and magnet_url:
+        if magnet_hash:
             base_torrent["infoHash"] = magnet_hash.lower()
             base_torrent["sources"] = extract_trackers_from_magnet(magnet_url)
 
