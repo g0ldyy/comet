@@ -78,7 +78,7 @@ class AppSettings(BaseSettings):
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
-        if v.lower() == "none":
+        if v is not None and v.lower() == "none":
             return None
         return v
 
