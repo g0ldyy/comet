@@ -16,6 +16,7 @@ from RTN import (
 
 from comet.utils.models import settings, database, CometSettingsModel
 from comet.utils.general import default_dump
+from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
 from .zilean import get_zilean
 from .torrentio import get_torrentio
@@ -145,27 +146,60 @@ class TorrentManager:
 
     async def cache_torrents(self):
         current_time = time.time()
-        values = [
-            {
-                "media_id": self.media_only_id,
-                "info_hash": torrent["infoHash"],
-                "file_index": torrent["fileIndex"],
-                "season": torrent["parsed"].seasons[0]
+        values = []
+
+        for torrent in self.ready_to_cache:
+            seasons = (
+                torrent["parsed"].seasons
                 if torrent["parsed"].seasons
-                else self.season,
-                "episode": torrent["parsed"].episodes[0]
-                if torrent["parsed"].episodes
-                else None,
-                "title": torrent["title"],
-                "seeders": torrent["seeders"],
-                "size": torrent["size"],
-                "tracker": torrent["tracker"],
-                "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
-                "parsed": orjson.dumps(torrent["parsed"], default_dump).decode("utf-8"),
-                "timestamp": current_time,
-            }
-            for torrent in self.ready_to_cache
-        ]
+                else [self.season]
+            )
+            episodes = torrent["parsed"].episodes
+
+            for season in seasons:
+                if len(episodes) == 0:
+                    # season-only entry
+                    values.append(
+                        {
+                            "media_id": self.media_only_id,
+                            "info_hash": torrent["infoHash"],
+                            "file_index": torrent["fileIndex"],
+                            "season": season,
+                            "episode": None,
+                            "title": torrent["title"],
+                            "seeders": torrent["seeders"],
+                            "size": torrent["size"],
+                            "tracker": torrent["tracker"],
+                            "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
+                            "parsed": orjson.dumps(
+                                torrent["parsed"], default_dump
+                            ).decode("utf-8"),
+                            "timestamp": current_time,
+                        }
+                    )
+                else:
+                    # season and episode entries
+                    for episode in episodes:
+                        values.append(
+                            {
+                                "media_id": self.media_only_id,
+                                "info_hash": torrent["infoHash"],
+                                "file_index": torrent["fileIndex"],
+                                "season": season,
+                                "episode": episode,
+                                "title": torrent["title"],
+                                "seeders": torrent["seeders"],
+                                "size": torrent["size"],
+                                "tracker": torrent["tracker"],
+                                "sources": orjson.dumps(torrent["sources"]).decode(
+                                    "utf-8"
+                                ),
+                                "parsed": orjson.dumps(
+                                    torrent["parsed"], default_dump
+                                ).decode("utf-8"),
+                                "timestamp": current_time,
+                            }
+                        )
 
         query = f"""
             INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
@@ -276,9 +310,6 @@ class TorrentManager:
         )
 
     async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):
-        if self.debrid_service == "torrent" or len(self.torrents) == 0:
-            return
-
         info_hashes = list(self.torrents.keys())
 
         seeders_map = {hash: self.torrents[hash]["seeders"] for hash in info_hashes}
@@ -300,7 +331,6 @@ class TorrentManager:
         if len(availability) == 0:
             return
 
-        is_not_offcloud = self.debrid_service != "offcloud"
         for file in availability:
             season = file["season"]
             episode = file["episode"]
@@ -312,43 +342,16 @@ class TorrentManager:
             info_hash = file["info_hash"]
             self.torrents[info_hash]["cached"] = True
 
-            if is_not_offcloud:
+            if file["parsed"] is not None:
                 self.torrents[info_hash]["parsed"] = file["parsed"]
+            if file["index"] is not None:
                 self.torrents[info_hash]["fileIndex"] = file["index"]
+            if file["title"] is not None:
                 self.torrents[info_hash]["title"] = file["title"]
+            if file["size"] is not None:
                 self.torrents[info_hash]["size"] = file["size"]
 
-        asyncio.create_task(self._background_cache_availability(availability))
-
-    async def _background_cache_availability(self, availability: list):
-        current_time = time.time()
-
-        is_not_offcloud = self.debrid_service != "offcloud"
-        values = [
-            {
-                "debrid_service": self.debrid_service,
-                "info_hash": file["info_hash"],
-                "file_index": str(file["index"]) if is_not_offcloud else None,
-                "title": file["title"],
-                "season": file["season"],
-                "episode": file["episode"],
-                "size": file["size"],
-                "parsed": orjson.dumps(file["parsed"], default_dump).decode("utf-8")
-                if is_not_offcloud
-                else None,
-                "timestamp": current_time,
-            }
-            for file in availability
-        ]
-
-        query = f"""
-            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
-            INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
-            VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-        """
-
-        await database.execute_many(query, values)
+        asyncio.create_task(cache_availability(self.debrid_service, availability))
 
     async def get_cached_availability(self):
         info_hashes = list(self.torrents.keys())
@@ -358,38 +361,21 @@ class TorrentManager:
         if self.debrid_service == "torrent" or len(self.torrents) == 0:
             return
 
-        query = f"""
-            SELECT info_hash, file_index, title, size, parsed
-            FROM debrid_availability
-            WHERE info_hash IN (SELECT cast(value as TEXT) FROM {"json_array_elements_text" if settings.DATABASE_TYPE == "postgresql" else "json_each"}(:info_hashes))
-            AND debrid_service = :debrid_service
-            AND timestamp + :cache_ttl >= :current_time
-        """
-        params = {
-            "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
-            "debrid_service": self.debrid_service,
-            "cache_ttl": settings.DEBRID_CACHE_TTL,
-            "current_time": time.time(),
-        }
-        if self.debrid_service != "offcloud":
-            query += """
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
-            """
-            params["season"] = self.season
-            params["episode"] = self.episode
+        rows = await get_cached_availability(
+            self.debrid_service, info_hashes, self.season, self.episode
+        )
 
-        is_not_offcloud = self.debrid_service != "offcloud"
-
-        rows = await database.fetch_all(query, params)
         for row in rows:
             info_hash = row["info_hash"]
             self.torrents[info_hash]["cached"] = True
 
-            if is_not_offcloud:
+            if row["parsed"] is not None:
                 self.torrents[info_hash]["parsed"] = ParsedData(
                     **orjson.loads(row["parsed"])
                 )
+            if row["file_index"] is not None:
                 self.torrents[info_hash]["fileIndex"] = row["file_index"]
+            if row["title"] is not None:
                 self.torrents[info_hash]["title"] = row["title"]
+            if row["size"] is not None:
                 self.torrents[info_hash]["size"] = row["size"]

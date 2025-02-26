@@ -1,12 +1,11 @@
 import aiohttp
 import asyncio
-import time
-import orjson
 
 from RTN import parse, title_match
 
-from comet.utils.models import settings, database
-from comet.utils.general import is_video, default_dump
+from comet.utils.models import settings
+from comet.utils.general import is_video
+from comet.utils.debrid import cache_availability
 from comet.utils.logger import logger
 from comet.utils.torrent import torrent_update_queue
 
@@ -183,59 +182,45 @@ class StremThru:
             name_parsed = parse(name)
             target_file = None
 
+            files = []
             for file in magnet["data"]["files"]:
                 filename = file["name"]
-                file_parsed = parse(filename)
-
-                file_season = file_parsed.seasons[0] if file_parsed.seasons else None
-                file_episode = file_parsed.episodes[0] if file_parsed.episodes else None
-
-                if str(file["index"]) == index:
-                    target_file = file
-                    break
+                filename_parsed = parse(filename)
 
                 if not is_video(filename) or not title_match(
-                    name_parsed.parsed_title, file_parsed.parsed_title
+                    name_parsed.parsed_title, filename_parsed.parsed_title
                 ):
                     continue
 
+                file_season = (
+                    filename_parsed.seasons[0] if filename_parsed.seasons else None
+                )
+                file_episode = (
+                    filename_parsed.episodes[0] if filename_parsed.episodes else None
+                )
+
+                file_info = {
+                    "info_hash": hash,
+                    "index": file["index"],
+                    "title": filename,
+                    "size": file["size"],
+                    "season": file_season,
+                    "episode": file_episode,
+                    "parsed": filename_parsed,
+                }
+                files.append(file_info)
+
+                if str(file["index"]) == index:
+                    target_file = file
+
                 if season == file_season and episode == file_episode:
                     target_file = file
-                    break
+
+            if len(files) > 0:
+                asyncio.create_task(cache_availability(self.real_debrid_name, files))
 
             if not target_file:
                 return
-
-            await database.execute(
-                f"""
-                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
-                INTO debrid_availability (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-                """,
-                {
-                    "debrid_service": self.real_debrid_name,
-                    "info_hash": hash,
-                    "file_index": str(target_file["index"]),
-                    "title": target_file["name"],
-                    "season": season,
-                    "episode": episode,
-                    "size": target_file["size"],
-                    "parsed": orjson.dumps(file_parsed, default=default_dump).decode(
-                        "utf-8"
-                    ),
-                    "timestamp": time.time(),
-                },
-            )
-            # await file_index_update_queue.add_update(
-            #     hash,
-            #     season,
-            #     episode,
-            #     target_file["index"],
-            #     target_file["name"],
-            #     target_file["size"],
-            #     parsed,
-            # )
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",

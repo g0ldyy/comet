@@ -30,7 +30,7 @@ async def remove_ongoing_search_from_database(media_id: str):
 async def is_first_search(media_id: str) -> bool:
     try:
         await database.execute(
-            "INSERT INTO first_searches (media_id, timestamp) VALUES (:media_id, :timestamp)",
+            "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
             {"media_id": media_id, "timestamp": time.time()},
         )
 
@@ -46,7 +46,7 @@ async def background_scrape(
         async with aiohttp.ClientSession() as new_session:
             await torrent_manager.scrape_torrents(new_session)
 
-            if debrid_service != "torrent":
+            if debrid_service != "torrent" and len(torrent_manager.torrents) > 0:
                 await torrent_manager.get_and_cache_debrid_availability(new_session)
 
             logger.log(
@@ -55,20 +55,6 @@ async def background_scrape(
             )
     except Exception as e:
         logger.log("SCRAPER", f"❌ Background scrape + availability check failed: {e}")
-    finally:
-        await remove_ongoing_search_from_database(media_id)
-
-
-async def background_availability_check(torrent_manager: TorrentManager, media_id: str):
-    try:
-        async with aiohttp.ClientSession() as new_session:
-            await torrent_manager.get_and_cache_debrid_availability(new_session)
-            logger.log(
-                "SCRAPER",
-                "📥 Background availability check complete!",
-            )
-    except Exception as e:
-        logger.log("SCRAPER", f"❌ Background availability check failed: {e}")
     finally:
         await remove_ongoing_search_from_database(media_id)
 
@@ -173,8 +159,7 @@ async def stream(
                 "SCRAPER",
                 f"📥 Scraped torrents: {len(torrent_manager.torrents)}",
             )
-
-        elif is_first and has_cached_results:
+        elif is_first:
             logger.log(
                 "SCRAPER",
                 f"🔄 Starting background scrape + availability check for {log_title}",
@@ -197,46 +182,30 @@ async def stream(
             )
 
         await torrent_manager.get_cached_availability()
-        if not has_cached_results and debrid_service != "torrent":
+        if (
+            (
+                not has_cached_results
+                or sum(
+                    1
+                    for torrent in torrent_manager.torrents.values()
+                    if torrent["cached"]
+                )
+                == 0
+            )
+            and len(torrent_manager.torrents) > 0
+            and debrid_service != "torrent"
+        ):
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
             await torrent_manager.get_and_cache_debrid_availability(session)
 
-        cached_count = 0
         if debrid_service != "torrent":
             cached_count = sum(
                 1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
             )
+
             logger.log(
                 "SCRAPER",
                 f"💾 Available cached torrents on {debrid_service}: {cached_count}/{len(torrent_manager.torrents)}",
-            )
-
-        if (
-            cached_count == 0
-            and len(torrent_manager.torrents) > 0
-            and not is_first
-            and debrid_service != "torrent"
-        ):
-            logger.log(
-                "SCRAPER",
-                f"🔄 Starting background availability check for {log_title}",
-            )
-
-            await database.execute(
-                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
-                {"media_id": media_id, "timestamp": time.time()},
-            )
-
-            background_tasks.add_task(
-                background_availability_check, torrent_manager, media_id
-            )
-
-            cached_results.append(
-                {
-                    "name": "[🔄] Comet",
-                    "description": "Checking debrid availability in background - More results will be available in a few seconds...",
-                    "url": "https://comet.fast",
-                }
             )
 
         initial_torrent_count = len(torrent_manager.torrents)
@@ -270,7 +239,6 @@ async def stream(
                 }
             )
 
-        is_not_offcloud = debrid_service != "offcloud"
         result_season = season if season is not None else "n"
         result_episode = episode if episode is not None else "n"
 
@@ -314,7 +282,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and is_not_offcloud else 'n'}/{title}/{result_season}/{result_episode}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{title}/{result_season}/{result_episode}"
                 )
 
             if torrent["cached"]:
@@ -373,8 +341,8 @@ async def playback(
 
             query = f"""
             INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
-            INTO download_links_cache (debrid_key, info_hash, name, season, episode, download_url, timestamp)
-            VALUES (:debrid_key, :info_hash, :name, :season, :episode, :download_url, :timestamp)
+            INTO download_links_cache
+            VALUES (:debrid_key, :info_hash, :season, :episode, :download_url, :timestamp)
             {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
             """
 
@@ -383,7 +351,6 @@ async def playback(
                 {
                     "debrid_key": config["debridApiKey"],
                     "info_hash": hash,
-                    "name": name,
                     "season": season,
                     "episode": episode,
                     "download_url": download_url,

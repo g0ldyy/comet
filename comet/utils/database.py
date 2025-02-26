@@ -151,7 +151,6 @@ async def setup_database():
                 CREATE TABLE IF NOT EXISTS download_links_cache (
                     debrid_key TEXT, 
                     info_hash TEXT, 
-                    name TEXT, 
                     season INTEGER,
                     episode INTEGER,
                     download_url TEXT, 
@@ -163,7 +162,7 @@ async def setup_database():
         await database.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS download_links_series_both_idx 
-            ON download_links_cache (debrid_key, info_hash, name, season, episode) 
+            ON download_links_cache (debrid_key, info_hash, season, episode) 
             WHERE season IS NOT NULL AND episode IS NOT NULL
             """
         )
@@ -171,7 +170,7 @@ async def setup_database():
         await database.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS download_links_season_only_idx 
-            ON download_links_cache (debrid_key, info_hash, name, season) 
+            ON download_links_cache (debrid_key, info_hash, season) 
             WHERE season IS NOT NULL AND episode IS NULL
             """
         )
@@ -179,7 +178,7 @@ async def setup_database():
         await database.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS download_links_episode_only_idx 
-            ON download_links_cache (debrid_key, info_hash, name, episode) 
+            ON download_links_cache (debrid_key, info_hash, episode) 
             WHERE season IS NULL AND episode IS NOT NULL
             """
         )
@@ -187,7 +186,7 @@ async def setup_database():
         await database.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS download_links_no_season_episode_idx 
-            ON download_links_cache (debrid_key, info_hash, name) 
+            ON download_links_cache (debrid_key, info_hash) 
             WHERE season IS NULL AND episode IS NULL
             """
         )
