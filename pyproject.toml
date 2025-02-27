@@ -16,6 +16,7 @@ dependencies = [
     "databases",
     "demagnetize",
     "fastapi",
+    "gevent",
     "gunicorn",
     "jinja2",
     "loguru",

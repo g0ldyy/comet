@@ -6,6 +6,7 @@ import time
 import traceback
 import uvicorn
 import os
+import gevent.monkey
 
 from contextlib import asynccontextmanager
 
@@ -208,6 +209,8 @@ def run_with_gunicorn():
         def load(self):
             return self.application
 
+    gevent.monkey.patch_all()
+
     workers = settings.FASTAPI_WORKERS
     if workers <= 1:
         workers = (os.cpu_count() or 1) * 2 + 1
@@ -215,7 +218,7 @@ def run_with_gunicorn():
     options = {
         "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
         "workers": workers,
-        "worker_class": "uvicorn.workers.UvicornWorker",
+        "worker_class": "gevent",
         "timeout": 120,
         "keepalive": 5,
         "preload_app": True,
