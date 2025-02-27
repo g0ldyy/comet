@@ -16,6 +16,7 @@ dependencies = [
     "databases",
     "demagnetize",
     "fastapi",
+    "gunicorn",
     "jinja2",
     "loguru",
     "mediaflow-proxy",

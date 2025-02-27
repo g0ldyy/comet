@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 import uvicorn
+import os
 
 from contextlib import asynccontextmanager
 
@@ -101,17 +102,6 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-config = uvicorn.Config(
-    app,
-    host=settings.FASTAPI_HOST,
-    port=settings.FASTAPI_PORT,
-    proxy_headers=True,
-    forwarded_allow_ips="*",
-    workers=settings.FASTAPI_WORKERS,
-    log_config=None,
-)
-server = Server(config=config)
-
 
 def start_log():
     logger.log(
@@ -170,15 +160,77 @@ def start_log():
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
 
-with server.run_in_thread():
+def run_with_uvicorn():
+    """Run the server with uvicorn only"""
+    config = uvicorn.Config(
+        app,
+        host=settings.FASTAPI_HOST,
+        port=settings.FASTAPI_PORT,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+        workers=settings.FASTAPI_WORKERS,
+        log_config=None,
+    )
+    server = Server(config=config)
+    
+    with server.run_in_thread():
+        start_log()
+        try:
+            while True:
+                time.sleep(1)  # Keep the main thread alive
+        except KeyboardInterrupt:
+            logger.log("COMET", "Server stopped by user")
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            logger.exception(traceback.format_exc())
+        finally:
+            logger.log("COMET", "Server Shutdown")
+
+
+def run_with_gunicorn():
+    """Run the server with gunicorn and uvicorn workers"""
+    import gunicorn.app.base
+    
+    class StandaloneApplication(gunicorn.app.base.BaseApplication):
+        def __init__(self, app, options=None):
+            self.options = options or {}
+            self.application = app
+            super().__init__()
+
+        def load_config(self):
+            config = {
+                key: value for key, value in self.options.items()
+                if key in self.cfg.settings and value is not None
+            }
+            for key, value in config.items():
+                self.cfg.set(key.lower(), value)
+
+        def load(self):
+            return self.application
+
+    workers = settings.FASTAPI_WORKERS
+    if workers <= 1:
+        workers = (os.cpu_count() or 1) * 2 + 1
+    
+    options = {
+        "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
+        "workers": workers,
+        "worker_class": "uvicorn.workers.UvicornWorker",
+        "timeout": 120,
+        "keepalive": 5,
+        "preload_app": True,
+        "proxy_protocol": True,
+        "forwarded_allow_ips": "*",
+    }
+    
     start_log()
-    try:
-        while True:
-            time.sleep(1)  # Keep the main thread alive
-    except KeyboardInterrupt:
-        logger.log("COMET", "Server stopped by user")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.exception(traceback.format_exc())
-    finally:
-        logger.log("COMET", "Server Shutdown")
+    logger.log("COMET", f"Starting with gunicorn using {workers} workers")
+    
+    StandaloneApplication(app, options).run()
+
+
+if __name__ == "__main__":
+    if os.name == "nt" or not settings.USE_GUNICORN:
+        run_with_uvicorn()
+    else:
+        run_with_gunicorn()

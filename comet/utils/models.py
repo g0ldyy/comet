@@ -31,6 +31,7 @@ class AppSettings(BaseSettings):
     FASTAPI_HOST: Optional[str] = "0.0.0.0"
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 1  # 2 * (os.cpu_count() or 1)
+    USE_GUNICORN: Optional[bool] = True
     DASHBOARD_ADMIN_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
