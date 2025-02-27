@@ -69,6 +69,17 @@ async def stream(
     b64config: str = None,
 ):
     config = config_check(b64config)
+    if not config:
+        return {
+            "streams": [
+                {
+                    "name": "[❌] Comet",
+                    "description": f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️",
+                    "url": "https://comet.fast",
+                }
+            ]
+        }
+
 
     ongoing_search = await database.fetch_one(
         "SELECT timestamp FROM ongoing_searches WHERE media_id = :media_id",
@@ -304,8 +315,8 @@ async def playback(
     episode: str,
 ):
     config = config_check(b64config)
-    if not config:
-        return FileResponse("comet/assets/invalidconfig.mp4")
+    # if not config:
+    #     return FileResponse("comet/assets/invalidconfig.mp4")
 
     season = int(season) if season != "n" else None
     episode = int(episode) if episode != "n" else None

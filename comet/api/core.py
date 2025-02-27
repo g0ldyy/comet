@@ -45,13 +45,9 @@ async def configure(request: Request):
 
 @main.get("/manifest.json")
 @main.get("/{b64config}/manifest.json")
-async def manifest(b64config: str = None):
-    config = config_check(b64config)
-    debrid_extension = get_debrid_extension(config["debridService"])
-
-    return {
+async def manifest(request: Request, b64config: str = None):
+    base_manifest = {
         "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",
-        "name": f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}",
         "description": "Stremio's fastest torrent/debrid search add-on.",
         "version": "1.0.0",
         "catalogs": [],
@@ -67,6 +63,17 @@ async def manifest(b64config: str = None):
         "background": "https://i.imgur.com/WwnXB3k.jpeg",
         "behaviorHints": {"configurable": True, "configurationRequired": False},
     }
+
+    config = config_check(b64config)
+    if not config:
+        base_manifest["name"] = "❌ | Comet"
+        base_manifest["description"] = f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️"
+        return base_manifest
+
+    debrid_extension = get_debrid_extension(config["debridService"])
+    base_manifest["name"] = f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}"
+
+    return base_manifest
 
 
 class CustomORJSONResponse(Response):

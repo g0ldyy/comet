@@ -577,8 +577,8 @@ class ConfigModel(BaseModel):
 
 
 default_config = ConfigModel().model_dump()
-# default_config["rtnSettings"] = SettingsModel(**default_config["rtnSettings"])
-# default_config["rtnRanking"] = BestRanking(**default_config["rtnRanking"])
+default_config["rtnSettings"] = rtn_settings_default
+default_config["rtnRanking"] = rtn_ranking_default
 
 
 # Web Config Initialization
