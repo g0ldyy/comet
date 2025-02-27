@@ -1,8 +1,10 @@
 import os
 
-if os.name != "nt":
+from comet.utils.models import settings
+
+if os.name != "nt" and settings.USE_GUNICORN:
     from gevent import monkey
-    monkey.patch_all()
+    monkey.patch_all(thread=False)
 
 import contextlib
 import signal
@@ -25,7 +27,6 @@ from comet.api.stream import streams
 from comet.utils.database import setup_database, teardown_database
 from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
-from comet.utils.models import settings
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
