@@ -1,3 +1,11 @@
+import os
+
+from comet.utils.models import settings
+
+if os.name != "nt" and settings.USE_GUNICORN:
+    from gevent import monkey
+    monkey.patch_all()
+
 import contextlib
 import signal
 import sys
@@ -5,7 +13,6 @@ import threading
 import time
 import traceback
 import uvicorn
-import os
 
 from contextlib import asynccontextmanager
 
@@ -20,7 +27,6 @@ from comet.api.stream import streams
 from comet.utils.database import setup_database, teardown_database
 from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
-from comet.utils.models import settings
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
