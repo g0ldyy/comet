@@ -6,7 +6,6 @@ import time
 import traceback
 import uvicorn
 import os
-import gevent.monkey
 
 from contextlib import asynccontextmanager
 
@@ -189,7 +188,7 @@ def run_with_uvicorn():
 
 
 def run_with_gunicorn():
-    """Run the server with gunicorn and uvicorn workers"""
+    """Run the server with gunicorn using gevent workers"""
     import gunicorn.app.base
     
     class StandaloneApplication(gunicorn.app.base.BaseApplication):
@@ -209,8 +208,6 @@ def run_with_gunicorn():
         def load(self):
             return self.application
 
-    gevent.monkey.patch_all()
-
     workers = settings.FASTAPI_WORKERS
     if workers <= 1:
         workers = (os.cpu_count() or 1) * 2 + 1
@@ -227,7 +224,7 @@ def run_with_gunicorn():
     }
     
     start_log()
-    logger.log("COMET", f"Starting with gunicorn using {workers} workers")
+    logger.log("COMET", f"Starting with gunicorn using {workers} gevent workers")
     
     StandaloneApplication(app, options).run()
 
