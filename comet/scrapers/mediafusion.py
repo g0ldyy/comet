@@ -9,7 +9,7 @@ async def get_mediafusion(manager, media_type: str, media_id: str):
     try:
         try:
             get_mediafusion = requests.get(
-                f"{settings.MEDIAFUSION_URL}/stream/{media_type}/{media_id}.json"
+                f"{settings.MEDIAFUSION_URL}/D-zn4qJLK4wUZVWscY9ESCnoZBEiNJCZ9uwfCvmxuliDjY7vkc-fu0OdxUPxwsP3_A/stream/{media_type}/{media_id}.json"
             ).json()
         except Exception as e:
             logger.warning(
