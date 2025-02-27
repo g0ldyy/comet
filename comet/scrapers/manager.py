@@ -146,60 +146,27 @@ class TorrentManager:
 
     async def cache_torrents(self):
         current_time = time.time()
-        values = []
-
-        for torrent in self.ready_to_cache:
-            seasons = (
-                torrent["parsed"].seasons
+        values = [
+            {
+                "media_id": self.media_only_id,
+                "info_hash": torrent["infoHash"],
+                "file_index": torrent["fileIndex"],
+                "season": torrent["parsed"].seasons[0]
                 if torrent["parsed"].seasons
-                else [self.season]
-            )
-            episodes = torrent["parsed"].episodes
-
-            for season in seasons:
-                if len(episodes) == 0:
-                    # season-only entry
-                    values.append(
-                        {
-                            "media_id": self.media_only_id,
-                            "info_hash": torrent["infoHash"],
-                            "file_index": torrent["fileIndex"],
-                            "season": season,
-                            "episode": None,
-                            "title": torrent["title"],
-                            "seeders": torrent["seeders"],
-                            "size": torrent["size"],
-                            "tracker": torrent["tracker"],
-                            "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
-                            "parsed": orjson.dumps(
-                                torrent["parsed"], default_dump
-                            ).decode("utf-8"),
-                            "timestamp": current_time,
-                        }
-                    )
-                else:
-                    # season and episode entries
-                    for episode in episodes:
-                        values.append(
-                            {
-                                "media_id": self.media_only_id,
-                                "info_hash": torrent["infoHash"],
-                                "file_index": torrent["fileIndex"],
-                                "season": season,
-                                "episode": episode,
-                                "title": torrent["title"],
-                                "seeders": torrent["seeders"],
-                                "size": torrent["size"],
-                                "tracker": torrent["tracker"],
-                                "sources": orjson.dumps(torrent["sources"]).decode(
-                                    "utf-8"
-                                ),
-                                "parsed": orjson.dumps(
-                                    torrent["parsed"], default_dump
-                                ).decode("utf-8"),
-                                "timestamp": current_time,
-                            }
-                        )
+                else self.season,
+                "episode": torrent["parsed"].episodes[0]
+                if torrent["parsed"].episodes
+                else None,
+                "title": torrent["title"],
+                "seeders": torrent["seeders"],
+                "size": torrent["size"],
+                "tracker": torrent["tracker"],
+                "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
+                "parsed": orjson.dumps(torrent["parsed"], default_dump).decode("utf-8"),
+                "timestamp": current_time,
+            }
+            for torrent in self.ready_to_cache
+        ]
 
         query = f"""
             INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
@@ -319,6 +286,7 @@ class TorrentManager:
         availability = await retrieve_debrid_availability(
             session,
             self.media_id,
+            self.media_only_id,
             self.debrid_service,
             self.debrid_api_key,
             self.ip,

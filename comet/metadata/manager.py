@@ -20,18 +20,17 @@ class MetadataScraper:
     async def fetch_metadata_and_aliases(self, media_type: str, media_id: str):
         id, season, episode = parse_media_id(media_type, media_id)
 
-        real_id = id if id != "kitsu" else str(season)
-
         get_cached = await self.get_cached(
-            real_id, season if id != "kitsu" else 1, episode
+            id, season if not "kitsu" in media_id else 1, episode
         )
         if get_cached is not None:
             return get_cached[0], get_cached[1]
 
-        metadata_task = asyncio.create_task(self.get_metadata(id, season, episode))
-        aliases_task = asyncio.create_task(self.get_aliases(media_type, id, season))
+        is_kitsu = "kitsu" in media_id
+        metadata_task = asyncio.create_task(self.get_metadata(id, season, episode, is_kitsu))
+        aliases_task = asyncio.create_task(self.get_aliases(media_type, id, is_kitsu))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
-        await self.cache_metadata(real_id, metadata, aliases)
+        await self.cache_metadata(id, metadata, aliases)
 
         return metadata, aliases
 
@@ -93,16 +92,16 @@ class MetadataScraper:
             "episode": episode,
         }
 
-    async def get_metadata(self, id: str, season: int, episode: int):
-        if id == "kitsu":
-            raw_metadata = await get_kitsu_metadata(self.session, season)
+    async def get_metadata(self, id: str, season: int, episode: int, is_kitsu: bool):
+        if is_kitsu:
+            raw_metadata = await get_kitsu_metadata(self.session, id)
             return self.normalize_metadata(raw_metadata, 1, episode)
         else:
             raw_metadata = await get_imdb_metadata(self.session, id)
             return self.normalize_metadata(raw_metadata, season, episode)
 
-    async def get_aliases(self, media_type: str, media_id: str, kitsu_id: str):
-        if media_id == "kitsu":
-            return await get_kitsu_aliases(self.session, kitsu_id)
+    async def get_aliases(self, media_type: str, media_id: str, is_kitsu: bool):
+        if is_kitsu:
+            return await get_kitsu_aliases(self.session, media_id)
 
         return await get_trakt_aliases(self.session, media_type, media_id)

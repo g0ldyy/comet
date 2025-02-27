@@ -116,7 +116,7 @@ async def stream(
         logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
 
         id, season, episode = parse_media_id(media_type, media_id)
-        media_only_id = id if id != "kitsu" else str(season)
+        media_only_id = id
 
         debrid_service = config["debridService"]
         torrent_manager = TorrentManager(
@@ -328,6 +328,7 @@ async def playback(
         if download_url is None:
             debrid = get_debrid(
                 session,
+                None,
                 None,
                 config["debridService"],
                 config["debridApiKey"],

@@ -280,6 +280,10 @@ def default_dump(obj):
 def parse_media_id(media_type: str, media_id: str):
     if media_type == "series":
         info = media_id.split(":")
+
+        if "kitsu" in media_id:
+            return int(info[1]), 1, int(info[2])
+        
         return info[0], int(info[1]), int(info[2])
     elif media_type == "movie" and "kitsu" in media_id:
         info = media_id.split(":")

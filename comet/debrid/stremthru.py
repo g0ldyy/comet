@@ -15,6 +15,7 @@ class StremThru:
         self,
         session: aiohttp.ClientSession,
         video_id: str,
+        media_only_id: str,
         token: str,
         ip: str,
     ):
@@ -30,6 +31,7 @@ class StremThru:
         self.real_debrid_name = store
         self.client_ip = ip
         self.sid = video_id
+        self.media_only_id = media_only_id
 
     def parse_store_creds(self, token: str):
         if ":" in token:
@@ -71,8 +73,6 @@ class StremThru:
     ):
         if not await self.check_premium():
             return []
-
-        media_id = self.sid.split(":")[0] if ":" in self.sid else self.sid
 
         chunk_size = 50
         chunks = [
@@ -141,8 +141,8 @@ class StremThru:
                         if ":" in self.sid and (season is None or episode is None):
                             continue
 
-                        index = file["index"]
-                        size = file["size"]
+                        index = file["index"] if file["index"] != -1 else None
+                        size = file["size"] if file["size"] != -1 else None
 
                         file_info = {
                             "info_hash": hash,
@@ -158,7 +158,7 @@ class StremThru:
                         }
 
                         files.append(file_info)
-                        await torrent_update_queue.add_torrent_info(file_info, media_id)
+                        await torrent_update_queue.add_torrent_info(file_info, self.media_only_id)
 
         logger.log(
             "SCRAPER",
@@ -197,13 +197,15 @@ class StremThru:
                 )
                 file_episode = (
                     filename_parsed.episodes[0] if filename_parsed.episodes else None
-                )
+                )                
+                file_index = file["index"] if file["index"] != -1 else None
+                file_size = file["size"] if file["size"] != -1 else None
 
                 file_info = {
                     "info_hash": hash,
-                    "index": file["index"],
+                    "index": file_index,
                     "title": filename,
-                    "size": file["size"],
+                    "size": file_size,
                     "season": file_season,
                     "episode": file_episode,
                     "parsed": filename_parsed,

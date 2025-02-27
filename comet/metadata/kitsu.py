@@ -31,7 +31,6 @@ async def get_kitsu_aliases(session: aiohttp.ClientSession, id: str):
             aliases["ez"].append(synonym)
             total_aliases += 1
 
-        print(aliases)
         if total_aliases > 0:
             logger.log(
                 "SCRAPER",

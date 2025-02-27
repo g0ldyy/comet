@@ -74,6 +74,7 @@ def build_stremthru_token(debrid_service: str, debrid_api_key: str):
 def get_debrid(
     session: aiohttp.ClientSession,
     video_id: str,
+    media_only_id: str,
     debrid_service: str,
     debrid_api_key: str,
     ip: str,
@@ -82,6 +83,7 @@ def get_debrid(
         return debrid_services["stremthru"]["class"](
             session,
             video_id,
+            media_only_id,
             build_stremthru_token(debrid_service, debrid_api_key),
             ip,
         )
@@ -90,6 +92,7 @@ def get_debrid(
 async def retrieve_debrid_availability(
     session: aiohttp.ClientSession,
     video_id: str,
+    media_only_id: str,
     debrid_service: str,
     debrid_api_key: str,
     ip: str,
@@ -102,5 +105,5 @@ async def retrieve_debrid_availability(
         return []
 
     return await get_debrid(
-        session, video_id, debrid_service, debrid_api_key, ip
+        session, video_id, media_only_id, debrid_service, debrid_api_key, ip
     ).get_availability(info_hashes, seeders_map, tracker_map, sources_map)

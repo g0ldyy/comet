@@ -16,7 +16,7 @@ async def cache_availability(debrid_service: str, availability: list):
             "title": file["title"],
             "season": file["season"],
             "episode": file["episode"],
-            "size": file["size"] if file["size"] != -1 else None,
+            "size": file["size"] if file["index"] is not None else None,
             "parsed": orjson.dumps(file["parsed"], default_dump).decode("utf-8")
             if file["parsed"] is not None
             else None,
