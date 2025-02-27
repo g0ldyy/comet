@@ -1,11 +1,3 @@
-import os
-
-from comet.utils.models import settings
-
-if os.name != "nt" and settings.USE_GUNICORN:
-    from gevent import monkey
-    monkey.patch_all(thread=False)
-
 import contextlib
 import signal
 import sys
@@ -13,6 +5,7 @@ import threading
 import time
 import traceback
 import uvicorn
+import os
 
 from contextlib import asynccontextmanager
 
@@ -27,6 +20,7 @@ from comet.api.stream import streams
 from comet.utils.database import setup_database, teardown_database
 from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
+from comet.utils.models import settings
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -194,7 +188,7 @@ def run_with_uvicorn():
 
 
 def run_with_gunicorn():
-    """Run the server with gunicorn using gevent workers"""
+    """Run the server with gunicorn and uvicorn workers"""
     import gunicorn.app.base
     
     class StandaloneApplication(gunicorn.app.base.BaseApplication):
@@ -221,7 +215,7 @@ def run_with_gunicorn():
     options = {
         "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
         "workers": workers,
-        "worker_class": "gevent",
+        "worker_class": "uvicorn.workers.UvicornWorker",
         "timeout": 120,
         "keepalive": 5,
         "preload_app": True,
@@ -230,7 +224,7 @@ def run_with_gunicorn():
     }
     
     start_log()
-    logger.log("COMET", f"Starting with gunicorn using {workers} gevent workers")
+    logger.log("COMET", f"Starting with gunicorn using {workers} workers")
     
     StandaloneApplication(app, options).run()
 
