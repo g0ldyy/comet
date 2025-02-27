@@ -23,14 +23,13 @@ async def get_kitsu_aliases(session: aiohttp.ClientSession, id: str):
     try:
         response = await session.get(f"https://find-my-anime.dtimur.de/api?id={id}&provider=Kitsu")
         data = await response.json()
-        total_aliases = 0
         
         aliases["ez"] = []
         aliases["ez"].append(data[0]["title"])
         for synonym in data[0]["synonyms"]:
             aliases["ez"].append(synonym)
-            total_aliases += 1
 
+        total_aliases = len(aliases["ez"])
         if total_aliases > 0:
             logger.log(
                 "SCRAPER",
