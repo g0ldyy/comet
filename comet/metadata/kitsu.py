@@ -21,17 +21,26 @@ async def get_kitsu_metadata(session: aiohttp.ClientSession, id: str):
 async def get_kitsu_aliases(session: aiohttp.ClientSession, id: str):
     aliases = {}
     try:
-        response = await session.get(f"https://kitsu.io/api/edge/anime/{id}")
-        response = await response.json()
-        titles = response["data"]["attributes"]["titles"]
-
+        response = await session.get(f"https://find-my-anime.dtimur.de/api?id={id}&provider=Kitsu")
+        data = await response.json()
+        total_aliases = 0
+        
         aliases["ez"] = []
-        for country in titles:
-            aliases["ez"].append(titles[country])
+        aliases["ez"].append(data[0]["title"])
+        for synonym in data[0]["synonyms"]:
+            aliases["ez"].append(synonym)
+            total_aliases += 1
 
-        for title in response["data"]["attributes"]["abbreviatedTitles"]:
-            aliases["ez"].append(title)
-    except Exception as e:
-        logger.warning(f"Exception while getting Kitsu aliases for {id}: {e}")
+        print(aliases)
+        if total_aliases > 0:
+            logger.log(
+                "SCRAPER",
+                f"📜 Found {total_aliases} Kitsu aliases for {id}",
+            )
+            return aliases
+    except Exception:
+        pass
 
-    return aliases
+    logger.log("SCRAPER", f"📜 No Kitsu aliases found for {id}")
+
+    return {}
