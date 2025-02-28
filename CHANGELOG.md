@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/g0ldyy/comet/compare/v2.0.0...v2.0.1) (2025-02-28)
+
+
+### Bug Fixes
+
+* postgres transaction ([936e1a2](https://github.com/g0ldyy/comet/commit/936e1a2c597c35878957d6238581972e00c02b3b))
+
 ## [2.0.0](https://github.com/g0ldyy/comet/compare/v1.54.0...v2.0.0) (2025-02-28)
 
 
