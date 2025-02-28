@@ -1,7 +1,7 @@
 services:
   comet:
     container_name: comet
-    image: g0ldyy/comet:rewrite
+    image: g0ldyy/comet
     restart: unless-stopped
     ports:
       - "8000:8000"
