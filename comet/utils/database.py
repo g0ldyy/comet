@@ -5,6 +5,7 @@ import traceback
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
 
+DATABASE_VERSION = "1.0"
 
 async def setup_database():
     try:
@@ -15,6 +16,57 @@ async def setup_database():
                 open(settings.DATABASE_PATH, "a").close()
 
         await database.connect()
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS db_version (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    version TEXT
+                )
+            """
+        )
+
+        current_version = await database.fetch_val(
+            """
+                SELECT version FROM db_version WHERE id = 1
+            """
+        )
+
+        if current_version != DATABASE_VERSION:
+            logger.log("COMET", f"Database: Migration from {current_version} to {DATABASE_VERSION} version")
+            
+            if settings.DATABASE_TYPE == "sqlite":
+                tables = await database.fetch_all(
+                    """
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name != 'db_version' AND name != 'sqlite_sequence'
+                    """
+                )
+                
+                for table in tables:
+                    await database.execute(f"DROP TABLE IF EXISTS {table['name']}")
+            else:
+                await database.execute(
+                    """
+                    DO $$ DECLARE
+                        r RECORD;
+                    BEGIN
+                        FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename != 'db_version') LOOP
+                            EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                        END LOOP;
+                    END $$;
+                    """
+                )
+            
+            await database.execute(
+                """
+                    INSERT INTO db_version VALUES (1, :version)
+                    ON CONFLICT (id) DO UPDATE SET version = :version
+                """,
+                {"version": DATABASE_VERSION},
+            )
+            
+            logger.log("COMET", f"Database: Migration to version {DATABASE_VERSION} completed")
 
         await database.execute(
             """
