@@ -135,58 +135,28 @@ async def add_torrent(
                 f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
             )
 
-        if settings.DATABASE_TYPE == "postgresql":
-            async with database.transaction(isolation="serializable"):
-                try:
-                    await database.execute(
-                        """
-                        INSERT INTO torrents
-                        VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
-                        ON CONFLICT DO NOTHING
-                        """,
-                        {
-                            "media_id": media_id,
-                            "info_hash": info_hash,
-                            "file_index": file_index,
-                            "season": parsed_season,
-                            "episode": parsed_episode,
-                            "title": title,
-                            "seeders": seeders,
-                            "size": size,
-                            "tracker": tracker,
-                            "sources": orjson.dumps(sources).decode("utf-8"),
-                            "parsed": orjson.dumps(parsed, default_dump).decode(
-                                "utf-8"
-                            ),
-                            "timestamp": time.time(),
-                        },
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    pass
-        else:
-            await database.execute(
-                """
-                INSERT OR IGNORE 
+        await database.execute(
+            f"""
+                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
                 INTO torrents
                 VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
-                """,
-                {
-                    "media_id": media_id,
-                    "info_hash": info_hash,
-                    "file_index": file_index,
-                    "season": parsed_season,
-                    "episode": parsed_episode,
-                    "title": title,
-                    "seeders": seeders,
-                    "size": size,
-                    "tracker": tracker,
-                    "sources": orjson.dumps(sources).decode("utf-8"),
-                    "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-                    "timestamp": time.time(),
-                },
-            )
+                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+            """,
+            {
+                "media_id": media_id,
+                "info_hash": info_hash,
+                "file_index": file_index,
+                "season": parsed_season,
+                "episode": parsed_episode,
+                "title": title,
+                "seeders": seeders,
+                "size": size,
+                "tracker": tracker,
+                "sources": orjson.dumps(sources).decode("utf-8"),
+                "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
+                "timestamp": time.time(),
+            },
+        )
 
         additional = ""
         if parsed_season:
