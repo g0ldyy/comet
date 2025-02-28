@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/g0ldyy/comet/compare/v1.54.0...v2.0.0) (2025-02-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* 2025 rewrite complete
+
+### Code Refactoring
+
+* 2025 rewrite complete ([e62e7c4](https://github.com/g0ldyy/comet/commit/e62e7c4b1eed37e7950b3effaf6b38ddd47e9c6a))
+
 ## [1.54.0](https://github.com/g0ldyy/comet/compare/v1.53.0...v1.54.0) (2025-02-28)
 
 
