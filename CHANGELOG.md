@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/g0ldyy/comet/compare/v2.0.1...v2.0.2) (2025-02-28)
+
+
+### Bug Fixes
+
+* torrent queue ([37b12af](https://github.com/g0ldyy/comet/commit/37b12af956b9eb709a3b785c6ee1e81edcf3b16d))
+
 ## [2.0.1](https://github.com/g0ldyy/comet/compare/v2.0.0...v2.0.1) (2025-02-28)
 
 
