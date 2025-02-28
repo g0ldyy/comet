@@ -135,28 +135,58 @@ async def add_torrent(
                 f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
             )
 
-        await database.execute(
-            f"""
-                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+        if settings.DATABASE_TYPE == "postgresql":
+            async with database.transaction(isolation="serializable"):
+                try:
+                    await database.execute(
+                        """
+                        INSERT INTO torrents
+                        VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        {
+                            "media_id": media_id,
+                            "info_hash": info_hash,
+                            "file_index": file_index,
+                            "season": parsed_season,
+                            "episode": parsed_episode,
+                            "title": title,
+                            "seeders": seeders,
+                            "size": size,
+                            "tracker": tracker,
+                            "sources": orjson.dumps(sources).decode("utf-8"),
+                            "parsed": orjson.dumps(parsed, default_dump).decode(
+                                "utf-8"
+                            ),
+                            "timestamp": time.time(),
+                        },
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+        else:
+            await database.execute(
+                """
+                INSERT OR IGNORE 
                 INTO torrents
                 VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
-                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-            """,
-            {
-                "media_id": media_id,
-                "info_hash": info_hash,
-                "file_index": file_index,
-                "season": parsed_season,
-                "episode": parsed_episode,
-                "title": title,
-                "seeders": seeders,
-                "size": size,
-                "tracker": tracker,
-                "sources": orjson.dumps(sources).decode("utf-8"),
-                "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-                "timestamp": time.time(),
-            },
-        )
+                """,
+                {
+                    "media_id": media_id,
+                    "info_hash": info_hash,
+                    "file_index": file_index,
+                    "season": parsed_season,
+                    "episode": parsed_episode,
+                    "title": title,
+                    "seeders": seeders,
+                    "size": size,
+                    "tracker": tracker,
+                    "sources": orjson.dumps(sources).decode("utf-8"),
+                    "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
+                    "timestamp": time.time(),
+                },
+            )
 
         additional = ""
         if parsed_season:
@@ -368,27 +398,56 @@ class TorrentUpdateQueue:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["inserts"]), sub_batch_size):
                     sub_batch = self.batches["inserts"][i : i + sub_batch_size]
-                    async with database.transaction():
-                        insert_query = f"""
-                            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
-                            INTO torrents
-                            VALUES (
-                                :media_id,
-                                :info_hash,
-                                :file_index,
-                                :season,
-                                :episode,
-                                :title,
-                                :seeders,
-                                :size,
-                                :tracker,
-                                :sources,
-                                :parsed,
-                                :timestamp
+
+                    if settings.DATABASE_TYPE == "postgresql":
+                        try:
+                            async with database.transaction(isolation="serializable"):
+                                insert_query = """
+                                    INSERT INTO torrents
+                                    VALUES (
+                                        :media_id,
+                                        :info_hash,
+                                        :file_index,
+                                        :season,
+                                        :episode,
+                                        :title,
+                                        :seeders,
+                                        :size,
+                                        :tracker,
+                                        :sources,
+                                        :parsed,
+                                        :timestamp
+                                    )
+                                    ON CONFLICT DO NOTHING
+                                """
+                                await database.execute_many(insert_query, sub_batch)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            logger.debug(
+                                f"Insert batch had conflicts (expected in concurrent scenarios): {str(e)}"
                             )
-                            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-                        """
-                        await database.execute_many(insert_query, sub_batch)
+                    else:
+                        async with database.transaction():
+                            insert_query = """
+                                INSERT OR IGNORE
+                                INTO torrents
+                                VALUES (
+                                    :media_id,
+                                    :info_hash,
+                                    :file_index,
+                                    :season,
+                                    :episode,
+                                    :title,
+                                    :seeders,
+                                    :size,
+                                    :tracker,
+                                    :sources,
+                                    :parsed,
+                                    :timestamp
+                                )
+                            """
+                            await database.execute_many(insert_query, sub_batch)
 
                 if len(self.batches["inserts"]) > 0:
                     logger.log(

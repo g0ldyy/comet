@@ -16,7 +16,7 @@ from comet.utils.models import (
 def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
-        
+
         if "indexers" in config:
             return False
 
@@ -287,7 +287,7 @@ def parse_media_id(media_type: str, media_id: str):
 
         if "kitsu" in media_id:
             return info[1], 1, int(info[2])
-        
+
         return info[0], int(info[1]), int(info[2])
     elif media_type == "movie" and "kitsu" in media_id:
         info = media_id.split(":")

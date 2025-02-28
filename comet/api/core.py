@@ -67,11 +67,15 @@ async def manifest(request: Request, b64config: str = None):
     config = config_check(b64config)
     if not config:
         base_manifest["name"] = "❌ | Comet"
-        base_manifest["description"] = f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️"
+        base_manifest["description"] = (
+            f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️"
+        )
         return base_manifest
 
     debrid_extension = get_debrid_extension(config["debridService"])
-    base_manifest["name"] = f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}"
+    base_manifest["name"] = (
+        f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}"
+    )
 
     return base_manifest
 

@@ -7,6 +7,7 @@ from comet.utils.models import database, settings
 
 DATABASE_VERSION = "1.0"
 
+
 async def setup_database():
     try:
         if settings.DATABASE_TYPE == "sqlite":
@@ -33,8 +34,11 @@ async def setup_database():
         )
 
         if current_version != DATABASE_VERSION:
-            logger.log("COMET", f"Database: Migration from {current_version} to {DATABASE_VERSION} version")
-            
+            logger.log(
+                "COMET",
+                f"Database: Migration from {current_version} to {DATABASE_VERSION} version",
+            )
+
             if settings.DATABASE_TYPE == "sqlite":
                 tables = await database.fetch_all(
                     """
@@ -42,7 +46,7 @@ async def setup_database():
                     WHERE type='table' AND name != 'db_version' AND name != 'sqlite_sequence'
                     """
                 )
-                
+
                 for table in tables:
                     await database.execute(f"DROP TABLE IF EXISTS {table['name']}")
             else:
@@ -57,7 +61,7 @@ async def setup_database():
                     END $$;
                     """
                 )
-            
+
             await database.execute(
                 """
                     INSERT INTO db_version VALUES (1, :version)
@@ -65,8 +69,10 @@ async def setup_database():
                 """,
                 {"version": DATABASE_VERSION},
             )
-            
-            logger.log("COMET", f"Database: Migration to version {DATABASE_VERSION} completed")
+
+            logger.log(
+                "COMET", f"Database: Migration to version {DATABASE_VERSION} completed"
+            )
 
         await database.execute(
             """

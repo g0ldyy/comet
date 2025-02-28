@@ -158,7 +158,9 @@ class StremThru:
                         }
 
                         files.append(file_info)
-                        await torrent_update_queue.add_torrent_info(file_info, self.media_only_id)
+                        await torrent_update_queue.add_torrent_info(
+                            file_info, self.media_only_id
+                        )
 
         logger.log(
             "SCRAPER",
@@ -197,7 +199,7 @@ class StremThru:
                 )
                 file_episode = (
                     filename_parsed.episodes[0] if filename_parsed.episodes else None
-                )                
+                )
                 file_index = file["index"] if file["index"] != -1 else None
                 file_size = file["size"] if file["size"] != -1 else None
 

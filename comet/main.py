@@ -172,7 +172,7 @@ def run_with_uvicorn():
         log_config=None,
     )
     server = Server(config=config)
-    
+
     with server.run_in_thread():
         start_log()
         try:
@@ -190,7 +190,7 @@ def run_with_uvicorn():
 def run_with_gunicorn():
     """Run the server with gunicorn and uvicorn workers"""
     import gunicorn.app.base
-    
+
     class StandaloneApplication(gunicorn.app.base.BaseApplication):
         def __init__(self, app, options=None):
             self.options = options or {}
@@ -199,7 +199,8 @@ def run_with_gunicorn():
 
         def load_config(self):
             config = {
-                key: value for key, value in self.options.items()
+                key: value
+                for key, value in self.options.items()
                 if key in self.cfg.settings and value is not None
             }
             for key, value in config.items():
@@ -210,8 +211,8 @@ def run_with_gunicorn():
 
     workers = settings.FASTAPI_WORKERS
     if workers <= 1:
-        workers = (os.cpu_count() or 1) * 2 + 1
-    
+        workers = min((os.cpu_count() or 1) * 2 + 1, 12)
+
     options = {
         "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
         "workers": workers,
@@ -222,10 +223,10 @@ def run_with_gunicorn():
         "proxy_protocol": True,
         "forwarded_allow_ips": "*",
     }
-    
+
     start_log()
     logger.log("COMET", f"Starting with gunicorn using {workers} workers")
-    
+
     StandaloneApplication(app, options).run()
 
 

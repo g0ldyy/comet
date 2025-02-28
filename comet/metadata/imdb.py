@@ -17,4 +17,4 @@ async def get_imdb_metadata(session: aiohttp.ClientSession, id: str):
                 return title, year, year_end
     except Exception as e:
         logger.warning(f"Exception while getting IMDB metadata for {id}: {e}")
-        return None, None, None, None, None
+        return None, None, None

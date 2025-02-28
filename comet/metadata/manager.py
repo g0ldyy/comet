@@ -21,13 +21,15 @@ class MetadataScraper:
         id, season, episode = parse_media_id(media_type, media_id)
 
         get_cached = await self.get_cached(
-            id, season if not "kitsu" in media_id else 1, episode
+            id, season if "kitsu" not in media_id else 1, episode
         )
         if get_cached is not None:
             return get_cached[0], get_cached[1]
 
         is_kitsu = "kitsu" in media_id
-        metadata_task = asyncio.create_task(self.get_metadata(id, season, episode, is_kitsu))
+        metadata_task = asyncio.create_task(
+            self.get_metadata(id, season, episode, is_kitsu)
+        )
         aliases_task = asyncio.create_task(self.get_aliases(media_type, id, is_kitsu))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
         await self.cache_metadata(id, metadata, aliases)

@@ -21,9 +21,11 @@ async def get_kitsu_metadata(session: aiohttp.ClientSession, id: str):
 async def get_kitsu_aliases(session: aiohttp.ClientSession, id: str):
     aliases = {}
     try:
-        response = await session.get(f"https://find-my-anime.dtimur.de/api?id={id}&provider=Kitsu")
+        response = await session.get(
+            f"https://find-my-anime.dtimur.de/api?id={id}&provider=Kitsu"
+        )
         data = await response.json()
-        
+
         aliases["ez"] = []
         aliases["ez"].append(data[0]["title"])
         for synonym in data[0]["synonyms"]:

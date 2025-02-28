@@ -80,7 +80,6 @@ async def stream(
             ]
         }
 
-
     ongoing_search = await database.fetch_one(
         "SELECT timestamp FROM ongoing_searches WHERE media_id = :media_id",
         {"media_id": media_id},
