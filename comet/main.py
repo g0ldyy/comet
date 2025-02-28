@@ -4,9 +4,11 @@ import sys
 import threading
 import time
 import traceback
+import uvicorn
+import os
+
 from contextlib import asynccontextmanager
 
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +17,8 @@ from starlette.requests import Request
 
 from comet.api.core import main
 from comet.api.stream import streams
-from comet.utils.db import setup_database, teardown_database
+from comet.utils.database import setup_database, teardown_database
+from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
 
@@ -40,6 +43,7 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_database()
+    await download_best_trackers()
     yield
     await teardown_database()
 
@@ -47,7 +51,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Comet",
     summary="Stremio's fastest torrent/debrid search add-on.",
-    version="1.0.0",
     lifespan=lifespan,
     redoc_url=None,
 )
@@ -99,17 +102,6 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-config = uvicorn.Config(
-    app,
-    host=settings.FASTAPI_HOST,
-    port=settings.FASTAPI_PORT,
-    proxy_headers=True,
-    forwarded_allow_ips="*",
-    workers=settings.FASTAPI_WORKERS,
-    log_config=None,
-)
-server = Server(config=config)
-
 
 def start_log():
     logger.log(
@@ -118,11 +110,11 @@ def start_log():
     )
     logger.log(
         "COMET",
-        f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/active-connections?password={settings.DASHBOARD_ADMIN_PASSWORD}",
+        f"Dashboard Admin Password: {settings.DASHBOARD_ADMIN_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/dashboard",
     )
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: {settings.CACHE_TTL}s",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s",
     )
     logger.log("COMET", f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
 
@@ -133,18 +125,23 @@ def start_log():
         )
         logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
         logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+        logger.log(
+            "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
+        )
     else:
         logger.log("COMET", "Indexer Manager: False")
 
-    if settings.ZILEAN_URL:
-        logger.log(
-            "COMET",
-            f"Zilean: {settings.ZILEAN_URL} - Take first: {settings.ZILEAN_TAKE_FIRST}",
-        )
-    else:
-        logger.log("COMET", "Zilean: False")
+    zilean_url = f" - {settings.ZILEAN_URL}"
+    logger.log(
+        "COMET",
+        f"Zilean Scraper: {bool(settings.SCRAPE_ZILEAN)}{zilean_url if settings.SCRAPE_ZILEAN else ''}",
+    )
 
-    logger.log("COMET", f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}")
+    torrentio_url = f" - {settings.TORRENTIO_URL}"
+    logger.log(
+        "COMET",
+        f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}{torrentio_url if settings.SCRAPE_TORRENTIO else ''}",
+    )
 
     mediafusion_url = f" - {settings.MEDIAFUSION_URL}"
     logger.log(
@@ -156,22 +153,84 @@ def start_log():
         "COMET",
         f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",
     )
-    if settings.STREMTHRU_DEFAULT_URL:
-        logger.log("COMET", f"Default StremThru URL: {settings.STREMTHRU_DEFAULT_URL}")
-    logger.log("COMET", f"Title Match Check: {bool(settings.TITLE_MATCH_CHECK)}")
+
+    logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
+
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
 
-with server.run_in_thread():
+def run_with_uvicorn():
+    """Run the server with uvicorn only"""
+    config = uvicorn.Config(
+        app,
+        host=settings.FASTAPI_HOST,
+        port=settings.FASTAPI_PORT,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+        workers=settings.FASTAPI_WORKERS,
+        log_config=None,
+    )
+    server = Server(config=config)
+    
+    with server.run_in_thread():
+        start_log()
+        try:
+            while True:
+                time.sleep(1)  # Keep the main thread alive
+        except KeyboardInterrupt:
+            logger.log("COMET", "Server stopped by user")
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            logger.exception(traceback.format_exc())
+        finally:
+            logger.log("COMET", "Server Shutdown")
+
+
+def run_with_gunicorn():
+    """Run the server with gunicorn and uvicorn workers"""
+    import gunicorn.app.base
+    
+    class StandaloneApplication(gunicorn.app.base.BaseApplication):
+        def __init__(self, app, options=None):
+            self.options = options or {}
+            self.application = app
+            super().__init__()
+
+        def load_config(self):
+            config = {
+                key: value for key, value in self.options.items()
+                if key in self.cfg.settings and value is not None
+            }
+            for key, value in config.items():
+                self.cfg.set(key.lower(), value)
+
+        def load(self):
+            return self.application
+
+    workers = settings.FASTAPI_WORKERS
+    if workers <= 1:
+        workers = (os.cpu_count() or 1) * 2 + 1
+    
+    options = {
+        "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
+        "workers": workers,
+        "worker_class": "uvicorn.workers.UvicornWorker",
+        "timeout": 120,
+        "keepalive": 5,
+        "preload_app": True,
+        "proxy_protocol": True,
+        "forwarded_allow_ips": "*",
+    }
+    
     start_log()
-    try:
-        while True:
-            time.sleep(1)  # Keep the main thread alive
-    except KeyboardInterrupt:
-        logger.log("COMET", "Server stopped by user")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.exception(traceback.format_exc())
-    finally:
-        logger.log("COMET", "Server Shutdown")
+    logger.log("COMET", f"Starting with gunicorn using {workers} workers")
+    
+    StandaloneApplication(app, options).run()
+
+
+if __name__ == "__main__":
+    if os.name == "nt" or not settings.USE_GUNICORN:
+        run_with_uvicorn()
+    else:
+        run_with_gunicorn()

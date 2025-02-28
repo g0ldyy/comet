@@ -1,37 +1,27 @@
-[tool.poetry]
+[project]
 name = "comet"
 version = "0.1.0"
 description = "Stremio's fastest torrent/debrid search add-on."
-authors = ["Goldy"]
-license = "MIT"
-readme = "README.md"
-repository = "https://github.com/g0ldyy/comet"
-
-[tool.poetry.dependencies]
-python = "^3.11"
-uvicorn = "*"
-fastapi = "*"
-aiohttp = "*"
-asyncio = "*"
-loguru = "*"
-databases = "*"
-pydantic-settings = "*"
-bencode-py = "*"
-httpx = "*"
-curl-cffi = "*"
-orjson = "*"
-asyncpg = "*"
-aiosqlite = "*"
-jinja2 = "*"
-rank-torrent-name = "*"
-parsett = "*"
-
-
-[tool.poetry.group.dev.dependencies]
-isort = "*"
-pyright = "*"
-pytest = "*"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+authors = [
+    { name = "Goldy", email = "153996346+g0ldyy@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp",
+    "aiosqlite",
+    "asyncio",
+    "asyncpg",
+    "bencode-py",
+    "curl-cffi",
+    "databases",
+    "demagnetize",
+    "fastapi",
+    "gunicorn",
+    "jinja2",
+    "loguru",
+    "mediaflow-proxy",
+    "orjson",
+    "pydantic-settings",
+    "rank-torrent-name",
+    "uvicorn",
+]

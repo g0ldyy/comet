@@ -16,13 +16,14 @@
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
 - Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported
-- Direct Torrent supported (do not specify a Debrid API Key on the configuration page (webui) to activate it - it will use the cached results of other users using debrid service)
+- Direct Torrent supported
 - [Kitsu](https://kitsu.io/) support (anime)
 - Adult Content Filter
 - [StremThru](https://github.com/MunifTanjim/stremthru) support
 
 # Installation
 To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
+
 ## ElfHosted
 A free, public Comet instance is available at https://comet.elfhosted.com
 
@@ -44,58 +45,17 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
     ```
 - Install dependencies
     ```sh
-    pip install poetry
-    poetry install
+    pip install uv
+    uv sync
     ````
 - Start Comet
     ```sh
-    poetry run python -m comet.main
+    uv run python -m comet.main
     ````
 
-### With Docker
-- Simply run the Docker image after modifying the environment variables
-  ```sh
-  docker run --name comet -p 8000:8000 -d \
-      -e FASTAPI_HOST=0.0.0.0 \
-      -e FASTAPI_PORT=8000 \
-      -e FASTAPI_WORKERS=1 \
-      -e CACHE_TTL=86400 \
-      -e DEBRID_PROXY_URL=http://127.0.0.1:1080 \
-      -e INDEXER_MANAGER_TYPE=jackett \
-      -e INDEXER_MANAGER_URL=http://127.0.0.1:9117 \
-      -e INDEXER_MANAGER_API_KEY=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX \
-      -e INDEXER_MANAGER_INDEXERS='["EXAMPLE1_CHANGETHIS", "EXAMPLE2_CHANGETHIS"]' \
-      -e INDEXER_MANAGER_TIMEOUT=30 \
-      -e GET_TORRENT_TIMEOUT=5 \
-      g0ldyy/comet
-  ```
-    - To update your container
-
-        - Find your existing container name
-      ```sh
-      docker ps
-      ```
-
-        - Stop your existing container
-      ```sh
-      docker stop <CONTAINER_ID>
-      ```
-
-        - Remove your existing container
-      ```sh
-      docker rm <CONTAINER_ID>
-      ```
-
-        - Pull the latest version from docker hub
-      ```sh
-      docker pull g0ldyy/comet
-      ```
-
-    - Finally, re-run the docker run command
- 
 ### With Docker Compose
-- Copy *compose.yaml* in a directory
-- Copy *env-sample* to *.env* in the same directory
+- Copy *deployment/docker-compose.yml* in a directory
+- Copy *.env-sample* to *.env* in the same directory and keep only the variables you wish to modify, also remove all comments
 - Pull the latest version from docker hub
     ```sh
       docker compose pull
@@ -105,8 +65,21 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
       docker compose up -d
     ```
 
-## Debrid IP Blacklist
-To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
+### Nginx Reverse Proxy
+If you want to serve Comet via a Nginx Reverse Proxy, here's the configuration you should use.
+```
+server {
+    server_name example.com;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
 
 ## Web UI Showcase
 <img src="https://i.imgur.com/SaD365F.png" />

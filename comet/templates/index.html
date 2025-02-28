@@ -12,8 +12,8 @@
         <title>Comet - Stremio's fastest torrent/debrid search add-on.</title>
         <link id="favicon" rel="icon" type="image/x-icon" href="https://i.imgur.com/jmVoVMu.jpeg">
 
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/themes/dark.css" />
-        <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.15.1/cdn/shoelace-autoloader.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/themes/dark.css" />
+        <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/shoelace-autoloader.js"></script>
 
         <style>
             :not(:defined) {
@@ -512,19 +512,26 @@
 
         <div class="form-container">
             <div class="form-item">
-                <sl-select id="indexers" multiple clearable label="Indexers" placeholder="Select indexers" {% if not indexerManager %} disabled {% endif %}></sl-select>
+                <sl-select id="languages_required" multiple clearable label="Required Languages" placeholder="Select required languages"></sl-select>
             </div>
 
             <div class="form-item">
-                <sl-select id="languages" multiple clearable label="Languages" placeholder="Select languages"></sl-select>
+                <sl-select id="languages_preferred" multiple clearable label="Preferred Languages" placeholder="Select preferred languages"></sl-select>
             </div>
 
             <div class="form-item">
-                <sl-select id="resolutions" multiple clearable label="Resolutions" placeholder="Select resolutions"></sl-select>
+                <sl-select id="languages_excluded" multiple clearable label="Excluded Languages" placeholder="Select excluded languages"></sl-select>
             </div>
 
             <div class="form-item">
-                <sl-input id="maxResults" type="number" min=0 value=0 label="Max Results" placeholder="Enter max results"></sl-input>
+                <sl-select id="resolutions" multiple clearable label="Resolutions" placeholder="Select resolutions">
+                    <sl-option value="r2160p">4K - 2160p</sl-option>
+                    <sl-option value="r1080p">Full HD - 1080p</sl-option>
+                    <sl-option value="r720p">HD - 720p</sl-option>
+                    <sl-option value="r480p">SD - 480p</sl-option>
+                    <sl-option value="r360p">LD - 360p</sl-option>
+                    <sl-option value="unknown">Unknown</sl-option>
+                </sl-select>
             </div>
 
             <div class="form-item">
@@ -535,37 +542,39 @@
                 <sl-input id="maxSize" type="number" min=0 value=0 label="Max Size (GB)" placeholder="Enter max size in gigabytes"></sl-input>
             </div>
 
-            <div class="form-item">
-                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="{% if not proxyDebridStream %}Configuration required, see docs{% else %}Enter password{% endif %}" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!" {% if not proxyDebridStream %} disabled {% endif %}></sl-input>
+            <div class="form-item" {% if not proxyDebridStream %}style="display: none"{% endif %}>
+                <sl-input id="debridStreamProxyPassword" label="Debrid Stream Proxy Password" placeholder="Enter password" help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
             </div>
 
             <div class="form-item">
-                <sl-select id="debridService" value="torbox" label="Debrid Service" placeholder="Select debrid service">
+                <sl-select id="debridService" value="torrent" label="Debrid Service" placeholder="Select debrid service">
+                    <sl-option value="torrent">Torrent</sl-option>
                     <sl-option value="torbox">TorBox</sl-option>
+                    <sl-option value="easydebrid">EasyDebrid</sl-option>
+                    <sl-option value="realdebrid">Real-Debrid</sl-option>
                     <sl-option value="debridlink">Debrid-Link</sl-option>
                     <sl-option value="alldebrid">All-Debrid</sl-option>
                     <sl-option value="premiumize">Premiumize</sl-option>
-                    <sl-option value="realdebrid">Real-Debrid</sl-option>
-                    <sl-option value="stremthru">StremThru</sl-option>
+                    <sl-option value="offcloud">Offcloud</sl-option>
+                    <sl-option value="offcloud">PikPak</sl-option>
                 </sl-select>
             </div>
 
             <div class="form-item">
                 <label for="debridService">
-                    Debrid API Key -
-                    <a id="apiKeyLink" href="https://torbox.app/settings" target="_blank">Get It Here</a>
+                    Debrid API Key
+                    <a id="apiKeyLink" href="" target="_blank"></a>
                 </label>
-                <sl-input id="debridApiKey" placeholder="Enter API key" help-text="If no key is specified, you'll get direct torrents!"></sl-input>
-            </div>
-
-            <div class="form-item">
-                <sl-input id="stremthruUrl" label="StremThru URL" placeholder="{{stremthruDefaultUrl}}" help-text="URL for StremThru."></sl-input>
+                <sl-input id="debridApiKey" placeholder="Enter API key"></sl-input>
             </div>
 
             <sl-details summary="Advanced Settings">
                 <div class="form-item">
-                    <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
-                    <sl-checkbox id="reverseResultOrder" help-text="Reverse the order of the results for each resolution (useful for those who need small file sizes)">Reverse Result Order</sl-checkbox>
+                    <sl-input id="rankThreshold" type="number" value="-10000000000" label="Minimum Rank Threshold" placeholder="Enter minimum rank threshold" help-text="Torrents ranked below this value will be excluded from results."></sl-input>
+                    <sl-checkbox id="cachedOnly" help-text="Show only content that has already been cached.">Show Cached Only</sl-checkbox>
+                    <sl-checkbox id="allowEnglishInLanguages" help-text="Allows English language torrents to be included even if you excluded English from your language preferences.">Allow English in Languages</sl-checkbox>
+                    <sl-checkbox id="removeUnknownLanguages" help-text="Exclude torrents that don't have a language in the title.">Remove Unknown Languages</sl-checkbox>
+                    <sl-checkbox checked id="removeTrash" help-text="Remove all trash from results (if disabled, your filters will not be applied - Adult Content, CAM, Clean Audio, PDTV, R5, Screener, Size, Telecine and Telesync)">Remove Trash</sl-checkbox>
                     <sl-select id="resultFormat" multiple label="Result Format" placeholder="Select what to show in result title" hoist max-options-visible=10>
                     </sl-select>
                 </div>
@@ -576,24 +585,51 @@
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
                     const apiKeyInput = document.getElementById("debridApiKey");
+                    debridStreamProxyPasswordInput = document.getElementById("debridStreamProxyPassword");
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "alldebrid") {
                         apiKeyLink.href = "https://alldebrid.com/apikeys";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "premiumize") {
                         apiKeyLink.href = "https://premiumize.me/account";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "torbox") {
                         apiKeyLink.href = "https://torbox.app/settings";
+                        apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "easydebrid") {
+                        apiKeyLink.href = "https://paradise-cloud.com/products/easydebrid";
+                        apiKeyLink.textContent = "Get It Here"
                     } else if (selectedService === "debridlink") {
                         apiKeyLink.href = "https://debrid-link.com/webapp/apikey";
-                    } else if (selectedService === "stremthru") {
-                        apiKeyLink.href = "https://github.com/MunifTanjim/stremthru?tab=readme-ov-file#configuration";
+                        apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "offcloud") {
+                        apiKeyLink.href = "https://offcloud.com";
+                        apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "pikpak") {
+                        apiKeyLink.href = "https://mypikpak.com";
+                        apiKeyLink.textContent = "Get It Here"
+                    } else if (selectedService === "torrent") {
+                        apiKeyLink.href = "";
+                        apiKeyLink.textContent = ""
                     }
-                    if (selectedService === "stremthru") {
-                      apiKeyInput.helpText = "Enter Credential ('store_name:store_token' or base64 encoded basic token from 'STREMTHRU_PROXY_AUTH' config)"
+
+                    if (selectedService === "offcloud" || selectedService === "pikpak") {
+                        apiKeyInput.helpText = "Format: `email:password`"
+                    } else if (selectedService != "torrent") {
+                        apiKeyInput.helpText = "Format: `api-key`"
                     } else {
-                      apiKeyInput.helpText = "If no key is specified, you'll get direct torrents!"
+                        apiKeyInput.helpText = ""
+                    }
+
+                    if (selectedService === "torrent") {
+                        debridStreamProxyPasswordInput.disabled = true;
+                        apiKeyInput.disabled = true;
+                    } else {
+                        debridStreamProxyPasswordInput.disabled = false;
+                        apiKeyInput.disabled = false;
                     }
                 });
             </script>
@@ -613,59 +649,55 @@
 
                 <script type="module">
                     const languagesEmojis = {
-                        "Unknown": "❓",
-                        "Multi": "🌎",
-                        "English": "🇬🇧",
-                        "Japanese": "🇯🇵",
-                        "Chinese": "🇨🇳",
-                        "Russian": "🇷🇺",
-                        "Arabic": "🇸🇦",
-                        "Portuguese": "🇵🇹",
-                        "Spanish": "🇪🇸",
-                        "French": "🇫🇷",
-                        "German": "🇩🇪",
-                        "Italian": "🇮🇹",
-                        "Korean": "🇰🇷",
-                        "Hindi": "🇮🇳",
-                        "Bengali": "🇧🇩",
-                        "Punjabi": "🇵🇰",
-                        "Marathi": "🇮🇳",
-                        "Gujarati": "🇮🇳",
-                        "Tamil": "🇮🇳",
-                        "Telugu": "🇮🇳",
-                        "Kannada": "🇮🇳",
-                        "Malayalam": "🇮🇳",
-                        "Thai": "🇹🇭",
-                        "Vietnamese": "🇻🇳",
-                        "Indonesian": "🇮🇩",
-                        "Turkish": "🇹🇷",
-                        "Hebrew": "🇮🇱",
-                        "Persian": "🇮🇷",
-                        "Ukrainian": "🇺🇦",
-                        "Greek": "🇬🇷",
-                        "Lithuanian": "🇱🇹",
-                        "Latvian": "🇱🇻",
-                        "Estonian": "🇪🇪",
-                        "Polish": "🇵🇱",
-                        "Czech": "🇨🇿",
-                        "Slovak": "🇸🇰",
-                        "Hungarian": "🇭🇺",
-                        "Romanian": "🇷🇴",
-                        "Bulgarian": "🇧🇬",
-                        "Serbian": "🇷🇸",
-                        "Croatian": "🇭🇷",
-                        "Slovenian": "🇸🇮",
-                        "Dutch": "🇳🇱", 
-                        "Danish": "🇩🇰",
-                        "Finnish": "🇫🇮",
-                        "Swedish": "🇸🇪",
-                        "Norwegian": "🇳🇴",
-                        "Malay": "🇲🇾",
-                        "Latino": "💃🏻",
+                        "multi": "🌎",
+                        "en": "🇬🇧",  // English
+                        "ja": "🇯🇵",  // Japanese
+                        "zh": "🇨🇳",  // Chinese
+                        "ru": "🇷🇺",  // Russian
+                        "ar": "🇸🇦",  // Arabic
+                        "pt": "🇵🇹",  // Portuguese
+                        "es": "🇪🇸",  // Spanish
+                        "fr": "🇫🇷",  // French
+                        "de": "🇩🇪",  // German
+                        "it": "🇮🇹",  // Italian
+                        "ko": "🇰🇷",  // Korean
+                        "hi": "🇮🇳",  // Hindi
+                        "bn": "🇧🇩",  // Bengali
+                        "pa": "🇵🇰",  // Punjabi
+                        "mr": "🇮🇳",  // Marathi
+                        "gu": "🇮🇳",  // Gujarati
+                        "ta": "🇮🇳",  // Tamil
+                        "te": "🇮🇳",  // Telugu
+                        "kn": "🇮🇳",  // Kannada
+                        "ml": "🇮🇳",  // Malayalam
+                        "th": "🇹🇭",  // Thai
+                        "vi": "🇻🇳",  // Vietnamese
+                        "id": "🇮🇩",  // Indonesian
+                        "tr": "🇹🇷",  // Turkish
+                        "he": "🇮🇱",  // Hebrew
+                        "fa": "🇮🇷",  // Persian
+                        "uk": "🇺🇦",  // Ukrainian
+                        "el": "🇬🇷",  // Greek
+                        "lt": "🇱🇹",  // Lithuanian
+                        "lv": "🇱🇻",  // Latvian
+                        "et": "🇪🇪",  // Estonian
+                        "pl": "🇵🇱",  // Polish
+                        "cs": "🇨🇿",  // Czech
+                        "sk": "🇸🇰",  // Slovak
+                        "hu": "🇭🇺",  // Hungarian
+                        "ro": "🇷🇴",  // Romanian
+                        "bg": "🇧🇬",  // Bulgarian
+                        "sr": "🇷🇸",  // Serbian
+                        "hr": "🇭🇷",  // Croatian
+                        "sl": "🇸🇮",  // Slovenian
+                        "nl": "🇳🇱",  // Dutch
+                        "da": "🇩🇰",  // Danish
+                        "fi": "🇫🇮",  // Finnish
+                        "sv": "🇸🇪",  // Swedish
+                        "no": "🇳🇴",  // Norwegian
+                        "ms": "🇲🇾",  // Malay
+                        "la": "💃🏻",  // Latino
                     };
-
-                    let defaultLanguages = [];
-                    let defaultResolutions = [];
                     let defaultResultFormat = [];
 
                     document.addEventListener("DOMContentLoaded", async () => {
@@ -680,14 +712,14 @@
                         ]);
 
                         const webConfig = {{webConfig|tojson}};
-                        populateSelect("indexers", webConfig.indexers);
-                        populateSelect("languages", webConfig.languages);
-                        populateSelect("resolutions", webConfig.resolutions);
+
+                        const resolutionsSelect = document.getElementById("resolutions");
+                        resolutionsSelect.value = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
+
                         populateSelect("resultFormat", webConfig.resultFormat);
-                        document.body.classList.add("ready");
-                        defaultLanguages = webConfig.languages;
-                        defaultResolutions = webConfig.resolutions;
                         defaultResultFormat = webConfig.resultFormat;
+                        const resultFormatSelect = document.getElementById("resultFormat");
+                        resultFormatSelect.value = defaultResultFormat;
 
                         // try populate the form from previous settings
                         try {
@@ -697,28 +729,86 @@
                             console.log("Failed to retrieve or parse settings from URL:", error);
                         }
 
+                        // trigger sl-change event on debridService to set initial state
+                        const debridServiceSelect = document.getElementById("debridService");
+                        debridServiceSelect.dispatchEvent(new Event("sl-change"));
+
+                        // Populate language selects
+                        populateSelect("languages_required", Object.keys(languagesEmojis));
+                        populateSelect("languages_excluded", Object.keys(languagesEmojis));
+                        populateSelect("languages_preferred", Object.keys(languagesEmojis));
+                    
+                        document.body.classList.add("ready");
                     });
 
                     function populateSelect(selectId, options) {
                         const selectElement = document.getElementById(selectId);
+
+                        const languageNames = {
+                            "multi": "Multi",
+                            "en": "English",
+                            "ja": "Japanese",
+                            "zh": "Chinese",
+                            "ru": "Russian",
+                            "ar": "Arabic",
+                            "pt": "Portuguese",
+                            "es": "Spanish",
+                            "fr": "French",
+                            "de": "German",
+                            "it": "Italian",
+                            "ko": "Korean",
+                            "hi": "Hindi",
+                            "bn": "Bengali",
+                            "pa": "Punjabi",
+                            "mr": "Marathi",
+                            "gu": "Gujarati",
+                            "ta": "Tamil",
+                            "te": "Telugu",
+                            "kn": "Kannada",
+                            "ml": "Malayalam",
+                            "th": "Thai",
+                            "vi": "Vietnamese",
+                            "id": "Indonesian",
+                            "tr": "Turkish",
+                            "he": "Hebrew",
+                            "fa": "Persian",
+                            "uk": "Ukrainian",
+                            "el": "Greek",
+                            "lt": "Lithuanian",
+                            "lv": "Latvian",
+                            "et": "Estonian",
+                            "pl": "Polish",
+                            "cs": "Czech",
+                            "sk": "Slovak",
+                            "hu": "Hungarian",
+                            "ro": "Romanian",
+                            "bg": "Bulgarian",
+                            "sr": "Serbian",
+                            "hr": "Croatian",
+                            "sl": "Slovenian",
+                            "nl": "Dutch",
+                            "da": "Danish",
+                            "fi": "Finnish",
+                            "sv": "Swedish",
+                            "no": "Norwegian",
+                            "ms": "Malay",
+                            "la": "Latino"
+                        };
+
                         options.forEach(option => {
                             const optionElement = document.createElement("sl-option");
                             optionElement.value = option;
 
-                            if (selectId === "languages") {
-                                // For languages, prepend the flag emoji if it exists
+                            if (selectId.startsWith('languages')) {
                                 const flag = languagesEmojis[option] || '';
-                                optionElement.textContent = `${flag} ${option}`;
+                                const fullName = languageNames[option] || option;
+                                optionElement.textContent = `${flag} ${fullName}`;
                             } else {
-                                // For other selects, just use the option text as is
                                 optionElement.textContent = option;
                             }
 
                             selectElement.appendChild(optionElement);
                         });
-
-                        // Set the default value
-                        selectElement.value = options; // Assuming first option as default
                     }
 
                     const installButton = document.querySelector("#install");
@@ -727,37 +817,52 @@
                     const copyAlert = document.querySelector('#copyAlert');
 
                     function getSettings() {
-                        const indexers = Array.from(document.getElementById("indexers").selectedOptions).map(option => option.value);
-                        const languages = Array.from(document.getElementById("languages").selectedOptions).map(option => option.value);
-                        const resolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
-                        const maxResults = document.getElementById("maxResults").value;
+                        const languages_required = Array.from(document.getElementById("languages_required").selectedOptions).map(option => option.value);
+                        const languages_excluded = Array.from(document.getElementById("languages_excluded").selectedOptions).map(option => option.value);
+                        const languages_preferred = Array.from(document.getElementById("languages_preferred").selectedOptions).map(option => option.value);
+                        const selectedResolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
+                        const allResolutions = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
+                        const resolutions = allResolutions.reduce((obj, res) => {
+                            // Only include resolutions that are NOT selected (disabled) as false
+                            if (!selectedResolutions.includes(res)) {
+                                obj[res] = false;
+                            }
+                            return obj;
+                        }, {});
+                        const rankThreshold = document.getElementById("rankThreshold").value;
                         const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
                         const maxSize = document.getElementById("maxSize").value;
-                        const reverseResultOrder = document.getElementById("reverseResultOrder").checked;
+                        const cachedOnly = document.getElementById("cachedOnly").checked;
                         const removeTrash = document.getElementById("removeTrash").checked;
+                        const allowEnglishInLanguages = document.getElementById("allowEnglishInLanguages").checked;
+                        const removeUnknownLanguages = document.getElementById("removeUnknownLanguages").checked;
                         const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
                         const debridService = document.getElementById("debridService").value;
                         const debridApiKey = document.getElementById("debridApiKey").value;
-                        const stremthruUrl = document.getElementById("stremthruUrl").value;
                         const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
-                        const selectedLanguages = languages.length === defaultLanguages.length && languages.every((val, index) => val === defaultLanguages[index]) ? ["All"] : languages;
-                        const selectedResolutions = resolutions.length === defaultResolutions.length && resolutions.every((val, index) => val === defaultResolutions[index]) ? ["All"] : resolutions;
-                        const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["All"] : resultFormat;
+
+                        const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
                         return {
-                            indexers: indexers,
-                            maxResults: parseInt(maxResults),
                             maxResultsPerResolution: parseInt(maxResultsPerResolution),
                             maxSize: parseFloat(maxSize * 1073741824),
-                            reverseResultOrder: reverseResultOrder,
+                            cachedOnly: cachedOnly,
                             removeTrash: removeTrash,
                             resultFormat: selectedResultFormat,
-                            resolutions: selectedResolutions,
-                            languages: selectedLanguages,
                             debridService: debridService,
                             debridApiKey: debridApiKey,
-                            stremthruUrl: stremthruUrl,
                             debridStreamProxyPassword: debridStreamProxyPassword,
+                            languages: {
+                                required: languages_required,
+                                exclude: languages_excluded,
+                                preferred: languages_preferred
+                            },
+                            resolutions: resolutions,
+                            options: {
+                                remove_ranks_under: parseFloat(rankThreshold),
+                                allow_english_in_languages: allowEnglishInLanguages,
+                                remove_unknown_languages: removeUnknownLanguages
+                            }
                         };
                     }
 
@@ -802,10 +907,8 @@
                     }
 
                     function populateFormFromSettings(settings) {
-                        if (settings.maxResults !== null)
-                            document.getElementById("maxResults").value = settings.maxResults;
-                        if (settings.reverseResultOrder !== null)
-                            document.getElementById("reverseResultOrder").checked = settings.reverseResultOrder;
+                        if (settings.cachedOnly !== null)
+                            document.getElementById("cachedOnly").checked = settings.cachedOnly;
                         if (settings.removeTrash !== null)
                             document.getElementById("removeTrash").checked = settings.removeTrash;
                         if (settings.maxResultsPerResolution !== null)
@@ -818,18 +921,28 @@
                             document.getElementById("debridApiKey").value = settings.debridApiKey;
                         if (settings.debridStreamProxyPassword !== null)
                             document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
-                        if (settings.indexers !== null)
-                            document.getElementById("indexers").value = settings.indexers;
-                        if (settings.languages !== null && settings.languages != "All")
-                            document.getElementById("languages").value = settings.languages;
-                        if (settings.stremthruUrl !== null)
-                          document.getElementById("stremthruUrl").value = settings.stremthruUrl;
-                        if (settings.resolutions !== null && settings.resolutions != "All")
-                            document.getElementById("resolutions").value = settings.resolutions;
-                        if (settings.resultFormat !== null && settings.resultFormat != "All")
+                        if (settings.resultFormat !== null && settings.resultFormat != "all")
                             document.getElementById("resultFormat").value = settings.resultFormat;
+                        if (settings.languages) {
+                            if (settings.languages.required)
+                                document.getElementById("languages_required").value = settings.languages.required;
+                            if (settings.languages.exclude)
+                                document.getElementById("languages_excluded").value = settings.languages.exclude;
+                            if (settings.languages.preferred)
+                                document.getElementById("languages_preferred").value = settings.languages.preferred;
+                        }
+                        if (settings.resolutions) {
+                            const allResolutions = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
+                            const enabledResolutions = allResolutions.filter(res => settings.resolutions[res] !== false);
+                            document.getElementById("resolutions").value = enabledResolutions;
+                        }
+                        if (settings.options?.remove_ranks_under !== undefined)
+                            document.getElementById("rankThreshold").value = settings.options.remove_ranks_under;
+                        if (settings.options?.allow_english_in_languages !== undefined)
+                            document.getElementById("allowEnglishInLanguages").checked = settings.options.allow_english_in_languages;
+                            if (settings.options?.remove_unknown_languages !== undefined)
+                            document.getElementById("removeUnknownLanguages").checked = settings.options.remove_unknown_languages;
                     }
-
                 </script>
             </div>
         </div>

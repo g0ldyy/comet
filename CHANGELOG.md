@@ -1,29 +1,5 @@
 # Changelog
 
-## [1.53.0](https://github.com/g0ldyy/comet/compare/v1.52.0...v1.53.0) (2025-02-07)
-
-
-### Features
-
-* **debrid/stremthru:** forward client ip ([982c398](https://github.com/g0ldyy/comet/commit/982c398774480badbb60d7214a91c3a62260fee6))
-* **debrid/stremthru:** match behavior with mediafusion ([24611a2](https://github.com/g0ldyy/comet/commit/24611a2940dec82cd3cd09aab757cef06a9beb8a))
-* **debrid/stremthru:** pass stremio video id for magnet cache check ([786a298](https://github.com/g0ldyy/comet/commit/786a2985ca3ef2463b65c684bc8cef6a86ce772f))
-* **debrid/stremthru:** use default url only for specific services ([f0b029d](https://github.com/g0ldyy/comet/commit/f0b029d7933bc85a7ca794c3edea1afccc8d4f28))
-* **debrid:** add support for stremthru ([64ba2b3](https://github.com/g0ldyy/comet/commit/64ba2b39fb0faab69e16e8755f024eb82c14f888))
-
-
-### Bug Fixes
-
-* **debrid/stremthru:** handle missing file index ([32ae49e](https://github.com/g0ldyy/comet/commit/32ae49ed1dd7ef0ab52ec8f6247250b3a8e888c7))
-* direct torrent results ([dea8a90](https://github.com/g0ldyy/comet/commit/dea8a9041cb54245e2fdadd9d914c0285efebc56))
-
-## [1.52.0](https://github.com/g0ldyy/comet/compare/v1.51.0...v1.52.0) (2025-01-03)
-
-
-### Features
-
-* revert random manifest id ([f792529](https://github.com/g0ldyy/comet/commit/f7925298993e904a635041248079cf578d602818))
-
 ## [1.51.0](https://github.com/g0ldyy/comet/compare/v1.50.1...v1.51.0) (2024-11-28)
 
 
