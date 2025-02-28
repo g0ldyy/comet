@@ -23,6 +23,7 @@
 
 # Installation
 To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
+
 ## ElfHosted
 A free, public Comet instance is available at https://comet.elfhosted.com
 
@@ -53,7 +54,7 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
     ````
 
 ### With Docker Compose
-- Copy *docker-compose.yaml* in a directory
+- Copy *deployment/docker-compose.yml* in a directory
 - Copy *.env-sample* to *.env* in the same directory and keep only the variables you wish to modify, also remove all comments
 - Pull the latest version from docker hub
     ```sh
@@ -64,8 +65,21 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
       docker compose up -d
     ```
 
-## Debrid IP Blacklist
-To bypass Real-Debrid's (or AllDebrid) IP blacklist, start a cloudflare-warp container: https://github.com/cmj2002/warp-docker
+### Nginx Reverse Proxy
+If you want to serve Comet via a Nginx Reverse Proxy, here's the configuration you should use.
+```
+server {
+    server_name example.com;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
 
 ## Web UI Showcase
 <img src="https://i.imgur.com/SaD365F.png" />
