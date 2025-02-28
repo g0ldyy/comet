@@ -241,8 +241,6 @@ class TorrentUpdateQueue:
         self.flush_interval = flush_interval
         self.is_running = False
         self.batches = {"to_check": [], "to_delete": [], "inserts": [], "updates": []}
-        self.last_error_time = 0
-        self.error_backoff = 1
 
     async def add_torrent_info(self, file_info: dict, media_id: str = None):
         await self.queue.put((file_info, media_id))
@@ -283,124 +281,107 @@ class TorrentUpdateQueue:
                 break
             except Exception as e:
                 logger.warning(f"Error in _process_queue: {e}")
-                await self._handle_error(e)
+                self._reset_batches()
 
         if any(len(batch) > 0 for batch in self.batches.values()):
             await self._flush_batch()
 
         self.is_running = False
+        
+    def _reset_batches(self):
+        for key in self.batches:
+            if len(self.batches[key]) > 0:
+                logger.warning(f"Ignoring {len(self.batches[key])} items in problematic '{key}' batch")
+                self.batches[key] = []
 
     async def _flush_batch(self):
         try:
             if self.batches["to_check"]:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["to_check"]), sub_batch_size):
-                    sub_batch = self.batches["to_check"][i : i + sub_batch_size]
-                    placeholders = []
-                    params = {}
+                    try:
+                        sub_batch = self.batches["to_check"][i : i + sub_batch_size]
+                        placeholders = []
+                        params = {}
 
-                    for idx, item in enumerate(sub_batch):
-                        key = str(idx)
-                        placeholders.append(
-                            f"(CAST(:info_hash_{key} AS TEXT) = info_hash AND "
-                            f"(CAST(:season_{key} AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season_{key} AS INTEGER)) AND "
-                            f"(CAST(:episode_{key} AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode_{key} AS INTEGER)))"
-                        )
-                        params[f"info_hash_{key}"] = item["info_hash"]
-                        params[f"season_{key}"] = item["season"]
-                        params[f"episode_{key}"] = item["episode"]
-
-                    query = f"""
-                        SELECT info_hash, season, episode
-                        FROM torrents 
-                        WHERE {" OR ".join(placeholders)}
-                    """
-
-                    async with database.transaction():
-                        existing_rows = await database.fetch_all(query, params)
-
-                        existing_set = {
-                            (
-                                row["info_hash"],
-                                row["season"] if row["season"] is not None else None,
-                                row["episode"] if row["episode"] is not None else None,
+                        for idx, item in enumerate(sub_batch):
+                            key = str(idx)
+                            placeholders.append(
+                                f"(CAST(:info_hash_{key} AS TEXT) = info_hash AND "
+                                f"(CAST(:season_{key} AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season_{key} AS INTEGER)) AND "
+                                f"(CAST(:episode_{key} AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode_{key} AS INTEGER)))"
                             )
-                            for row in existing_rows
-                        }
+                            params[f"info_hash_{key}"] = item["info_hash"]
+                            params[f"season_{key}"] = item["season"]
+                            params[f"episode_{key}"] = item["episode"]
 
-                        for item in sub_batch:
-                            key = (item["info_hash"], item["season"], item["episode"])
-                            if key in existing_set:
-                                self.batches["updates"].append(item["params"])
-                            else:
-                                self.batches["inserts"].append(item["params"])
+                        query = f"""
+                            SELECT info_hash, season, episode
+                            FROM torrents 
+                            WHERE {" OR ".join(placeholders)}
+                        """
+
+                        async with database.transaction():
+                            existing_rows = await database.fetch_all(query, params)
+
+                            existing_set = {
+                                (
+                                    row["info_hash"],
+                                    row["season"] if row["season"] is not None else None,
+                                    row["episode"] if row["episode"] is not None else None,
+                                )
+                                for row in existing_rows
+                            }
+
+                            for item in sub_batch:
+                                key = (item["info_hash"], item["season"], item["episode"])
+                                if key in existing_set:
+                                    self.batches["updates"].append(item["params"])
+                                else:
+                                    self.batches["inserts"].append(item["params"])
+                    except Exception as e:
+                        logger.warning(f"Error processing check batch: {e}")
 
                 self.batches["to_check"] = []
 
             if self.batches["to_delete"]:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["to_delete"]), sub_batch_size):
-                    sub_batch = self.batches["to_delete"][i : i + sub_batch_size]
+                    try:
+                        sub_batch = self.batches["to_delete"][i : i + sub_batch_size]
 
-                    placeholders = []
-                    params = {}
-                    for idx, item in enumerate(sub_batch):
-                        key_suffix = f"_{idx}"
-                        placeholders.append(
-                            f"(CAST(:info_hash{key_suffix} AS TEXT), CAST(:season{key_suffix} AS INTEGER))"
-                        )
-                        params[f"info_hash{key_suffix}"] = item["info_hash"]
-                        params[f"season{key_suffix}"] = item["season"]
-
-                    async with database.transaction():
-                        delete_query = f"""
-                            DELETE FROM torrents
-                            WHERE (info_hash, season) IN (
-                                {",".join(placeholders)}
+                        placeholders = []
+                        params = {}
+                        for idx, item in enumerate(sub_batch):
+                            key_suffix = f"_{idx}"
+                            placeholders.append(
+                                f"(CAST(:info_hash{key_suffix} AS TEXT), CAST(:season{key_suffix} AS INTEGER))"
                             )
-                            AND episode IS NULL
-                        """
-                        await database.execute(delete_query, params)
+                            params[f"info_hash{key_suffix}"] = item["info_hash"]
+                            params[f"season{key_suffix}"] = item["season"]
+
+                        async with database.transaction():
+                            delete_query = f"""
+                                DELETE FROM torrents
+                                WHERE (info_hash, season) IN (
+                                    {",".join(placeholders)}
+                                )
+                                AND episode IS NULL
+                            """
+                            await database.execute(delete_query, params)
+                    except Exception as e:
+                        logger.warning(f"Error processing delete batch: {e}")
 
                 self.batches["to_delete"] = []
 
             if self.batches["inserts"]:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["inserts"]), sub_batch_size):
-                    sub_batch = self.batches["inserts"][i : i + sub_batch_size]
-
-                    if settings.DATABASE_TYPE == "postgresql":
-                        try:
-                            async with database.transaction(isolation="serializable"):
-                                insert_query = """
-                                    INSERT INTO torrents
-                                    VALUES (
-                                        :media_id,
-                                        :info_hash,
-                                        :file_index,
-                                        :season,
-                                        :episode,
-                                        :title,
-                                        :seeders,
-                                        :size,
-                                        :tracker,
-                                        :sources,
-                                        :parsed,
-                                        :timestamp
-                                    )
-                                    ON CONFLICT DO NOTHING
-                                """
-                                await database.execute_many(insert_query, sub_batch)
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as e:
-                            logger.debug(
-                                f"Insert batch had conflicts (expected in concurrent scenarios): {str(e)}"
-                            )
-                    else:
+                    try:
+                        sub_batch = self.batches["inserts"][i : i + sub_batch_size]
                         async with database.transaction():
-                            insert_query = """
-                                INSERT OR IGNORE
+                            insert_query = f"""
+                                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
                                 INTO torrents
                                 VALUES (
                                     :media_id,
@@ -416,8 +397,11 @@ class TorrentUpdateQueue:
                                     :parsed,
                                     :timestamp
                                 )
+                                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
                             """
                             await database.execute_many(insert_query, sub_batch)
+                    except Exception as e:
+                        logger.warning(f"Error processing insert batch: {e}")
 
                 if len(self.batches["inserts"]) > 0:
                     logger.log(
@@ -429,24 +413,27 @@ class TorrentUpdateQueue:
             if self.batches["updates"]:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["updates"]), sub_batch_size):
-                    sub_batch = self.batches["updates"][i : i + sub_batch_size]
-                    async with database.transaction():
-                        update_query = """
-                            UPDATE torrents 
-                            SET title = CAST(:title AS TEXT),
-                                file_index = CAST(:file_index AS INTEGER),
-                                size = CAST(:size AS BIGINT),
-                                seeders = CAST(:seeders AS INTEGER),
-                                tracker = CAST(:tracker AS TEXT),
-                                sources = CAST(:sources AS TEXT),
-                                parsed = CAST(:parsed AS TEXT),
-                                timestamp = CAST(:timestamp AS FLOAT),
-                                media_id = CAST(:media_id AS TEXT)
-                            WHERE info_hash = CAST(:info_hash AS TEXT)
-                            AND (CAST(:season AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season AS INTEGER))
-                            AND (CAST(:episode AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode AS INTEGER))
-                        """
-                        await database.execute_many(update_query, sub_batch)
+                    try:
+                        sub_batch = self.batches["updates"][i : i + sub_batch_size]
+                        async with database.transaction():
+                            update_query = """
+                                UPDATE torrents 
+                                SET title = CAST(:title AS TEXT),
+                                    file_index = CAST(:file_index AS INTEGER),
+                                    size = CAST(:size AS BIGINT),
+                                    seeders = CAST(:seeders AS INTEGER),
+                                    tracker = CAST(:tracker AS TEXT),
+                                    sources = CAST(:sources AS TEXT),
+                                    parsed = CAST(:parsed AS TEXT),
+                                    timestamp = CAST(:timestamp AS FLOAT),
+                                    media_id = CAST(:media_id AS TEXT)
+                                WHERE info_hash = CAST(:info_hash AS TEXT)
+                                AND (CAST(:season AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season AS INTEGER))
+                                AND (CAST(:episode AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode AS INTEGER))
+                            """
+                            await database.execute_many(update_query, sub_batch)
+                    except Exception as e:
+                        logger.warning(f"Error processing update batch: {e}")
 
                 if len(self.batches["updates"]) > 0:
                     logger.log(
@@ -455,10 +442,9 @@ class TorrentUpdateQueue:
                     )
                 self.batches["updates"] = []
 
-            self.error_backoff = 1
-
         except Exception as e:
-            await self._handle_error(e)
+            logger.warning(f"Error in flush_batch: {e}")
+            self._reset_batches()
 
     async def _process_file_info(self, file_info: dict, media_id: str = None):
         try:
@@ -495,25 +481,14 @@ class TorrentUpdateQueue:
 
             await self._check_batch_size()
 
+        except Exception as e:
+            logger.warning(f"Error processing file info: {e}")
         finally:
             self.queue.task_done()
 
     async def _check_batch_size(self):
         if any(len(batch) >= self.batch_size for batch in self.batches.values()):
             await self._flush_batch()
-            self.error_backoff = 1
-
-    async def _handle_error(self, e: Exception):
-        current_time = time.time()
-        if current_time - self.last_error_time < 5:
-            self.error_backoff = min(self.error_backoff * 2, 30)
-        else:
-            self.error_backoff = 1
-
-        self.last_error_time = current_time
-        logger.warning(f"Database error in torrent batch processing: {e}")
-        logger.warning(f"Waiting {self.error_backoff} seconds before retry")
-        await asyncio.sleep(self.error_backoff)
 
 
 torrent_update_queue = TorrentUpdateQueue()
