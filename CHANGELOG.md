@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.3](https://github.com/g0ldyy/comet/compare/v2.0.2...v2.0.3) (2025-03-01)
+
+
+### Bug Fixes
+
+* correct addon version ([176899d](https://github.com/g0ldyy/comet/commit/176899d4b5e618013e9d15f00c03547d28f6df2c))
+
 ## [2.0.2](https://github.com/g0ldyy/comet/compare/v2.0.1...v2.0.2) (2025-02-28)
 
 
