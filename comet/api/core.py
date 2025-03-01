@@ -49,7 +49,7 @@ async def manifest(request: Request, b64config: str = None):
     base_manifest = {
         "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",
         "description": "Stremio's fastest torrent/debrid search add-on.",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "catalogs": [],
         "resources": [
             {
