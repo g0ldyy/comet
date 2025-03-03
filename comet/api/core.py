@@ -83,7 +83,7 @@ async def manifest(request: Request, b64config: str = None):
 class CustomORJSONResponse(Response):
     media_type = "application/json"
 
-    def render(self, content) -> bytes:
+    def render(self, content):
         assert orjson is not None, "orjson must be installed"
         return orjson.dumps(content, option=orjson.OPT_INDENT_2)
 

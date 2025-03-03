@@ -27,7 +27,7 @@ async def remove_ongoing_search_from_database(media_id: str):
     )
 
 
-async def is_first_search(media_id: str) -> bool:
+async def is_first_search(media_id: str):
     try:
         await database.execute(
             "INSERT INTO first_searches VALUES (:media_id, :timestamp)",

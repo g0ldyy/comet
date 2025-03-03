@@ -310,8 +310,14 @@ class TorrentManager:
             info_hash = file["info_hash"]
             self.torrents[info_hash]["cached"] = True
 
-            if file["parsed"] is not None:
-                self.torrents[info_hash]["parsed"] = file["parsed"]
+            debrid_parsed = file["parsed"]
+            if debrid_parsed is not None:
+                if (
+                    debrid_parsed.quality is None
+                    and self.torrents[info_hash]["parsed"].quality is not None
+                ):
+                    debrid_parsed.quality = self.torrents[info_hash]["parsed"].quality
+                self.torrents[info_hash]["parsed"] = debrid_parsed
             if file["index"] is not None:
                 self.torrents[info_hash]["fileIndex"] = file["index"]
             if file["title"] is not None:
