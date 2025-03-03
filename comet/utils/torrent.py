@@ -287,11 +287,13 @@ class TorrentUpdateQueue:
             await self._flush_batch()
 
         self.is_running = False
-        
+
     def _reset_batches(self):
         for key in self.batches:
             if len(self.batches[key]) > 0:
-                logger.warning(f"Ignoring {len(self.batches[key])} items in problematic '{key}' batch")
+                logger.warning(
+                    f"Ignoring {len(self.batches[key])} items in problematic '{key}' batch"
+                )
                 self.batches[key] = []
 
     async def _flush_batch(self):
@@ -327,14 +329,22 @@ class TorrentUpdateQueue:
                             existing_set = {
                                 (
                                     row["info_hash"],
-                                    row["season"] if row["season"] is not None else None,
-                                    row["episode"] if row["episode"] is not None else None,
+                                    row["season"]
+                                    if row["season"] is not None
+                                    else None,
+                                    row["episode"]
+                                    if row["episode"] is not None
+                                    else None,
                                 )
                                 for row in existing_rows
                             }
 
                             for item in sub_batch:
-                                key = (item["info_hash"], item["season"], item["episode"])
+                                key = (
+                                    item["info_hash"],
+                                    item["season"],
+                                    item["episode"],
+                                )
                                 if key in existing_set:
                                     self.batches["updates"].append(item["params"])
                                 else:

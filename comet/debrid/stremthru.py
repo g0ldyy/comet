@@ -184,8 +184,9 @@ class StremThru:
             name_parsed = parse(name)
             target_file = None
 
+            debrid_files = magnet["data"]["files"]
             files = []
-            for file in magnet["data"]["files"]:
+            for file in debrid_files:
                 filename = file["name"]
                 filename_parsed = parse(filename)
 
@@ -222,6 +223,13 @@ class StremThru:
 
             if len(files) > 0:
                 asyncio.create_task(cache_availability(self.real_debrid_name, files))
+
+            if not target_file and len(debrid_files) > 0:
+                files_with_link = [
+                    file for file in debrid_files if "link" in file and file["link"]
+                ]
+                if len(files_with_link) > 0:
+                    target_file = max(files_with_link, key=lambda x: x["size"])
 
             if not target_file:
                 return
