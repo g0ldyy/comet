@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/g0ldyy/comet/compare/v2.0.3...v2.1.0) (2025-03-03)
+
+
+### Features
+
+* choose max size file if no file found ([3ed5057](https://github.com/g0ldyy/comet/commit/3ed5057b0856ba95ab823a66ae0fdc64882c16bb))
+
 ## [2.0.3](https://github.com/g0ldyy/comet/compare/v2.0.2...v2.0.3) (2025-03-01)
 
 
