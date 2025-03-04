@@ -119,8 +119,8 @@ class TorrentManager:
                 SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed
                 FROM torrents
                 WHERE media_id = :media_id
-                AND ((season IS NOT NULL AND season = cast(:season as INTEGER)) OR (season IS NULL AND cast(:season as INTEGER) IS NULL))
-                AND (episode IS NULL OR episode = cast(:episode as INTEGER))
+                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
                 AND timestamp + :cache_ttl >= :current_time
             """,
             {
@@ -185,7 +185,11 @@ class TorrentManager:
         remove_adult_content = self.remove_adult_content
 
         for torrent in torrents:
-            parsed = parse(torrent["title"])
+            torrent_title = torrent["title"]
+            if "sample" in torrent_title.lower():
+                continue
+
+            parsed = parse(torrent_title)
 
             if remove_adult_content and parsed.adult:
                 continue

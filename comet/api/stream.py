@@ -322,11 +322,21 @@ async def playback(
 
     async with aiohttp.ClientSession() as session:
         cached_link = await database.fetch_one(
-            f"SELECT download_url FROM download_links_cache WHERE debrid_key = '{config['debridApiKey']}' AND info_hash = '{hash}' AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER)) AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER)) AND timestamp + 3600 >= :current_time",
+            """
+            SELECT download_url
+            FROM download_links_cache
+            WHERE debrid_key = :debrid_key
+            AND info_hash = :info_hash
+            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
+            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
+            AND timestamp + 3600 >= :current_time
+            """,
             {
-                "current_time": time.time(),
+                "debrid_key": config["debridApiKey"],
+                "info_hash": hash,
                 "season": season,
-                "episode": season,
+                "episode": episode,
+                "current_time": time.time(),
             },
         )
 
@@ -335,6 +345,12 @@ async def playback(
             download_url = cached_link["download_url"]
 
         ip = get_client_ip(request)
+        should_proxy = (
+            settings.PROXY_DEBRID_STREAM
+            and settings.PROXY_DEBRID_STREAM_PASSWORD
+            == config["debridStreamProxyPassword"]
+        )
+
         if download_url is None:
             debrid = get_debrid(
                 session,
@@ -342,7 +358,7 @@ async def playback(
                 None,
                 config["debridService"],
                 config["debridApiKey"],
-                ip,
+                ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
                 hash, index, name, season, episode
@@ -350,15 +366,13 @@ async def playback(
             if not download_url:
                 return FileResponse("comet/assets/uncached.mp4")
 
-            query = f"""
-            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
-            INTO download_links_cache
-            VALUES (:debrid_key, :info_hash, :season, :episode, :download_url, :timestamp)
-            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-            """
-
             await database.execute(
-                query,
+                f"""
+                    INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                    INTO download_links_cache
+                    VALUES (:debrid_key, :info_hash, :season, :episode, :download_url, :timestamp)
+                    {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+                """,
                 {
                     "debrid_key": config["debridApiKey"],
                     "info_hash": hash,

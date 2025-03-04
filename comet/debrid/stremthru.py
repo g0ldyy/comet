@@ -188,6 +188,10 @@ class StremThru:
             files = []
             for file in debrid_files:
                 filename = file["name"]
+
+                if "sample" in filename.lower():
+                    continue
+
                 filename_parsed = parse(filename)
 
                 if not is_video(filename) or not title_match(

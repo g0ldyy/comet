@@ -123,7 +123,7 @@ async def get_cached_availability(
     base_query = f"""
         SELECT info_hash, file_index, title, size, parsed
         FROM debrid_availability
-        WHERE info_hash IN (SELECT cast(value as TEXT) FROM {"json_array_elements_text" if settings.DATABASE_TYPE == "postgresql" else "json_each"}(:info_hashes))
+        WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {"json_array_elements_text" if settings.DATABASE_TYPE == "postgresql" else "json_each"}(:info_hashes))
         AND debrid_service = :debrid_service
         AND timestamp + :cache_ttl >= :current_time
     """
@@ -141,8 +141,8 @@ async def get_cached_availability(
         query = (
             base_query
             + """
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
+            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         """
         )
         results = await database.fetch_all(query, params)
@@ -164,8 +164,8 @@ async def get_cached_availability(
         query = (
             base_query
             + """
-            AND ((cast(:season as INTEGER) IS NULL AND season IS NULL) OR season = cast(:season as INTEGER))
-            AND ((cast(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = cast(:episode as INTEGER))
+            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
+            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         """
         )
         results = await database.fetch_all(query, params)
