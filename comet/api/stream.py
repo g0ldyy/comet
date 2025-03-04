@@ -263,11 +263,12 @@ async def stream(
                 else ("⚡" if torrent["cached"] else "⬇️")
             )
 
+            torrent_title = torrent["title"]
             the_stream = {
                 "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
                 "description": format_title(
                     rtn_data,
-                    torrent["title"],
+                    torrent_title,
                     torrent["seeders"],
                     torrent["size"],
                     torrent["tracker"],
@@ -292,7 +293,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{title}/{result_season}/{result_episode}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{title}/{result_season}/{result_episode}/{torrent_title}"
                 )
 
             if torrent["cached"]:
@@ -303,7 +304,7 @@ async def stream(
         return {"streams": cached_results + non_cached_results}
 
 
-@streams.get("/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}")
+@streams.get("/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name}")
 async def playback(
     request: Request,
     b64config: str,
@@ -312,10 +313,9 @@ async def playback(
     name: str,
     season: str,
     episode: str,
+    torrent_name: str
 ):
     config = config_check(b64config)
-    # if not config:
-    #     return FileResponse("comet/assets/invalidconfig.mp4")
 
     season = int(season) if season != "n" else None
     episode = int(episode) if episode != "n" else None
@@ -361,7 +361,7 @@ async def playback(
                 ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
-                hash, index, name, season, episode
+                hash, index, name, torrent_name, season, episode
             )
             if not download_url:
                 return FileResponse("comet/assets/uncached.mp4")

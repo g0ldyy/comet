@@ -581,12 +581,7 @@ default_config["rtnSettings"] = rtn_settings_default
 default_config["rtnRanking"] = rtn_ranking_default
 
 
-# Web Config Initialization
-# languages = [language for language in PTT.parse.LANGUAGES_TRANSLATION_TABLE.values()]
-# languages.insert(0, "Unknown")
-# languages.insert(1, "Multi")
 web_config = {
-    # "languages": languages,
     "resolutions": [resolution.value for resolution in RTN.models.Resolution],
     "resultFormat": ["title", "metadata", "seeders", "size", "tracker", "languages"],
 }

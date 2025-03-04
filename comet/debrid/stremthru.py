@@ -169,7 +169,7 @@ class StremThru:
         return files
 
     async def generate_download_link(
-        self, hash: str, index: str, name: str, season: int, episode: int
+        self, hash: str, index: str, name: str, torrent_name: str, season: int, episode: int
     ):
         try:
             magnet = await self.session.post(
@@ -219,7 +219,7 @@ class StremThru:
                 }
                 files.append(file_info)
 
-                if str(file["index"]) == index:
+                if filename == torrent_name or str(file["index"]) == index:
                     target_file = file
 
                 if season == file_season and episode == file_episode:
