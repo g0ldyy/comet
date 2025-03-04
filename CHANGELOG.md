@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/g0ldyy/comet/compare/v2.1.0...v2.2.0) (2025-03-04)
+
+
+### Features
+
+* ios video players support (ex: infuse) ([acc8112](https://github.com/g0ldyy/comet/commit/acc8112a2a5966ac62b2b2c54105425680b98ccf))
+
 ## [2.1.0](https://github.com/g0ldyy/comet/compare/v2.0.3...v2.1.0) (2025-03-03)
 
 
