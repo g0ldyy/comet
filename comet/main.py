@@ -131,6 +131,12 @@ def start_log():
     else:
         logger.log("COMET", "Indexer Manager: False")
 
+    comet_url = f" - {settings.COMET_URL}"
+    logger.log(
+        "COMET",
+        f"Comet Scraper: {bool(settings.SCRAPE_COMET)}{comet_url if settings.SCRAPE_COMET else ''}",
+    )
+
     zilean_url = f" - {settings.ZILEAN_URL}"
     logger.log(
         "COMET",

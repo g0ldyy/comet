@@ -23,6 +23,7 @@ from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
 from .jackett import get_jackett
 from .prowlarr import get_prowlarr
+from .comet import get_comet
 
 
 class TorrentManager:
@@ -66,6 +67,8 @@ class TorrentManager:
         session: aiohttp.ClientSession,
     ):
         tasks = []
+        if settings.SCRAPE_COMET:
+            tasks.append(get_comet(self, self.media_type, self.media_id))
         if settings.SCRAPE_TORRENTIO:
             tasks.append(get_torrentio(self, self.media_type, self.media_id))
         if settings.SCRAPE_MEDIAFUSION:

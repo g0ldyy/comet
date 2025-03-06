@@ -304,7 +304,9 @@ async def stream(
         return {"streams": cached_results + non_cached_results}
 
 
-@streams.get("/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name}")
+@streams.get(
+    "/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name}"
+)
 async def playback(
     request: Request,
     b64config: str,
@@ -313,7 +315,7 @@ async def playback(
     name: str,
     season: str,
     episode: str,
-    torrent_name: str
+    torrent_name: str,
 ):
     config = config_check(b64config)
 

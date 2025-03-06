@@ -169,7 +169,13 @@ class StremThru:
         return files
 
     async def generate_download_link(
-        self, hash: str, index: str, name: str, torrent_name: str, season: int, episode: int
+        self,
+        hash: str,
+        index: str,
+        name: str,
+        torrent_name: str,
+        season: int,
+        episode: int,
     ):
         try:
             magnet = await self.session.post(

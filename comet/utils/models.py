@@ -49,7 +49,8 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
-    SCRAPE_MEDIAFUSION: Optional[bool] = False
+    SCRAPE_COMET: Optional[bool] = False
+    COMET_URL: Optional[str] = "https://comet.elfhosted.com"
     SCRAPE_ZILEAN: Optional[bool] = False
     ZILEAN_URL: Optional[str] = "https://zilean.elfhosted.com"
     SCRAPE_TORRENTIO: Optional[bool] = False
@@ -72,6 +73,7 @@ class AppSettings(BaseSettings):
         "ZILEAN_URL",
         "TORRENTIO_URL",
         "MEDIAFUSION_URL",
+        "COMET_URL",
         "STREMTHRU_URL",
     )
     def remove_trailing_slash(cls, v):
