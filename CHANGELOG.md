@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/g0ldyy/comet/compare/v2.2.0...v2.3.0) (2025-03-06)
+
+
+### Features
+
+* add comet scraper ([a11a65e](https://github.com/g0ldyy/comet/commit/a11a65e37fd1a37cd119df7e17f4d8fcf93a6ab7))
+
 ## [2.2.0](https://github.com/g0ldyy/comet/compare/v2.1.0...v2.2.0) (2025-03-04)
 
 
