@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/g0ldyy/comet/compare/v2.3.0...v2.4.0) (2025-03-13)
+
+
+### Features
+
+* better file choosing logic ([ad13278](https://github.com/g0ldyy/comet/commit/ad132781df58bf6eefef8c4bbe4ad32f7f874519))
+
 ## [2.3.0](https://github.com/g0ldyy/comet/compare/v2.2.0...v2.3.0) (2025-03-11)
 
 
