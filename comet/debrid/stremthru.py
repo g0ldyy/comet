@@ -191,6 +191,7 @@ class StremThru:
             target_file = None
 
             debrid_files = magnet["data"]["files"]
+            debrid_files_parsed = []
             files = []
             for file in debrid_files:
                 filename = file["name"]
@@ -198,12 +199,10 @@ class StremThru:
                 if "sample" in filename.lower():
                     continue
 
-                filename_parsed = parse(filename)
-
-                if not is_video(filename) or not title_match(
-                    name_parsed.parsed_title, filename_parsed.parsed_title
-                ):
+                if not is_video(filename):
                     continue
+
+                filename_parsed = parse(filename)
 
                 file_season = (
                     filename_parsed.seasons[0] if filename_parsed.seasons else None
@@ -214,22 +213,40 @@ class StremThru:
                 file_index = file["index"] if file["index"] != -1 else None
                 file_size = file["size"] if file["size"] != -1 else None
 
-                file_info = {
-                    "info_hash": hash,
+                file = {
                     "index": file_index,
                     "title": filename,
                     "size": file_size,
                     "season": file_season,
                     "episode": file_episode,
-                    "parsed": filename_parsed,
+                    "link": file["link"] if "link" in file else None,
                 }
-                files.append(file_info)
 
-                if filename == torrent_name or str(file["index"]) == index:
-                    target_file = file
+                debrid_files_parsed.append(file)
 
-                if season == file_season and episode == file_episode:
+                if not title_match(
+                    name_parsed.parsed_title, filename_parsed.parsed_title
+                ):
+                    continue
+
+                file["info_hash"] = hash
+                file["parsed"] = filename_parsed
+                files.append(file)
+
+            for file in debrid_files_parsed:
+                if file["title"] == torrent_name:
                     target_file = file
+                    break
+
+                if season == file["season"] and episode == file["episode"]:
+                    target_file = file
+                    break
+
+            if not target_file:
+                for file in files:
+                    if str(file["index"]) == index:
+                        target_file = file
+                        break
 
             if len(files) > 0:
                 asyncio.create_task(cache_availability(self.real_debrid_name, files))
