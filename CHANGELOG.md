@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.1](https://github.com/g0ldyy/comet/compare/v2.4.0...v2.4.1) (2025-03-15)
+
+
+### Bug Fixes
+
+* pikpak typo ([33c7fbd](https://github.com/g0ldyy/comet/commit/33c7fbd8a25ecca6fa2042551ca231c700aa3ad0))
+
 ## [2.4.0](https://github.com/g0ldyy/comet/compare/v2.3.0...v2.4.0) (2025-03-13)
 
 
