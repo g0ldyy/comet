@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.3](https://github.com/g0ldyy/comet/compare/v2.4.2...v2.4.3) (2025-03-30)
+
+
+### Bug Fixes
+
+* oupsie ([2c3b08f](https://github.com/g0ldyy/comet/commit/2c3b08f857e06748df06834da08e4db135165e66))
+
 ## [2.4.2](https://github.com/g0ldyy/comet/compare/v2.4.1...v2.4.2) (2025-03-30)
 
 
