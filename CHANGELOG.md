@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.2](https://github.com/g0ldyy/comet/compare/v2.4.1...v2.4.2) (2025-03-30)
+
+
+### Bug Fixes
+
+* info_hash parsing ([a521a04](https://github.com/g0ldyy/comet/commit/a521a04a4629c673e5c1f880b2545f33a155549b))
+
 ## [2.4.1](https://github.com/g0ldyy/comet/compare/v2.4.0...v2.4.1) (2025-03-15)
 
 
