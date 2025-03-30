@@ -6,6 +6,7 @@ import anyio
 import asyncio
 import orjson
 import time
+import base64
 
 from urllib.parse import parse_qs, urlparse
 from demagnetize.core import Demagnetizer
@@ -16,7 +17,7 @@ from comet.utils.logger import logger
 from comet.utils.models import settings, database
 from comet.utils.general import is_video, default_dump
 
-info_hash_pattern = re.compile(r"btih:([a-fA-F0-9]{40})")
+info_hash_pattern = re.compile(r"btih:([a-zA-Z0-9]{32}|[a-fA-F0-9]{40})")
 
 
 def extract_trackers_from_magnet(magnet_uri: str):
@@ -40,7 +41,10 @@ async def download_torrent(session: aiohttp.ClientSession, url: str):
             if location:
                 match = info_hash_pattern.search(location)
                 if match:
-                    return (None, match.group(1), location)
+                    info_hash = match.group(1)
+                    if len(info_hash) == 32:
+                        info_hash = base64.b16encode(base64.b32decode(info_hash)).decode("utf-8")
+                    return (None, info_hash, location)
             return (None, None, None)
     except Exception as e:
         logger.warning(
