@@ -2,12 +2,13 @@ import aiohttp
 import time
 import mediaflow_proxy.utils.http_utils
 
-from urllib.parse import quote
+from urllib.parse import quote_plus
 from fastapi import APIRouter, Request, BackgroundTasks
 from fastapi.responses import (
     FileResponse,
     RedirectResponse,
 )
+from urllib.parse import quote_plus
 
 from comet.utils.models import settings, database, trackers
 from comet.utils.general import parse_media_id
@@ -294,7 +295,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote(title)}/{result_season}/{result_episode}/{quote(torrent_title)}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote_plus(title)}/{result_season}/{result_episode}/{quote_plus(torrent_title)}"
                 )
 
             if torrent["cached"]:
