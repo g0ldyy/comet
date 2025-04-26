@@ -55,6 +55,9 @@ async def setup_database():
                     DO $$ DECLARE
                         r RECORD;
                     BEGIN
+                        -- Drop potentially conflicting types first
+                        DROP TYPE IF EXISTS db_version CASCADE;
+                        DROP TYPE IF EXISTS first_searches CASCADE;
                         FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename != 'db_version') LOOP
                             EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
                         END LOOP;
