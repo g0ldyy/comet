@@ -3,6 +3,7 @@ services:
     container_name: comet
     image: g0ldyy/comet
     restart: unless-stopped
+    network_mode: host
     ports:
       - "8000:8000"
     env_file:

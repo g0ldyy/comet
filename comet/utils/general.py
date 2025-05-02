@@ -291,5 +291,5 @@ def parse_media_id(media_type: str, media_id: str):
         return info[0], int(info[1]), int(info[2])
     elif media_type == "movie" and "kitsu" in media_id:
         info = media_id.split(":")
-        return info[0], int(info[1]), None
+        return int(info[1]), 1, None
     return media_id, None, None
