@@ -2,6 +2,7 @@ import aiohttp
 import time
 import mediaflow_proxy.utils.http_utils
 
+from urllib.parse import quote
 from fastapi import APIRouter, Request, BackgroundTasks
 from fastapi.responses import (
     FileResponse,
@@ -293,7 +294,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{title}/{result_season}/{result_episode}/{torrent_title}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote(title)}/{result_season}/{result_episode}/{quote(torrent_title)}"
                 )
 
             if torrent["cached"]:

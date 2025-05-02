@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 
 from RTN import parse, title_match
+from urllib.parse import unquote
 
 from comet.utils.models import settings
 from comet.utils.general import is_video
@@ -186,6 +187,9 @@ class StremThru:
 
             if magnet["data"]["status"] != "downloaded":
                 return
+            
+            name = unquote(name)
+            torrent_name = unquote(torrent_name)
 
             name_parsed = parse(name)
             target_file = None
