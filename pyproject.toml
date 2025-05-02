@@ -22,6 +22,6 @@ dependencies = [
     "mediaflow-proxy",
     "orjson",
     "pydantic-settings",
-    "rank-torrent-name==1.7.2",
+    "rank-torrent-name==1.8.2",
     "uvicorn",
 ]
