@@ -80,7 +80,7 @@ class TorrentManager:
         if settings.INDEXER_MANAGER_API_KEY:
             queries = [self.title]
 
-            if self.media_type == "series":
+            if self.media_type == "series" and self.episode is not None:
                 queries.append(f"{self.title} S{self.season:02d}")
                 queries.append(f"{self.title} S{self.season:02d}E{self.episode:02d}")
 
