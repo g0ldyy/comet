@@ -11,7 +11,7 @@ async def get_zilean(
     try:
         show = f"&season={season}&episode={episode}"
         get_dmm = await session.get(
-            f"{settings.ZILEAN_URL}/dmm/filtered?query={title}{show if season else ''}"
+            f"{settings.ZILEAN_URL}/dmm/filtered?query={title}{show if episode else ''}"
         )
         get_dmm = await get_dmm.json()
 
