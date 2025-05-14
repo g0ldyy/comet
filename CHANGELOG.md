@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.4.4](https://github.com/g0ldyy/comet/compare/v2.4.3...v2.4.4) (2025-05-03)
+
+
+### Bug Fixes
+
+* add URL encoding and decoding for stream and torrent names ([b17d727](https://github.com/g0ldyy/comet/commit/b17d72789fc621275dbf344bb132fba7232e4b62))
+* parse media_id for kitsu movies correctly ([f97a436](https://github.com/g0ldyy/comet/commit/f97a436f0b237d437fd405fdcc9140d7142653d4))
+* pin rank-torrent-name to last working version ([2d4ea89](https://github.com/g0ldyy/comet/commit/2d4ea89f6757c768b8b8038bd9ffc45aea314bf2))
+* pin rank-torrent-name to last working version ([ec06722](https://github.com/g0ldyy/comet/commit/ec06722fb3e841362903f2ba23ef823b887195b4))
+* revert unwanted change in docker-compose.yml ([03e385d](https://github.com/g0ldyy/comet/commit/03e385d1350b081e9b6b108dbe6abca374414d47))
+* revert unwanted change in docker-compose.yml ([3e1a7a6](https://github.com/g0ldyy/comet/commit/3e1a7a62c15dfb495d2b16c6fc2744042841f76d))
+* support kitsu special episodes without episode number ([ed2fcf4](https://github.com/g0ldyy/comet/commit/ed2fcf424810b0d461a905b0b79a6bf6181e4520))
+* support kitsu special episodes without episode number ([40fcf8e](https://github.com/g0ldyy/comet/commit/40fcf8e410c0abbee1814301b97822e0b5c3e75d))
+* update models to be compatible with latest RTN ([7fb18b2](https://github.com/g0ldyy/comet/commit/7fb18b2383f3c24c40525b70544fd6ab8fc7803c))
+* update models to be compatible with latest RTN ([3967c42](https://github.com/g0ldyy/comet/commit/3967c42bd095a7a297389adafc86025bb5e413bb))
+* update RTN dep to 1.8.2 ([a9350ea](https://github.com/g0ldyy/comet/commit/a9350ea8aa3e82bbd2b40efaba494915d55c99ae))
+* update RTN dep to 1.8.2 ([11ca645](https://github.com/g0ldyy/comet/commit/11ca6459e9c2f9b53fed834629b31f36eb5d9764))
+* update RTN dep to 1.8.3 ([3b1759c](https://github.com/g0ldyy/comet/commit/3b1759cac969e2df222619de93d3149bdc9bb81e))
+* update RTN dep to 1.8.3 ([7c995e5](https://github.com/g0ldyy/comet/commit/7c995e535ed882fd7cdd9b33bfd3abff00ecd6d9))
+
 ## [2.4.3](https://github.com/g0ldyy/comet/compare/v2.4.2...v2.4.3) (2025-03-30)
 
 
