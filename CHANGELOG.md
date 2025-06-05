@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.5.0](https://github.com/g0ldyy/comet/compare/v2.4.4...v2.5.0) (2025-06-05)
+
+
+### Features
+
+* lock system for comet clusters ([dd2171b](https://github.com/g0ldyy/comet/commit/dd2171bdcda8e3b7a4551882e23c6a7a15fcc218))
+
+
+### Bug Fixes
+
+* double requests for comet, torrentio and mediafusion ([5e95efc](https://github.com/g0ldyy/comet/commit/5e95efc2ca0c99ec09bb6d1b0ac280e64d9387ac))
+* explicitely block tmdb requests ([7c7aaa7](https://github.com/g0ldyy/comet/commit/7c7aaa71852789233e72f5d3ad759e19f92a314a))
+* gunicorn worker count ([2d1b2b9](https://github.com/g0ldyy/comet/commit/2d1b2b91bf23b876ed37b18f97e063ae165087d9))
+
 ## [2.4.4](https://github.com/g0ldyy/comet/compare/v2.4.3...v2.4.4) (2025-05-03)
 
 
