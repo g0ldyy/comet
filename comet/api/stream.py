@@ -69,6 +69,9 @@ async def stream(
     background_tasks: BackgroundTasks,
     b64config: str = None,
 ):
+    if "tmdb:" in media_id:
+        return {"streams": []};
+
     config = config_check(b64config)
     if not config:
         return {
