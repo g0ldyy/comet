@@ -187,7 +187,7 @@ class StremThru:
 
             if magnet["data"]["status"] != "downloaded":
                 return
-            
+
             name = unquote(name)
             torrent_name = unquote(torrent_name)
 

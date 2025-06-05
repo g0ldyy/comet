@@ -216,7 +216,7 @@ def run_with_gunicorn():
             return self.application
 
     workers = settings.FASTAPI_WORKERS
-    if workers <= 1:
+    if workers < 1:
         workers = min((os.cpu_count() or 1) * 2 + 1, 12)
 
     options = {
@@ -228,6 +228,7 @@ def run_with_gunicorn():
         "preload_app": True,
         "proxy_protocol": True,
         "forwarded_allow_ips": "*",
+        "loglevel": "warning",
     }
 
     start_log()

@@ -43,7 +43,9 @@ async def download_torrent(session: aiohttp.ClientSession, url: str):
                 if match:
                     info_hash = match.group(1)
                     if len(info_hash) == 32:
-                        info_hash = base64.b16encode(base64.b32decode(info_hash)).decode("utf-8")
+                        info_hash = base64.b16encode(
+                            base64.b32decode(info_hash)
+                        ).decode("utf-8")
                     return (None, info_hash, location)
             return (None, None, None)
     except Exception as e:
