@@ -13,6 +13,7 @@ def setupLogger(level: str):
     logger.level("API", no=45, icon="👾", color="<fg #006989>")
     logger.level("SCRAPER", no=40, icon="👻", color="<fg #d6bb71>")
     logger.level("STREAM", no=35, icon="🎬", color="<fg #d171d6>")
+    logger.level("LOCK", no=30, icon="🔒", color="<fg #71d6d6>")
 
     logger.level("INFO", icon="📰", color="<fg #FC5F39>")
     logger.level("DEBUG", icon="🕸️", color="<fg #DC5F00>")

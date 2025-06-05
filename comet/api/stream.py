@@ -1,4 +1,5 @@
 import aiohttp
+import asyncio
 import time
 import mediaflow_proxy.utils.http_utils
 
@@ -17,15 +18,9 @@ from comet.utils.general import config_check, format_title, get_client_ip
 from comet.debrid.manager import get_debrid_extension, get_debrid
 from comet.utils.streaming import custom_handle_stream_request
 from comet.utils.logger import logger
+from comet.utils.distributed_lock import DistributedLock, is_scrape_in_progress
 
 streams = APIRouter()
-
-
-async def remove_ongoing_search_from_database(media_id: str):
-    await database.execute(
-        "DELETE FROM ongoing_searches WHERE media_id = :media_id",
-        {"media_id": media_id},
-    )
 
 
 async def is_first_search(media_id: str):
@@ -43,6 +38,16 @@ async def is_first_search(media_id: str):
 async def background_scrape(
     torrent_manager: TorrentManager, media_id: str, debrid_service: str
 ):
+    scrape_lock = DistributedLock(media_id)
+    lock_acquired = await scrape_lock.acquire()
+
+    if not lock_acquired:
+        logger.log(
+            "SCRAPER",
+            f"🔒 Background scrape skipped for {media_id} - already in progress by another instance",
+        )
+        return
+
     try:
         async with aiohttp.ClientSession() as new_session:
             await torrent_manager.scrape_torrents(new_session)
@@ -57,7 +62,39 @@ async def background_scrape(
     except Exception as e:
         logger.log("SCRAPER", f"❌ Background scrape + availability check failed: {e}")
     finally:
-        await remove_ongoing_search_from_database(media_id)
+        await scrape_lock.release()
+
+
+async def wait_for_scrape_completion(media_id: str, context: str = "") -> bool:
+    """
+    Wait for another scrape to complete for the given media_id.
+
+    Args:
+        media_id: The media identifier
+        context: Additional context for logging (e.g., "log_title")
+
+    Returns:
+        True if scrape completed, False if timeout
+    """
+    check_interval = 1
+    waited_time = 0
+
+    while waited_time < settings.SCRAPE_WAIT_TIMEOUT:
+        await asyncio.sleep(check_interval)
+        waited_time += check_interval
+
+        if not await is_scrape_in_progress(media_id):
+            logger.log(
+                "SCRAPER",
+                f"✅ Other instance completed scraping for {context or media_id} after {waited_time}s",
+            )
+            return True
+
+    logger.log(
+        "SCRAPER",
+        f"⏰ Timeout waiting for other instance to complete scraping {context or media_id} after {settings.SCRAPE_WAIT_TIMEOUT}s",
+    )
+    return False
 
 
 @streams.get("/stream/{media_type}/{media_id}.json")
@@ -70,7 +107,7 @@ async def stream(
     b64config: str = None,
 ):
     if "tmdb:" in media_id:
-        return {"streams": []};
+        return {"streams": []}
 
     config = config_check(b64config)
     if not config:
@@ -84,28 +121,81 @@ async def stream(
             ]
         }
 
-    ongoing_search = await database.fetch_one(
-        "SELECT timestamp FROM ongoing_searches WHERE media_id = :media_id",
-        {"media_id": media_id},
-    )
-
-    if ongoing_search:
-        return {
-            "streams": [
-                {
-                    "name": "[🔄] Comet",
-                    "description": "Search in progress, please try again in a few seconds...",
-                    "url": "https://comet.fast",
-                }
-            ]
-        }
-
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
-        metadata, aliases = await MetadataScraper(session).fetch_metadata_and_aliases(
-            media_type, media_id
+        metadata_scraper = MetadataScraper(session)
+
+        # First, check if metadata is already cached
+        id, season, episode = parse_media_id(media_type, media_id)
+        cached_metadata = await metadata_scraper.get_cached(
+            id, season if "kitsu" not in media_id else 1, episode
         )
+
+        # Quick check for cached torrents (without creating TorrentManager yet)
+        cached_torrents_count = await database.fetch_val(
+            """
+                SELECT COUNT(*)
+                FROM torrents
+                WHERE media_id = :media_id
+                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
+                AND timestamp + :cache_ttl >= :current_time
+            """,
+            {
+                "media_id": id,
+                "season": season,
+                "episode": episode,
+                "cache_ttl": settings.TORRENT_CACHE_TTL,
+                "current_time": time.time(),
+            },
+        )
+
+        # If both metadata and torrents are cached, skip lock entirely
+        if cached_metadata is not None and cached_torrents_count > 0:
+            logger.log("SCRAPER", f"🚀 Fast path: using cached data for {media_id}")
+            metadata, aliases = cached_metadata[0], cached_metadata[1]
+            # Variables for fast path
+            lock_acquired = False
+            waited_for_other_scrape = False
+            scrape_lock = None
+            needs_scraping = False
+        else:
+            # Something is missing, acquire lock for scraping
+            scrape_lock = DistributedLock(media_id)
+            lock_acquired = await scrape_lock.acquire()
+            waited_for_other_scrape = False
+            needs_scraping = False
+
+            if not lock_acquired:
+                # Another instance has the lock, wait for completion
+                logger.log(
+                    "SCRAPER",
+                    f"🔄 Another instance is scraping {media_id}, waiting for results...",
+                )
+                await wait_for_scrape_completion(media_id)
+                waited_for_other_scrape = True
+
+                # After waiting, re-check cached metadata
+                cached_metadata = await metadata_scraper.get_cached(
+                    id, season if "kitsu" not in media_id else 1, episode
+                )
+
+            if lock_acquired:
+                # We have the lock, scrape metadata normally
+                metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+                    media_type, media_id
+                )
+            elif cached_metadata is not None:
+                # Use cached metadata after waiting
+                metadata, aliases = cached_metadata[0], cached_metadata[1]
+            else:
+                # No cached metadata available, fallback to scraping
+                metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+                    media_type, media_id
+                )
         if metadata is None:
+            if lock_acquired and scrape_lock:
+                await scrape_lock.release()
             logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
             return {
                 "streams": [
@@ -160,27 +250,49 @@ async def stream(
         cached_results = []
         non_cached_results = []
 
-        if not has_cached_results:
-            logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
-            await database.execute(
-                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
-                {"media_id": media_id, "timestamp": time.time()},
-            )
-            background_tasks.add_task(remove_ongoing_search_from_database, media_id)
-
-            await torrent_manager.scrape_torrents(session)
+        # If we waited for another scrape to complete, check cache again
+        if not has_cached_results and waited_for_other_scrape:
+            await torrent_manager.get_cached_torrents()
+            has_cached_results = len(torrent_manager.torrents) > 0
             logger.log(
                 "SCRAPER",
-                f"📥 Scraped torrents: {len(torrent_manager.torrents)}",
+                f"📦 Re-checked cache after waiting: {len(torrent_manager.torrents)} torrents",
             )
+
+        if not has_cached_results:
+            if lock_acquired and scrape_lock:
+                logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
+                needs_scraping = True
+            else:
+                # Another process is scraping, wait and check cache periodically
+                logger.log(
+                    "SCRAPER",
+                    f"🔄 Another instance is scraping {log_title}, waiting for results...",
+                )
+
+                await wait_for_scrape_completion(media_id, log_title)
+
+                await torrent_manager.get_cached_torrents()
+                logger.log(
+                    "SCRAPER",
+                    f"📦 Found cached torrents after waiting: {len(torrent_manager.torrents)}",
+                )
+
+                if len(torrent_manager.torrents) == 0:
+                    return {
+                        "streams": [
+                            {
+                                "name": "[🔄] Comet",
+                                "description": "Scraping in progress by another instance, please try again in a few seconds...",
+                                "url": "https://comet.fast",
+                            }
+                        ]
+                    }
+
         elif is_first:
             logger.log(
                 "SCRAPER",
                 f"🔄 Starting background scrape + availability check for {log_title}",
-            )
-            await database.execute(
-                f"INSERT {'OR IGNORE ' if settings.DATABASE_TYPE == 'sqlite' else ''}INTO ongoing_searches VALUES (:media_id, :timestamp){' ON CONFLICT DO NOTHING' if settings.DATABASE_TYPE == 'postgresql' else ''}",
-                {"media_id": media_id, "timestamp": time.time()},
             )
 
             background_tasks.add_task(
@@ -194,6 +306,22 @@ async def stream(
                     "url": "https://comet.fast",
                 }
             )
+
+        # Perform scraping if lock acquired and needed
+        if needs_scraping and scrape_lock:
+            try:
+                await torrent_manager.scrape_torrents(session)
+                logger.log(
+                    "SCRAPER",
+                    f"📥 Scraped torrents: {len(torrent_manager.torrents)}",
+                )
+            finally:
+                await scrape_lock.release()
+                lock_acquired = False  # Mark as released
+        elif lock_acquired and scrape_lock:
+            # Release lock if we had it but didn't need to scrape
+            await scrape_lock.release()
+            lock_acquired = False
 
         await torrent_manager.get_cached_availability()
         if (

@@ -92,7 +92,7 @@ class TorrentManager:
                     tasks.append(get_prowlarr(self, session, query, seen_already))
 
         await asyncio.gather(*tasks)
-        asyncio.create_task(self.cache_torrents())
+        await self.cache_torrents()  # Wait for cache to be written before continuing
 
         for torrent in self.ready_to_cache:
             season = torrent["parsed"].seasons[0] if torrent["parsed"].seasons else None

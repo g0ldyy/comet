@@ -41,6 +41,10 @@ class AppSettings(BaseSettings):
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
+    SCRAPE_LOCK_TTL: Optional[int] = 300  # 5 minutes
+    SCRAPE_WAIT_TIMEOUT: Optional[int] = (
+        30  # Max time to wait for other instance to complete
+    )
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"

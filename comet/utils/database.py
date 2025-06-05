@@ -85,6 +85,17 @@ async def setup_database():
 
         await database.execute(
             """
+                CREATE TABLE IF NOT EXISTS scrape_locks (
+                    lock_key TEXT PRIMARY KEY,
+                    instance_id TEXT,
+                    timestamp INTEGER,
+                    expires_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
                 CREATE TABLE IF NOT EXISTS first_searches (
                     media_id TEXT PRIMARY KEY, 
                     timestamp INTEGER
@@ -314,6 +325,25 @@ async def setup_database():
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
         logger.exception(traceback.format_exc())
+
+
+async def cleanup_expired_locks():
+    """Periodic cleanup task for expired locks."""
+    import asyncio
+    import time
+    from comet.utils.logger import logger
+
+    while True:
+        try:
+            current_time = int(time.time())
+            await database.execute(
+                "DELETE FROM scrape_locks WHERE expires_at < :current_time",
+                {"current_time": current_time},
+            )
+        except Exception as e:
+            logger.log("LOCK", f"❌ Error during periodic lock cleanup: {e}")
+
+        await asyncio.sleep(60)
 
 
 async def teardown_database():

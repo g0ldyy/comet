@@ -6,6 +6,7 @@ import time
 import traceback
 import uvicorn
 import os
+import asyncio
 
 from contextlib import asynccontextmanager
 
@@ -17,7 +18,11 @@ from starlette.requests import Request
 
 from comet.api.core import main
 from comet.api.stream import streams
-from comet.utils.database import setup_database, teardown_database
+from comet.utils.database import (
+    setup_database,
+    teardown_database,
+    cleanup_expired_locks,
+)
 from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
@@ -44,8 +49,19 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     await setup_database()
     await download_best_trackers()
-    yield
-    await teardown_database()
+
+    # Start background lock cleanup task
+    cleanup_task = asyncio.create_task(cleanup_expired_locks())
+
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        await teardown_database()
 
 
 app = FastAPI(
