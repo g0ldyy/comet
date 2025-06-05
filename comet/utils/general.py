@@ -11,6 +11,7 @@ from comet.utils.models import (
     rtn_settings_default,
     rtn_ranking_default,
 )
+from comet.utils.logger import logger
 
 
 def config_check(b64config: str):
@@ -294,3 +295,23 @@ def parse_media_id(media_type: str, media_id: str):
         info = media_id.split(":")
         return info[0], int(info[1]), int(info[2])
     return media_id, None, None
+
+
+def get_proxies():
+    if settings.DEBRID_PROXY_URL:
+        return {
+            "http": settings.DEBRID_PROXY_URL,
+            "https": settings.DEBRID_PROXY_URL,
+        }
+    return None
+
+
+def log_scraper_error(scraper_name: str, media_id: str, error: Exception):
+    if settings.DEBRID_PROXY_URL:
+        logger.warning(
+            f"Exception while getting torrents for {media_id} with {scraper_name}, your proxy is most likely blacklisted: {error}"
+        )
+    else:
+        logger.warning(
+            f"Exception while getting torrents for {media_id} with {scraper_name}, your IP is most likely blacklisted (you should try proxying Comet): {error}"
+        )

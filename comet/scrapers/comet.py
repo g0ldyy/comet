@@ -1,28 +1,16 @@
 from curl_cffi import requests
 
 from comet.utils.models import settings
-from comet.utils.logger import logger
+from comet.utils.general import get_proxies, log_scraper_error
 
 
 async def get_comet(manager, media_type: str, media_id: str):
     torrents = []
     try:
-        try:
-            get_comet = requests.get(
-                f"{settings.COMET_URL}/stream/{media_type}/{media_id}.json"
-            ).json()
-        except Exception as e:
-            logger.warning(
-                f"Failed to get Comet results without proxy for {media_id}: {e}"
-            )
-
-            get_comet = requests.get(
-                f"{settings.COMET_URL}/stream/{media_type}/{media_id}.json",
-                proxies={
-                    "http": settings.DEBRID_PROXY_URL,
-                    "https": settings.DEBRID_PROXY_URL,
-                },
-            ).json()
+        get_comet = requests.get(
+            f"{settings.COMET_URL}/stream/{media_type}/{media_id}.json",
+            proxies=get_proxies(),
+        ).json()
 
         for torrent in get_comet["streams"]:
             title_full = torrent["description"]
@@ -45,9 +33,7 @@ async def get_comet(manager, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        logger.warning(
-            f"Exception while getting torrents for {media_id} with Comet, your IP is most likely blacklisted (you should try proxying Comet): {e}"
-        )
+        log_scraper_error("Comet", media_id, e)
         pass
 
     await manager.filter_manager(torrents)

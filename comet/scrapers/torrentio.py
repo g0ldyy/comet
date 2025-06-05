@@ -3,8 +3,7 @@ import re
 from curl_cffi import requests
 
 from comet.utils.models import settings
-from comet.utils.logger import logger
-from comet.utils.general import size_to_bytes
+from comet.utils.general import size_to_bytes, get_proxies, log_scraper_error
 
 
 data_pattern = re.compile(
@@ -15,22 +14,10 @@ data_pattern = re.compile(
 async def get_torrentio(manager, media_type: str, media_id: str):
     torrents = []
     try:
-        try:
-            get_torrentio = requests.get(
-                f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json"
-            ).json()
-        except Exception as e:
-            logger.warning(
-                f"Failed to get Torrentio results without proxy for {media_id}: {e}"
-            )
-
-            get_torrentio = requests.get(
-                f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json",
-                proxies={
-                    "http": settings.DEBRID_PROXY_URL,
-                    "https": settings.DEBRID_PROXY_URL,
-                },
-            ).json()
+        get_torrentio = requests.get(
+            f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json",
+            proxies=get_proxies(),
+        ).json()
 
         for torrent in get_torrentio["streams"]:
             title_full = torrent["title"]
@@ -58,8 +45,6 @@ async def get_torrentio(manager, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        logger.warning(
-            f"Exception while getting torrents for {media_id} with Torrentio, your IP is most likely blacklisted (you should try proxying Comet): {e}"
-        )
+        log_scraper_error("Torrentio", media_id, e)
 
     await manager.filter_manager(torrents)
