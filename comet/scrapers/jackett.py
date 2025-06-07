@@ -18,7 +18,7 @@ async def process_torrent(
         "title": result["Title"],
         "infoHash": None,
         "fileIndex": None,
-        "seeders": result["Seeders"],
+        "seeders": int(result["Seeders"]) if result["Seeders"] is not None else None,
         "size": result["Size"],
         "tracker": result["Tracker"],
         "sources": [],
