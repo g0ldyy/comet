@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/g0ldyy/comet/compare/v2.5.1...v2.6.0) (2025-06-07)
+
+
+### Features
+
+* add MediaFusion API password support ([f15bbf1](https://github.com/g0ldyy/comet/commit/f15bbf1d54682edfa8e915ab31c526e2e6c6725b))
+
 ## [2.5.1](https://github.com/g0ldyy/comet/compare/v2.5.0...v2.5.1) (2025-06-07)
 
 
