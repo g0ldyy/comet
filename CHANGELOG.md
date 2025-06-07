@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.1](https://github.com/g0ldyy/comet/compare/v2.5.0...v2.5.1) (2025-06-07)
+
+
+### Bug Fixes
+
+* more info in env-sample ([bb85887](https://github.com/g0ldyy/comet/commit/bb85887df64291a895a8425ab26765271cb39cb2))
+* postgres wrong type ([a90fee8](https://github.com/g0ldyy/comet/commit/a90fee8dbfc079a24ceaf666f751af86f07580e3))
+
 ## [2.5.0](https://github.com/g0ldyy/comet/compare/v2.4.4...v2.5.0) (2025-06-05)
 
 
