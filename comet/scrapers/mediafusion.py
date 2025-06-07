@@ -2,14 +2,18 @@ from curl_cffi import requests
 
 from comet.utils.models import settings
 from comet.utils.general import get_proxies, log_scraper_error
+from comet.utils.mediafusion import mediafusion_config
 
 
 async def get_mediafusion(manager, media_type: str, media_id: str):
     torrents = []
     try:
+        headers = mediafusion_config.headers
+
         get_mediafusion = requests.get(
             f"{settings.MEDIAFUSION_URL}/D-zn4qJLK4wUZVWscY9ESCnoZBEiNJCZ9uwfCvmxuliDjY7vkc-fu0OdxUPxwsP3_A/stream/{media_type}/{media_id}.json",
             proxies=get_proxies(),
+            headers=headers,
         ).json()
 
         for torrent in get_mediafusion["streams"]:

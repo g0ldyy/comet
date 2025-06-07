@@ -166,9 +166,14 @@ def start_log():
     )
 
     mediafusion_url = f" - {settings.MEDIAFUSION_URL}"
+    mediafusion_api_password = (
+        f" - API Password: {settings.MEDIAFUSION_API_PASSWORD}"
+        if settings.MEDIAFUSION_API_PASSWORD
+        else ""
+    )
     logger.log(
         "COMET",
-        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_url if settings.SCRAPE_MEDIAFUSION else ''}",
+        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_url if settings.SCRAPE_MEDIAFUSION else ''}{mediafusion_api_password if settings.SCRAPE_MEDIAFUSION else ''}",
     )
 
     logger.log(

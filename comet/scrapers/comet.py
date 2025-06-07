@@ -17,7 +17,9 @@ async def get_comet(manager, media_type: str, media_id: str):
             title = title_full.split("\n")[0]
 
             seeders = (
-                int(title_full.split("👤 ")[1].split(" ")[0]) if "👤" in title_full else None
+                int(title_full.split("👤 ")[1].split(" ")[0])
+                if "👤" in title_full
+                else None
             )
             tracker = title_full.split("🔎 ")[1].split("\n")[0]
 

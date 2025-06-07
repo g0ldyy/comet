@@ -61,6 +61,7 @@ class AppSettings(BaseSettings):
     TORRENTIO_URL: Optional[str] = "https://torrentio.strem.fun"
     SCRAPE_MEDIAFUSION: Optional[bool] = False
     MEDIAFUSION_URL: Optional[str] = "https://mediafusion.elfhosted.com"
+    MEDIAFUSION_API_PASSWORD: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(

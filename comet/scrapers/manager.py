@@ -153,7 +153,9 @@ class TorrentManager:
             {
                 "media_id": self.media_only_id,
                 "info_hash": torrent["infoHash"],
-                "file_index": int(torrent["fileIndex"]) if torrent["fileIndex"] is not None else None,
+                "file_index": int(torrent["fileIndex"])
+                if torrent["fileIndex"] is not None
+                else None,
                 "season": torrent["parsed"].seasons[0]
                 if torrent["parsed"].seasons
                 else self.season,
@@ -161,7 +163,9 @@ class TorrentManager:
                 if torrent["parsed"].episodes
                 else None,
                 "title": torrent["title"],
-                "seeders": int(torrent["seeders"]) if torrent["seeders"] is not None else None,
+                "seeders": int(torrent["seeders"])
+                if torrent["seeders"] is not None
+                else None,
                 "size": int(torrent["size"]) if torrent["size"] is not None else None,
                 "tracker": torrent["tracker"],
                 "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
