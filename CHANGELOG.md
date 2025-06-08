@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/g0ldyy/comet/compare/v2.6.0...v2.6.1) (2025-06-08)
+
+
+### Bug Fixes
+
+* update mediafusion config ([73f5fc4](https://github.com/g0ldyy/comet/commit/73f5fc40093460ef41dbb244fd1bf6a40d365ef2))
+
 ## [2.6.0](https://github.com/g0ldyy/comet/compare/v2.5.1...v2.6.0) (2025-06-07)
 
 
