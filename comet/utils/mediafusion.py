@@ -5,7 +5,7 @@ from comet.utils.models import settings
 
 
 def encode_mediafusion_api_password(api_password: str) -> str:
-    user_config = {"ap": api_password, "nf": ["Disable"], "cf": ["Disable"]}
+    user_config = {"ap": api_password, "nf": ["Disable"], "cf": ["Disable"], "lss": True}
 
     json_str = json.dumps(user_config)
     encoded = base64.urlsafe_b64encode(json_str.encode()).decode()
