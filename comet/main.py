@@ -173,7 +173,7 @@ def start_log():
     )
     logger.log(
         "COMET",
-        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_url if settings.SCRAPE_MEDIAFUSION else ''}{mediafusion_api_password if settings.SCRAPE_MEDIAFUSION else ''}",
+        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_url if settings.SCRAPE_MEDIAFUSION else ''}{mediafusion_api_password if settings.SCRAPE_MEDIAFUSION else ''} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
     )
 
     logger.log(

@@ -62,6 +62,7 @@ class AppSettings(BaseSettings):
     SCRAPE_MEDIAFUSION: Optional[bool] = False
     MEDIAFUSION_URL: Optional[str] = "https://mediafusion.elfhosted.com"
     MEDIAFUSION_API_PASSWORD: Optional[str] = None
+    MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
