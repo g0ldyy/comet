@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/g0ldyy/comet/compare/v2.7.0...v2.8.0) (2025-06-10)
+
+
+### Features
+
+* add MediaFusion live search configuration ([f843929](https://github.com/g0ldyy/comet/commit/f8439296f517de8ac2a4de6e0d0c2580213c4a57))
+
 ## [2.7.0](https://github.com/g0ldyy/comet/compare/v2.6.1...v2.7.0) (2025-06-10)
 
 
