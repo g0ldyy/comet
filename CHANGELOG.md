@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/g0ldyy/comet/compare/v2.6.1...v2.7.0) (2025-06-10)
+
+
+### Features
+
+* mediafusion live search is not enabled by default?? ([91c13df](https://github.com/g0ldyy/comet/commit/91c13df7d4dbbd780053aa1396aab3b45425c6b3))
+
 ## [2.6.1](https://github.com/g0ldyy/comet/compare/v2.6.0...v2.6.1) (2025-06-08)
 
 
