@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/g0ldyy/comet/compare/v2.8.0...v2.9.0) (2025-06-11)
+
+
+### Features
+
+* enhance result formatting ([afc8d6f](https://github.com/g0ldyy/comet/commit/afc8d6f3b177538d1044b244a8c749e5060476fc))
+
 ## [2.8.0](https://github.com/g0ldyy/comet/compare/v2.7.0...v2.8.0) (2025-06-10)
 
 
