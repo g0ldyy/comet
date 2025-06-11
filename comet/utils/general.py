@@ -306,6 +306,24 @@ def get_proxies():
     return None
 
 
+async def fetch_with_proxy_fallback(url: str, headers: dict = None):
+    from curl_cffi import requests
+
+    try:
+        response = requests.get(url, headers=headers)
+        return response.json()
+    except Exception as first_error:
+        proxies = get_proxies()
+        if proxies:
+            try:
+                response = requests.get(url, headers=headers, proxies=proxies)
+                return response.json()
+            except Exception as second_error:
+                raise second_error
+        else:
+            raise first_error
+
+
 def log_scraper_error(scraper_name: str, media_id: str, error: Exception):
     api_password_missing = ""
     if "MediaFusion" in scraper_name:

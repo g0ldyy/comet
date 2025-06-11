@@ -1,9 +1,12 @@
 import re
 
-from curl_cffi import requests
 
 from comet.utils.models import settings
-from comet.utils.general import size_to_bytes, get_proxies, log_scraper_error
+from comet.utils.general import (
+    size_to_bytes,
+    log_scraper_error,
+    fetch_with_proxy_fallback,
+)
 
 
 data_pattern = re.compile(
@@ -14,10 +17,9 @@ data_pattern = re.compile(
 async def get_torrentio(manager, media_type: str, media_id: str):
     torrents = []
     try:
-        get_torrentio = requests.get(
-            f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json",
-            proxies=get_proxies(),
-        ).json()
+        get_torrentio = await fetch_with_proxy_fallback(
+            f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json"
+        )
 
         for torrent in get_torrentio["streams"]:
             title_full = torrent["title"]

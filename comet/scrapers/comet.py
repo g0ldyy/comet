@@ -1,16 +1,17 @@
-from curl_cffi import requests
 
 from comet.utils.models import settings
-from comet.utils.general import get_proxies, log_scraper_error
+from comet.utils.general import (
+    log_scraper_error,
+    fetch_with_proxy_fallback,
+)
 
 
 async def get_comet(manager, media_type: str, media_id: str):
     torrents = []
     try:
-        get_comet = requests.get(
-            f"{settings.COMET_URL}/stream/{media_type}/{media_id}.json",
-            proxies=get_proxies(),
-        ).json()
+        get_comet = await fetch_with_proxy_fallback(
+            f"{settings.COMET_URL}/stream/{media_type}/{media_id}.json"
+        )
 
         for torrent in get_comet["streams"]:
             title_full = torrent["description"]

@@ -1,7 +1,9 @@
-from curl_cffi import requests
 
 from comet.utils.models import settings
-from comet.utils.general import get_proxies, log_scraper_error
+from comet.utils.general import (
+    log_scraper_error,
+    fetch_with_proxy_fallback,
+)
 from comet.utils.mediafusion import mediafusion_config
 
 
@@ -10,11 +12,10 @@ async def get_mediafusion(manager, media_type: str, media_id: str):
     try:
         headers = mediafusion_config.headers
 
-        get_mediafusion = requests.get(
+        get_mediafusion = await fetch_with_proxy_fallback(
             f"{settings.MEDIAFUSION_URL}/stream/{media_type}/{media_id}.json",
-            proxies=get_proxies(),
             headers=headers,
-        ).json()
+        )
 
         for torrent in get_mediafusion["streams"]:
             title_full = torrent["description"]
