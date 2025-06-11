@@ -100,7 +100,7 @@ def size_to_bytes(size_str: str):
 
 languages_emojis = {
     "unknown": "❓",  # Unknown
-    "multi": "🌎",  # Dubbed
+    "multi": "multi",  # Dubbed
     "en": "🇬🇧",  # English
     "ja": "🇯🇵",  # Japanese
     "zh": "🇨🇳",  # Chinese
@@ -160,26 +160,94 @@ def get_language_emoji(language: str):
     )
 
 
-def format_metadata(data: ParsedData):
-    extras = []
-    if data.quality:
-        extras.append(data.quality)
-    if data.hdr:
-        extras.extend(data.hdr)
-    if data.codec:
-        extras.append(data.codec)
-    if data.audio:
-        extras.extend(data.audio)
-    if data.channels:
-        extras.extend(data.channels)
-    if data.bit_depth:
-        extras.append(data.bit_depth)
-    if data.network:
-        extras.append(data.network)
-    if data.group:
-        extras.append(data.group)
+def format_video_info(data: ParsedData):
+    video_parts = []
 
-    return "|".join(extras)
+    if hasattr(data, "codec") and data.codec:
+        if isinstance(data.codec, list):
+            video_parts.extend(data.codec)
+        else:
+            video_parts.append(data.codec)
+    if hasattr(data, "hdr") and data.hdr:
+        video_parts.append(data.hdr) if isinstance(
+            data.hdr, str
+        ) else video_parts.extend(data.hdr)
+
+    if hasattr(data, "bitDepth") and data.bitDepth:
+        if isinstance(data.bitDepth, list):
+            video_parts.extend([f"{bd}bit" for bd in data.bitDepth])
+        else:
+            if data.bitDepth.endswith("bit"):
+                video_parts.append(data.bitDepth)
+            else:
+                video_parts.append(f"{data.bitDepth}bit")
+    elif hasattr(data, "bit_depth") and data.bit_depth:
+        if isinstance(data.bit_depth, list):
+            video_parts.extend([f"{bd}bit" for bd in data.bit_depth])
+        else:
+            if data.bit_depth.endswith("bit"):
+                video_parts.append(data.bit_depth)
+            else:
+                video_parts.append(f"{data.bit_depth}bit")
+
+    return " • ".join(video_parts) if video_parts else ""
+
+
+def format_audio_info(data: ParsedData):
+    audio_parts = []
+
+    if hasattr(data, "audio") and data.audio:
+        if isinstance(data.audio, list):
+            audio_parts.extend(data.audio)
+        else:
+            audio_parts.append(data.audio)
+    if hasattr(data, "channels") and data.channels:
+        if isinstance(data.channels, list):
+            audio_parts.extend(data.channels)
+        else:
+            audio_parts.append(data.channels)
+
+    return " • ".join(audio_parts) if audio_parts else ""
+
+
+def format_quality_info(data: ParsedData):
+    quality_parts = []
+
+    if hasattr(data, "quality") and data.quality:
+        if isinstance(data.quality, list):
+            quality_parts.extend(data.quality)
+        else:
+            quality_parts.append(data.quality)
+    if hasattr(data, "remux") and data.remux:
+        quality_parts.append("REMUX")
+    if hasattr(data, "proper") and data.proper:
+        quality_parts.append("PROPER")
+    if hasattr(data, "repack") and data.repack:
+        quality_parts.append("REPACK")
+    if hasattr(data, "upscaled") and data.upscaled:
+        quality_parts.append("UPSCALED")
+    if hasattr(data, "remastered") and data.remastered:
+        quality_parts.append("REMASTERED")
+    if hasattr(data, "directorsCut") and data.directorsCut:
+        quality_parts.append("DIRECTOR'S CUT")
+    elif hasattr(data, "directors_cut") and data.directors_cut:
+        quality_parts.append("DIRECTOR'S CUT")
+    if hasattr(data, "extended") and data.extended:
+        quality_parts.append("EXTENDED")
+
+    return " • ".join(quality_parts) if quality_parts else ""
+
+
+def format_group_info(data: ParsedData):
+    group_parts = []
+
+    if hasattr(data, "group") and data.group:
+        if isinstance(data.group, list):
+            group_parts.extend(data.group)
+        else:
+            group_parts.append(data.group)
+
+    return " • ".join(group_parts) if group_parts else ""
 
 
 def format_title(
@@ -191,39 +259,77 @@ def format_title(
     result_format: list,
 ):
     has_all = "all" in result_format
+    lines = []
 
-    title = ""
-    if has_all or "title" in result_format:
-        title += f"{ttitle}\n"
+    show_title = has_all or "title" in result_format
+    if show_title:
+        lines.append(f"📄 {ttitle}")
 
-    if has_all or "metadata" in result_format:
-        metadata = format_metadata(data)
-        if metadata != "":
-            title += f"💿 {metadata}\n"
+    show_video = has_all or "video_info" in result_format
+    show_audio = has_all or "audio_info" in result_format
+    show_quality = has_all or "quality_info" in result_format
+    show_group = has_all or "release_group" in result_format
 
-    if (has_all or "seeders" in result_format) and seeders is not None:
-        title += f"👤 {seeders} "
+    video_audio_parts = []
 
-    if has_all or "size" in result_format:
-        title += f"💾 {bytes_to_size(size)} "
+    if show_video:
+        video_info = format_video_info(data)
+        if video_info:
+            video_audio_parts.append(f"📹 {video_info}")
 
-    if has_all or "tracker" in result_format:
-        title += f"🔎 {tracker}"
+    if show_audio:
+        audio_info = format_audio_info(data)
+        if audio_info:
+            video_audio_parts.append(f"🔊 {audio_info}")
 
-    if has_all or "languages" in result_format:
-        languages = data.languages
-        if languages:
+    if video_audio_parts:
+        lines.append(" | ".join(video_audio_parts))
+
+    quality_parts = []
+
+    if show_quality:
+        quality_info = format_quality_info(data)
+        if quality_info:
+            quality_parts.append(f"⭐ {quality_info}")
+
+    if show_group:
+        groups = format_group_info(data)
+        if groups:
+            quality_parts.append(f"🏷️ {groups}")
+
+    if quality_parts:
+        lines.append(" | ".join(quality_parts))
+
+    show_seeders = has_all or "seeders" in result_format
+    show_size = has_all or "size" in result_format
+    show_tracker = has_all or "tracker" in result_format
+
+    info_parts = []
+
+    if show_seeders and seeders is not None:
+        info_parts.append(f"👤 {seeders}")
+
+    if show_size:
+        info_parts.append(f"💾 {bytes_to_size(size)}")
+
+    if show_tracker:
+        info_parts.append(f"🔎 {tracker}")
+
+    if info_parts:
+        lines.append(" ".join(info_parts))
+
+    show_languages = has_all or "languages" in result_format
+    if show_languages:
+        if hasattr(data, "languages") and data.languages:
             formatted_languages = "/".join(
-                get_language_emoji(language) for language in languages
+                get_language_emoji(language) for language in data.languages
             )
-            languages_str = "\n" + formatted_languages
-            title += f"{languages_str}"
+            lines.append(f"{formatted_languages}")
 
-    if title == "":
-        # Without this, Streamio shows SD as the result, which is confusing
-        title = "Empty result format configuration"
+    if not lines:
+        return "Empty result format configuration"
 
-    return title
+    return "\n".join(lines)
 
 
 def get_client_ip(request: Request):
