@@ -100,7 +100,7 @@ def size_to_bytes(size_str: str):
 
 languages_emojis = {
     "unknown": "❓",  # Unknown
-    "multi": "multi",  # Dubbed
+    "multi": "🌎",  # Dubbed
     "en": "🇬🇧",  # English
     "ja": "🇯🇵",  # Japanese
     "zh": "🇨🇳",  # Chinese
