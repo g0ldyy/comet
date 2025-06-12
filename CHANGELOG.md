@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.10.0](https://github.com/g0ldyy/comet/compare/v2.9.0...v2.10.0) (2025-06-12)
+
+
+### Features
+
+* 4300% performance improvement ([4a91bb7](https://github.com/g0ldyy/comet/commit/4a91bb7fc7736f1de03706cf8381b2d0a209bfa4))
+
+
+### Bug Fixes
+
+* remove unused langage ([9516b1f](https://github.com/g0ldyy/comet/commit/9516b1fd05cc38c278cd244ef711d716c84eaacb))
+
 ## [2.9.0](https://github.com/g0ldyy/comet/compare/v2.8.0...v2.9.0) (2025-06-11)
 
 
