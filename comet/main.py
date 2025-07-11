@@ -48,7 +48,6 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_database()
-    await download_best_trackers()
 
     # Start background lock cleanup task
     cleanup_task = asyncio.create_task(cleanup_expired_locks())
