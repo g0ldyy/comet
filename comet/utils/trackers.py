@@ -2,7 +2,6 @@ import urllib.parse
 import asyncio
 import aiohttp
 from parallel_utils.thread import Monitor, create_thread, synchronized
-import aiohttp_client_cache 
 from aiohttp_client_cache import CachedSession
 from aiohttp_client_cache.backends.filesystem import FileBackend
 
@@ -59,21 +58,29 @@ async def post_newtrackon_trackers(new_trackers: list) -> None:
     """
     if not new_trackers:
         return
+    
+    existing_sources = set(new_trackers)
+    trackers_to_add = [t for t in get_trackers() if t not in existing_sources]
+    
+    if len(trackers_to_add) == 0:
+        return
 
+    trackers.extend(trackers_to_add)
+    
     # Codifica cada tracker individualmente e junta sem separadores
-    encoded_trackers = ''.join(urllib.parse.quote(tracker, safe='') for tracker in new_trackers)
+    encoded_trackers = ''.join(urllib.parse.quote(tracker, safe='') for tracker in trackers_to_add)
     payload = f"new_trackers={encoded_trackers}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://newtrackon.com/api/add ",
+                "https://newtrackon.com/api/add",
                 data=payload,
                 headers=headers
             ) as response:
-                if response.status == 200:
-                    logger.info(f"✅ {len(new_trackers)} novo(s) tracker(s) adicionado(s) ao NewTrackon.")
+                if response.status == 204:
+                    logger.info(f"✅ {len(trackers_to_add)} Trackers added to the queue NewTrackon.")
                 else:
                     logger.warning(f"❌ Falha ao adicionar trackers ao NewTrackon. Código: {response.status}")
     except Exception as e:
@@ -89,7 +96,7 @@ async def download_newtrackon():
             # Atualiza a lista de forma segura
             with monitor.synchronized("trackers_update"):
                 trackers.extend(other_trackers)
-            print("Trackers atualizados")
+            logger.info(f"Trackers updated: {len(other_trackers)} new trackers added")
     except Exception as e:
         logger.warning(f"Erro ao baixar trackers: {e}")
         
