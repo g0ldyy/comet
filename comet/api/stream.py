@@ -422,10 +422,10 @@ async def stream(
                 if len(torrent["sources"]) == 0:
                     the_stream["sources"] = get_trackers()
                 else:
-                    combined_sources = torrent["sources"][:]
+                    combined_sources = set(torrent["sources"][:])
                     background_tasks.add_task(post_newtrackon_trackers, combined_sources)
-                    combined_sources.extend(get_trackers())
-                    the_stream["sources"] = combined_sources
+                    #combined_sources.update(get_trackers())
+                    the_stream["sources"] = list(combined_sources)
             else:
                 the_stream["url"] = (
                     f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote(title)}/{result_season}/{result_episode}/{quote(torrent_title)}"

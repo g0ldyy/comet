@@ -23,7 +23,6 @@ from comet.utils.database import (
     teardown_database,
     cleanup_expired_locks,
 )
-from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
 

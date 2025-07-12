@@ -7,36 +7,7 @@ from aiohttp_client_cache.backends.filesystem import FileBackend
 
 from comet.utils.logger import logger
 
-trackers = [
-    "udp://tracker-udp.gbitt.info:80/announce",
-    "udp://tracker.0x7c0.com:6969/announce",
-    "udp://opentracker.io:6969/announce",
-    "udp://leet-tracker.moe:1337/announce",
-    "udp://tracker.torrent.eu.org:451/announce",
-    "udp://tracker.tiny-vps.com:6969/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://tracker.pomf.se:80/announce",
-    "udp://9.rarbg.me:2710/announce",
-    "http://tracker.gbitt.info:80/announce",
-    "udp://tracker.bittor.pw:1337/announce",
-    "udp://open.free-tracker.ga:6969/announce",
-    "udp://open.stealth.si:80/announce",
-    "udp://retracker01-msk-virt.corbina.net:80/announce",
-    "udp://tracker.openbittorrent.com:80/announce",
-    "udp://tracker.opentrackr.org:1337/announce",
-    "udp://isk.richardsw.club:6969/announce",
-    "https://tracker.gbitt.info:443/announce",
-    "udp://tracker.coppersurfer.tk:6969/announce",
-    "udp://oh.fuuuuuck.com:6969/announce",
-    "udp://ipv4.tracker.harry.lu:80/announce",
-    "udp://open.demonii.com:1337/announce",
-    "https://tracker.tamersunion.org:443/announce",
-    "https://tracker.renfei.net:443/announce",
-    "udp://open.tracker.cl:1337/announce",
-    "udp://tracker.internetwarriors.net:1337/announce",
-    "udp://exodus.desync.com:6969/announce",
-    "udp://tracker.dump.cl:6969/announce",
-]
+trackers = set()
 
 monitor = Monitor()
 monitor.is_updating = False # Inicializa a flag de atualização
@@ -49,26 +20,18 @@ cache = FileBackend(
     autoclose=True,
 )
 
-async def post_newtrackon_trackers(new_trackers: list) -> None:
-    """
-    Envia uma lista de novos trackers para o NewTrackon.
-    
-    Args:
-        new_trackers (list): Lista de URLs de trackers que não estão no NewTrackon.
-    """
-    if not new_trackers:
+async def post_newtrackon_trackers(input_trackers) -> None:
+   
+    existing_sources = get_trackers()
+    new_trackers = input_trackers.difference(existing_sources)
+    if len(new_trackers) == 0:
         return
     
-    existing_sources = set(new_trackers)
-    trackers_to_add = [t for t in get_trackers() if t not in existing_sources]
     
-    if len(trackers_to_add) == 0:
-        return
-
-    trackers.extend(trackers_to_add)
+    trackers.update(new_trackers)
     
     # Codifica cada tracker individualmente e junta sem separadores
-    encoded_trackers = ''.join(urllib.parse.quote(tracker, safe='') for tracker in trackers_to_add)
+    encoded_trackers = ''.join(urllib.parse.quote(tracker, safe='') for tracker in list(new_trackers))
     payload = f"new_trackers={encoded_trackers}"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
@@ -80,7 +43,7 @@ async def post_newtrackon_trackers(new_trackers: list) -> None:
                 headers=headers
             ) as response:
                 if response.status == 204:
-                    logger.info(f"✅ {len(trackers_to_add)} Trackers added to the queue NewTrackon.")
+                    logger.info(f"✅ {len(new_trackers)} Trackers added to the queue NewTrackon.")
                 else:
                     logger.warning(f"❌ Falha ao adicionar trackers ao NewTrackon. Código: {response.status}")
     except Exception as e:
@@ -91,12 +54,11 @@ async def download_newtrackon():
         async with CachedSession(cache=cache) as session:
             response = await session.get("https://newtrackon.com/api/all")
             response_text = await response.text()
-            other_trackers = [tracker.strip() for tracker in response_text.split("\n") if tracker.strip()]
-
+            
             # Atualiza a lista de forma segura
             with monitor.synchronized("trackers_update"):
-                trackers.extend(other_trackers)
-            logger.info(f"Trackers updated: {len(other_trackers)} new trackers added")
+                other_trackers = [tracker.strip() for tracker in response_text.split("\n") if tracker.strip()]               
+                trackers.update(other_trackers)
     except Exception as e:
         logger.warning(f"Erro ao baixar trackers: {e}")
         
@@ -123,17 +85,4 @@ def get_trackers():
     
     # Retorna a lista atual
     with monitor.synchronized("trackers_update"):
-        return list(trackers)
-
-async def download_best_trackers():
-    try:
-        async with aiohttp.ClientSession() as session:
-            response = await session.get(
-                "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
-            )
-            response = await response.text()
-
-            other_trackers = [tracker for tracker in response.split("\n") if tracker]
-            trackers.extend(other_trackers)
-    except Exception as e:
-        logger.warning(f"Failed to download best trackers: {e}")
+        return trackers
