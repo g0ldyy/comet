@@ -424,7 +424,7 @@ async def stream(
                 else:
                     combined_sources = set(torrent["sources"][:])
                     background_tasks.add_task(post_newtrackon_trackers, combined_sources)
-                    #combined_sources.update(get_trackers())
+                    combined_sources.update(get_trackers())
                     the_stream["sources"] = list(combined_sources)
             else:
                 the_stream["url"] = (
