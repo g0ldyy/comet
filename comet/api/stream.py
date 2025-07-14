@@ -10,7 +10,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
-from comet.utils.trackers import get_trackers, post_newtrackon_trackers
+from comet.utils.trackers import get_cached_trackers, post_newtrackon_trackers
 from comet.utils.models import settings, database
 from comet.utils.general import parse_media_id
 from comet.metadata.manager import MetadataScraper
@@ -420,11 +420,11 @@ async def stream(
                 if torrent["fileIndex"] is not None:
                     the_stream["fileIdx"] = torrent["fileIndex"]
                 if len(torrent["sources"]) == 0:
-                    the_stream["sources"] = get_trackers()
+                    the_stream["sources"] = get_cached_trackers()
                 else:
                     combined_sources = set(torrent["sources"][:])
                     background_tasks.add_task(post_newtrackon_trackers, combined_sources)
-                    combined_sources.update(get_trackers())
+                    combined_sources.update(get_cached_trackers())
                     the_stream["sources"] = list(combined_sources)
             else:
                 the_stream["url"] = (
