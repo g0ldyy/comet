@@ -53,8 +53,7 @@ cache = FileBackend(
 
 async def post_newtrackon_trackers(input_trackers) -> None:
    
-    existing_sources = get_cached_trackers()
-    new_trackers = input_trackers.difference(existing_sources)
+    new_trackers = input_trackers.difference(cached_trackers)
     if len(new_trackers) == 0:
         return
     
@@ -115,13 +114,22 @@ async def refresh_trackers_cache():
         with monitor.synchronized("cache_state_update"):
             is_cache_being_refreshed = False
 
-@synchronized(max_threads=1)  # Garante uma única atualização por vez
+@synchronized(max_threads=1)
 def start_cache_refresh():
     """Inicia a atualização do cache em uma thread assíncrona."""
     try:
-        asyncio.run(refresh_trackers_cache())
+        # Obtém o event loop existente ou cria um novo se necessário
+        loop = asyncio.get_event_loop()
+        if not loop.is_running():
+            loop.run_until_complete(refresh_trackers_cache())
+        else:
+            future = asyncio.run_coroutine_threadsafe(refresh_trackers_cache(), loop)
+            future.result()
     except Exception as e:
         logger.warning(f"Erro na atualização assíncrona: {e}")
+        # Garante que o estado seja resetado mesmo em erro
+        with monitor.synchronized("cache_state_update"):
+            is_cache_being_refreshed = False
 
 def get_cached_trackers():
     """
@@ -135,9 +143,13 @@ def get_cached_trackers():
     # Verifica se o cache precisa ser atualizado
     with monitor.synchronized("cache_state_check"):
         if not is_cache_being_refreshed:
-            is_cache_being_refreshed = True
-            create_thread(start_cache_refresh)
+            try:
+                is_cache_being_refreshed = True
+                create_thread(start_cache_refresh)
+            except Exception as e:
+                is_cache_being_refreshed = False
+                logger.warning(f"Failed to start cache refresh thread: {e}")
 
     # Retorna uma cópia segura do cache atual
     with monitor.synchronized("cached_trackers_read"):
-        return list(cached_trackers)
+        return set(cached_trackers)
