@@ -24,4 +24,5 @@ dependencies = [
     "pydantic-settings",
     "rank-torrent-name==1.8.3",
     "uvicorn",
+    "passlib[bcrypt]",
 ]

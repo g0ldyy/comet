@@ -5,7 +5,7 @@ import traceback
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
 
-DATABASE_VERSION = "1.0"
+DATABASE_VERSION = "1.3"
 
 
 async def setup_database():
@@ -32,47 +32,87 @@ async def setup_database():
                 SELECT version FROM db_version WHERE id = 1
             """
         )
-
         if current_version != DATABASE_VERSION:
             logger.log(
                 "COMET",
                 f"Database: Migration from {current_version} to {DATABASE_VERSION} version",
             )
-
-            if settings.DATABASE_TYPE == "sqlite":
-                tables = await database.fetch_all(
-                    """
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name != 'db_version' AND name != 'sqlite_sequence'
-                    """
+            # For >=1.1 perform non-destructive, additive migrations
+            # Create new tables if they don't exist
+            await database.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL
                 )
-
-                for table in tables:
-                    await database.execute(f"DROP TABLE IF EXISTS {table['name']}")
-            else:
-                await database.execute(
-                    """
-                    DO $$ DECLARE
-                        r RECORD;
-                    BEGIN
-                        FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename != 'db_version') LOOP
-                            EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
-                        END LOOP;
-                    END $$;
-                    """
-                )
+                """
+            )
 
             await database.execute(
                 """
-                    INSERT INTO db_version VALUES (1, :version)
-                    ON CONFLICT (id) DO UPDATE SET version = :version
+                CREATE TABLE IF NOT EXISTS api_tokens (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    name TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER,
+                    last_used INTEGER,
+                    usage_count INTEGER NOT NULL DEFAULT 0,
+                    monthly_quota INTEGER,
+                    scope TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+                """
+            )
+
+            # 1.2 additive migration items
+            # Create configs table
+            await database.execute(
+                """
+                CREATE TABLE IF NOT EXISTS configs (
+                    id TEXT PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    config_json TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+            # Add current_config_id column to users if missing
+            try:
+                await database.execute("ALTER TABLE users ADD COLUMN current_config_id TEXT")
+            except Exception:
+                pass
+
+            # Sessions table for user login sessions (1.3)
+            await database.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    token TEXT UNIQUE NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+                """
+            )
+
+            # Ensure db_version row exists/updated
+            await database.execute(
+                """
+                INSERT INTO db_version (id, version) VALUES (1, :version)
+                ON CONFLICT (id) DO UPDATE SET version = :version
                 """,
                 {"version": DATABASE_VERSION},
             )
 
-            logger.log(
-                "COMET", f"Database: Migration to version {DATABASE_VERSION} completed"
-            )
+            logger.log("COMET", f"Database: Migration to version {DATABASE_VERSION} completed (additive)")
 
         await database.execute(
             """

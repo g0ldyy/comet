@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html class="sl-theme-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>User Dashboard - Comet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/themes/dark.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/shoelace-autoloader.js"></script>
+  <link rel="stylesheet" href="/static/index.css" />
+  <style>
+    body{max-width:860px;margin:0 auto;padding:1.25rem;font-family:system-ui,sans-serif}
+    .wrap{word-break:break-all}
+    .mono{font-family:monospace}
+    .card{border:1px solid #333;padding:1rem;border-radius:8px;margin-bottom:1rem}
+    .center{text-align:center}
+  </style>
+</head>
+<body>
+  <div id="login" class="card" style="display:none">
+    <h2 style="margin-top:0">User Login</h2>
+    <sl-input id="user" label="Username"></sl-input>
+    <sl-input id="pass" style="margin-top:.75rem" label="Password" type="password" toggle-password></sl-input>
+    <sl-button id="loginBtn" variant="primary" style="margin-top:1rem;width:100%">Login</sl-button>
+    <sl-alert id="loginErr" variant="danger" closable style="display:none;margin-top:1rem"><sl-icon slot="icon" name="exclamation-triangle"></sl-icon><strong>Login failed.</strong></sl-alert>
+  </div>
+  <div id="app" style="display:none">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;">
+        <h2 style="margin:0">Your Comet Link</h2>
+        <div>
+          <sl-button size="small" id="logout" variant="danger">Logout</sl-button>
+        </div>
+      </div>
+      <p class="wrap mono" id="manifestLink"></p>
+      <sl-button id="copyLink" size="small" variant="primary">Copy Link</sl-button>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Tokens</h3>
+      <p style="opacity:.8;font-size:.85rem">If you have multiple tokens, any active one works with the link above (config driven by your assigned profile).</p>
+      <table style="width:100%;border-collapse:collapse" id="tokensTable">
+        <thead><tr><th style="text-align:left">Name</th><th style="text-align:left">Active</th><th style="text-align:left">Usage</th><th style="text-align:left">Last Used</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <script type="module">
+    async function fetchJSON(url, opts={}){ const r=await fetch(url, opts); if(!r.ok) throw new Error(r.status); return r.json(); }
+    const loginDiv=document.getElementById('login');
+    const app=document.getElementById('app');
+    const userInput=document.getElementById('user');
+    const passInput=document.getElementById('pass');
+    const loginBtn=document.getElementById('loginBtn');
+    const loginErr=document.getElementById('loginErr');
+    const logoutBtn=document.getElementById('logout');
+    const manifestLink=document.getElementById('manifestLink');
+    const copyBtn=document.getElementById('copyLink');
+    const tokensTable=document.querySelector('#tokensTable tbody');
+
+    function showLogin(){ loginDiv.style.display='block'; app.style.display='none'; }
+    function showApp(){ loginDiv.style.display='none'; app.style.display='block'; }
+
+    async function loadDashboard(){
+      try {
+        const data = await fetchJSON('/user/dashboard/data');
+        manifestLink.textContent = data.config_url;
+        tokensTable.innerHTML='';
+        data.tokens.forEach(t=>{
+          const tr=document.createElement('tr');
+          const last=t.last_used? new Date(t.last_used*1000).toLocaleString():'';
+          tr.innerHTML=`<td>${t.name||''}</td><td>${t.is_active?'✅':'❌'}</td><td>${t.usage_count}</td><td>${last}</td>`;
+          tokensTable.appendChild(tr);
+        });
+        showApp();
+      } catch(e){
+        showLogin();
+      }
+    }
+
+    async function attemptLogin(){
+      const u=userInput.value.trim(); const p=passInput.value.trim(); if(!u||!p) return;
+      try {
+        const r=await fetch('/user/login',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})});
+        if(!r.ok) throw new Error(r.status);
+        loginErr.style.display='none';
+        await loadDashboard();
+      } catch(e){ loginErr.style.display='block'; }
+    }
+
+    loginBtn.addEventListener('click', attemptLogin);
+    passInput.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(); });
+    logoutBtn.addEventListener('click', async ()=>{ await fetch('/user/logout', {method:'POST'}); showLogin(); });
+    copyBtn.addEventListener('click', ()=>{ navigator.clipboard.writeText(manifestLink.textContent); copyBtn.textContent='Copied!'; setTimeout(()=>copyBtn.textContent='Copy Link',1500); });
+
+    loadDashboard();
+  </script>
+</body>
+</html>

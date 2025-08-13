@@ -18,6 +18,7 @@ from starlette.requests import Request
 
 from comet.api.core import main
 from comet.api.stream import streams
+from comet.api.auth import admin_api, user_api
 from comet.utils.database import (
     setup_database,
     teardown_database,
@@ -85,6 +86,8 @@ app.mount("/static", StaticFiles(directory="comet/templates"), name="static")
 
 app.include_router(main)
 app.include_router(streams)
+app.include_router(admin_api)
+app.include_router(user_api)
 
 
 class Server(uvicorn.Server):

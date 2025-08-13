@@ -29,8 +29,11 @@
         </div>
       </div>
       <sl-tab-group activation="manual">
-        <sl-tab slot="nav" panel="connections">Connections</sl-tab>
-        <sl-tab slot="nav" panel="logs">Logs</sl-tab>
+  <sl-tab slot="nav" panel="connections">Connections</sl-tab>
+  <sl-tab slot="nav" panel="logs">Logs</sl-tab>
+  <sl-tab slot="nav" panel="users">Users</sl-tab>
+  <sl-tab slot="nav" panel="configs">Configs</sl-tab>
+  <sl-tab slot="nav" panel="tokens">Tokens</sl-tab>
 
         <sl-tab-panel name="connections">
           <div class="toolbar">
@@ -80,6 +83,67 @@
                   <th>Time</th><th>Lvl</th><th>Module</th><th>Func</th><th>Message</th>
                 </tr>
               </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </sl-tab-panel>
+
+        <sl-tab-panel name="users">
+          <div class="toolbar" style="gap:.5rem; display:flex; flex-wrap:wrap; align-items:center;">
+            <sl-input id="newUserName" size="small" placeholder="username"></sl-input>
+            <sl-input id="newUserPass" size="small" placeholder="password" type="password"></sl-input>
+            <sl-select id="newUserRole" size="small" value="user"><sl-option value="user">user</sl-option><sl-option value="admin">admin</sl-option></sl-select>
+            <sl-button size="small" id="createUserBtn" variant="primary">Create</sl-button>
+            <sl-button size="small" id="refreshUsers" circle><sl-icon name="arrow-repeat"></sl-icon></sl-button>
+            <sl-badge id="usersCount" variant="neutral">0 Users</sl-badge>
+          </div>
+          <sl-alert id="usersError" variant="danger" closable style="display:none;margin-top:1rem">
+            <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+            <strong>User operation failed.</strong>
+          </sl-alert>
+          <div class="scroll-wrap" style="overflow:auto; max-height:420px">
+            <table id="usersTable" style="display:none">
+              <thead><tr><th>Username</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </sl-tab-panel>
+
+        <sl-tab-panel name="tokens">
+          <div class="toolbar" style="gap:.5rem; display:flex; flex-wrap:wrap; align-items:center;">
+            <sl-select id="tokenUser" size="small"></sl-select>
+            <sl-input id="tokenName" size="small" placeholder="token name"></sl-input>
+            <sl-input id="tokenExpires" size="small" placeholder="days valid (opt)"></sl-input>
+            <sl-input id="tokenQuota" size="small" placeholder="monthly quota (opt)"></sl-input>
+            <sl-button size="small" id="createTokenBtn" variant="primary">Create Token</sl-button>
+            <sl-button size="small" id="refreshTokens" circle><sl-icon name="arrow-repeat"></sl-icon></sl-button>
+            <sl-badge id="tokensCount" variant="neutral">0 Tokens</sl-badge>
+          </div>
+          <sl-alert id="tokensError" variant="danger" closable style="display:none;margin-top:1rem">
+            <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+            <strong>Token operation failed.</strong>
+          </sl-alert>
+          <div class="scroll-wrap" style="overflow:auto; max-height:420px">
+            <table id="tokensTable" style="display:none">
+              <thead><tr><th>Name</th><th>User</th><th>Active</th><th>Usage</th><th>Expires</th><th>Quota</th><th>Last Used</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </sl-tab-panel>
+        <sl-tab-panel name="configs">
+          <div class="toolbar" style="gap:.5rem; display:flex; flex-wrap:wrap; align-items:center;">
+            <sl-input id="newConfigName" size="small" placeholder="config name"></sl-input>
+            <sl-button size="small" id="createConfigBtn" variant="primary">Create (default)</sl-button>
+            <sl-button size="small" id="refreshConfigs" circle><sl-icon name="arrow-repeat"></sl-icon></sl-button>
+            <sl-badge id="configsCount" variant="neutral">0 Configs</sl-badge>
+          </div>
+          <sl-alert id="configsError" variant="danger" closable style="display:none;margin-top:1rem">
+            <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+            <strong>Config operation failed.</strong>
+          </sl-alert>
+          <div class="scroll-wrap" style="overflow:auto; max-height:420px">
+            <table id="configsTable" style="display:none">
+              <thead><tr><th>Name</th><th>Created</th><th>Assign to User</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -229,11 +293,160 @@
           connections.load(true); if(connections.poll) clearInterval(connections.poll); connections.poll=setInterval(()=>connections.load(false), 5000);
         } else if(ev.detail.name==='logs'){
           logs.load(true); if(connections.poll){ clearInterval(connections.poll); connections.poll=null; }
+        } else if(ev.detail.name==='users'){
+          users.load();
+        } else if(ev.detail.name==='tokens'){
+          tokens.load();
+        } else if(ev.detail.name==='configs'){
+          configs.load(); users.load(); // need users for assignment dropdowns
         }
       });
 
       // Auto select first tab behavior
-  // initial load triggered after successful login
+      // USERS MANAGEMENT
+      const users = {
+        table: document.getElementById('usersTable'),
+        tbody: document.querySelector('#usersTable tbody'),
+        count: document.getElementById('usersCount'),
+        error: document.getElementById('usersError'),
+        refreshBtn: document.getElementById('refreshUsers'),
+        async load(){
+          try{
+            const auth=getAuthHeader(); if(!auth) return;
+            const res=await fetch('/admin/users',{headers:{Authorization:auth}});
+            if(!res.ok) throw new Error(res.status);
+            const data=await res.json();
+            this.tbody.innerHTML='';
+            const sel=document.getElementById('tokenUser'); sel.innerHTML='';
+            data.forEach(u=>{
+              const opt=document.createElement('sl-option'); opt.value=u.id; opt.textContent=u.username; sel.appendChild(opt);
+              const tr=document.createElement('tr');
+              const created=new Date(u.created_at*1000).toLocaleDateString();
+              tr.innerHTML=`<td>${u.username}</td><td>${u.role}</td><td>${u.is_active?'✅':'❌'}</td><td>${created}</td><td><sl-button size='small' data-id='${u.id}' variant='neutral' class='toggleUser'>Toggle</sl-button></td>`;
+              this.tbody.appendChild(tr);
+            });
+            this.count.textContent=`${data.length} Users`;
+            this.table.style.display='table'; this.error.style.display='none';
+          }catch(e){ this.error.style.display='block'; }
+        }
+      };
+      users.refreshBtn?.addEventListener('click', ()=>users.load());
+      document.getElementById('createUserBtn')?.addEventListener('click', async ()=>{
+        const auth=getAuthHeader(); if(!auth) return;
+        const u=document.getElementById('newUserName').value.trim();
+        const p=document.getElementById('newUserPass').value.trim();
+        const r=document.getElementById('newUserRole').value;
+        if(!u||!p) return;
+        const res=await fetch('/admin/users',{method:'POST', headers:{'Content-Type':'application/json',Authorization:auth}, body:JSON.stringify({username:u,password:p,role:r})});
+        if(res.ok){ users.load(); }
+      });
+      document.addEventListener('click', async e=>{
+        if(e.target.classList?.contains('toggleUser')){
+          const id=e.target.getAttribute('data-id');
+          const auth=getAuthHeader(); if(!auth) return;
+          // Fetch current to determine new state
+          const resL=await fetch('/admin/users',{headers:{Authorization:auth}}); const all=await resL.json(); const user=all.find(x=>x.id===id);
+          const res=await fetch(`/admin/users/${id}`,{method:'PATCH', headers:{'Content-Type':'application/json',Authorization:auth}, body:JSON.stringify({is_active: !user.is_active})});
+          if(res.ok) users.load();
+        }
+      });
+
+      // TOKENS MANAGEMENT
+      const tokens = {
+        table: document.getElementById('tokensTable'),
+        tbody: document.querySelector('#tokensTable tbody'),
+        count: document.getElementById('tokensCount'),
+        error: document.getElementById('tokensError'),
+        refreshBtn: document.getElementById('refreshTokens'),
+        async load(){
+          try{
+            const auth=getAuthHeader(); if(!auth) return;
+            const res=await fetch('/admin/tokens',{headers:{Authorization:auth}});
+            if(!res.ok) throw new Error(res.status);
+            const data=await res.json();
+            this.tbody.innerHTML='';
+            data.forEach(t=>{
+              const exp=t.expires_at? new Date(t.expires_at*1000).toLocaleDateString():'';
+              const last=t.last_used? new Date(t.last_used*1000).toLocaleDateString():'';
+              const tr=document.createElement('tr');
+              tr.innerHTML=`<td>${t.name||''}</td><td>${t.user_id.slice(0,8)}</td><td>${t.is_active?'✅':'❌'}</td><td>${t.usage_count}</td><td>${exp}</td><td>${t.monthly_quota||''}</td><td>${last}</td><td><sl-button size='small' data-id='${t.id}' class='toggleToken' variant='neutral'>Toggle</sl-button></td>`;
+              this.tbody.appendChild(tr);
+            });
+            this.count.textContent=`${data.length} Tokens`;
+            this.table.style.display='table'; this.error.style.display='none';
+          }catch(e){ this.error.style.display='block'; }
+        }
+      };
+      tokens.refreshBtn?.addEventListener('click', ()=>tokens.load());
+      document.getElementById('createTokenBtn')?.addEventListener('click', async ()=>{
+        const auth=getAuthHeader(); if(!auth) return;
+        const user=document.getElementById('tokenUser').value; if(!user) return;
+        const name=document.getElementById('tokenName').value.trim();
+        const days=parseInt(document.getElementById('tokenExpires').value)||null;
+        const quota=parseInt(document.getElementById('tokenQuota').value)||null;
+        const res=await fetch('/admin/tokens',{method:'POST', headers:{'Content-Type':'application/json',Authorization:auth}, body:JSON.stringify({user_id:user,name,expires_in_days:days,monthly_quota:quota})});
+        if(res.ok){ tokens.load(); }
+      });
+      document.addEventListener('click', async e=>{
+        if(e.target.classList?.contains('toggleToken')){
+          const id=e.target.getAttribute('data-id'); const auth=getAuthHeader(); if(!auth) return;
+          const resL=await fetch('/admin/tokens',{headers:{Authorization:auth}}); const all=await resL.json(); const tok=all.find(x=>x.id===id);
+          const res=await fetch(`/admin/tokens/${id}`,{method:'PATCH', headers:{'Content-Type':'application/json',Authorization:auth}, body:JSON.stringify({is_active: !tok.is_active})});
+          if(res.ok) tokens.load();
+        }
+      });
+
+      // CONFIGS MANAGEMENT
+      const configs = {
+        table: document.getElementById('configsTable'),
+        tbody: document.querySelector('#configsTable tbody'),
+        count: document.getElementById('configsCount'),
+        error: document.getElementById('configsError'),
+        refreshBtn: document.getElementById('refreshConfigs'),
+        async load(){
+          try{
+            const auth=getAuthHeader(); if(!auth) return;
+            const res=await fetch('/admin/configs',{headers:{Authorization:auth}});
+            if(!res.ok) throw new Error(res.status);
+            const data=await res.json();
+            this.tbody.innerHTML='';
+            data.forEach(c=>{
+              const tr=document.createElement('tr');
+              const created=new Date(c.created_at*1000).toLocaleString();
+              // user assignment select built dynamically with latest users
+              const userSelId = `assign-${c.id}`;
+              tr.innerHTML=`<td>${c.name}</td><td>${created}</td><td><sl-select size='small' id='${userSelId}' placeholder='Select user'></sl-select><sl-button size='small' data-id='${c.id}' class='assignConfig' variant='primary'>Assign</sl-button></td>`;
+              this.tbody.appendChild(tr);
+            });
+            // populate user selects
+            const authH=getAuthHeader();
+            const usersRes=await fetch('/admin/users',{headers:{Authorization:authH}}); const usersData=await usersRes.json();
+            data.forEach(c=>{
+              const sel=document.getElementById(`assign-${c.id}`);
+              usersData.forEach(u=>{ const opt=document.createElement('sl-option'); opt.value=u.id; opt.textContent=u.username; sel.appendChild(opt); });
+            });
+            this.count.textContent=`${data.length} Configs`;
+            this.table.style.display='table'; this.error.style.display='none';
+          }catch(e){ this.error.style.display='block'; }
+        }
+      };
+      configs.refreshBtn?.addEventListener('click', ()=>configs.load());
+      document.getElementById('createConfigBtn')?.addEventListener('click', async ()=>{
+        const auth=getAuthHeader(); if(!auth) return;
+        const name=document.getElementById('newConfigName').value.trim(); if(!name) return;
+        const res=await fetch('/admin/configs',{method:'POST', headers:{'Content-Type':'application/json',Authorization:auth}, body:JSON.stringify({name})});
+        if(res.ok){ configs.load(); }
+      });
+      document.addEventListener('click', async e=>{
+        if(e.target.classList?.contains('assignConfig')){
+          const id=e.target.getAttribute('data-id'); const sel=document.getElementById(`assign-${id}`); const uid=sel?.value; if(!uid) return;
+          const auth=getAuthHeader(); if(!auth) return;
+          await fetch(`/admin/users/${uid}/assign_config`,{method:'POST', headers:{'Content-Type':'application/json',Authorization:auth}, body:JSON.stringify({config_id:id})});
+          alert('Assigned');
+        }
+      });
+
+      // initial load triggered after successful login
     </script>
   </body>
 </html>
