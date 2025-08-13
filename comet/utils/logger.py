@@ -1,11 +1,23 @@
 import sys
 import logging
+from collections import deque
+from typing import List, Dict, Any
 
 from loguru import logger
 
 logging.getLogger("demagnetize").setLevel(
     logging.CRITICAL
 )  # disable demagnetize logging
+
+
+LOG_BUFFER_MAX = 500
+log_buffer: deque = deque(maxlen=LOG_BUFFER_MAX)
+
+
+def get_recent_logs(limit: int = 200) -> List[Dict[str, Any]]:
+    limit = min(limit, LOG_BUFFER_MAX)
+    # Return newest first
+    return list(reversed(list(log_buffer)[-limit:]))
 
 
 def setupLogger(level: str):
@@ -25,6 +37,22 @@ def setupLogger(level: str):
         "<cyan>{module}</cyan>.<cyan>{function}</cyan> - <level>{message}</level>"
     )
 
+    def buffer_sink(message):
+        try:
+            record = message.record
+            log_buffer.append(
+                {
+                    "time": record["time"].isoformat(),
+                    "level": record["level"].name,
+                    "icon": record["level"].icon,
+                    "module": record["module"],
+                    "function": record["function"],
+                    "message": record["message"],
+                }
+            )
+        except Exception:
+            pass
+
     logger.configure(
         handlers=[
             {
@@ -34,7 +62,12 @@ def setupLogger(level: str):
                 "backtrace": False,
                 "diagnose": False,
                 "enqueue": True,
-            }
+            },
+            {
+                "sink": buffer_sink,
+                "level": level,
+                "enqueue": True,
+            },
         ]
     )
 

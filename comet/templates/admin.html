@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html class="sl-theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comet Admin</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/themes/dark.css" />
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/cdn/shoelace-autoloader.js"></script>
+  <link rel="stylesheet" href="/static/index.css" />
+  <link rel="stylesheet" href="/static/admin.css" />
+  </head>
+  <body class="ready admin-page">
+    <div id="loginScreen" class="login-overlay" style="display:none">
+      <h2 class="center">Comet Admin Login</h2>
+      <p style="opacity:.8; font-size:.85rem" class="center">Enter admin credentials to continue.</p>
+      <sl-input id="loginUser" label="Username" value="{{admin_username}}" disabled></sl-input>
+      <sl-input id="loginPass" label="Password" type="password" toggle-password style="margin-top:.75rem"></sl-input>
+      <sl-button id="loginBtn" variant="primary" style="width:100%; margin-top:1rem">Login</sl-button>
+      <sl-alert id="loginError" variant="danger" closable style="display:none;margin-top:1rem">
+        <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+        <strong>Login failed.</strong>
+      </sl-alert>
+    </div>
+    <div id="adminApp" class="admin-container" style="display:none">
+      <div class="flex" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.5rem;">
+        <h1 style="margin:0">Comet Admin <span class="mobile-hide" style="opacity:.6; font-size:.75rem">(logged in as {{admin_username}})</span></h1>
+        <div class="flex" style="gap:.5rem">
+          <sl-button id="logout" size="small" variant="danger" pill>Logout</sl-button>
+        </div>
+      </div>
+      <sl-tab-group activation="manual">
+        <sl-tab slot="nav" panel="connections">Connections</sl-tab>
+        <sl-tab slot="nav" panel="logs">Logs</sl-tab>
+
+        <sl-tab-panel name="connections">
+          <div class="toolbar">
+            <sl-button size="small" id="refreshConnections" variant="neutral" circle><sl-icon name="arrow-repeat"></sl-icon></sl-button>
+            <sl-badge id="connectionsCount" variant="neutral">0 Active</sl-badge>
+          </div>
+          <sl-spinner id="connectionsLoading" style="font-size:2rem"></sl-spinner>
+          <sl-alert id="connectionsError" variant="danger" duration="4000" closable style="display:none;margin-top:1rem">
+            <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+            <strong>Failed to load connections.</strong>
+          </sl-alert>
+          <div class="scroll-wrap" style="overflow:auto;max-height:420px">
+            <table id="connectionsTable" style="display:none">
+              <thead>
+                <tr>
+                  <th>ID</th><th>IP</th><th>Content</th><th>Started</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </sl-tab-panel>
+
+        <sl-tab-panel name="logs">
+          <div class="toolbar">
+            <sl-select id="logLimit" value="200" size="small">
+              <sl-option value="100">Last 100</sl-option>
+              <sl-option value="200">Last 200</sl-option>
+              <sl-option value="300">Last 300</sl-option>
+              <sl-option value="500">Last 500</sl-option>
+            </sl-select>
+            <sl-button size="small" id="refreshLogs" variant="neutral" circle><sl-icon name="arrow-repeat"></sl-icon></sl-button>
+            <sl-badge id="logsCount" variant="neutral">0 Logs</sl-badge>
+            <div class="grow"></div>
+            <sl-button size="small" id="copyLogs" variant="primary">Copy</sl-button>
+            <sl-button size="small" id="clearAuth" variant="danger" outline>Clear Auth</sl-button>
+          </div>
+          <sl-spinner id="logsLoading" style="font-size:2rem"></sl-spinner>
+          <sl-alert id="logsError" variant="danger" duration="4000" closable style="display:none;margin-top:1rem">
+            <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+            <strong>Failed to load logs.</strong>
+          </sl-alert>
+          <div class="scroll-wrap" style="overflow:auto; max-height:480px;">
+            <table id="logsTable" class="logs-table" style="display:none">
+              <thead>
+                <tr>
+                  <th>Time</th><th>Lvl</th><th>Module</th><th>Func</th><th>Message</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </sl-tab-panel>
+      </sl-tab-group>
+    </div>
+
+    <script type="module">
+      const ADMIN_USER = "{{admin_username}}";
+      function getAuthHeader(){ const pwd=sessionStorage.getItem('comet_admin_pwd'); return pwd? 'Basic '+btoa(ADMIN_USER+':'+pwd): null; }
+      function clearAuth(){ sessionStorage.removeItem('comet_admin_pwd'); }
+      const logoutBtn = document.getElementById('logout');
+      if(logoutBtn) logoutBtn.addEventListener('click', ()=>{ clearAuth(); location.reload(); });
+      const clearAuthBtn = document.getElementById('clearAuth');
+      if(clearAuthBtn) clearAuthBtn.addEventListener('click', ()=>{ clearAuth(); alert('Auth cleared'); });
+
+      // Simple in-page login flow
+      const loginScreen = document.getElementById('loginScreen');
+      const adminApp = document.getElementById('adminApp');
+      const loginBtn = document.getElementById('loginBtn');
+      const loginPass = document.getElementById('loginPass');
+      const loginError = document.getElementById('loginError');
+
+      function showApp(){ loginScreen.style.display='none'; adminApp.style.display='block'; }
+      function showLogin(){ loginScreen.style.display='block'; adminApp.style.display='none'; }
+
+      async function attemptLogin(){
+        if(!loginPass) return;
+        if(customElements && customElements.whenDefined){
+          try { await customElements.whenDefined('sl-input'); } catch(_){ }
+        }
+        const rawVal = loginPass.value;
+        const pwd = (rawVal == null ? '' : String(rawVal)).trim();
+        if(!pwd){
+          try {
+            const inner = loginPass.shadowRoot?.querySelector('input,textarea');
+            (inner || loginPass).focus?.();
+          } catch(_) {}
+          return;
+        }
+        sessionStorage.setItem('comet_admin_pwd', pwd);
+        try{
+          const res = await fetch('/admin/connections', { headers:{ Authorization: getAuthHeader() }});
+          if(!res.ok) throw new Error(res.status);
+          loginError.style.display='none';
+          showApp();
+          connections.load(true);
+        }catch(e){
+          clearAuth();
+          loginError.style.display='block';
+        }
+      }
+      loginBtn?.addEventListener('click', attemptLogin);
+      loginPass?.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(); });
+
+      // Auto login if stored
+      if(getAuthHeader()){
+        attemptLogin();
+      } else {
+        showLogin();
+      }
+
+      // CONNECTIONS
+      const connections = {
+        table: document.getElementById('connectionsTable'),
+        tbody: document.querySelector('#connectionsTable tbody'),
+        loading: document.getElementById('connectionsLoading'),
+        count: document.getElementById('connectionsCount'),
+        error: document.getElementById('connectionsError'),
+        refreshBtn: document.getElementById('refreshConnections'),
+        poll: null,
+        formatSince(ts){
+          const diff = Date.now()/1000 - ts;
+            if(diff < 60) return `${Math.floor(diff)}s ago`;
+            if(diff < 3600) return `${Math.floor(diff/60)}m ago`;
+            if(diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+            const d = new Date(ts*1000); return d.toLocaleString();
+        },
+        async load(showSpinner=false){
+          if(showSpinner){ this.loading.style.display='inline-block'; this.table.style.display='none'; }
+          try {
+            const auth = getAuthHeader(); if(!auth){ this.loading.style.display='none'; return; }
+            const res = await fetch('/admin/connections', { headers:{ Authorization: auth }});
+            if(!res.ok) throw new Error(res.status);
+            const data = await res.json();
+            this.tbody.innerHTML='';
+            data.sort((a,b)=>b.timestamp - a.timestamp).forEach(row=>{
+              const tr = document.createElement('tr');
+              // Content now shows plain text (human-readable) if available
+              tr.innerHTML = `<td class='mono'>${row.id.substring(0,8)}</td><td>${row.ip}</td><td class='wrap'>${row.content||''}</td><td>${this.formatSince(row.timestamp)}</td>`;
+              this.tbody.appendChild(tr);
+            });
+            this.count.textContent = `${data.length} Active`;
+            this.table.style.display='table';
+            this.loading.style.display='none';
+            this.error.style.display='none';
+          } catch(e){
+            if(e.message==='401' || e.message==='403') clearAuth();
+            this.error.style.display='block';
+            this.loading.style.display='none';
+          }
+        }
+      };
+      connections.refreshBtn.addEventListener('click', ()=>connections.load(true));
+
+      // LOGS
+      const logs = {
+        table: document.getElementById('logsTable'),
+        tbody: document.querySelector('#logsTable tbody'),
+        loading: document.getElementById('logsLoading'),
+        error: document.getElementById('logsError'),
+        count: document.getElementById('logsCount'),
+        limitSelect: document.getElementById('logLimit'),
+        refreshBtn: document.getElementById('refreshLogs'),
+        copyBtn: document.getElementById('copyLogs'),
+        async load(showSpinner=false){
+          if(showSpinner){ this.loading.style.display='inline-block'; this.table.style.display='none'; }
+          try {
+            const auth = getAuthHeader(); if(!auth){ this.loading.style.display='none'; return; }
+            const res = await fetch(`/admin/logs?limit=${this.limitSelect.value}`, { headers:{ Authorization: auth }});
+            if(!res.ok) throw new Error(res.status);
+            const data = await res.json();
+            this.tbody.innerHTML='';
+            data.forEach(r=>{
+              const tr = document.createElement('tr');
+              tr.innerHTML = `<td class='mono'>${new Date(r.time).toLocaleTimeString()}</td><td>${r.icon||''}</td><td>${r.module}</td><td>${r.function}</td><td class='wrap'>${r.message}</td>`;
+              this.tbody.appendChild(tr);
+            });
+            this.count.textContent = `${data.length} Logs`;
+            this.table.style.display='table'; this.loading.style.display='none'; this.error.style.display='none';
+          } catch(e){
+            if(e.message==='401' || e.message==='403') clearAuth();
+            this.error.style.display='block'; this.loading.style.display='none';
+          }
+        }
+      };
+      logs.refreshBtn.addEventListener('click', ()=>logs.load(true));
+      logs.limitSelect.addEventListener('sl-change', ()=>logs.load(true));
+      logs.copyBtn.addEventListener('click', ()=>{
+        const rows = Array.from(logs.tbody.querySelectorAll('tr')).map(tr=>Array.from(tr.children).map(td=>td.innerText).join(' | ')).join('\n');
+        navigator.clipboard.writeText(rows);
+      });
+
+      // Tab activation polling
+      document.querySelector('sl-tab-group').addEventListener('sl-tab-show', ev=>{
+        if(ev.detail.name==='connections'){
+          connections.load(true); if(connections.poll) clearInterval(connections.poll); connections.poll=setInterval(()=>connections.load(false), 5000);
+        } else if(ev.detail.name==='logs'){
+          logs.load(true); if(connections.poll){ clearInterval(connections.poll); connections.poll=null; }
+        }
+      });
+
+      // Auto select first tab behavior
+  // initial load triggered after successful login
+    </script>
+  </body>
+</html>

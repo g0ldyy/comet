@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from comet.utils.models import settings, web_config, database
+from comet.utils.logger import get_recent_logs
 from comet.utils.general import config_check
 from comet.debrid.manager import get_debrid_extension
 
@@ -89,21 +90,45 @@ class CustomORJSONResponse(Response):
 
 
 def verify_dashboard_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    is_correct = secrets.compare_digest(
+    user_ok = secrets.compare_digest(
+        credentials.username, settings.DASHBOARD_ADMIN_USERNAME
+    )
+    pass_ok = secrets.compare_digest(
         credentials.password, settings.DASHBOARD_ADMIN_PASSWORD
     )
 
-    if not is_correct:
+    if not (user_ok and pass_ok):
         raise HTTPException(
             status_code=401,
-            detail="Incorrect password",
+            detail="Incorrect credentials",
             headers={"WWW-Authenticate": "Basic"},
         )
 
     return True
 
 
-@main.get("/dashboard", response_class=CustomORJSONResponse)
-async def dashboard(authenticated: bool = Depends(verify_dashboard_auth)):
+@main.get("/admin/connections", response_class=CustomORJSONResponse)
+async def connections(authenticated: bool = Depends(verify_dashboard_auth)):
     rows = await database.fetch_all("SELECT * FROM active_connections")
     return rows
+
+
+@main.get("/admin")
+async def admin_page(request: Request):
+    """Serve admin UI without HTTP Basic to avoid double auth prompts.
+
+    Data endpoints (/connections, /admin/logs) remain Basic-auth protected; the
+    page performs an in-app login and stores credentials in sessionStorage.
+    """
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "admin_username": settings.DASHBOARD_ADMIN_USERNAME,
+        },
+    )
+
+
+@main.get("/admin/logs", response_class=CustomORJSONResponse)
+async def admin_logs(authenticated: bool = Depends(verify_dashboard_auth), limit: int = 200):
+    return get_recent_logs(limit)

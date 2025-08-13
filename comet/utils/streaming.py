@@ -76,11 +76,13 @@ async def custom_handle_stream_request(
     proxy_headers: mediaflow_proxy.utils.http_utils.ProxyRequestHeaders,
     media_id: str,
     ip: str,
+    content_title: str | None = None,
 ):
     if not await check_ip_connections(ip):
         return FileResponse("comet/assets/proxylimit.mp4")
 
-    connection_id = await add_active_connection(media_id, ip)
+    # Store a human readable title in place of opaque hash when available
+    connection_id = await add_active_connection(content_title or media_id, ip)
 
     response = await mediaflow_proxy.handlers.handle_stream_request(
         method, video_url, proxy_headers

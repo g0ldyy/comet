@@ -1,0 +1,38 @@
+.admin-container { background:#1a1d20; padding:1.25rem 1.25rem 2rem; border-radius:12px; width:100%; max-width:1100px; margin:1.25rem auto; box-sizing:border-box; }
+h1 { margin-top:0; font-weight:500; font-size:1.4rem; }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:6px 8px; text-align:left; font-size:0.8rem; }
+tbody tr:nth-child(odd){ background:#22262a; }
+tbody tr:nth-child(even){ background:#1d2023; }
+thead th { position:sticky; top:0; background:#14171a; z-index:2; }
+.logs-table tbody tr td { white-space:nowrap; }
+.wrap { white-space:normal; word-break:break-word; }
+.flex { display:flex; gap:.5rem; align-items:center; }
+.grow { flex:1; }
+.mono { font-family:monospace; }
+.toolbar { margin-bottom:.75rem; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+sl-tab-group { --indicator-color: var(--sl-color-primary-500); }
+.login-overlay { max-width:420px; margin:10vh auto; background:#1f2327; padding:1.5rem 1.5rem 2rem; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
+.login-overlay h2 { margin-top:0; font-weight:500; font-size:1.25rem; }
+.center { text-align:center; }
+.mobile-hide { display:inline-block; }
+@media (max-width: 700px){
+  th, td { font-size:0.72rem; padding:4px; }
+  h1 { font-size:1.1rem; }
+  .admin-container { margin:0; border-radius:0; max-width:none; width:100%; padding:1rem 1rem 2.5rem; flex:1; }
+  .toolbar { gap:.35rem; }
+  .mobile-hide { display:none; }
+  .scroll-wrap { max-height:55vh; }
+}
+@media (max-width:500px){
+  th:nth-child(1), td:nth-child(1){ display:none; } /* hide connection ID on very small screens */
+}
+
+body.admin-page { justify-content:flex-start; align-items:center; min-height:100vh; }
+body.admin-page .admin-container { display:flex; flex-direction:column; }
+body.admin-page #loginScreen { display:flex; flex-direction:column; }
+@media (max-width:700px){
+  body.admin-page { align-items:stretch; }
+  body.admin-page #loginScreen { width:100%; max-width:none; margin:0; border-radius:0; min-height:100vh; justify-content:center; }
+  body.admin-page .login-overlay { height:100vh; }
+}

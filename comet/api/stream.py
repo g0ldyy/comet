@@ -522,12 +522,21 @@ async def playback(
             and settings.PROXY_DEBRID_STREAM_PASSWORD
             == config["debridStreamProxyPassword"]
         ):
+            # Build a descriptive connection label: primary name + optional file/torrent name
+            try:
+                display_title = torrent_name if torrent_name and torrent_name != name else name
+                if season is not None and episode is not None:
+                    display_title += f" S{season:02d}E{episode:02d}"
+            except Exception:
+                display_title = name
+
             return await custom_handle_stream_request(
                 request.method,
                 download_url,
                 mediaflow_proxy.utils.http_utils.get_proxy_headers(request),
                 media_id=hash,
                 ip=ip,
+                content_title=display_title,
             )
 
         return RedirectResponse(download_url, status_code=302)
