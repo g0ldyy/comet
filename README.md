@@ -85,4 +85,4 @@ server {
 
 ## Web UI Showcase
 <img src="https://i.imgur.com/7xY5AEi.png" />
-<img src="https://i.imgur.com/1z6bmDT.png" />
+<img src="https://i.imgur.com/iH9ZzTW.png" />
