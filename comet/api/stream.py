@@ -526,7 +526,7 @@ async def playback(
                 request.method,
                 download_url,
                 mediaflow_proxy.utils.http_utils.get_proxy_headers(request),
-                media_id=hash,
+                media_id=torrent_name,
                 ip=ip,
             )
 
