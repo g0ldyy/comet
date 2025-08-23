@@ -1,4 +1,3 @@
-
 from comet.utils.models import settings
 from comet.utils.general import (
     log_scraper_error,

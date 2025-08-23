@@ -585,7 +585,6 @@
                     const selectedService = event.target.value;
                     const apiKeyLink = document.getElementById("apiKeyLink");
                     const apiKeyInput = document.getElementById("debridApiKey");
-                    debridStreamProxyPasswordInput = document.getElementById("debridStreamProxyPassword");
 
                     if (selectedService === "realdebrid") {
                         apiKeyLink.href = "https://real-debrid.com/apitoken";
@@ -625,10 +624,8 @@
                     }
 
                     if (selectedService === "torrent") {
-                        debridStreamProxyPasswordInput.disabled = true;
                         apiKeyInput.disabled = true;
                     } else {
-                        debridStreamProxyPasswordInput.disabled = false;
                         apiKeyInput.disabled = false;
                     }
                 });
