@@ -281,6 +281,101 @@
         color: #6b7280;
       }
 
+      .stars {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 120%;
+        transform: rotate(-45deg);
+        z-index: -1;
+      }
+
+      .star {
+        --star-color: var(--primary-color);
+        --star-tail-length: 6em;
+        --star-tail-height: 2px;
+        --star-width: calc(var(--star-tail-length) / 6);
+        --fall-duration: 9s;
+        --tail-fade-duration: var(--fall-duration);
+        position: absolute;
+        top: var(--top-offset);
+        left: 0;
+        width: var(--star-tail-length);
+        height: var(--star-tail-height);
+        color: var(--star-color);
+        background: linear-gradient(45deg, currentColor, transparent);
+        border-radius: 50%;
+        filter: drop-shadow(0 0 6px currentColor);
+        transform: translate3d(104em, 0, 0);
+        animation: fall var(--fall-duration) var(--fall-delay) linear infinite,
+          tail-fade var(--tail-fade-duration) var(--fall-delay) ease-out
+            infinite;
+      }
+
+      @media screen and (max-width: 750px) {
+        .star {
+          animation: fall var(--fall-duration) var(--fall-delay) linear infinite;
+        }
+      }
+
+      .star::before,
+      .star::after {
+        position: absolute;
+        content: "";
+        top: 0;
+        left: calc(var(--star-width) / -2);
+        width: var(--star-width);
+        height: 100%;
+        background: linear-gradient(
+          45deg,
+          transparent,
+          currentColor,
+          transparent
+        );
+        border-radius: inherit;
+        animation: blink 2s linear infinite;
+      }
+
+      .star::before {
+        transform: rotate(45deg);
+      }
+
+      .star::after {
+        transform: rotate(-45deg);
+      }
+
+      @keyframes fall {
+        to {
+          transform: translate3d(-30em, 0, 0);
+        }
+      }
+
+      @keyframes tail-fade {
+        0%,
+        50% {
+          width: var(--star-tail-length);
+          opacity: 1;
+        }
+
+        70%,
+        80% {
+          width: 0;
+          opacity: 0.4;
+        }
+
+        100% {
+          width: 0;
+          opacity: 0;
+        }
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0.6;
+        }
+      }
+
       @media (max-width: 768px) {
         body {
           padding: 10px;
@@ -309,6 +404,57 @@
   </head>
 
   <body>
+    <div class="stars"></div>
+
+    <script>
+      let hasTouchScreen = false;
+      if ("maxTouchPoints" in navigator) {
+        hasTouchScreen = navigator.maxTouchPoints > 0;
+      } else if ("msMaxTouchPoints" in navigator) {
+        hasTouchScreen = navigator.msMaxTouchPoints > 0;
+      } else {
+        const mQ = matchMedia?.("(pointer:coarse)");
+        if (mQ?.media === "(pointer:coarse)") {
+          hasTouchScreen = !!mQ.matches;
+        } else if ("orientation" in window) {
+          hasTouchScreen = true;
+        } else {
+          const UA = navigator.userAgent;
+          hasTouchScreen =
+            /\b(BlackBerry|webOS|iPhone|IEMobile)\b/i.test(UA) ||
+            /\b(Android|Windows Phone|iPad|iPod)\b/i.test(UA);
+        }
+      }
+
+      if (!hasTouchScreen) {
+        document.addEventListener("DOMContentLoaded", function () {
+          const starsContainer = document.querySelector(".stars");
+          const starCount = 30;
+
+          for (let i = 0; i < starCount; i++) {
+            const star = document.createElement("div");
+            star.classList.add("star");
+
+            const randomTopOffset = Math.random() * 100;
+            const randomLeftOffset = 80 + Math.random() * 40;
+            const randomTailLength = 5 + Math.random() * 2.5;
+            const randomFallDuration = 6 + Math.random() * 6;
+
+            star.style.setProperty("--top-offset", `${randomTopOffset}vh`);
+            star.style.setProperty(
+              "--star-tail-length",
+              `${randomTailLength}em`
+            );
+            star.style.setProperty("--fall-duration", `${randomFallDuration}s`);
+            star.style.setProperty("--fall-delay", "0s");
+            star.style.transform = `translate3d(${randomLeftOffset}em, 0, 0)`;
+
+            starsContainer.appendChild(star);
+          }
+        });
+      }
+    </script>
+
     <div class="container">
       <div class="header">
         <div class="header-left">

@@ -136,41 +136,6 @@
         }
       }
 
-      .star:nth-child(1) {
-        --star-tail-length: 6.14em;
-        --top-offset: 3.64vh;
-        --fall-duration: 10.878s;
-        --fall-delay: 0.034s;
-      }
-
-      .star:nth-child(2) {
-        --star-tail-length: 5.08em;
-        --top-offset: 69.69vh;
-        --fall-duration: 11.372s;
-        --fall-delay: 1.679s;
-      }
-
-      .star:nth-child(3) {
-        --star-tail-length: 6.1em;
-        --top-offset: 64.3vh;
-        --fall-duration: 7.088s;
-        --fall-delay: 3.382s;
-      }
-
-      .star:nth-child(4) {
-        --star-tail-length: 6.66em;
-        --top-offset: 34.91vh;
-        --fall-duration: 6.184s;
-        --fall-delay: 9.61s;
-      }
-
-      .star:nth-child(5) {
-        --star-tail-length: 6.89em;
-        --top-offset: 24.92vh;
-        --fall-duration: 9.465s;
-        --fall-delay: 9.12s;
-      }
-
       .star::before,
       .star::after {
         position: absolute;
@@ -256,11 +221,26 @@
       if (!hasTouchScreen) {
         document.addEventListener("DOMContentLoaded", function () {
           const starsContainer = document.querySelector(".stars");
-          const starCount = 15;
+          const starCount = 30;
 
           for (let i = 0; i < starCount; i++) {
             const star = document.createElement("div");
             star.classList.add("star");
+
+            const randomTopOffset = Math.random() * 100;
+            const randomLeftOffset = 80 + Math.random() * 40;
+            const randomTailLength = 5 + Math.random() * 2.5;
+            const randomFallDuration = 6 + Math.random() * 6;
+
+            star.style.setProperty("--top-offset", `${randomTopOffset}vh`);
+            star.style.setProperty(
+              "--star-tail-length",
+              `${randomTailLength}em`
+            );
+            star.style.setProperty("--fall-duration", `${randomFallDuration}s`);
+            star.style.setProperty("--fall-delay", "0s");
+            star.style.transform = `translate3d(${randomLeftOffset}em, 0, 0)`;
+
             starsContainer.appendChild(star);
           }
         });
