@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.11.0](https://github.com/g0ldyy/comet/compare/v2.10.0...v2.11.0) (2025-08-23)
+
+
+### Features
+
+* implement new admin dashboard ([dfe00a2](https://github.com/g0ldyy/comet/commit/dfe00a280c37686df9cc0ad5a1bc9e0d32fcc125))
+
+
+### Bug Fixes
+
+* use torrent name as media_id instead of torrent hash ([740140e](https://github.com/g0ldyy/comet/commit/740140eb2748fa1ccde70c1fea39f6add5d03c6f))
+
 ## [2.10.0](https://github.com/g0ldyy/comet/compare/v2.9.0...v2.10.0) (2025-06-12)
 
 
