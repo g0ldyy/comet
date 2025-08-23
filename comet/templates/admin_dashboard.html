@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html class="sl-theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <meta content="Comet" property="og:title" />
+    <meta content="Comet Dashboard" property="og:description" />
+    <meta content="#6b6ef8" data-react-helmet="true" name="theme-color" />
+
+    <title>Comet - Dashboard</title>
+    <link
+      id="favicon"
+      rel="icon"
+      type="image/x-icon"
+      href="https://i.imgur.com/jmVoVMu.jpeg"
+    />
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/dark.css"
+    />
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"
+    ></script>
+
+    <style>
+      :not(:defined) {
+        visibility: hidden;
+      }
+
+      ::-webkit-scrollbar {
+        overflow: hidden;
+      }
+
+      body {
+        margin: 0;
+        padding: 20px;
+        background: radial-gradient(
+          ellipse at bottom,
+          #25292c 0%,
+          #0c0d13 100%
+        );
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif,
+          "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+          "Noto Color Emoji";
+        font-size: 1rem;
+        font-weight: 400;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        padding: 20px;
+        background-color: #1a1d20;
+        border-radius: 0.5rem;
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.15);
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .comet-text {
+        font-size: 1.8rem;
+        font-weight: 500;
+        margin: 0;
+        color: #ffffff;
+      }
+
+      .emoji {
+        width: 1em;
+        height: 1em;
+        vertical-align: middle;
+      }
+
+      .admin-badge {
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 500;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .dashboard-container {
+        background-color: #1a1d20;
+        border-radius: 0.5rem;
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.15);
+        overflow: hidden;
+      }
+
+      .tab-content {
+        padding: 30px;
+        min-height: 500px;
+      }
+
+      .connections-table {
+        width: 100%;
+        margin-top: 20px;
+        border-collapse: collapse;
+        background-color: #374151;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+
+      .connections-table th,
+      .connections-table td {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid #4b5563;
+      }
+
+      .connections-table th {
+        background-color: #4b5563;
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: #f3f4f6;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .connections-table td {
+        color: #e5e7eb;
+        font-size: 0.875rem;
+      }
+
+      .connections-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .connections-table tr:hover {
+        background-color: #4b5563;
+      }
+
+      .connection-id {
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        font-size: 0.75rem;
+        background-color: #1f2937;
+        padding: 4px 8px;
+        border-radius: 4px;
+        color: #9ca3af;
+      }
+
+      .ip-tag {
+        background-color: #065f46;
+        color: #d1fae5;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+
+      .duration-tag {
+        background-color: #1e40af;
+        color: #dbeafe;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+
+      .logs-container {
+        background-color: #0f1419;
+        border-radius: 0.375rem;
+        padding: 20px;
+        height: 500px;
+        overflow-y: auto;
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        border: 1px solid #374151;
+      }
+
+      .log-entry {
+        margin-bottom: 8px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .log-timestamp {
+        color: #9ca3af;
+        font-weight: 500;
+      }
+
+      .log-level {
+        font-weight: 600;
+        margin: 0 8px;
+      }
+
+      .log-message {
+        color: #e5e7eb;
+      }
+
+      .log-module {
+        color: #60a5fa;
+        font-style: italic;
+      }
+
+      .stats-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+
+      .stat-card {
+        background-color: #374151;
+        padding: 20px;
+        border-radius: 0.5rem;
+        text-align: center;
+      }
+
+      .stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #10b981;
+        margin-bottom: 8px;
+      }
+
+      .stat-label {
+        color: #9ca3af;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .logs-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 15px;
+      }
+
+      .auto-refresh-control {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #9ca3af;
+      }
+
+      .empty-state sl-icon {
+        font-size: 3rem;
+        margin-bottom: 15px;
+        color: #6b7280;
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 10px;
+        }
+
+        .header {
+          flex-direction: column;
+          gap: 15px;
+          align-items: flex-start;
+        }
+
+        .header-right {
+          width: 100%;
+          justify-content: space-between;
+        }
+
+        .tab-content {
+          padding: 20px 15px;
+        }
+
+        .logs-container {
+          height: 400px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="header-left">
+          <h1 class="comet-text">
+            <img
+              class="emoji"
+              src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4ab/512.gif"
+            />
+            Comet
+          </h1>
+          <div class="admin-badge">Dashboard</div>
+        </div>
+        <div class="header-right">
+          <div class="nav-links">
+            <sl-button
+              variant="neutral"
+              size="small"
+              onclick="window.open('/configure', '_blank')"
+            >
+              <sl-icon slot="prefix" name="gear"></sl-icon>
+              Configuration
+            </sl-button>
+          </div>
+          <form method="post" action="/admin/logout" style="margin: 0">
+            <sl-button type="submit" variant="danger" size="small">
+              <sl-icon slot="prefix" name="box-arrow-right"></sl-icon>
+              Logout
+            </sl-button>
+          </form>
+        </div>
+      </div>
+
+      <div class="dashboard-container">
+        <sl-tab-group>
+          <sl-tab slot="nav" panel="connections">
+            <sl-icon name="wifi"></sl-icon>
+            &nbsp;Active Connections
+          </sl-tab>
+          <sl-tab slot="nav" panel="logs">
+            <sl-icon name="list-ul"></sl-icon>
+            &nbsp;System Logs
+          </sl-tab>
+
+          <sl-tab-panel name="connections">
+            <div class="tab-content">
+              <div class="stats-cards">
+                <div class="stat-card">
+                  <div class="stat-number" id="total-connections">0</div>
+                  <div class="stat-label">Active Connections</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="unique-ips">0</div>
+                  <div class="stat-label">Unique IPs</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="avg-duration">0s</div>
+                  <div class="stat-label">Avg Duration</div>
+                </div>
+              </div>
+
+              <div id="connections-content">
+                <div class="empty-state">
+                  <sl-icon name="wifi-off"></sl-icon>
+                  <p>No active connections</p>
+                </div>
+              </div>
+            </div>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="logs">
+            <div class="tab-content">
+              <div class="logs-controls">
+                <div>
+                  <sl-button id="clear-logs" variant="neutral" size="small">
+                    <sl-icon slot="prefix" name="trash"></sl-icon>
+                    Clear Display
+                  </sl-button>
+                  <sl-button id="download-logs" variant="neutral" size="small">
+                    <sl-icon slot="prefix" name="download"></sl-icon>
+                    Download Logs
+                  </sl-button>
+                </div>
+                <div class="auto-refresh-control">
+                  <sl-switch id="hide-api-logs" checked
+                    >Hide API Logs</sl-switch
+                  >
+                  <sl-switch id="auto-refresh" checked>Auto Refresh</sl-switch>
+                  <sl-select
+                    id="refresh-interval"
+                    value="2000"
+                    size="small"
+                    style="width: 120px"
+                  >
+                    <sl-option value="1000">1s</sl-option>
+                    <sl-option value="2000">2s</sl-option>
+                    <sl-option value="5000">5s</sl-option>
+                    <sl-option value="10000">10s</sl-option>
+                  </sl-select>
+                </div>
+              </div>
+
+              <div class="logs-container" id="logs-container">
+                <div class="empty-state">
+                  <sl-icon name="journal-text"></sl-icon>
+                  <p>Loading system logs...</p>
+                </div>
+              </div>
+            </div>
+          </sl-tab-panel>
+        </sl-tab-group>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", async () => {
+        await Promise.allSettled([
+          customElements.whenDefined("sl-tab-group"),
+          customElements.whenDefined("sl-tab"),
+          customElements.whenDefined("sl-tab-panel"),
+          customElements.whenDefined("sl-button"),
+          customElements.whenDefined("sl-icon"),
+          customElements.whenDefined("sl-spinner"),
+          customElements.whenDefined("sl-switch"),
+          customElements.whenDefined("sl-select"),
+          customElements.whenDefined("sl-option"),
+        ]);
+
+        document.body.classList.add("ready");
+
+        // Initialize dashboard
+        initializeDashboard();
+      });
+
+      let connectionsInterval;
+      let logsInterval;
+      let lastLogTimestamp = 0;
+
+      function initializeDashboard() {
+        // Load initial data
+        loadConnections();
+        loadLogs();
+
+        // Set up auto-refresh
+        setupAutoRefresh();
+
+        // Event listeners
+        document
+          .getElementById("clear-logs")
+          .addEventListener("click", clearLogsDisplay);
+        document
+          .getElementById("download-logs")
+          .addEventListener("click", downloadLogs);
+        document
+          .getElementById("auto-refresh")
+          .addEventListener("sl-change", toggleAutoRefresh);
+        document
+          .getElementById("refresh-interval")
+          .addEventListener("sl-change", updateRefreshInterval);
+        document
+          .getElementById("hide-api-logs")
+          .addEventListener("sl-change", toggleApiLogsVisibility);
+
+        // Tab change handler
+        document
+          .querySelector("sl-tab-group")
+          .addEventListener("sl-tab-show", handleTabChange);
+      }
+
+      function setupAutoRefresh() {
+        // Connections refresh every 5 seconds
+        connectionsInterval = setInterval(loadConnections, 5000);
+
+        // Logs refresh based on selected interval
+        const interval = parseInt(
+          document.getElementById("refresh-interval").value
+        );
+        logsInterval = setInterval(loadLogs, interval);
+      }
+
+      function toggleAutoRefresh(e) {
+        if (e.target.checked) {
+          setupAutoRefresh();
+        } else {
+          clearInterval(connectionsInterval);
+          clearInterval(logsInterval);
+        }
+      }
+
+      function updateRefreshInterval() {
+        if (document.getElementById("auto-refresh").checked) {
+          clearInterval(logsInterval);
+          const interval = parseInt(
+            document.getElementById("refresh-interval").value
+          );
+          logsInterval = setInterval(loadLogs, interval);
+        }
+      }
+
+      function handleTabChange(e) {
+        const activePanel = e.detail.name;
+        if (activePanel === "connections") {
+          loadConnections();
+        } else if (activePanel === "logs") {
+          loadLogs();
+        }
+      }
+
+      async function loadConnections() {
+        try {
+          const response = await fetch("/admin/api/connections");
+          const data = await response.json();
+
+          updateConnectionsStats(data.connections);
+          renderConnectionsTable(data.connections);
+        } catch (error) {
+          console.error("Failed to load connections:", error);
+          document.getElementById("connections-content").innerHTML =
+            '<div class="empty-state"><sl-icon name="exclamation-triangle"></sl-icon><p>Failed to load connections</p></div>';
+        }
+      }
+
+      function updateConnectionsStats(connections) {
+        const totalConnections = connections.length;
+        const uniqueIPs = [...new Set(connections.map((c) => c.ip))].length;
+        const avgDuration =
+          connections.length > 0
+            ? Math.round(
+                connections.reduce((sum, c) => sum + c.duration, 0) /
+                  connections.length
+              )
+            : 0;
+
+        document.getElementById("total-connections").textContent =
+          totalConnections;
+        document.getElementById("unique-ips").textContent = uniqueIPs;
+        document.getElementById("avg-duration").textContent = `${avgDuration}s`;
+      }
+
+      function renderConnectionsTable(connections) {
+        const container = document.getElementById("connections-content");
+
+        if (connections.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state"><sl-icon name="wifi-off"></sl-icon><p>No active connections</p></div>';
+          return;
+        }
+
+        const tableHTML = `
+                    <table class="connections-table">
+                        <thead>
+                            <tr>
+                                <th>Connection ID</th>
+                                <th>IP Address</th>
+                                <th>Content</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${connections
+                              .map(
+                                (conn) => `
+                                <tr>
+                                    <td>
+                                        <span class="connection-id">${conn.id.substring(
+                                          0,
+                                          8
+                                        )}...</span>
+                                    </td>
+                                    <td>
+                                        <span class="ip-tag">${conn.ip}</span>
+                                    </td>
+                                    <td>
+                                        <span title="${escapeHtml(
+                                          conn.content
+                                        )}">${
+                                  conn.content.length > 40
+                                    ? escapeHtml(
+                                        conn.content.substring(0, 40)
+                                      ) + "..."
+                                    : escapeHtml(conn.content)
+                                }</span>
+                                    </td>
+                                    <td>
+                                        <span style="font-size: 0.875rem; color: #9ca3af;">${
+                                          conn.formatted_time
+                                        }</span>
+                                    </td>
+                                    <td>
+                                        <span class="duration-tag">${Math.round(
+                                          conn.duration
+                                        )}s</span>
+                                    </td>
+                                </tr>
+                            `
+                              )
+                              .join("")}
+                        </tbody>
+                    </table>
+                `;
+
+        container.innerHTML = tableHTML;
+      }
+
+      async function loadLogs() {
+        try {
+          const response = await fetch(
+            `/admin/api/logs?since=${lastLogTimestamp}`
+          );
+          const data = await response.json();
+
+          appendLogs(data.logs);
+
+          if (data.logs.length > 0) {
+            lastLogTimestamp = Math.max(...data.logs.map((log) => log.created));
+          }
+        } catch (error) {
+          console.error("Failed to load logs:", error);
+        }
+      }
+
+      function appendLogs(logs) {
+        const container = document.getElementById("logs-container");
+        const hideApiLogs = document.getElementById("hide-api-logs").checked;
+
+        // Remove empty state if present
+        if (container.querySelector(".empty-state")) {
+          container.innerHTML = "";
+        }
+
+        logs.forEach((log) => {
+          // Filter out API logs if hideApiLogs is enabled
+          if (hideApiLogs && isApiLog(log)) {
+            return;
+          }
+
+          const logEntry = document.createElement("div");
+          logEntry.className = "log-entry";
+
+          // Add data attribute to identify API logs for toggling
+          if (isApiLog(log)) {
+            logEntry.setAttribute("data-api-log", "true");
+          }
+
+          logEntry.innerHTML = `<span class="log-timestamp">${
+            log.timestamp
+          }</span> <span class="log-level" style="color: ${log.color};">${
+            log.icon
+          } ${log.level}</span> <span class="log-module">${log.module}.${
+            log.function
+          }</span> - <span class="log-message">${escapeHtml(
+            log.message
+          )}</span>`;
+
+          container.appendChild(logEntry);
+        });
+
+        // Auto-scroll to bottom
+        container.scrollTop = container.scrollHeight;
+
+        // Limit number of log entries to prevent memory issues
+        const maxEntries = 500;
+        while (container.children.length > maxEntries) {
+          container.removeChild(container.firstChild);
+        }
+      }
+
+      function clearLogsDisplay() {
+        document.getElementById("logs-container").innerHTML = "";
+        lastLogTimestamp = Date.now() / 1000;
+      }
+
+      function downloadLogs() {
+        const logEntries = Array.from(document.querySelectorAll(".log-entry"));
+        const logText = logEntries.map((entry) => entry.textContent).join("\n");
+
+        const blob = new Blob([logText], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `comet-logs-${new Date()
+          .toISOString()
+          .slice(0, 19)
+          .replace(/:/g, "-")}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      function isApiLog(log) {
+        return log.message.includes("/admin/api/");
+      }
+
+      function toggleApiLogsVisibility() {
+        const hideApiLogs = document.getElementById("hide-api-logs").checked;
+        const container = document.getElementById("logs-container");
+        const apiLogEntries = container.querySelectorAll(
+          '[data-api-log="true"]'
+        );
+
+        apiLogEntries.forEach((entry) => {
+          entry.style.display = hideApiLogs ? "none" : "block";
+        });
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+    </script>
+  </body>
+</html>

@@ -32,7 +32,7 @@ class AppSettings(BaseSettings):
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
-    DASHBOARD_ADMIN_PASSWORD: Optional[str] = "".join(
+    ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
     DATABASE_TYPE: Optional[str] = "sqlite"

@@ -2,19 +2,143 @@ import random
 import string
 import secrets
 import orjson
+import uuid
+import time
+import re
 
-from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import RedirectResponse, Response
+from loguru import logger as loguru_logger
+
+from fastapi import APIRouter, Request, HTTPException, Form, Cookie
+from fastapi.responses import RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.security import HTTPBasic
 
 from comet.utils.models import settings, web_config, database
 from comet.utils.general import config_check
+from comet.utils.log_levels import get_level_info
 from comet.debrid.manager import get_debrid_extension
 
 templates = Jinja2Templates("comet/templates")
 main = APIRouter()
 security = HTTPBasic()
+
+admin_sessions = {}
+
+
+class LogCapture:
+    def __init__(self):
+        self.logs = []
+        self.max_logs = 1000
+
+    def add_log(self, record):
+        # Format the log record similar to loguru format
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
+        level_name = record.levelname
+
+        # Handle special loguru levels
+        if hasattr(record, "extra") and "level_name" in record.extra:
+            level_name = record.extra["level_name"]
+
+        level_info = get_level_info(level_name)
+
+        log_entry = {
+            "timestamp": timestamp,
+            "level": level_name,
+            "icon": level_info["icon"],
+            "color": level_info["color"],
+            "module": getattr(record, "module", "unknown"),
+            "function": getattr(record, "funcName", "unknown"),
+            "message": record.getMessage(),
+            "created": record.created,
+        }
+
+        self.logs.append(log_entry)
+        if len(self.logs) > self.max_logs:
+            self.logs.pop(0)
+
+    def get_logs(self):
+        return self.logs
+
+
+# Global log capture instance
+log_capture = LogCapture()
+
+
+# Loguru handler to capture logs
+class LoguruHandler:
+    def __init__(self, log_capture):
+        self.log_capture = log_capture
+
+    def write(self, message):
+        if message.strip():
+            # Try to extract timestamp, level, module, function, and message
+            # This is a simplified parser for loguru format
+            pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| ([🌠👾👻🎬🔒📰🕸️⚠️❌💀]?) ?(\w+) \| (\w+)\.(\w+) - (.+)"
+            match = re.match(pattern, message.strip())
+
+            if match:
+                timestamp_str, icon, level, module, function, msg = match.groups()
+
+                level_info = get_level_info(level)
+
+                log_entry = {
+                    "timestamp": timestamp_str,
+                    "level": level,
+                    "icon": icon or level_info["icon"],
+                    "color": level_info["color"],
+                    "module": module,
+                    "function": function,
+                    "message": msg,
+                    "created": time.time(),
+                }
+
+                self.log_capture.add_log_entry(log_entry)
+
+
+# Add method to log capture to handle parsed entries
+def add_log_entry_to_capture(self, log_entry):
+    self.logs.append(log_entry)
+    if len(self.logs) > self.max_logs:
+        self.logs.pop(0)
+
+
+# Monkey patch the method
+log_capture.add_log_entry = add_log_entry_to_capture.__get__(log_capture, LogCapture)
+
+# Set up loguru handler
+loguru_handler = LoguruHandler(log_capture)
+
+# Add our handler to loguru
+loguru_logger.add(
+    loguru_handler.write,
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level.icon} {level} | {module}.{function} - {message}",
+)
+
+
+def create_admin_session() -> str:
+    session_id = str(uuid.uuid4())
+    admin_sessions[session_id] = {"created_at": time.time()}
+    return session_id
+
+
+def verify_admin_session(admin_session: str = Cookie(None)):
+    if not admin_session or admin_session not in admin_sessions:
+        return False
+
+    session_data = admin_sessions[admin_session]
+
+    # Check if session is older than 24 hours
+    if time.time() - session_data["created_at"] > 86400:
+        del admin_sessions[admin_session]
+        return False
+
+    return True
+
+
+def require_admin_auth(admin_session: str = Cookie(None)):
+    if not verify_admin_session(admin_session):
+        raise HTTPException(status_code=401, detail="Authentication required")
 
 
 @main.get("/")
@@ -80,29 +204,87 @@ async def manifest(request: Request, b64config: str = None):
     return base_manifest
 
 
-class CustomORJSONResponse(Response):
-    media_type = "application/json"
+@main.get("/admin")
+async def admin_root(request: Request, admin_session: str = Cookie(None)):
+    if verify_admin_session(admin_session):
+        return RedirectResponse("/admin/dashboard")
+    return templates.TemplateResponse("admin_login.html", {"request": request})
 
-    def render(self, content):
-        return orjson.dumps(content, option=orjson.OPT_INDENT_2)
 
-
-def verify_dashboard_auth(credentials: HTTPBasicCredentials = Depends(security)):
-    is_correct = secrets.compare_digest(
-        credentials.password, settings.DASHBOARD_ADMIN_PASSWORD
-    )
+@main.post("/admin/login")
+async def admin_login(request: Request, password: str = Form(...)):
+    is_correct = secrets.compare_digest(password, settings.ADMIN_DASHBOARD_PASSWORD)
 
     if not is_correct:
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect password",
-            headers={"WWW-Authenticate": "Basic"},
+        return templates.TemplateResponse(
+            "admin_login.html", {"request": request, "error": "Invalid password"}
         )
 
-    return True
+    session_id = create_admin_session()
+    response = RedirectResponse("/admin/dashboard", status_code=303)
+    response.set_cookie(
+        key="admin_session",
+        value=session_id,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=86400,
+    )
+    return response
 
 
-@main.get("/dashboard", response_class=CustomORJSONResponse)
-async def dashboard(authenticated: bool = Depends(verify_dashboard_auth)):
-    rows = await database.fetch_all("SELECT * FROM active_connections")
-    return rows
+@main.get("/admin/dashboard")
+async def admin_dashboard(request: Request, admin_session: str = Cookie(None)):
+    try:
+        require_admin_auth(admin_session)
+        return templates.TemplateResponse("admin_dashboard.html", {"request": request})
+    except HTTPException:
+        return RedirectResponse("/admin", status_code=303)
+
+
+@main.post("/admin/logout")
+async def admin_logout(admin_session: str = Cookie(None)):
+    if admin_session and admin_session in admin_sessions:
+        del admin_sessions[admin_session]
+
+    response = RedirectResponse("/admin", status_code=303)
+    response.delete_cookie("admin_session")
+    return response
+
+
+@main.get("/admin/api/connections")
+async def admin_api_connections(admin_session: str = Cookie(None)):
+    require_admin_auth(admin_session)
+    rows = await database.fetch_all(
+        "SELECT id, ip, content, timestamp FROM active_connections ORDER BY timestamp DESC"
+    )
+
+    connections = []
+    for row in rows:
+        connections.append(
+            {
+                "id": row["id"],
+                "ip": row["ip"],
+                "content": row["content"],
+                "timestamp": row["timestamp"],
+                "duration": time.time() - row["timestamp"],
+                "formatted_time": time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(row["timestamp"])
+                ),
+            }
+        )
+
+    return JSONResponse({"connections": connections})
+
+
+@main.get("/admin/api/logs")
+async def admin_api_logs(admin_session: str = Cookie(None), since: float = 0):
+    require_admin_auth(admin_session)
+
+    # Get logs since the specified timestamp
+    all_logs = log_capture.get_logs()
+    new_logs = [log for log in all_logs if log["created"] > since]
+
+    return JSONResponse(
+        {"logs": new_logs, "total_logs": len(all_logs), "new_logs": len(new_logs)}
+    )
