@@ -117,7 +117,7 @@ loguru_logger.add(
 async def create_admin_session() -> str:
     session_id = str(uuid.uuid4())
     created_at = time.time()
-    expires_at = created_at + 10  # 24 hours
+    expires_at = created_at + 86400  # 24 hours
 
     await database.execute(
         """
