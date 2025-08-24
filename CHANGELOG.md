@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.0](https://github.com/g0ldyy/comet/compare/v2.13.1...v2.14.0) (2025-08-24)
+
+
+### Features
+
+* switch admin session management from RAM to DB ([abf80fd](https://github.com/g0ldyy/comet/commit/abf80fd260d95b079ab053793d32f67641887b91))
+
 ## [2.13.1](https://github.com/g0ldyy/comet/compare/v2.13.0...v2.13.1) (2025-08-24)
 
 
