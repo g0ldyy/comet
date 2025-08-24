@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.12.0](https://github.com/g0ldyy/comet/compare/v2.11.0...v2.12.0) (2025-08-24)
+
+
+### Features
+
+* bandwidth monitoring ([5f7c033](https://github.com/g0ldyy/comet/commit/5f7c03306906cabc71f1c523430868cb15443b97))
+
 ## [2.11.0](https://github.com/g0ldyy/comet/compare/v2.10.0...v2.11.0) (2025-08-23)
 
 
