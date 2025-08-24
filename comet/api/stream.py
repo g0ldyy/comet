@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import time
+import orjson
 import mediaflow_proxy.utils.http_utils
 
 from urllib.parse import quote
@@ -486,6 +487,21 @@ async def playback(
         )
 
         if download_url is None:
+            # Retrieve torrent sources from database for private trackers
+            torrent_data = await database.fetch_one(
+                """
+                SELECT sources
+                FROM torrents
+                WHERE info_hash = :info_hash
+                LIMIT 1
+                """,
+                {"info_hash": hash},
+            )
+
+            sources = []
+            if torrent_data and torrent_data["sources"]:
+                sources = orjson.loads(torrent_data["sources"])
+
             debrid = get_debrid(
                 session,
                 None,
@@ -495,7 +511,7 @@ async def playback(
                 ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
-                hash, index, name, torrent_name, season, episode
+                hash, index, name, torrent_name, season, episode, sources
             )
             if not download_url:
                 return FileResponse("comet/assets/uncached.mp4")
