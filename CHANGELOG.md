@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.13.0](https://github.com/g0ldyy/comet/compare/v2.12.0...v2.13.0) (2025-08-24)
+
+
+### Features
+
+* add metrics to dashboard ([37f3e86](https://github.com/g0ldyy/comet/commit/37f3e8664221e0f176817836e6e76c6cc284a5aa))
+* add support for Debrider debrid service ([e16f817](https://github.com/g0ldyy/comet/commit/e16f817a99bd9a23066a97a8b5768540b750c261))
+
+
+### Bug Fixes
+
+* comet scraper title parsing ([b51258a](https://github.com/g0ldyy/comet/commit/b51258aeaab80e45f28416bdb4110898a2ebe50e))
+* ensure PostgreSQL compatibility in admin API metrics ([38196c2](https://github.com/g0ldyy/comet/commit/38196c21a0c94b56da0408179b5fed715e38243a))
+
 ## [2.12.0](https://github.com/g0ldyy/comet/compare/v2.11.0...v2.12.0) (2025-08-24)
 
 
