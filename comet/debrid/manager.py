@@ -7,6 +7,7 @@ from .torbox import TorBox
 from .debridlink import DebridLink
 from .torrent import Torrent
 from .stremthru import StremThru
+from .debrider import Debrider
 from .easydebrid import EasyDebrid
 from .offcloud import Offcloud
 from .pikpak import PikPak
@@ -37,6 +38,11 @@ debrid_services = {
         "extension": "ST",
         "cache_availability_endpoint": True,
         "class": StremThru,
+    },
+    "debrider": {
+        "extension": "DB",
+        "cache_availability_endpoint": True,
+        "class": Debrider,
     },
     "easydebrid": {
         "extension": "ED",

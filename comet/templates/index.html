@@ -363,6 +363,7 @@
         >
           <sl-option value="torrent">Torrent</sl-option>
           <sl-option value="torbox">TorBox</sl-option>
+          <sl-option value="debrider">Debrider</sl-option>
           <sl-option value="easydebrid">EasyDebrid</sl-option>
           <sl-option value="realdebrid">Real-Debrid</sl-option>
           <sl-option value="debridlink">Debrid-Link</sl-option>
@@ -443,6 +444,9 @@
               apiKeyLink.textContent = "Get It Here";
             } else if (selectedService === "torbox") {
               apiKeyLink.href = "https://torbox.app/settings";
+              apiKeyLink.textContent = "Get It Here";
+            } else if (selectedService === "debrider") {
+              apiKeyLink.href = "https://debrider.app/dashboard/account";
               apiKeyLink.textContent = "Get It Here";
             } else if (selectedService === "easydebrid") {
               apiKeyLink.href =

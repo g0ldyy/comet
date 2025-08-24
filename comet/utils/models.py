@@ -575,6 +575,7 @@ class ConfigModel(BaseModel):
             "alldebrid",
             "premiumize",
             "torbox",
+            "debrider",
             "easydebrid",
             "debridlink",
             "offcloud",
