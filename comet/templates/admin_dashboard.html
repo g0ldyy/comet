@@ -400,6 +400,343 @@
           height: 400px;
         }
       }
+
+      /* 📊 METRICS STYLES */
+      .metrics-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        margin-top: 20px;
+      }
+
+      .metric-section {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        padding: 20px;
+        backdrop-filter: blur(10px);
+      }
+
+      .metric-section-compact {
+        padding: 15px;
+      }
+
+      .metric-section-compact .metric-content {
+        margin: 0;
+      }
+
+      .metric-section-compact .metric-subsection {
+        margin-bottom: 15px;
+      }
+
+      .metric-section h3 {
+        margin: 0 0 15px 0;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+
+      .metric-section h4 {
+        margin: 0 0 12px 0;
+        color: #ffffff;
+        font-size: 0.95rem;
+        font-weight: 500;
+      }
+
+      .metric-content {
+        margin: var(--sl-spacing-medium) 0;
+      }
+
+      .metric-subsection {
+        margin-bottom: 25px;
+      }
+
+      .metric-subsection:last-child {
+        margin-bottom: 0;
+      }
+
+      /* Tracker Statistics */
+      .data-list {
+        margin: var(--sl-spacing-small) 0;
+      }
+
+      .tracker-item {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+        transition: background-color 0.2s ease;
+      }
+
+      .tracker-item:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .tracker-name {
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 4px;
+        font-size: 0.9rem;
+      }
+
+      .tracker-stats {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        font-size: 0.8rem;
+        color: #e0e0e0;
+      }
+
+      .tracker-stats span {
+        background: rgba(255, 255, 255, 0.12);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      /* Size Distribution Chart */
+      .size-chart {
+        margin: var(--sl-spacing-small) 0;
+      }
+
+      .size-bar {
+        margin-bottom: 12px;
+      }
+
+      .size-label {
+        font-size: 0.85rem;
+        color: #ffffff;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+
+      .size-progress {
+        position: relative;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        height: 20px;
+        overflow: hidden;
+      }
+
+      .size-fill {
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          var(--sl-color-primary-600),
+          var(--sl-color-primary-500)
+        );
+        border-radius: 6px;
+        transition: width 0.6s ease-in-out;
+      }
+
+      .size-percentage {
+        position: absolute;
+        top: 50%;
+        left: 8px;
+        transform: translateY(-50%);
+        font-size: 0.75rem;
+        color: var(--sl-color-neutral-50);
+        font-weight: 600;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      }
+
+      /* Quality Metrics Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 15px;
+      }
+
+      .stat-item {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 15px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .stat-value {
+        display: block;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--sl-color-primary-400);
+        margin-bottom: 4px;
+      }
+
+      .stat-desc {
+        display: block;
+        font-size: 0.75rem;
+        color: #d0d0d0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      /* Search Analytics */
+      .search-timeline {
+        display: flex;
+        justify-content: space-around;
+        gap: 20px;
+      }
+
+      .timeline-item {
+        text-align: center;
+        flex: 1;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 20px 15px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .timeline-period {
+        font-size: 0.8rem;
+        color: #d0d0d0;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .timeline-count {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--sl-color-primary-400);
+      }
+
+      /* Media Distribution */
+      .media-stats {
+        display: flex;
+        gap: 30px;
+        justify-content: center;
+      }
+
+      .media-item {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        flex: 1;
+        min-width: 150px;
+      }
+
+      .media-icon {
+        font-size: 2rem;
+        color: var(--sl-color-primary-400);
+      }
+
+      .media-type {
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 4px;
+        font-size: 0.9rem;
+      }
+
+      .media-count {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--sl-color-primary-400);
+      }
+
+      /* Loading States */
+      .loading-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 40px;
+        color: #e0e0e0;
+        font-size: 0.9rem;
+      }
+
+      /* Debrid Cache Styles */
+      .debrid-performance {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .debrid-stat {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .debrid-label {
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+      }
+
+      .debrid-value {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: var(--sl-color-primary-400);
+      }
+
+      .debrid-service-item {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+        transition: background-color 0.2s ease;
+      }
+
+      .debrid-service-item:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .debrid-service-name {
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 4px;
+        font-size: 0.9rem;
+        text-transform: capitalize;
+      }
+
+      .debrid-service-stats {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        font-size: 0.8rem;
+        color: #e0e0e0;
+      }
+
+      .debrid-service-stats span {
+        background: rgba(255, 255, 255, 0.12);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      /* Responsive Design for Metrics */
+      @media (max-width: 768px) {
+        .search-timeline {
+          flex-direction: column;
+          gap: 15px;
+        }
+
+        .media-stats {
+          flex-direction: column;
+          gap: 15px;
+        }
+
+        .tracker-stats {
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .stats-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
     </style>
   </head>
 
@@ -497,6 +834,10 @@
             <sl-icon name="list-ul"></sl-icon>
             &nbsp;System Logs
           </sl-tab>
+          <sl-tab slot="nav" panel="metrics">
+            <sl-icon name="bar-chart"></sl-icon>
+            &nbsp;Metrics
+          </sl-tab>
 
           <sl-tab-panel name="connections">
             <div class="tab-content">
@@ -572,6 +913,140 @@
                 <div class="empty-state">
                   <sl-icon name="journal-text"></sl-icon>
                   <p>Loading system logs...</p>
+                </div>
+              </div>
+            </div>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="metrics">
+            <div class="tab-content">
+              <!-- Overview Cards -->
+              <div class="stats-cards">
+                <div class="stat-card">
+                  <div class="stat-number" id="total-torrents">0</div>
+                  <div class="stat-label">Total Torrents</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="unique-searches">0</div>
+                  <div class="stat-label">Unique Searches</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="active-scrapers">0</div>
+                  <div class="stat-label">Active Scrapers</div>
+                </div>
+              </div>
+
+              <!-- Metrics Sections -->
+              <div class="metrics-grid">
+                <!-- Media Distribution -->
+                <div class="metric-section metric-section-compact">
+                  <h3><sl-icon name="film"></sl-icon> Media Distribution</h3>
+                  <div class="metric-content">
+                    <div id="media-distribution" class="media-chart">
+                      <div class="loading-state">
+                        <sl-spinner></sl-spinner>
+                        <span>Loading media distribution...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Torrents Section -->
+                <div class="metric-section">
+                  <h3><sl-icon name="download"></sl-icon> Torrents Analysis</h3>
+                  <div class="metric-content">
+                    <div class="metric-subsection">
+                      <h4>Top Trackers</h4>
+                      <div id="tracker-stats" class="data-list">
+                        <div class="loading-state">
+                          <sl-spinner></sl-spinner>
+                          <span>Loading tracker statistics...</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="metric-subsection">
+                      <h4>Size Distribution</h4>
+                      <div id="size-distribution" class="chart-container">
+                        <div class="loading-state">
+                          <sl-spinner></sl-spinner>
+                          <span>Loading size distribution...</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="metric-subsection">
+                      <h4>Quality Metrics</h4>
+                      <div id="quality-metrics" class="stats-grid">
+                        <div class="stat-item">
+                          <span class="stat-value" id="avg-seeders">-</span>
+                          <span class="stat-desc">Avg Seeders</span>
+                        </div>
+                        <div class="stat-item">
+                          <span class="stat-value" id="max-seeders">-</span>
+                          <span class="stat-desc">Max Seeders</span>
+                        </div>
+                        <div class="stat-item">
+                          <span class="stat-value" id="avg-size">-</span>
+                          <span class="stat-desc">Avg Size</span>
+                        </div>
+                        <div class="stat-item">
+                          <span class="stat-value" id="max-size">-</span>
+                          <span class="stat-desc">Max Size</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Debrid Cache Distribution -->
+                <div class="metric-section">
+                  <h3>
+                    <sl-icon name="cloud-arrow-down"></sl-icon> Debrid Cache
+                    Distribution
+                  </h3>
+                  <div class="metric-content">
+                    <div class="metric-subsection">
+                      <h4>Cache Performance</h4>
+                      <div class="debrid-performance">
+                        <div class="debrid-stat">
+                          <div class="debrid-label">Total Cached Items</div>
+                          <div class="debrid-value" id="debrid-total">0</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="metric-subsection">
+                      <h4>By Service Provider</h4>
+                      <div id="debrid-services" class="data-list">
+                        <div class="loading-state">
+                          <sl-spinner></sl-spinner>
+                          <span>Loading debrid services...</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Search Analytics -->
+                <div class="metric-section metric-section-compact">
+                  <h3><sl-icon name="search"></sl-icon> Search Analytics</h3>
+                  <div class="metric-content">
+                    <div class="search-timeline">
+                      <div class="timeline-item">
+                        <div class="timeline-period">Last 24h</div>
+                        <div class="timeline-count" id="searches-24h">0</div>
+                      </div>
+                      <div class="timeline-item">
+                        <div class="timeline-period">Last 7 days</div>
+                        <div class="timeline-count" id="searches-7d">0</div>
+                      </div>
+                      <div class="timeline-item">
+                        <div class="timeline-period">Last 30 days</div>
+                        <div class="timeline-count" id="searches-30d">0</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -671,6 +1146,8 @@
           loadConnections();
         } else if (activePanel === "logs") {
           loadLogs();
+        } else if (activePanel === "metrics") {
+          loadMetrics();
         }
       }
 
@@ -906,6 +1383,189 @@
         const div = document.createElement("div");
         div.textContent = text;
         return div.innerHTML;
+      }
+
+      // 📊 METRICS FUNCTIONS
+      async function loadMetrics() {
+        try {
+          const response = await fetch("/admin/api/metrics");
+          const data = await response.json();
+
+          updateMetricsOverview(data);
+          updateTorrentsSection(data.torrents);
+          updateSearchSection(data.searches);
+          updateMediaDistribution(data.torrents.media_distribution);
+          updateDebridCacheSection(data.debrid_cache);
+        } catch (error) {
+          console.error("Failed to load metrics:", error);
+          showMetricsError();
+        }
+      }
+
+      function updateMetricsOverview(data) {
+        document.getElementById("total-torrents").textContent =
+          data.torrents.total.toLocaleString();
+        document.getElementById("unique-searches").textContent =
+          data.searches.total_unique.toLocaleString();
+        document.getElementById("active-scrapers").textContent =
+          data.scrapers.active_locks;
+      }
+
+      function updateTorrentsSection(torrentsData) {
+        // Update tracker statistics
+        const trackerContainer = document.getElementById("tracker-stats");
+        if (torrentsData.by_tracker.length === 0) {
+          trackerContainer.innerHTML =
+            '<div class="empty-state"><sl-icon name="database-slash"></sl-icon><p>No tracker data available</p></div>';
+        } else {
+          trackerContainer.innerHTML = torrentsData.by_tracker
+            .map(
+              (tracker) => `
+            <div class="tracker-item">
+              <div class="tracker-name">${escapeHtml(
+                tracker.tracker || "Unknown"
+              )}</div>
+              <div class="tracker-stats">
+                <span class="tracker-count">${tracker.count.toLocaleString()} torrents</span>
+                <span class="tracker-seeders">${
+                  tracker.avg_seeders
+                } avg seeders</span>
+                <span class="tracker-size">${
+                  tracker.avg_size_formatted
+                } avg size</span>
+              </div>
+            </div>
+          `
+            )
+            .join("");
+        }
+
+        // Update size distribution chart
+        updateSizeDistribution(torrentsData.size_distribution);
+
+        // Update quality metrics
+        document.getElementById("avg-seeders").textContent =
+          torrentsData.quality.avg_seeders;
+        document.getElementById("max-seeders").textContent =
+          torrentsData.quality.max_seeders.toLocaleString();
+        document.getElementById("avg-size").textContent =
+          torrentsData.quality.avg_size_formatted;
+        document.getElementById("max-size").textContent =
+          torrentsData.quality.max_size_formatted;
+      }
+
+      function updateSizeDistribution(sizeData) {
+        const container = document.getElementById("size-distribution");
+        if (sizeData.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state"><sl-icon name="pie-chart"></sl-icon><p>No size data available</p></div>';
+          return;
+        }
+
+        const total = sizeData.reduce((sum, item) => sum + item.count, 0);
+        container.innerHTML = `
+          <div class="size-chart">
+            ${sizeData
+              .map((item) => {
+                const percentage = ((item.count / total) * 100).toFixed(1);
+                return `
+                <div class="size-bar">
+                  <div class="size-label">${item.range}</div>
+                  <div class="size-progress">
+                    <div class="size-fill" style="width: ${percentage}%"></div>
+                    <span class="size-percentage">${percentage}% (${item.count.toLocaleString()})</span>
+                  </div>
+                </div>
+              `;
+              })
+              .join("")}
+          </div>
+        `;
+      }
+
+      function updateSearchSection(searchData) {
+        document.getElementById("searches-24h").textContent =
+          searchData.last_24h.toLocaleString();
+        document.getElementById("searches-7d").textContent =
+          searchData.last_7d.toLocaleString();
+        document.getElementById("searches-30d").textContent =
+          searchData.last_30d.toLocaleString();
+      }
+
+      function updateMediaDistribution(mediaData) {
+        const container = document.getElementById("media-distribution");
+        if (mediaData.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state"><sl-icon name="film"></sl-icon><p>No media data available</p></div>';
+          return;
+        }
+
+        const total = mediaData.reduce((sum, item) => sum + item.count, 0);
+        container.innerHTML = `
+          <div class="media-stats">
+            ${mediaData
+              .map((item) => {
+                const percentage = ((item.count / total) * 100).toFixed(1);
+                const icon = item.type === "Movies" ? "film" : "tv";
+                return `
+                <div class="media-item">
+                  <div class="media-icon">
+                    <sl-icon name="${icon}"></sl-icon>
+                  </div>
+                  <div class="media-details">
+                    <div class="media-type">${item.type}</div>
+                    <div class="media-count">${item.count.toLocaleString()} (${percentage}%)</div>
+                  </div>
+                </div>
+              `;
+              })
+              .join("")}
+          </div>
+        `;
+      }
+
+      function showMetricsError() {
+        const sections = document.querySelectorAll(
+          ".metric-section .loading-state"
+        );
+        sections.forEach((section) => {
+          section.innerHTML =
+            '<sl-icon name="exclamation-triangle"></sl-icon><span>Failed to load metrics</span>';
+        });
+      }
+
+      function updateDebridCacheSection(debridData) {
+        // Update performance stats
+        document.getElementById("debrid-total").textContent =
+          debridData.total.toLocaleString();
+
+        // Update services list
+        const servicesContainer = document.getElementById("debrid-services");
+        if (debridData.by_service.length === 0) {
+          servicesContainer.innerHTML =
+            '<div class="empty-state"><sl-icon name="cloud-slash"></sl-icon><p>No debrid cache data available</p></div>';
+        } else {
+          servicesContainer.innerHTML = debridData.by_service
+            .map(
+              (service) => `
+                <div class="debrid-service-item">
+                  <div class="debrid-service-name">${escapeHtml(
+                    service.service
+                  )}</div>
+                  <div class="debrid-service-stats">
+                    <span class="service-count">${service.count.toLocaleString()} files</span>
+                    <span class="service-avg-size">Avg: ${
+                      service.avg_size_formatted
+                    }</span>
+                    <span class="service-total-size">Total: ${
+                      service.total_size_formatted
+                    }</span>
+                  </div>
+                </div>
+              `
+            )
+            .join("");
+        }
       }
     </script>
   </body>

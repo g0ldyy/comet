@@ -345,3 +345,179 @@ async def admin_api_logs(admin_session: str = Cookie(None), since: float = 0):
     return JSONResponse(
         {"logs": new_logs, "total_logs": len(all_logs), "new_logs": len(new_logs)}
     )
+
+
+@main.get("/admin/api/metrics")
+async def admin_api_metrics(admin_session: str = Cookie(None)):
+    if not settings.PUBLIC_METRICS_API:
+        require_admin_auth(admin_session)
+
+    current_time = time.time()
+
+    # 📊 TORRENTS METRICS
+    total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
+
+    # Torrents by tracker
+    tracker_stats = await database.fetch_all("""
+        SELECT tracker, COUNT(*) as count, AVG(seeders) as avg_seeders, AVG(size) as avg_size
+        FROM torrents 
+        GROUP BY tracker 
+        ORDER BY count DESC 
+        LIMIT 5
+    """)
+
+    # Size distribution
+    size_distribution = await database.fetch_all("""
+        SELECT 
+            CASE 
+                WHEN size < 1073741824 THEN 'Under 1GB'
+                WHEN size < 5368709120 THEN '1-5GB'
+                WHEN size < 10737418240 THEN '5-10GB'
+                WHEN size < 21474836480 THEN '10-20GB'
+                ELSE 'Over 20GB'
+            END as size_range,
+            COUNT(*) as count
+        FROM torrents 
+        GROUP BY size_range
+    """)
+
+    # Top seeders and quality metrics
+    quality_stats = await database.fetch_all("""
+        SELECT 
+            AVG(seeders) as avg_seeders,
+            MAX(seeders) as max_seeders,
+            MIN(seeders) as min_seeders,
+            AVG(size) as avg_size,
+            MAX(size) as max_size
+        FROM torrents
+    """)
+
+    # Media type distribution
+    media_distribution = await database.fetch_all("""
+        SELECT 
+            CASE 
+                WHEN season IS NOT NULL THEN 'Series'
+                ELSE 'Movies'
+            END as media_type,
+            COUNT(*) as count
+        FROM torrents 
+        GROUP BY media_type
+    """)
+
+    # 🔍 SEARCH METRICS
+    total_unique_searches = await database.fetch_val(
+        "SELECT COUNT(*) FROM first_searches"
+    )
+
+    # Recent searches (last 24h, 7d, 30d)
+    searches_24h = await database.fetch_val(
+        "SELECT COUNT(*) FROM first_searches WHERE timestamp >= :time_24h",
+        {"time_24h": current_time - 86400},
+    )
+
+    searches_7d = await database.fetch_val(
+        "SELECT COUNT(*) FROM first_searches WHERE timestamp >= :time_7d",
+        {"time_7d": current_time - 604800},
+    )
+
+    searches_30d = await database.fetch_val(
+        "SELECT COUNT(*) FROM first_searches WHERE timestamp >= :time_30d",
+        {"time_30d": current_time - 2592000},
+    )
+
+    # 🔧 SCRAPER METRICS
+    active_locks = await database.fetch_val(
+        "SELECT COUNT(*) FROM scrape_locks WHERE expires_at > :current_time",
+        {"current_time": current_time},
+    )
+
+    # 💾 DEBRID CACHE METRICS
+    total_debrid_cache = await database.fetch_val(
+        "SELECT COUNT(*) FROM debrid_availability"
+    )
+
+    # Debrid cache by service
+    debrid_by_service = await database.fetch_all(
+        """
+        SELECT debrid_service, COUNT(*) as count, AVG(size) as avg_size, SUM(size) as total_size
+        FROM debrid_availability 
+        WHERE timestamp + :cache_ttl >= :current_time
+        GROUP BY debrid_service 
+        ORDER BY count DESC
+    """,
+        {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
+    )
+
+    # Format helper function
+    def format_bytes(bytes_value):
+        if bytes_value is None:
+            return "0 B"
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if bytes_value < 1024.0:
+                return f"{bytes_value:.1f} {unit}"
+            bytes_value /= 1024.0
+        return f"{bytes_value:.1f} PB"
+
+    # Process quality stats
+    if quality_stats:
+        quality_data = quality_stats[0]
+        avg_seeders = quality_data["avg_seeders"] or 0
+        max_seeders = quality_data["max_seeders"] or 0
+        min_seeders = quality_data["min_seeders"] or 0
+        avg_size = quality_data["avg_size"] or 0
+        max_size = quality_data["max_size"] or 0
+    else:
+        avg_seeders = max_seeders = min_seeders = avg_size = max_size = 0
+
+    return JSONResponse(
+        {
+            "torrents": {
+                "total": total_torrents or 0,
+                "by_tracker": [
+                    {
+                        "tracker": row["tracker"],
+                        "count": row["count"],
+                        "avg_seeders": round(row["avg_seeders"] or 0, 1),
+                        "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                    }
+                    for row in tracker_stats
+                ],
+                "size_distribution": [
+                    {"range": row["size_range"], "count": row["count"]}
+                    for row in size_distribution
+                ],
+                "quality": {
+                    "avg_seeders": round(avg_seeders, 1),
+                    "max_seeders": int(max_seeders),
+                    "min_seeders": int(min_seeders),
+                    "avg_size_formatted": format_bytes(avg_size),
+                    "max_size_formatted": format_bytes(max_size),
+                },
+                "media_distribution": [
+                    {"type": row["media_type"], "count": row["count"]}
+                    for row in media_distribution
+                ],
+            },
+            "searches": {
+                "total_unique": total_unique_searches or 0,
+                "last_24h": searches_24h or 0,
+                "last_7d": searches_7d or 0,
+                "last_30d": searches_30d or 0,
+            },
+            "scrapers": {
+                "active_locks": active_locks or 0,
+            },
+            "debrid_cache": {
+                "total": total_debrid_cache or 0,
+                "by_service": [
+                    {
+                        "service": row["debrid_service"],
+                        "count": row["count"],
+                        "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                        "total_size_formatted": format_bytes(row["total_size"] or 0),
+                    }
+                    for row in debrid_by_service
+                ],
+            },
+        }
+    )

@@ -35,6 +35,7 @@ class AppSettings(BaseSettings):
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
+    PUBLIC_METRICS_API: Optional[bool] = False
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
