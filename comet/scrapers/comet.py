@@ -14,7 +14,7 @@ async def get_comet(manager, media_type: str, media_id: str):
 
         for torrent in get_comet["streams"]:
             title_full = torrent["description"]
-            title = title_full.split("\n")[0]
+            title = title_full.split("\n")[0].split("📄 ")[1]
 
             seeders = (
                 int(title_full.split("👤 ")[1].split(" ")[0])
