@@ -5,12 +5,17 @@ from fastapi.responses import FileResponse
 
 from comet.utils.models import settings, database
 from comet.utils.logger import logger
+from comet.utils.bandwidth_monitor import bandwidth_monitor
+from comet.utils.streaming_wrapper import monitored_handle_stream_request
 import mediaflow_proxy.handlers
 import mediaflow_proxy.utils.http_utils
 
 
 async def on_stream_end(connection_id: str, ip: str):
     try:
+        # End bandwidth monitoring for this connection
+        await bandwidth_monitor.end_connection(connection_id)
+
         await database.execute(
             "DELETE FROM active_connections WHERE id = :connection_id AND ip = :ip",
             {"connection_id": connection_id, "ip": ip},
@@ -47,6 +52,7 @@ async def check_ip_connections(ip: str):
 
 async def add_active_connection(media_id: str, ip: str):
     connection_id = str(uuid.uuid4())
+
     await database.execute(
         "INSERT INTO active_connections (id, ip, content, timestamp) VALUES (:connection_id, :ip, :content, :timestamp)",
         {
@@ -56,6 +62,10 @@ async def add_active_connection(media_id: str, ip: str):
             "timestamp": time.time(),
         },
     )
+
+    # Start bandwidth monitoring for this connection
+    await bandwidth_monitor.start_connection(connection_id, ip, media_id)
+
     logger.log(
         "STREAM",
         f"New stream connection - ID: {connection_id}, IP: {ip}, Content: {media_id}",
@@ -82,9 +92,11 @@ async def custom_handle_stream_request(
 
     connection_id = await add_active_connection(media_id, ip)
 
-    response = await mediaflow_proxy.handlers.handle_stream_request(
-        method, video_url, proxy_headers
+    # Use monitored wrapper instead of direct mediaflow-proxy call
+    response = await monitored_handle_stream_request(
+        method, video_url, proxy_headers, connection_id
     )
+
     original_background_task = response.background
     response.background = BackgroundTask(
         combined_background_tasks,

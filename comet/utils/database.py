@@ -1,6 +1,7 @@
 import os
 import time
 import traceback
+import asyncio
 
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
@@ -271,6 +272,16 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS bandwidth_stats (
+                    id INTEGER PRIMARY KEY, 
+                    total_bytes INTEGER, 
+                    last_updated INTEGER
+                )
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -328,11 +339,6 @@ async def setup_database():
 
 
 async def cleanup_expired_locks():
-    """Periodic cleanup task for expired locks."""
-    import asyncio
-    import time
-    from comet.utils.logger import logger
-
     while True:
         try:
             current_time = int(time.time())

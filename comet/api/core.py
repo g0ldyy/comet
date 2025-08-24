@@ -1,7 +1,6 @@
 import random
 import string
 import secrets
-import orjson
 import uuid
 import time
 import re
@@ -9,13 +8,14 @@ import re
 from loguru import logger as loguru_logger
 
 from fastapi import APIRouter, Request, HTTPException, Form, Cookie
-from fastapi.responses import RedirectResponse, Response, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic
 
 from comet.utils.models import settings, web_config, database
 from comet.utils.general import config_check
 from comet.utils.log_levels import get_level_info
+from comet.utils.bandwidth_monitor import bandwidth_monitor
 from comet.debrid.manager import get_debrid_extension
 
 templates = Jinja2Templates("comet/templates")
@@ -259,22 +259,79 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
         "SELECT id, ip, content, timestamp FROM active_connections ORDER BY timestamp DESC"
     )
 
+    bandwidth_metrics = bandwidth_monitor.get_all_active_connections()
+    global_stats = bandwidth_monitor.get_global_stats()
+
     connections = []
     for row in rows:
-        connections.append(
-            {
-                "id": row["id"],
-                "ip": row["ip"],
-                "content": row["content"],
-                "timestamp": row["timestamp"],
-                "duration": time.time() - row["timestamp"],
-                "formatted_time": time.strftime(
-                    "%Y-%m-%d %H:%M:%S", time.localtime(row["timestamp"])
-                ),
-            }
-        )
+        conn_id = row["id"]
+        base_connection = {
+            "id": conn_id,
+            "ip": row["ip"],
+            "content": row["content"],
+            "timestamp": row["timestamp"],
+            "duration": time.time() - row["timestamp"],
+            "formatted_time": time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(row["timestamp"])
+            ),
+            "bytes_transferred": 0,
+            "bytes_transferred_formatted": "0 B",
+            "current_speed": 0,
+            "current_speed_formatted": "0 B/s",
+            "peak_speed": 0,
+            "peak_speed_formatted": "0 B/s",
+            "avg_speed_formatted": "0 B/s",
+        }
 
-    return JSONResponse({"connections": connections})
+        if conn_id in bandwidth_metrics:
+            metrics = bandwidth_metrics[conn_id]
+            avg_speed = (
+                metrics.bytes_transferred / metrics.duration
+                if metrics.duration > 0
+                else 0
+            )
+
+            base_connection.update(
+                {
+                    "bytes_transferred": metrics.bytes_transferred,
+                    "bytes_transferred_formatted": bandwidth_monitor.format_bytes(
+                        metrics.bytes_transferred
+                    ),
+                    "current_speed": metrics.current_speed,
+                    "current_speed_formatted": bandwidth_monitor.format_speed(
+                        metrics.current_speed
+                    ),
+                    "peak_speed": metrics.peak_speed,
+                    "peak_speed_formatted": bandwidth_monitor.format_speed(
+                        metrics.peak_speed
+                    ),
+                    "avg_speed_formatted": bandwidth_monitor.format_speed(avg_speed),
+                }
+            )
+
+        connections.append(base_connection)
+
+    return JSONResponse(
+        {
+            "connections": connections,
+            "global_stats": {
+                "total_bytes_alltime": global_stats.get("total_bytes_alltime", 0),
+                "total_bytes_alltime_formatted": bandwidth_monitor.format_bytes(
+                    global_stats.get("total_bytes_alltime", 0)
+                ),
+                "total_bytes_session": global_stats.get("total_bytes_session", 0),
+                "total_bytes_session_formatted": bandwidth_monitor.format_bytes(
+                    global_stats.get("total_bytes_session", 0)
+                ),
+                "total_current_speed": global_stats.get("total_current_speed", 0),
+                "total_current_speed_formatted": bandwidth_monitor.format_speed(
+                    global_stats.get("total_current_speed", 0)
+                ),
+                "active_connections": global_stats.get("active_connections", 0),
+                "peak_concurrent": global_stats.get("peak_concurrent", 0),
+            },
+        }
+    )
 
 
 @main.get("/admin/api/logs")

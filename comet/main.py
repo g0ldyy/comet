@@ -26,6 +26,7 @@ from comet.utils.database import (
 from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
+from comet.utils.bandwidth_monitor import bandwidth_monitor
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -50,6 +51,9 @@ async def lifespan(app: FastAPI):
     await setup_database()
     await download_best_trackers()
 
+    # Initialize bandwidth monitoring system
+    await bandwidth_monitor.initialize()
+
     # Start background lock cleanup task
     cleanup_task = asyncio.create_task(cleanup_expired_locks())
 
@@ -61,6 +65,9 @@ async def lifespan(app: FastAPI):
             await cleanup_task
         except asyncio.CancelledError:
             pass
+
+        await bandwidth_monitor.shutdown()
+
         await teardown_database()
 
 

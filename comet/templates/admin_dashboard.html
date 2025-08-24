@@ -513,6 +513,18 @@
                   <div class="stat-number" id="avg-duration">0s</div>
                   <div class="stat-label">Avg Duration</div>
                 </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="total-speed">0 B/s</div>
+                  <div class="stat-label">Total Speed</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="session-bandwidth">0 B</div>
+                  <div class="stat-label">Session Bandwidth</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="alltime-bandwidth">0 B</div>
+                  <div class="stat-label">All-time Bandwidth</div>
+                </div>
               </div>
 
               <div id="connections-content">
@@ -544,7 +556,7 @@
                   <sl-switch id="auto-refresh" checked>Auto Refresh</sl-switch>
                   <sl-select
                     id="refresh-interval"
-                    value="2000"
+                    value="5000"
                     size="small"
                     style="width: 120px"
                   >
@@ -667,7 +679,7 @@
           const response = await fetch("/admin/api/connections");
           const data = await response.json();
 
-          updateConnectionsStats(data.connections);
+          updateConnectionsStats(data.connections, data.global_stats);
           renderConnectionsTable(data.connections);
         } catch (error) {
           console.error("Failed to load connections:", error);
@@ -676,7 +688,7 @@
         }
       }
 
-      function updateConnectionsStats(connections) {
+      function updateConnectionsStats(connections, globalStats) {
         const totalConnections = connections.length;
         const uniqueIPs = [...new Set(connections.map((c) => c.ip))].length;
         const avgDuration =
@@ -691,6 +703,15 @@
           totalConnections;
         document.getElementById("unique-ips").textContent = uniqueIPs;
         document.getElementById("avg-duration").textContent = `${avgDuration}s`;
+
+        if (globalStats) {
+          document.getElementById("total-speed").textContent =
+            globalStats.total_current_speed_formatted || "0 B/s";
+          document.getElementById("session-bandwidth").textContent =
+            globalStats.total_bytes_session_formatted || "0 B";
+          document.getElementById("alltime-bandwidth").textContent =
+            globalStats.total_bytes_alltime_formatted || "0 B";
+        }
       }
 
       function renderConnectionsTable(connections) {
@@ -711,6 +732,9 @@
                                 <th>Content</th>
                                 <th>Started</th>
                                 <th>Duration</th>
+                                <th>Transferred</th>
+                                <th>Current Speed</th>
+                                <th>Peak Speed</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -731,9 +755,9 @@
                                         <span title="${escapeHtml(
                                           conn.content
                                         )}">${
-                                  conn.content.length > 40
+                                  conn.content.length > 25
                                     ? escapeHtml(
-                                        conn.content.substring(0, 40)
+                                        conn.content.substring(0, 25)
                                       ) + "..."
                                     : escapeHtml(conn.content)
                                 }</span>
@@ -747,6 +771,23 @@
                                         <span class="duration-tag">${Math.round(
                                           conn.duration
                                         )}s</span>
+                                    </td>
+                                    <td>
+                                        <span class="bandwidth-tag" style="background-color: #059669; color: #d1fae5; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">${
+                                          conn.bytes_transferred_formatted ||
+                                          "0 B"
+                                        }</span>
+                                    </td>
+                                    <td>
+                                        <span class="speed-tag" style="background-color: #7c3aed; color: #e9d5ff; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">${
+                                          conn.current_speed_formatted ||
+                                          "0 B/s"
+                                        }</span>
+                                    </td>
+                                    <td>
+                                        <span class="peak-speed-tag" style="background-color: #dc2626; color: #fecaca; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">${
+                                          conn.peak_speed_formatted || "0 B/s"
+                                        }</span>
                                     </td>
                                 </tr>
                             `

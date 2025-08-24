@@ -94,7 +94,6 @@ class DistributedLock:
                 return False
 
     async def release(self):
-        """Releases the lock."""
         if not self.acquired:
             return
 
@@ -112,7 +111,6 @@ class DistributedLock:
             logger.log("LOCK", f"❌ Error releasing lock for {self.lock_key}: {e}")
 
     async def _cleanup_expired_locks(self):
-        """Cleans up expired locks."""
         try:
             current_time = int(time.time())
             await database.execute(
@@ -123,24 +121,16 @@ class DistributedLock:
             logger.log("LOCK", f"❌ Error cleaning up expired locks: {e}")
 
     async def __aenter__(self):
-        """Support for usage with 'async with'."""
         success = await self.acquire()
         if not success:
             raise RuntimeError(f"Failed to acquire lock for {self.lock_key}")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Support for usage with 'async with'."""
         await self.release()
 
 
 async def is_scrape_in_progress(media_id: str) -> bool:
-    """
-    Checks if a scrape is already in progress for this media_id.
-
-    Returns:
-        True if a scrape is in progress, False otherwise
-    """
     try:
         # Clean up expired locks first
         current_time = int(time.time())
