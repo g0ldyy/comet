@@ -452,6 +452,10 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
     def format_bytes(bytes_value):
         if bytes_value is None:
             return "0 B"
+
+        # PostgreSQL compatibility
+        bytes_value = float(bytes_value)
+
         for unit in ["B", "KB", "MB", "GB", "TB"]:
             if bytes_value < 1024.0:
                 return f"{bytes_value:.1f} {unit}"
@@ -461,11 +465,12 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
     # Process quality stats
     if quality_stats:
         quality_data = quality_stats[0]
-        avg_seeders = quality_data["avg_seeders"] or 0
-        max_seeders = quality_data["max_seeders"] or 0
-        min_seeders = quality_data["min_seeders"] or 0
-        avg_size = quality_data["avg_size"] or 0
-        max_size = quality_data["max_size"] or 0
+        # PostgreSQL compatibility
+        avg_seeders = float(quality_data["avg_seeders"] or 0)
+        max_seeders = float(quality_data["max_seeders"] or 0)
+        min_seeders = float(quality_data["min_seeders"] or 0)
+        avg_size = float(quality_data["avg_size"] or 0)
+        max_size = float(quality_data["max_size"] or 0)
     else:
         avg_seeders = max_seeders = min_seeders = avg_size = max_size = 0
 
@@ -477,7 +482,7 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
                     {
                         "tracker": row["tracker"],
                         "count": row["count"],
-                        "avg_seeders": round(row["avg_seeders"] or 0, 1),
+                        "avg_seeders": round(float(row["avg_seeders"] or 0), 1),
                         "avg_size_formatted": format_bytes(row["avg_size"] or 0),
                     }
                     for row in tracker_stats
