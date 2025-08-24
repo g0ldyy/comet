@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.1](https://github.com/g0ldyy/comet/compare/v2.13.0...v2.13.1) (2025-08-24)
+
+
+### Bug Fixes
+
+* private trackers debrid download (now need stremthru to fix it) ([506ee5b](https://github.com/g0ldyy/comet/commit/506ee5bff22d7cea9e1856ee33d6f9259daab1b6))
+
 ## [2.13.0](https://github.com/g0ldyy/comet/compare/v2.12.0...v2.13.0) (2025-08-24)
 
 
