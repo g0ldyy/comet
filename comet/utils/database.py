@@ -106,6 +106,16 @@ async def setup_database():
 
         await database.execute(
             """
+                CREATE TABLE IF NOT EXISTS admin_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    created_at INTEGER,
+                    expires_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
                 CREATE TABLE IF NOT EXISTS metadata_cache (
                     media_id TEXT PRIMARY KEY, 
                     title TEXT, 
@@ -350,6 +360,20 @@ async def cleanup_expired_locks():
             logger.log("LOCK", f"❌ Error during periodic lock cleanup: {e}")
 
         await asyncio.sleep(60)
+
+
+async def cleanup_expired_sessions():
+    while True:
+        try:
+            current_time = int(time.time())
+            await database.execute(
+                "DELETE FROM admin_sessions WHERE expires_at < :current_time",
+                {"current_time": current_time},
+            )
+        except Exception as e:
+            logger.log("SESSION", f"❌ Error during periodic session cleanup: {e}")
+
+        await asyncio.sleep(5)  # Clean up every 5 seconds
 
 
 async def teardown_database():

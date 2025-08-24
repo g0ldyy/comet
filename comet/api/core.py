@@ -22,8 +22,6 @@ templates = Jinja2Templates("comet/templates")
 main = APIRouter()
 security = HTTPBasic()
 
-admin_sessions = {}
-
 
 class LogCapture:
     def __init__(self):
@@ -116,28 +114,42 @@ loguru_logger.add(
 )
 
 
-def create_admin_session() -> str:
+async def create_admin_session() -> str:
     session_id = str(uuid.uuid4())
-    admin_sessions[session_id] = {"created_at": time.time()}
+    created_at = time.time()
+    expires_at = created_at + 10  # 24 hours
+
+    await database.execute(
+        """
+            INSERT INTO admin_sessions (session_id, created_at, expires_at)
+            VALUES (:session_id, :created_at, :expires_at)
+        """,
+        {"session_id": session_id, "created_at": created_at, "expires_at": expires_at},
+    )
     return session_id
 
 
-def verify_admin_session(admin_session: str = Cookie(None)):
-    if not admin_session or admin_session not in admin_sessions:
+async def verify_admin_session(admin_session: str = Cookie(None)):
+    if not admin_session:
         return False
 
-    session_data = admin_sessions[admin_session]
+    # First, clean up expired sessions
+    current_time = time.time()
 
-    # Check if session is older than 24 hours
-    if time.time() - session_data["created_at"] > 86400:
-        del admin_sessions[admin_session]
-        return False
+    # Check if session exists and is valid
+    session = await database.fetch_one(
+        """
+            SELECT session_id FROM admin_sessions 
+            WHERE session_id = :session_id AND expires_at > :current_time
+        """,
+        {"session_id": admin_session, "current_time": current_time},
+    )
 
-    return True
+    return session is not None
 
 
-def require_admin_auth(admin_session: str = Cookie(None)):
-    if not verify_admin_session(admin_session):
+async def require_admin_auth(admin_session: str = Cookie(None)):
+    if not await verify_admin_session(admin_session):
         raise HTTPException(status_code=401, detail="Authentication required")
 
 
@@ -206,7 +218,7 @@ async def manifest(request: Request, b64config: str = None):
 
 @main.get("/admin")
 async def admin_root(request: Request, admin_session: str = Cookie(None)):
-    if verify_admin_session(admin_session):
+    if await verify_admin_session(admin_session):
         return RedirectResponse("/admin/dashboard")
     return templates.TemplateResponse("admin_login.html", {"request": request})
 
@@ -220,7 +232,7 @@ async def admin_login(request: Request, password: str = Form(...)):
             "admin_login.html", {"request": request, "error": "Invalid password"}
         )
 
-    session_id = create_admin_session()
+    session_id = await create_admin_session()
     response = RedirectResponse("/admin/dashboard", status_code=303)
     response.set_cookie(
         key="admin_session",
@@ -236,7 +248,7 @@ async def admin_login(request: Request, password: str = Form(...)):
 @main.get("/admin/dashboard")
 async def admin_dashboard(request: Request, admin_session: str = Cookie(None)):
     try:
-        require_admin_auth(admin_session)
+        await require_admin_auth(admin_session)
         return templates.TemplateResponse("admin_dashboard.html", {"request": request})
     except HTTPException:
         return RedirectResponse("/admin", status_code=303)
@@ -244,8 +256,12 @@ async def admin_dashboard(request: Request, admin_session: str = Cookie(None)):
 
 @main.post("/admin/logout")
 async def admin_logout(admin_session: str = Cookie(None)):
-    if admin_session and admin_session in admin_sessions:
-        del admin_sessions[admin_session]
+    if admin_session:
+        # Remove session from database
+        await database.execute(
+            "DELETE FROM admin_sessions WHERE session_id = :session_id",
+            {"session_id": admin_session},
+        )
 
     response = RedirectResponse("/admin", status_code=303)
     response.delete_cookie("admin_session")
@@ -254,7 +270,7 @@ async def admin_logout(admin_session: str = Cookie(None)):
 
 @main.get("/admin/api/connections")
 async def admin_api_connections(admin_session: str = Cookie(None)):
-    require_admin_auth(admin_session)
+    await require_admin_auth(admin_session)
     rows = await database.fetch_all(
         "SELECT id, ip, content, timestamp FROM active_connections ORDER BY timestamp DESC"
     )
@@ -336,7 +352,7 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
 
 @main.get("/admin/api/logs")
 async def admin_api_logs(admin_session: str = Cookie(None), since: float = 0):
-    require_admin_auth(admin_session)
+    await require_admin_auth(admin_session)
 
     # Get logs since the specified timestamp
     all_logs = log_capture.get_logs()
@@ -350,7 +366,7 @@ async def admin_api_logs(admin_session: str = Cookie(None), since: float = 0):
 @main.get("/admin/api/metrics")
 async def admin_api_metrics(admin_session: str = Cookie(None)):
     if not settings.PUBLIC_METRICS_API:
-        require_admin_auth(admin_session)
+        await require_admin_auth(admin_session)
 
     current_time = time.time()
 

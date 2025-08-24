@@ -22,6 +22,7 @@ from comet.utils.database import (
     setup_database,
     teardown_database,
     cleanup_expired_locks,
+    cleanup_expired_sessions,
 )
 from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
@@ -54,15 +55,21 @@ async def lifespan(app: FastAPI):
     # Initialize bandwidth monitoring system
     await bandwidth_monitor.initialize()
 
-    # Start background lock cleanup task
-    cleanup_task = asyncio.create_task(cleanup_expired_locks())
+    # Start background cleanup tasks
+    cleanup_locks_task = asyncio.create_task(cleanup_expired_locks())
+    cleanup_sessions_task = asyncio.create_task(cleanup_expired_sessions())
 
     try:
         yield
     finally:
-        cleanup_task.cancel()
+        cleanup_locks_task.cancel()
+        cleanup_sessions_task.cancel()
         try:
-            await cleanup_task
+            await cleanup_locks_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await cleanup_sessions_task
         except asyncio.CancelledError:
             pass
 
