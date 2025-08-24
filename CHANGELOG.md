@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.0](https://github.com/g0ldyy/comet/compare/v2.14.0...v2.15.0) (2025-08-24)
+
+
+### Features
+
+* oupsie ([2678e9c](https://github.com/g0ldyy/comet/commit/2678e9c8046af38ef7b1bdae9457906636fd0c14))
+
 ## [2.14.0](https://github.com/g0ldyy/comet/compare/v2.13.1...v2.14.0) (2025-08-24)
 
 
