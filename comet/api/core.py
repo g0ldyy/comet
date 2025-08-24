@@ -133,7 +133,6 @@ async def verify_admin_session(admin_session: str = Cookie(None)):
     if not admin_session:
         return False
 
-    # First, clean up expired sessions
     current_time = time.time()
 
     # Check if session exists and is valid
