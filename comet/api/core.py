@@ -209,7 +209,7 @@ async def manifest(request: Request, b64config: str = None):
 
     debrid_extension = get_debrid_extension(config["debridService"])
     base_manifest["name"] = (
-        f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension is not None else ''}"
+        f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension != "TORRENT" else ''}"
     )
 
     return base_manifest
