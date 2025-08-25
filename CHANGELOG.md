@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.15.1](https://github.com/g0ldyy/comet/compare/v2.15.0...v2.15.1) (2025-08-25)
+
+
+### Bug Fixes
+
+* Add single announce URL to announce list ([789dcff](https://github.com/g0ldyy/comet/commit/789dcff4c4f93774d8784321dcd6b1703112a6d6))
+* update manifest name to exclude 'TORRENT' from debrid extension ([d916fe0](https://github.com/g0ldyy/comet/commit/d916fe03e0ec986ceb2960085f2776f4d809dbcf))
+
 ## [2.15.0](https://github.com/g0ldyy/comet/compare/v2.14.0...v2.15.0) (2025-08-24)
 
 
