@@ -82,6 +82,9 @@ def extract_torrent_metadata(content: bytes):
         announce_list = [
             tracker[0].decode() for tracker in torrent_data.get(b"announce-list", [])
         ]
+        announce = torrent_data.get(b"announce", b"").decode()
+        if announce:
+            announce_list.append(announce)
 
         metadata = {"info_hash": info_hash, "announce_list": announce_list, "files": []}
 
