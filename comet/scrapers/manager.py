@@ -68,14 +68,18 @@ class TorrentManager:
     ):
         tasks = []
         if settings.SCRAPE_COMET:
-            tasks.append(get_comet(self, self.media_type, self.media_id))
+            tasks.extend(get_all_comet_tasks(self, self.media_type, self.media_id))
         if settings.SCRAPE_TORRENTIO:
-            tasks.append(get_torrentio(self, self.media_type, self.media_id))
+            tasks.extend(get_all_torrentio_tasks(self, self.media_type, self.media_id))
         if settings.SCRAPE_MEDIAFUSION:
-            tasks.append(get_mediafusion(self, self.media_type, self.media_id))
+            tasks.extend(
+                get_all_mediafusion_tasks(self, self.media_type, self.media_id)
+            )
         if settings.SCRAPE_ZILEAN:
-            tasks.append(
-                get_zilean(self, session, self.title, self.season, self.episode)
+            tasks.extend(
+                get_all_zilean_tasks(
+                    self, session, self.title, self.season, self.episode
+                )
             )
         if settings.INDEXER_MANAGER_API_KEY:
             queries = [self.title]
@@ -193,7 +197,7 @@ class TorrentManager:
 
         for torrent in torrents:
             torrent_title = torrent["title"]
-            if "sample" in torrent_title.lower():
+            if "sample" in torrent_title.lower() or torrent_title == "":
                 continue
 
             parsed = parse(torrent_title)
@@ -364,3 +368,59 @@ class TorrentManager:
                 self.torrents[info_hash]["title"] = row["title"]
             if row["size"] is not None:
                 self.torrents[info_hash]["size"] = row["size"]
+
+
+# multi-instance scraping
+def get_all_comet_tasks(manager, media_type: str, media_id: str):
+    urls = settings.COMET_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_comet(manager, url, media_type, media_id))
+    return tasks
+
+
+def get_all_torrentio_tasks(manager, media_type: str, media_id: str):
+    urls = settings.TORRENTIO_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_torrentio(manager, url, media_type, media_id))
+    return tasks
+
+
+def get_all_zilean_tasks(manager, session, title: str, season: int, episode: int):
+    urls = settings.ZILEAN_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_zilean(manager, session, url, title, season, episode))
+    return tasks
+
+
+def get_all_mediafusion_tasks(manager, media_type: str, media_id: str):
+    urls = settings.MEDIAFUSION_URL
+    passwords = settings.MEDIAFUSION_API_PASSWORD
+
+    if isinstance(urls, str):
+        urls = [urls]
+
+    if passwords is None:
+        passwords = [None] * len(urls)
+    elif isinstance(passwords, str):
+        passwords = [passwords] * len(urls)
+    elif isinstance(passwords, list):
+        while len(passwords) < len(urls):
+            passwords.append(None)
+
+    tasks = []
+    for i, url in enumerate(urls):
+        password = passwords[i] if i < len(passwords) else None
+        tasks.append(get_mediafusion(manager, url, password, media_type, media_id))
+    return tasks

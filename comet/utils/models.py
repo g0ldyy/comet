@@ -2,7 +2,7 @@ import random
 import string
 import RTN
 
-from typing import List, Optional
+from typing import List, Optional, Union
 from databases import Database
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -55,14 +55,14 @@ class AppSettings(BaseSettings):
     GET_TORRENT_TIMEOUT: Optional[int] = 5
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Optional[bool] = False
-    COMET_URL: Optional[str] = "https://comet.elfhosted.com"
+    COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
     SCRAPE_ZILEAN: Optional[bool] = False
-    ZILEAN_URL: Optional[str] = "https://zilean.elfhosted.com"
+    ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
     SCRAPE_TORRENTIO: Optional[bool] = False
-    TORRENTIO_URL: Optional[str] = "https://torrentio.strem.fun"
+    TORRENTIO_URL: Union[str, List[str]] = "https://torrentio.strem.fun"
     SCRAPE_MEDIAFUSION: Optional[bool] = False
-    MEDIAFUSION_URL: Optional[str] = "https://mediafusion.elfhosted.com"
-    MEDIAFUSION_API_PASSWORD: Optional[str] = None
+    MEDIAFUSION_URL: Union[str, List[str]] = "https://mediafusion.elfhosted.com"
+    MEDIAFUSION_API_PASSWORD: Union[str, List[str], None] = None
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
@@ -75,14 +75,7 @@ class AppSettings(BaseSettings):
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
     REMOVE_ADULT_CONTENT: Optional[bool] = False
 
-    @field_validator(
-        "INDEXER_MANAGER_URL",
-        "ZILEAN_URL",
-        "TORRENTIO_URL",
-        "MEDIAFUSION_URL",
-        "COMET_URL",
-        "STREMTHRU_URL",
-    )
+    @field_validator("INDEXER_MANAGER_URL", "STREMTHRU_URL")
     def remove_trailing_slash(cls, v):
         if v and v.endswith("/"):
             return v[:-1]
@@ -97,6 +90,14 @@ class AppSettings(BaseSettings):
     @field_validator("INDEXER_MANAGER_INDEXERS")
     def indexer_manager_indexers_normalization(cls, v, values):
         v = [indexer.replace(" ", "").lower() for indexer in v]
+        return v
+
+    @field_validator("COMET_URL", "ZILEAN_URL", "TORRENTIO_URL", "MEDIAFUSION_URL")
+    def normalize_scraper_urls(cls, v):
+        if isinstance(v, str):
+            return v.rstrip("/")
+        elif isinstance(v, list):
+            return [url.rstrip("/") for url in v]
         return v
 
 

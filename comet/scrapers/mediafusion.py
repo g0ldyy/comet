@@ -1,18 +1,23 @@
-from comet.utils.models import settings
 from comet.utils.general import (
     log_scraper_error,
     fetch_with_proxy_fallback,
 )
-from comet.utils.mediafusion import mediafusion_config
+from comet.utils.mediafusion import mediafusion_config, encode_mediafusion_api_password
 
 
-async def get_mediafusion(manager, media_type: str, media_id: str):
+async def get_mediafusion(
+    manager, url: str, api_password: str | None, media_type: str, media_id: str
+):
     torrents = []
     try:
-        headers = mediafusion_config.headers
+        if api_password is not None:
+            encoded_user_data = encode_mediafusion_api_password(api_password)
+            headers = {"encoded_user_data": encoded_user_data}
+        else:
+            headers = mediafusion_config.headers
 
         get_mediafusion = await fetch_with_proxy_fallback(
-            f"{settings.MEDIAFUSION_URL}/stream/{media_type}/{media_id}.json",
+            f"{url}/stream/{media_type}/{media_id}.json",
             headers=headers,
         )
 
@@ -42,7 +47,7 @@ async def get_mediafusion(manager, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        log_scraper_error("MediaFusion", media_id, e)
+        log_scraper_error("MediaFusion", url, media_id, e)
         pass
 
     await manager.filter_manager(torrents)

@@ -3,6 +3,7 @@ import orjson
 
 from RTN import ParsedData
 from fastapi import Request
+from curl_cffi import AsyncSession
 
 from comet.utils.models import (
     ConfigModel,
@@ -412,33 +413,34 @@ def get_proxies():
 
 
 async def fetch_with_proxy_fallback(url: str, headers: dict = None):
-    from curl_cffi import requests
+    async with AsyncSession(impersonate="chrome") as session:
+        try:
+            response = await session.get(url, headers=headers)
+            return response.json()
+        except Exception as first_error:
+            proxies = get_proxies()
+            if proxies:
+                try:
+                    response = await session.get(url, headers=headers, proxies=proxies)
+                    return response.json()
+                except Exception as second_error:
+                    raise second_error
+            else:
+                raise first_error
 
-    try:
-        response = requests.get(url, headers=headers)
-        return response.json()
-    except Exception as first_error:
-        proxies = get_proxies()
-        if proxies:
-            try:
-                response = requests.get(url, headers=headers, proxies=proxies)
-                return response.json()
-            except Exception as second_error:
-                raise second_error
-        else:
-            raise first_error
 
-
-def log_scraper_error(scraper_name: str, media_id: str, error: Exception):
+def log_scraper_error(
+    scraper_name: str, scraper_url: str, media_id: str, error: Exception
+):
     api_password_missing = ""
     if "MediaFusion" in scraper_name:
         api_password_missing = " or your API password could be wrong"
 
     if settings.DEBRID_PROXY_URL:
         logger.warning(
-            f"Exception while getting torrents for {media_id} with {scraper_name}, your proxy is most likely blacklisted{api_password_missing}: {error}"
+            f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), your proxy is most likely blacklisted{api_password_missing}: {error}"
         )
     else:
         logger.warning(
-            f"Exception while getting torrents for {media_id} with {scraper_name}, your IP is most likely blacklisted (you should try proxying Comet){api_password_missing}: {error}"
+            f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), your IP is most likely blacklisted (you should try proxying Comet){api_password_missing}: {error}"
         )
