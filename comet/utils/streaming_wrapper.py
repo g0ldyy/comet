@@ -1,5 +1,3 @@
-from typing import AsyncGenerator
-from starlette.responses import Response
 from starlette.background import BackgroundTask
 
 import mediaflow_proxy.handlers
@@ -12,7 +10,7 @@ from comet.utils.bandwidth_monitor import bandwidth_monitor
 class BandwidthMonitoringStreamingResponse(EnhancedStreamingResponse):
     def __init__(
         self,
-        content: AsyncGenerator[bytes, None],
+        content,
         status_code: int = 200,
         headers: dict = None,
         media_type: str = None,
@@ -22,7 +20,7 @@ class BandwidthMonitoringStreamingResponse(EnhancedStreamingResponse):
         super().__init__(content, status_code, headers, media_type, background)
         self.connection_id = connection_id
 
-    async def stream_response(self, send) -> None:
+    async def stream_response(self, send):
         await send(
             {
                 "type": "http.response.start",
@@ -61,7 +59,7 @@ async def monitored_handle_stream_request(
     video_url: str,
     proxy_headers: mediaflow_proxy.utils.http_utils.ProxyRequestHeaders,
     connection_id: str = None,
-) -> Response:
+):
     """
     Wrapper around mediaflow-proxy's handle_stream_request with bandwidth monitoring.
 

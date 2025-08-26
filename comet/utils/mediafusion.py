@@ -4,7 +4,7 @@ import base64
 from comet.utils.models import settings
 
 
-def encode_mediafusion_api_password(api_password: str) -> str:
+def encode_mediafusion_api_password(api_password: str):
     user_config = {
         "ap": api_password,
         "nf": ["Disable"],
@@ -25,7 +25,7 @@ class MediaFusionConfig:
         )
 
     @property
-    def headers(self) -> dict:
+    def headers(self):
         return {"encoded_user_data": self._encoded_user_data}
 
 

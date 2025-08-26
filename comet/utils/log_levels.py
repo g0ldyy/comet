@@ -32,18 +32,24 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #71d6d6>",
         "no": 30,
     },
+    "BACKGROUND_SCRAPER": {
+        "color": "#5fba64",
+        "icon": "🏭",
+        "loguru_color": "<fg #5fba64>",
+        "no": 25,
+    },
 }
 
 ALL_LOG_LEVELS = {**STANDARD_LOG_LEVELS, **CUSTOM_LOG_LEVELS}
 
 
-def get_level_info(level_name: str) -> dict:
+def get_level_info(level_name: str):
     return ALL_LOG_LEVELS.get(level_name, {"color": "#ffffff", "icon": "📝"})
 
 
-def get_level_color(level_name: str) -> str:
+def get_level_color(level_name: str):
     return get_level_info(level_name)["color"]
 
 
-def get_level_icon(level_name: str) -> str:
+def get_level_icon(level_name: str):
     return get_level_info(level_name)["icon"]

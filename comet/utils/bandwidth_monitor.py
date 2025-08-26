@@ -1,6 +1,5 @@
 import asyncio
 import time
-from typing import Dict, Optional
 from dataclasses import dataclass, field
 import threading
 
@@ -20,7 +19,7 @@ class ConnectionMetrics:
     peak_speed: float = 0.0
     duration: float = 0.0
 
-    def update_metrics(self, bytes_chunk: int) -> None:
+    def update_metrics(self, bytes_chunk: int):
         current_time = time.time()
         self.bytes_transferred += bytes_chunk
 
@@ -37,7 +36,7 @@ class ConnectionMetrics:
 
 class BandwidthMonitor:
     def __init__(self):
-        self._connections: Dict[str, ConnectionMetrics] = {}
+        self._connections = {}
         self._lock = threading.RLock()
         self._global_stats = {
             "total_bytes_alltime": 0,
@@ -46,8 +45,8 @@ class BandwidthMonitor:
             "peak_concurrent": 0,
         }
         self._last_synced_bytes = 0
-        self._cleanup_task: Optional[asyncio.Task] = None
-        self._db_sync_task: Optional[asyncio.Task] = None
+        self._cleanup_task = None
+        self._db_sync_task = None
         self._initialized = False
 
     async def initialize(self):
@@ -73,7 +72,7 @@ class BandwidthMonitor:
 
         self._initialized = True
 
-    async def start_connection(self, connection_id: str, ip: str, content: str) -> None:
+    async def start_connection(self, connection_id: str, ip: str, content: str):
         if not self._initialized:
             await self.initialize()
 
@@ -93,14 +92,14 @@ class BandwidthMonitor:
                 self._global_stats["active_connections"],
             )
 
-    def update_connection(self, connection_id: str, bytes_chunk: int) -> None:
+    def update_connection(self, connection_id: str, bytes_chunk: int):
         with self._lock:
             if connection_id in self._connections:
                 self._connections[connection_id].update_metrics(bytes_chunk)
                 self._global_stats["total_bytes_session"] += bytes_chunk
                 self._global_stats["total_bytes_alltime"] += bytes_chunk
 
-    async def end_connection(self, connection_id: str) -> Optional[ConnectionMetrics]:
+    async def end_connection(self, connection_id: str):
         with self._lock:
             metrics = self._connections.pop(connection_id, None)
             if metrics:
@@ -120,15 +119,15 @@ class BandwidthMonitor:
 
             return metrics
 
-    def get_connection_metrics(self, connection_id: str) -> Optional[ConnectionMetrics]:
+    def get_connection_metrics(self, connection_id: str):
         with self._lock:
             return self._connections.get(connection_id)
 
-    def get_all_active_connections(self) -> Dict[str, ConnectionMetrics]:
+    def get_all_active_connections(self):
         with self._lock:
             return self._connections.copy()
 
-    def get_global_stats(self) -> Dict:
+    def get_global_stats(self):
         with self._lock:
             stats = self._global_stats.copy()
 
@@ -140,7 +139,7 @@ class BandwidthMonitor:
 
             return stats
 
-    def format_bytes(self, bytes_value: int) -> str:
+    def format_bytes(self, bytes_value: int):
         if bytes_value < 1024:
             return f"{bytes_value} B"
         elif bytes_value < 1024**2:
@@ -150,7 +149,7 @@ class BandwidthMonitor:
         else:
             return f"{bytes_value / (1024**3):.2f} GB"
 
-    def format_speed(self, bytes_per_second: float) -> str:
+    def format_speed(self, bytes_per_second: float):
         if bytes_per_second < 1024:
             return f"{bytes_per_second:.0f} B/s"
         elif bytes_per_second < 1024**2:

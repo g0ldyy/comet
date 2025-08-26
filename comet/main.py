@@ -28,6 +28,7 @@ from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
 from comet.utils.bandwidth_monitor import bandwidth_monitor
+from comet.background_scraper.worker import background_scraper
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -59,9 +60,22 @@ async def lifespan(app: FastAPI):
     cleanup_locks_task = asyncio.create_task(cleanup_expired_locks())
     cleanup_sessions_task = asyncio.create_task(cleanup_expired_sessions())
 
+    # Start background scraper if enabled
+    background_scraper_task = None
+    if settings.BACKGROUND_SCRAPER_ENABLED:
+        background_scraper_task = asyncio.create_task(background_scraper.start())
+
     try:
         yield
     finally:
+        if background_scraper_task:
+            await background_scraper.stop()
+            background_scraper_task.cancel()
+            try:
+                await background_scraper_task
+            except asyncio.CancelledError:
+                pass
+
         cleanup_locks_task.cancel()
         cleanup_sessions_task.cancel()
         try:
@@ -199,6 +213,15 @@ def start_log():
 
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
+
+    logger.log(
+        "COMET",
+        f"Background Scraper: {bool(settings.BACKGROUND_SCRAPER_ENABLED)} - "
+        f"Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - "
+        f"Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - "
+        f"Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - "
+        f"Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN}",
+    )
 
 
 def run_with_uvicorn():
