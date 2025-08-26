@@ -3,6 +3,7 @@ import orjson
 
 from RTN import ParsedData
 from fastapi import Request
+from curl_cffi import requests
 
 from comet.utils.models import (
     ConfigModel,
@@ -412,16 +413,16 @@ def get_proxies():
 
 
 async def fetch_with_proxy_fallback(url: str, headers: dict = None):
-    from curl_cffi import requests
-
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, impersonate="chrome")
         return response.json()
     except Exception as first_error:
         proxies = get_proxies()
         if proxies:
             try:
-                response = requests.get(url, headers=headers, proxies=proxies)
+                response = requests.get(
+                    url, headers=headers, proxies=proxies, impersonate="chrome"
+                )
                 return response.json()
             except Exception as second_error:
                 raise second_error
@@ -429,7 +430,9 @@ async def fetch_with_proxy_fallback(url: str, headers: dict = None):
             raise first_error
 
 
-def log_scraper_error(scraper_name: str, scraper_url: str, media_id: str, error: Exception):
+def log_scraper_error(
+    scraper_name: str, scraper_url: str, media_id: str, error: Exception
+):
     api_password_missing = ""
     if "MediaFusion" in scraper_name:
         api_password_missing = " or your API password could be wrong"
