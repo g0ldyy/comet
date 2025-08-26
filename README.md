@@ -14,6 +14,7 @@
 - [Torrentio](https://torrentio.strem.fun/) Scraper
 - [MediaFusion](https://mediafusion.elfhosted.com/) Scraper
 - Caching system ft. SQLite / PostgreSQL
+- Blazing Fast Background Scraper
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
 - Real-Debrid, All-Debrid, Premiumize, TorBox and Debrid-Link supported
