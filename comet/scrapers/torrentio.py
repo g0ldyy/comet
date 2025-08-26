@@ -1,7 +1,6 @@
 import re
 
 
-from comet.utils.models import settings
 from comet.utils.general import (
     size_to_bytes,
     log_scraper_error,
@@ -14,18 +13,18 @@ data_pattern = re.compile(
 )
 
 
-async def get_torrentio(manager, media_type: str, media_id: str):
+async def get_torrentio(manager, url: str, media_type: str, media_id: str):
     torrents = []
     try:
         get_torrentio = await fetch_with_proxy_fallback(
-            f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json"
+            f"{url}/stream/{media_type}/{media_id}.json"
         )
 
         for torrent in get_torrentio["streams"]:
             title_full = torrent["title"]
             title = (
                 title_full.split("\n")[0]
-                if settings.TORRENTIO_URL == "https://torrentio.strem.fun"
+                if url == "https://torrentio.strem.fun"
                 else title_full.split("\n💾")[0].split("\n")[-1]
             )
 
