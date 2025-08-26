@@ -3,7 +3,7 @@ import orjson
 
 from RTN import ParsedData
 from fastapi import Request
-from curl_cffi import requests
+from curl_cffi import AsyncSession
 
 from comet.utils.models import (
     ConfigModel,
@@ -413,21 +413,20 @@ def get_proxies():
 
 
 async def fetch_with_proxy_fallback(url: str, headers: dict = None):
-    try:
-        response = requests.get(url, headers=headers, impersonate="chrome")
-        return response.json()
-    except Exception as first_error:
-        proxies = get_proxies()
-        if proxies:
-            try:
-                response = requests.get(
-                    url, headers=headers, proxies=proxies, impersonate="chrome"
-                )
-                return response.json()
-            except Exception as second_error:
-                raise second_error
-        else:
-            raise first_error
+    async with AsyncSession(impersonate="chrome") as session:
+        try:
+            response = await session.get(url, headers=headers)
+            return response.json()
+        except Exception as first_error:
+            proxies = get_proxies()
+            if proxies:
+                try:
+                    response = await session.get(url, headers=headers, proxies=proxies)
+                    return response.json()
+                except Exception as second_error:
+                    raise second_error
+            else:
+                raise first_error
 
 
 def log_scraper_error(
