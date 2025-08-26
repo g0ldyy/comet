@@ -315,7 +315,7 @@ async def setup_database():
                     year INTEGER,
                     scraped_at INTEGER,
                     total_torrents_found INTEGER,
-                    scrape_attempts INTEGER
+                    scrape_failed_attempts INTEGER
                 )
             """
         )

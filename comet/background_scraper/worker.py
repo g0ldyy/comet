@@ -223,7 +223,7 @@ class BackgroundScraperWorker:
     async def _should_skip_media(self, media_id: str):
         """Check if media should be skipped (recently scraped or too many failures)."""
         row = await database.fetch_one(
-            "SELECT scraped_at, scrape_attempts FROM background_scraper_state WHERE media_id = :media_id",
+            "SELECT scraped_at, scrape_failed_attempts FROM background_scraper_state WHERE media_id = :media_id",
             {"media_id": media_id},
         )
 
@@ -236,7 +236,7 @@ class BackgroundScraperWorker:
             return True
 
         # Skip if too many failed attempts (more than 3)
-        if row["scrape_attempts"] and row["scrape_attempts"] > 3:
+        if row["scrape_failed_attempts"] and row["scrape_failed_attempts"] > 3:
             return True
 
         return False
@@ -288,13 +288,13 @@ class BackgroundScraperWorker:
                 """
                 INSERT INTO background_scraper_state 
                 (media_id, media_type, title, year, scraped_at, total_torrents_found, 
-                scrape_attempts)
+                scrape_failed_attempts)
                 VALUES (:media_id, :media_type, :title, :year, :scraped_at, 
                         :torrents_found, :increment_attempt)
                 ON CONFLICT (media_id) DO UPDATE SET
                     scraped_at = :scraped_at,
                     total_torrents_found = :torrents_found,
-                    scrape_attempts = background_scraper_state.scrape_attempts + :increment_attempt
+                    scrape_failed_attempts = background_scraper_state.scrape_failed_attempts + :increment_attempt
                 """,
                 {
                     "media_id": media_id,
