@@ -34,7 +34,7 @@ async def get_comet(manager, url: str, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        log_scraper_error("Comet", media_id, e)
+        log_scraper_error("Comet", url, media_id, e)
         pass
 
     await manager.filter_manager(torrents)

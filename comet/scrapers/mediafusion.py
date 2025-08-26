@@ -47,7 +47,7 @@ async def get_mediafusion(
                 }
             )
     except Exception as e:
-        log_scraper_error("MediaFusion", media_id, e)
+        log_scraper_error("MediaFusion", url, media_id, e)
         pass
 
     await manager.filter_manager(torrents)

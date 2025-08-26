@@ -46,6 +46,6 @@ async def get_torrentio(manager, url: str, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        log_scraper_error("Torrentio", media_id, e)
+        log_scraper_error("Torrentio", url, media_id, e)
 
     await manager.filter_manager(torrents)

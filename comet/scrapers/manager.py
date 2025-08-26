@@ -197,7 +197,7 @@ class TorrentManager:
 
         for torrent in torrents:
             torrent_title = torrent["title"]
-            if "sample" in torrent_title.lower():
+            if "sample" in torrent_title.lower() or torrent_title == "":
                 continue
 
             parsed = parse(torrent_title)
