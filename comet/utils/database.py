@@ -283,10 +283,10 @@ async def setup_database():
         )
 
         await database.execute(
-            """
+            f"""
                 CREATE TABLE IF NOT EXISTS bandwidth_stats (
                     id INTEGER PRIMARY KEY, 
-                    total_bytes INTEGER, 
+                    total_bytes {"INTEGER" if settings.DATABASE_TYPE == "sqlite" else "BIGINT"}, 
                     last_updated INTEGER
                 )
             """
