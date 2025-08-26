@@ -107,7 +107,7 @@ class AppSettings(BaseSettings):
 
     @field_validator("BACKGROUND_SCRAPER_INTERVAL")
     def validate_background_scraper_interval(cls, v):
-        if v <= 0:
+        if v < 300:
             return 300  # Minimum 5 minutes
         return v
 
