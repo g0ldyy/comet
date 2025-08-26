@@ -13,10 +13,10 @@ from .cinemata_client import CinemataClient
 
 @dataclass
 class ScrapingStats:
-    total_processed = 0
-    total_torrents_found = 0
-    errors = 0
-    start_time = 0
+    total_processed: int = 0
+    total_torrents_found: int = 0
+    errors: int = 0
+    start_time: float = 0.0
 
     @property
     def duration(self):
@@ -26,6 +26,10 @@ class ScrapingStats:
 class BackgroundScraperWorker:
     def __init__(self):
         self.is_running = False
+        self.current_session = None
+        self.metadata_scraper = None
+        self.semaphore = None
+        self.stats = ScrapingStats()
 
     async def start(self):
         if self.is_running:
@@ -269,6 +273,8 @@ class BackgroundScraperWorker:
                     torrents_found = await self._scrape_movie(media_id, title, year)
 
                 self.stats.total_torrents_found += torrents_found
+
+                increment_attempt = 1 if torrents_found == 0 else 0
             except Exception as e:
                 self.stats.errors += 1
                 import traceback
@@ -276,17 +282,19 @@ class BackgroundScraperWorker:
                 traceback.print_exc()
                 logger.error(f"Error scraping {media_type} {media_id}: {e}")
 
+                increment_attempt = 1
+
             await database.execute(
                 """
                 INSERT INTO background_scraper_state 
                 (media_id, media_type, title, year, scraped_at, total_torrents_found, 
                 scrape_attempts)
                 VALUES (:media_id, :media_type, :title, :year, :scraped_at, 
-                        :torrents_found, 1)
+                        :torrents_found, :increment_attempt)
                 ON CONFLICT (media_id) DO UPDATE SET
                     scraped_at = :scraped_at,
                     total_torrents_found = :torrents_found,
-                    scrape_attempts = background_scraper_state.scrape_attempts + 1
+                    scrape_attempts = background_scraper_state.scrape_attempts + :increment_attempt
                 """,
                 {
                     "media_id": media_id,
@@ -295,6 +303,7 @@ class BackgroundScraperWorker:
                     "year": year,
                     "scraped_at": time.time(),
                     "torrents_found": torrents_found,
+                    "increment_attempt": increment_attempt,
                 },
             )
 
