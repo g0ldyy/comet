@@ -32,7 +32,9 @@ class MetadataScraper:
         )
         aliases_task = asyncio.create_task(self.get_aliases(media_type, id, is_kitsu))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
-        await self.cache_metadata(id, metadata, aliases)
+
+        if metadata is not None:
+            await self.cache_metadata(id, metadata, aliases)
 
         return metadata, aliases
 

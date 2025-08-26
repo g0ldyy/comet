@@ -66,7 +66,7 @@ async def background_scrape(
         await scrape_lock.release()
 
 
-async def wait_for_scrape_completion(media_id: str, context: str = "") -> bool:
+async def wait_for_scrape_completion(media_id: str, context: str = ""):
     """
     Wait for another scrape to complete for the given media_id.
 

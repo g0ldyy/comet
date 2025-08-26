@@ -292,6 +292,34 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS background_scraper_progress (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    current_run_started_at INTEGER,
+                    last_completed_run_at INTEGER,
+                    is_running BOOLEAN DEFAULT FALSE,
+                    current_phase TEXT,
+                    total_movies_processed INTEGER,
+                    total_series_processed INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS background_scraper_state (
+                    media_id TEXT PRIMARY KEY,
+                    media_type TEXT,
+                    title TEXT,
+                    year INTEGER,
+                    scraped_at INTEGER,
+                    total_torrents_found INTEGER,
+                    scrape_attempts INTEGER
+                )
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -351,7 +379,7 @@ async def setup_database():
 async def cleanup_expired_locks():
     while True:
         try:
-            current_time = int(time.time())
+            current_time = time.time()
             await database.execute(
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
                 {"current_time": current_time},
@@ -365,7 +393,7 @@ async def cleanup_expired_locks():
 async def cleanup_expired_sessions():
     while True:
         try:
-            current_time = int(time.time())
+            current_time = time.time()
             await database.execute(
                 "DELETE FROM admin_sessions WHERE expires_at < :current_time",
                 {"current_time": current_time},

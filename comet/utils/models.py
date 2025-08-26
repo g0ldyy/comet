@@ -74,6 +74,11 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
     REMOVE_ADULT_CONTENT: Optional[bool] = False
+    BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
+    BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
+    BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
+    BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 1000
+    BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 500
 
     @field_validator("INDEXER_MANAGER_URL", "STREMTHRU_URL")
     def remove_trailing_slash(cls, v):
@@ -98,6 +103,12 @@ class AppSettings(BaseSettings):
             return v.rstrip("/")
         elif isinstance(v, list):
             return [url.rstrip("/") for url in v]
+        return v
+
+    @field_validator("BACKGROUND_SCRAPER_INTERVAL")
+    def validate_background_scraper_interval(cls, v):
+        if v <= 0:
+            return 300  # Minimum 5 minutes
         return v
 
 

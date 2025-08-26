@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from typing import Optional
+
 from comet.utils.models import database, settings
 from comet.utils.logger import logger
 
@@ -22,7 +22,7 @@ class DistributedLock:
         self.instance_id = str(uuid.uuid4())
         self.acquired = False
 
-    async def acquire(self, wait_timeout: Optional[int] = None) -> bool:
+    async def acquire(self, wait_timeout: int = None):
         """
         Attempts to acquire the lock.
 
@@ -51,7 +51,7 @@ class DistributedLock:
                     {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": int(time.time()),
+                        "timestamp": time.time(),
                         "expires_at": expires_at,
                     },
                 )
@@ -112,7 +112,7 @@ class DistributedLock:
 
     async def _cleanup_expired_locks(self):
         try:
-            current_time = int(time.time())
+            current_time = time.time()
             await database.execute(
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
                 {"current_time": current_time},
@@ -130,10 +130,10 @@ class DistributedLock:
         await self.release()
 
 
-async def is_scrape_in_progress(media_id: str) -> bool:
+async def is_scrape_in_progress(media_id: str):
     try:
         # Clean up expired locks first
-        current_time = int(time.time())
+        current_time = time.time()
         await database.execute(
             "DELETE FROM scrape_locks WHERE expires_at < :current_time",
             {"current_time": current_time},
