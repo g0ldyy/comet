@@ -22,11 +22,11 @@ async def get_torrentio(manager, url: str, media_type: str, media_id: str):
 
         for torrent in get_torrentio["streams"]:
             title_full = torrent["title"]
-            title = (
-                title_full.split("\n")[0]
-                if url == "https://torrentio.strem.fun"
-                else title_full.split("\n💾")[0].split("\n")[-1]
-            )
+
+            if "\n💾" in title_full:
+                title = title_full.split("\n💾")[0].split("\n")[-1]
+            else:
+                title = title_full.split("\n")[0]
 
             match = data_pattern.search(title_full)
 
