@@ -17,7 +17,7 @@ def associate_mediafusion_urls_passwords(
         if passwords is None:
             password = None
         elif isinstance(passwords, str):
-            password = passwords
+            password = passwords or None
         elif isinstance(passwords, list) and len(passwords) > 0:
             password = passwords[0]
         else:
@@ -28,12 +28,13 @@ def associate_mediafusion_urls_passwords(
         if passwords is None:
             passwords_list = [None] * len(urls)
         elif isinstance(passwords, str):
-            passwords_list = [passwords] * len(urls)
+            passwords_list = [passwords or None] * len(urls)
         elif isinstance(passwords, list):
             passwords_list = []
             for i in range(len(urls)):
                 if i < len(passwords):
-                    passwords_list.append(passwords[i])
+                    pw = passwords[i] or None
+                    passwords_list.append(pw)
                 else:
                     passwords_list.append(None)
 
@@ -56,28 +57,29 @@ def encode_mediafusion_api_password(api_password: str):
 
 class MediaFusionConfig:
     def __init__(self):
-        self._password_cache = {}
+        self.password_cache = {}
+        self.default_headers = {
+            "encoded_user_data": encode_mediafusion_api_password("")
+        }
+        self.precompute_encodings()
 
-        self._precompute_encodings()
-        print(self._password_cache)
-
-    def _precompute_encodings(self):
+    def precompute_encodings(self):
         urls = settings.MEDIAFUSION_URL
         passwords = settings.MEDIAFUSION_API_PASSWORD
 
         url_password_pairs = associate_mediafusion_urls_passwords(urls, passwords)
 
         for _, password in url_password_pairs:
-            if password is not None and password not in self._password_cache:
-                self._password_cache[password] = encode_mediafusion_api_password(
+            if password is not None and password not in self.password_cache:
+                self.password_cache[password] = encode_mediafusion_api_password(
                     password
                 )
 
     def get_headers_for_password(self, api_password: str | None):
         if api_password is None:
-            return {}
+            return self.default_headers
 
-        return {"encoded_user_data": self._password_cache[api_password]}
+        return {"encoded_user_data": self.password_cache[api_password]}
 
 
 mediafusion_config = MediaFusionConfig()
