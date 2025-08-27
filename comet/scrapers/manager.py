@@ -18,6 +18,7 @@ from comet.utils.models import settings, database, CometSettingsModel
 from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
+from comet.utils.mediafusion import associate_mediafusion_urls_passwords
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
@@ -408,19 +409,9 @@ def get_all_mediafusion_tasks(manager, media_type: str, media_id: str):
     urls = settings.MEDIAFUSION_URL
     passwords = settings.MEDIAFUSION_API_PASSWORD
 
-    if isinstance(urls, str):
-        urls = [urls]
-
-    if passwords is None:
-        passwords = [None] * len(urls)
-    elif isinstance(passwords, str):
-        passwords = [passwords] * len(urls)
-    elif isinstance(passwords, list):
-        while len(passwords) < len(urls):
-            passwords.append(None)
+    url_password_pairs = associate_mediafusion_urls_passwords(urls, passwords)
 
     tasks = []
-    for i, url in enumerate(urls):
-        password = passwords[i] if i < len(passwords) else None
+    for url, password in url_password_pairs:
         tasks.append(get_mediafusion(manager, url, password, media_type, media_id))
     return tasks
