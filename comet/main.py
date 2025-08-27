@@ -25,6 +25,7 @@ from comet.utils.database import (
     cleanup_expired_sessions,
 )
 from comet.utils.trackers import download_best_trackers
+from comet.utils.mediafusion import associate_mediafusion_urls_passwords
 from comet.utils.logger import logger
 from comet.utils.models import settings
 from comet.utils.bandwidth_monitor import bandwidth_monitor
@@ -147,6 +148,22 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
+def get_mediafusion_urls_with_passwords():
+    urls = settings.MEDIAFUSION_URL
+    passwords = settings.MEDIAFUSION_API_PASSWORD
+
+    url_password_pairs = associate_mediafusion_urls_passwords(urls, passwords)
+
+    result = []
+    for url, password in url_password_pairs:
+        if password:
+            result.append(f"{url}|{password}")
+        else:
+            result.append(url)
+
+    return result
+
+
 def start_log():
     logger.log(
         "COMET",
@@ -175,33 +192,36 @@ def start_log():
     else:
         logger.log("COMET", "Indexer Manager: False")
 
-    comet_url = f" - {settings.COMET_URL}"
+    comet_url = f" - {', '.join(settings.COMET_URL)}" if settings.SCRAPE_COMET else ""
     logger.log(
         "COMET",
-        f"Comet Scraper: {bool(settings.SCRAPE_COMET)}{comet_url if settings.SCRAPE_COMET else ''}",
+        f"Comet Scraper: {bool(settings.SCRAPE_COMET)}{comet_url}",
     )
 
-    zilean_url = f" - {settings.ZILEAN_URL}"
+    zilean_url = (
+        f" - {', '.join(settings.ZILEAN_URL)}" if settings.SCRAPE_ZILEAN else ""
+    )
     logger.log(
         "COMET",
-        f"Zilean Scraper: {bool(settings.SCRAPE_ZILEAN)}{zilean_url if settings.SCRAPE_ZILEAN else ''}",
+        f"Zilean Scraper: {bool(settings.SCRAPE_ZILEAN)}{zilean_url}",
     )
 
-    torrentio_url = f" - {settings.TORRENTIO_URL}"
+    torrentio_url = (
+        f" - {', '.join(settings.TORRENTIO_URL)}" if settings.SCRAPE_TORRENTIO else ""
+    )
     logger.log(
         "COMET",
-        f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}{torrentio_url if settings.SCRAPE_TORRENTIO else ''}",
+        f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}{torrentio_url}",
     )
 
-    mediafusion_url = f" - {settings.MEDIAFUSION_URL}"
-    mediafusion_api_password = (
-        f" - API Password: {settings.MEDIAFUSION_API_PASSWORD}"
-        if settings.MEDIAFUSION_API_PASSWORD
+    mediafusion_display = (
+        f" - {', '.join(get_mediafusion_urls_with_passwords())}"
+        if settings.SCRAPE_MEDIAFUSION
         else ""
     )
     logger.log(
         "COMET",
-        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_url if settings.SCRAPE_MEDIAFUSION else ''}{mediafusion_api_password if settings.SCRAPE_MEDIAFUSION else ''} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
+        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_display} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
     )
 
     logger.log(
