@@ -56,13 +56,28 @@ def encode_mediafusion_api_password(api_password: str):
 
 class MediaFusionConfig:
     def __init__(self):
-        self._encoded_user_data = encode_mediafusion_api_password(
-            settings.MEDIAFUSION_API_PASSWORD
-        )
+        self._password_cache = {}
 
-    @property
-    def headers(self):
-        return {"encoded_user_data": self._encoded_user_data}
+        self._precompute_encodings()
+        print(self._password_cache)
+
+    def _precompute_encodings(self):
+        urls = settings.MEDIAFUSION_URL
+        passwords = settings.MEDIAFUSION_API_PASSWORD
+
+        url_password_pairs = associate_mediafusion_urls_passwords(urls, passwords)
+
+        for _, password in url_password_pairs:
+            if password is not None and password not in self._password_cache:
+                self._password_cache[password] = encode_mediafusion_api_password(
+                    password
+                )
+
+    def get_headers_for_password(self, api_password: str | None):
+        if api_password is None:
+            return {}
+
+        return {"encoded_user_data": self._password_cache[api_password]}
 
 
 mediafusion_config = MediaFusionConfig()
