@@ -248,12 +248,13 @@ class BackgroundScraperWorker:
 
             year = media_item["year"]
             year_end = None
-            if "-" in year:
-                splitted = year.split("-")
-                year = int(splitted[0])
-                year_end = int(splitted[1])
-            elif "–" in year:
-                year = int(year.split("–")[0])
+            if "–" in year:
+                splitted = year.split("–")
+                if splitted[1]:
+                    year = int(splitted[0])
+                    year_end = int(splitted[1])
+                else:
+                    year = int(splitted[0])
             else:
                 year = int(year)
 
@@ -277,12 +278,9 @@ class BackgroundScraperWorker:
                 increment_attempt = 1 if torrents_found == 0 else 0
             except Exception as e:
                 self.stats.errors += 1
-                import traceback
-
-                traceback.print_exc()
-                logger.error(f"Error scraping {media_type} {media_id}: {e}")
-
                 increment_attempt = 1
+
+                logger.error(f"Error scraping {media_type} {media_id}: {e}")
 
             await database.execute(
                 """
@@ -328,29 +326,14 @@ class BackgroundScraperWorker:
             self.stats.total_processed += 1
 
     async def _scrape_movie(self, media_id: str, title: str, year: int):
-        """Scrape torrents for a single movie."""
-        metadata, aliases = await self.metadata_scraper.fetch_metadata_and_aliases(
-            "movie", media_id
+        metadata, aliases = await self.metadata_scraper.fetch_aliases_with_metadata(
+            "movie", media_id, title, year
         )
 
-        if not metadata:
-            logger.log(
-                "BACKGROUND_SCRAPER",
-                f"Using fallback metadata for movie {media_id} ({title})",
-            )
-            metadata = {
-                "title": title,
-                "year": year,
-                "year_end": None,
-                "season": None,
-                "episode": None,
-            }
-
-        # Create TorrentManager and scrape
         manager = TorrentManager(
             debrid_service="torrent",
             debrid_api_key="",
-            ip="127.0.0.1",  # Local IP for background scraping
+            ip="127.0.0.1",
             media_type="movie",
             media_full_id=media_id,
             media_only_id=media_id,
@@ -369,30 +352,13 @@ class BackgroundScraperWorker:
     async def _scrape_series_episodes(
         self, media_id: str, title: str, year: int, year_end: int, episodes: list
     ):
-        """Scrape torrents for all episodes of a series."""
         total_torrents = 0
 
-        # Get metadata for the series
-        # For series, we need to construct a full media_id with season:episode format
-        # Use a default first episode for metadata fetching
         series_media_id = f"{media_id}:1:1"
 
-        metadata, aliases = await self.metadata_scraper.fetch_metadata_and_aliases(
-            "series", series_media_id
+        metadata, aliases = await self.metadata_scraper.fetch_aliases_with_metadata(
+            "series", series_media_id, title, year, year_end
         )
-
-        if not metadata:
-            logger.log(
-                "BACKGROUND_SCRAPER",
-                f"Using fallback metadata for series {media_id} ({title})",
-            )
-            metadata = {
-                "title": title,
-                "year": year,
-                "year_end": year_end,
-                "season": 1,
-                "episode": 1,
-            }
 
         # Get episode list from the series item
         if not episodes:

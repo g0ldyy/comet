@@ -104,6 +104,37 @@ class MetadataScraper:
             raw_metadata = await get_imdb_metadata(self.session, id)
             return self.normalize_metadata(raw_metadata, season, episode)
 
+    async def fetch_aliases_with_metadata(
+        self,
+        media_type: str,
+        media_id: str,
+        title: str,
+        year: int,
+        year_end: int = None,
+    ):
+        """
+        Fetch only aliases for media when we already have the metadata from another source.
+        This method will cache the provided metadata along with the scraped aliases.
+        """
+        id, _, _ = parse_media_id(media_type, media_id)
+
+        get_cached = await self.get_cached(id, 1, 1)
+        if get_cached is not None:
+            return get_cached[0], get_cached[1]
+
+        metadata = {
+            "title": normalize_title(title),
+            "year": year,
+            "year_end": year_end,
+        }
+
+        is_kitsu = "kitsu" in media_id
+        aliases = await self.get_aliases(media_type, id, is_kitsu)
+
+        await self.cache_metadata(id, metadata, aliases)
+
+        return metadata, aliases
+
     async def get_aliases(self, media_type: str, media_id: str, is_kitsu: bool):
         if is_kitsu:
             return await get_kitsu_aliases(self.session, media_id)
