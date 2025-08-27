@@ -5,9 +5,7 @@ from comet.utils.general import (
 from comet.utils.mediafusion import mediafusion_config, encode_mediafusion_api_password
 
 
-async def get_mediafusion(
-    manager, url: str, api_password: str | None, media_type: str, media_id: str
-):
+async def get_mediafusion(manager, url: str, api_password: str | None):
     torrents = []
     try:
         if api_password is not None:
@@ -17,7 +15,7 @@ async def get_mediafusion(
             headers = mediafusion_config.headers
 
         get_mediafusion = await fetch_with_proxy_fallback(
-            f"{url}/stream/{media_type}/{media_id}.json",
+            f"{url}/stream/{manager.media_type}/{manager.media_id}.json",
             headers=headers,
         )
 
@@ -47,7 +45,7 @@ async def get_mediafusion(
                 }
             )
     except Exception as e:
-        log_scraper_error("MediaFusion", url, media_id, e)
+        log_scraper_error("MediaFusion", url, manager.media_id, e)
         pass
 
     await manager.filter_manager(torrents)

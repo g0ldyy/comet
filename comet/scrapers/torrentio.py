@@ -13,11 +13,11 @@ data_pattern = re.compile(
 )
 
 
-async def get_torrentio(manager, url: str, media_type: str, media_id: str):
+async def get_torrentio(manager, url: str):
     torrents = []
     try:
         get_torrentio = await fetch_with_proxy_fallback(
-            f"{url}/stream/{media_type}/{media_id}.json"
+            f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
         for torrent in get_torrentio["streams"]:
@@ -46,6 +46,6 @@ async def get_torrentio(manager, url: str, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        log_scraper_error("Torrentio", url, media_id, e)
+        log_scraper_error("Torrentio", url, manager.media_id, e)
 
     await manager.filter_manager(torrents)

@@ -4,11 +4,11 @@ from comet.utils.general import (
 )
 
 
-async def get_comet(manager, url: str, media_type: str, media_id: str):
+async def get_comet(manager, url: str):
     torrents = []
     try:
         get_comet = await fetch_with_proxy_fallback(
-            f"{url}/stream/{media_type}/{media_id}.json"
+            f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
         for torrent in get_comet["streams"]:
@@ -34,7 +34,7 @@ async def get_comet(manager, url: str, media_type: str, media_id: str):
                 }
             )
     except Exception as e:
-        log_scraper_error("Comet", url, media_id, e)
+        log_scraper_error("Comet", url, manager.media_id, e)
         pass
 
     await manager.filter_manager(torrents)

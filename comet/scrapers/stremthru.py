@@ -5,18 +5,13 @@ from comet.utils.logger import logger
 from comet.utils.general import log_scraper_error
 
 
-async def get_stremthru(
-    manager, session: aiohttp.ClientSession, url: str, media_type: str, media_id: str
-):
+async def get_stremthru(manager, session: aiohttp.ClientSession, url: str):
     torrents = []
 
     try:
-        if media_type == "movie":
-            api_url = f"{url}/v0/torznab/api?t=search&imdbid={media_id}"
-        elif media_type == "series":
-            api_url = f"{url}/v0/torznab/api?t=tvsearch&imdbid={media_id}&season={manager.season}&ep={manager.episode}"
-
-        response = await session.get(api_url)
+        response = await session.get(
+            f"{url}/v0/torznab/api?t=search&imdbid={manager.media_only_id}"
+        )
         response_text = await response.text()
 
         root = ET.fromstring(response_text)
@@ -60,6 +55,6 @@ async def get_stremthru(
                 continue
 
     except Exception as e:
-        log_scraper_error("StremThru", url, media_id, e)
+        log_scraper_error("StremThru", url, manager.media_only_id, e)
 
     await manager.filter_manager(torrents)

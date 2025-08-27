@@ -70,21 +70,15 @@ class TorrentManager:
     ):
         tasks = []
         if settings.SCRAPE_COMET:
-            tasks.extend(get_all_comet_tasks(self, self.media_type, self.media_id))
+            tasks.extend(get_all_comet_tasks(self))
         if settings.SCRAPE_TORRENTIO:
-            tasks.extend(get_all_torrentio_tasks(self, self.media_type, self.media_id))
+            tasks.extend(get_all_torrentio_tasks(self))
         if settings.SCRAPE_MEDIAFUSION:
-            tasks.extend(
-                get_all_mediafusion_tasks(self, self.media_type, self.media_id)
-            )
+            tasks.extend(get_all_mediafusion_tasks(self))
         if settings.SCRAPE_ZILEAN:
-            tasks.extend(get_all_zilean_tasks(self, session, self.title))
+            tasks.extend(get_all_zilean_tasks(self, session))
         if settings.SCRAPE_STREMTHRU:
-            tasks.extend(
-                get_all_stremthru_tasks(
-                    self, session, self.media_type, self.media_only_id
-                )
-            )
+            tasks.extend(get_all_stremthru_tasks(self, session))
         if settings.INDEXER_MANAGER_API_KEY:
             queries = [self.title]
 
@@ -375,29 +369,29 @@ class TorrentManager:
 
 
 # multi-instance scraping
-def get_all_comet_tasks(manager, media_type: str, media_id: str):
+def get_all_comet_tasks(manager):
     urls = settings.COMET_URL
     if isinstance(urls, str):
         urls = [urls]
 
     tasks = []
     for url in urls:
-        tasks.append(get_comet(manager, url, media_type, media_id))
+        tasks.append(get_comet(manager, url))
     return tasks
 
 
-def get_all_torrentio_tasks(manager, media_type: str, media_id: str):
+def get_all_torrentio_tasks(manager):
     urls = settings.TORRENTIO_URL
     if isinstance(urls, str):
         urls = [urls]
 
     tasks = []
     for url in urls:
-        tasks.append(get_torrentio(manager, url, media_type, media_id))
+        tasks.append(get_torrentio(manager, url))
     return tasks
 
 
-def get_all_mediafusion_tasks(manager, media_type: str, media_id: str):
+def get_all_mediafusion_tasks(manager):
     urls = settings.MEDIAFUSION_URL
     passwords = settings.MEDIAFUSION_API_PASSWORD
 
@@ -405,27 +399,27 @@ def get_all_mediafusion_tasks(manager, media_type: str, media_id: str):
 
     tasks = []
     for url, password in url_password_pairs:
-        tasks.append(get_mediafusion(manager, url, password, media_type, media_id))
+        tasks.append(get_mediafusion(manager, url, password))
     return tasks
 
 
-def get_all_zilean_tasks(manager, session, title: str):
+def get_all_zilean_tasks(manager, session):
     urls = settings.ZILEAN_URL
     if isinstance(urls, str):
         urls = [urls]
 
     tasks = []
     for url in urls:
-        tasks.append(get_zilean(manager, session, url, title))
+        tasks.append(get_zilean(manager, session, url))
     return tasks
 
 
-def get_all_stremthru_tasks(manager, session, media_type: str, media_id: str):
+def get_all_stremthru_tasks(manager, session):
     urls = settings.STREMTHRU_SCRAPE_URL
     if isinstance(urls, str):
         urls = [urls]
 
     tasks = []
     for url in urls:
-        tasks.append(get_stremthru(manager, session, url, media_type, media_id))
+        tasks.append(get_stremthru(manager, session, url))
     return tasks
