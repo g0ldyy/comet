@@ -14,6 +14,7 @@
 - [Zilean](https://github.com/iPromKnight/zilean) ([DMM](https://hashlists.debridmediamanager.com/) Scraper) support for even more results
 - [Torrentio](https://torrentio.strem.fun/) Scraper
 - [MediaFusion](https://mediafusion.elfhosted.com/) Scraper
+- [Stremthru](https://github.com/MunifTanjim/stremthru/) Scraper
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
