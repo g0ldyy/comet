@@ -8,15 +8,15 @@ async def get_zilean(
     session: aiohttp.ClientSession,
     url: str,
     title: str,
-    season: int,
-    episode: int,
 ):
     torrents = []
     try:
-        show = f"&season={season}&episode={episode}"
-        get_dmm = await session.get(
-            f"{url}/dmm/filtered?query={title}{show if episode else ''}"
+        show = (
+            f"&season={manager.season}&episode={manager.episode}"
+            if manager.media_type == "series"
+            else ""
         )
+        get_dmm = await session.get(f"{url}/dmm/filtered?query={title}{show}")
         get_dmm = await get_dmm.json()
 
         for result in get_dmm:

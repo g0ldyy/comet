@@ -192,23 +192,27 @@ def start_log():
     else:
         logger.log("COMET", "Indexer Manager: False")
 
-    comet_url = f" - {', '.join(settings.COMET_URL)}" if settings.SCRAPE_COMET else ""
+    comet_url = f" - {settings.COMET_URL}" if settings.SCRAPE_COMET else ""
     logger.log(
         "COMET",
         f"Comet Scraper: {bool(settings.SCRAPE_COMET)}{comet_url}",
     )
 
-    zilean_url = (
-        f" - {', '.join(settings.ZILEAN_URL)}" if settings.SCRAPE_ZILEAN else ""
-    )
+    zilean_url = f" - {settings.ZILEAN_URL}" if settings.SCRAPE_ZILEAN else ""
     logger.log(
         "COMET",
         f"Zilean Scraper: {bool(settings.SCRAPE_ZILEAN)}{zilean_url}",
     )
 
-    torrentio_url = (
-        f" - {', '.join(settings.TORRENTIO_URL)}" if settings.SCRAPE_TORRENTIO else ""
+    stremthru_scrape_url = (
+        f" - {settings.STREMTHRU_SCRAPE_URL}" if settings.SCRAPE_STREMTHRU else ""
     )
+    logger.log(
+        "COMET",
+        f"StremThru Scraper: {bool(settings.SCRAPE_STREMTHRU)}{stremthru_scrape_url}",
+    )
+
+    torrentio_url = f" - {settings.TORRENTIO_URL}" if settings.SCRAPE_TORRENTIO else ""
     logger.log(
         "COMET",
         f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}{torrentio_url}",

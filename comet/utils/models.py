@@ -58,6 +58,8 @@ class AppSettings(BaseSettings):
     COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
     SCRAPE_ZILEAN: Optional[bool] = False
     ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
+    SCRAPE_STREMTHRU: Optional[bool] = False
+    STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
     SCRAPE_TORRENTIO: Optional[bool] = False
     TORRENTIO_URL: Union[str, List[str]] = "https://torrentio.strem.fun"
     SCRAPE_MEDIAFUSION: Optional[bool] = False
@@ -80,12 +82,6 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 1000
     BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 500
 
-    @field_validator("INDEXER_MANAGER_URL", "STREMTHRU_URL")
-    def remove_trailing_slash(cls, v):
-        if v and v.endswith("/"):
-            return v[:-1]
-        return v
-
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
         if v is not None and v.lower() == "none":
@@ -97,18 +93,20 @@ class AppSettings(BaseSettings):
         v = [indexer.replace(" ", "").lower() for indexer in v]
         return v
 
-    @field_validator("COMET_URL", "ZILEAN_URL", "TORRENTIO_URL", "MEDIAFUSION_URL")
-    def normalize_scraper_urls(cls, v):
+    @field_validator(
+        "INDEXER_MANAGER_URL",
+        "STREMTHRU_URL",
+        "STREMTHRU_SCRAPE_URL",
+        "COMET_URL",
+        "ZILEAN_URL",
+        "TORRENTIO_URL",
+        "MEDIAFUSION_URL",
+    )
+    def normalize_urls(cls, v):
         if isinstance(v, str):
             return v.rstrip("/")
         elif isinstance(v, list):
             return [url.rstrip("/") for url in v]
-        return v
-
-    @field_validator("BACKGROUND_SCRAPER_INTERVAL")
-    def validate_background_scraper_interval(cls, v):
-        if v < 300:
-            return 300  # Minimum 5 minutes
         return v
 
 

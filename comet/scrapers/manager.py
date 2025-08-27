@@ -25,6 +25,7 @@ from .mediafusion import get_mediafusion
 from .jackett import get_jackett
 from .prowlarr import get_prowlarr
 from .comet import get_comet
+from .stremthru import get_stremthru
 
 
 class TorrentManager:
@@ -77,9 +78,11 @@ class TorrentManager:
                 get_all_mediafusion_tasks(self, self.media_type, self.media_id)
             )
         if settings.SCRAPE_ZILEAN:
+            tasks.extend(get_all_zilean_tasks(self, session, self.title))
+        if settings.SCRAPE_STREMTHRU:
             tasks.extend(
-                get_all_zilean_tasks(
-                    self, session, self.title, self.season, self.episode
+                get_all_stremthru_tasks(
+                    self, session, self.media_type, self.media_only_id
                 )
             )
         if settings.INDEXER_MANAGER_API_KEY:
@@ -394,17 +397,6 @@ def get_all_torrentio_tasks(manager, media_type: str, media_id: str):
     return tasks
 
 
-def get_all_zilean_tasks(manager, session, title: str, season: int, episode: int):
-    urls = settings.ZILEAN_URL
-    if isinstance(urls, str):
-        urls = [urls]
-
-    tasks = []
-    for url in urls:
-        tasks.append(get_zilean(manager, session, url, title, season, episode))
-    return tasks
-
-
 def get_all_mediafusion_tasks(manager, media_type: str, media_id: str):
     urls = settings.MEDIAFUSION_URL
     passwords = settings.MEDIAFUSION_API_PASSWORD
@@ -414,4 +406,26 @@ def get_all_mediafusion_tasks(manager, media_type: str, media_id: str):
     tasks = []
     for url, password in url_password_pairs:
         tasks.append(get_mediafusion(manager, url, password, media_type, media_id))
+    return tasks
+
+
+def get_all_zilean_tasks(manager, session, title: str):
+    urls = settings.ZILEAN_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_zilean(manager, session, url, title))
+    return tasks
+
+
+def get_all_stremthru_tasks(manager, session, media_type: str, media_id: str):
+    urls = settings.STREMTHRU_SCRAPE_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_stremthru(manager, session, url, media_type, media_id))
     return tasks
