@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.16.0](https://github.com/g0ldyy/comet/compare/v2.15.1...v2.16.0) (2025-08-27)
+
+
+### Features
+
+* Add StremThru scraper ([13da997](https://github.com/g0ldyy/comet/commit/13da997bb2bbf68949c3f55fcc363605614c218c))
+* background scraper ([7127a8e](https://github.com/g0ldyy/comet/commit/7127a8ebe144ac6bcff44afb0d307639a51cfdef))
+* background scraper ([ed52431](https://github.com/g0ldyy/comet/commit/ed5243143c60eaa5bdab434c659ebe49e6f077bf))
+* Implement associate_mediafusion_urls_passwords function and upd… ([37d080f](https://github.com/g0ldyy/comet/commit/37d080fea7ea815b7d66053104b1df8c6a56248d))
+* Implement associate_mediafusion_urls_passwords function and update mediafusion URL handling in main and manager modules ([de638d1](https://github.com/g0ldyy/comet/commit/de638d1f38893db3314d7f879d7edc47b9aec8a2))
+* Implement multi-instance scraping support for Comet, Zilean, Torrentio, and MediaFusion ([c0eeb0d](https://github.com/g0ldyy/comet/commit/c0eeb0da6e0c0866e813176fba181659c64626eb))
+* Implement multi-instance scraping support for Comet, Zilean, Torrentio, and MediaFusion ([30b6cf3](https://github.com/g0ldyy/comet/commit/30b6cf3c005a7a086ba2c43f66a702d0180faf43))
+
+
+### Bug Fixes
+
+* Adjust total_bytes column type in bandwidth_stats table based on database type ([a8c7ca5](https://github.com/g0ldyy/comet/commit/a8c7ca5a29f7c22ea499541ded6bbc9f04d3402a))
+* Rename scrape_attempts to scrape_failed_attempts in BackgroundScraperWorker and database schema for clarity ([cf19560](https://github.com/g0ldyy/comet/commit/cf1956011afc21bcd22da5c9230b77612cf901eb))
+* Update background scraper interval validation to enforce a minimum of 5 minutes ([f01f124](https://github.com/g0ldyy/comet/commit/f01f1245cb46801bc9965ee3a12d101ee2a8b728))
+* Update log_scraper_error to include URL in error messages for better debugging ([321fd62](https://github.com/g0ldyy/comet/commit/321fd624befb117c1e7288a5895134c9c9d27dfb))
+
 ## [2.15.1](https://github.com/g0ldyy/comet/compare/v2.15.0...v2.15.1) (2025-08-25)
 
 
