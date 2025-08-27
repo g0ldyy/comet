@@ -5,8 +5,8 @@
 - The first Stremio addon to Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
-- Jackett and Prowlarr support (change the `INDEXER_MANAGER_TYPE` environment variable to `jackett` or `prowlarr`)
-- [Zilean](https://github.com/iPromKnight/zilean) ([DMM](https://hashlists.debridmediamanager.com/) Scraper) support for even more results
+- Jackett and Prowlarr support
+- [Zilean](https://github.com/iPromKnight/zilean) Scraper
 - [Torrentio](https://torrentio.strem.fun/) Scraper
 - [MediaFusion](https://mediafusion.elfhosted.com/) Scraper
 - [Stremthru](https://github.com/MunifTanjim/stremthru/) Scraper
