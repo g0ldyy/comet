@@ -23,7 +23,6 @@
 - Direct Torrent supported
 - [Kitsu](https://kitsu.io/) support (anime)
 - Adult Content Filter
-- [StremThru](https://github.com/MunifTanjim/stremthru) support
 
 # Installation
 To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
