@@ -79,29 +79,43 @@ async def process_torrent(
 
 async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen: set):
     torrents = []
+
     try:
-        indexers = [indexer.lower() for indexer in settings.INDEXER_MANAGER_INDEXERS]
+        # Determina se devemos buscar com ou sem filtro de indexers
+        if not settings.INDEXER_MANAGER_INDEXERS:
+            # Requisição sem especificar indexers — Prowlarr usa todos os indexers habilitados
+            response = await session.get(
+                f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={title}&type=search",
+                headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            )
+        else:
+            # Busca todos os indexers disponíveis
+            indexers = [indexer.lower() for indexer in settings.INDEXER_MANAGER_INDEXERS]
+            get_indexers = await session.get(
+                f"{settings.INDEXER_MANAGER_URL}/api/v1/indexer",
+                headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            )
+            get_indexers = await get_indexers.json()
 
-        get_indexers = await session.get(
-            f"{settings.INDEXER_MANAGER_URL}/api/v1/indexer",
-            headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
-        )
-        get_indexers = await get_indexers.json()
+            # Filtra os indexers com base no nome ou definição
+            indexers_id = []
+            for indexer in get_indexers:
+                if (
+                    indexer["name"].lower() in indexers
+                    or indexer["definitionName"].lower() in indexers
+                ):
+                    indexers_id.append(indexer["id"])
 
-        indexers_id = []
-        for indexer in get_indexers:
-            if (
-                indexer["name"].lower() in indexers
-                or indexer["definitionName"].lower() in indexers
-            ):
-                indexers_id.append(indexer["id"])
+            # Requisição com os indexers especificados
+            response = await session.get(
+                f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={title}&indexerIds={','.join(map(str, indexers_id))}&type=search",
+                headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            )
 
-        response = await session.get(
-            f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={title}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
-            headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
-        )
+        # Processa a resposta de forma comum
         response = await response.json()
 
+        # Processa cada resultado da busca
         torrent_tasks = []
         for result in response:
             if result["infoUrl"] in seen:
@@ -114,11 +128,12 @@ async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen
 
         processed_torrents = await asyncio.gather(*torrent_tasks)
         torrents = [
-            t for sublist in processed_torrents for t in sublist if t["infoHash"]
+            t for sublist in processed_torrents
+            for t in sublist
+            if t["infoHash"]
         ]
+
     except Exception as e:
-        logger.warning(
-            f"Exception while getting torrents for {title} with Prowlarr: {e}"
-        )
+        logger.warning(f"Exception while getting torrents for {title} with Prowlarr: {e}")
 
     await manager.filter_manager(torrents)

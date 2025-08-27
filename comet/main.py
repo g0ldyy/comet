@@ -24,7 +24,6 @@ from comet.utils.database import (
     cleanup_expired_locks,
     cleanup_expired_sessions,
 )
-from comet.utils.trackers import download_best_trackers
 from comet.utils.logger import logger
 from comet.utils.models import settings
 from comet.utils.bandwidth_monitor import bandwidth_monitor
@@ -51,7 +50,6 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_database()
-    await download_best_trackers()
 
     # Initialize bandwidth monitoring system
     await bandwidth_monitor.initialize()
