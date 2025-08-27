@@ -1,10 +1,5 @@
 <h1 align="center" id="title">☄️ Comet - <a href="https://discord.gg/rivenmedia">Discord</a></h1>
 <p align="center"><img src="https://socialify.git.ci/g0ldyy/comet/image?description=1&font=Inter&forks=1&language=1&name=1&owner=1&pattern=Solid&stargazers=1&theme=Dark" /></p>
-<p align="center">
-  <a href="https://ko-fi.com/E1E7ZVMAD">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg">
-  </a>
-</p>
 
 # Features
 - The first Stremio addon to Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
