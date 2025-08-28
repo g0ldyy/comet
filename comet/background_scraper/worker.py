@@ -360,15 +360,11 @@ class BackgroundScraperWorker:
             "series", series_media_id, title, year, year_end
         )
 
-        # Get episode list from the series item
-        if not episodes:
-            # If no episodes in the item, just scrape the series generally
-            episodes = [{"season": 1, "episode": 1}]  # Default to S01E01
-
-        for i, episode_info in enumerate(episodes):
-            season = episode_info.get("season", 1)
-            episode = episode_info.get("episode", i + 1)
-            episode_media_id = f"{media_id}:{season}:{episode}"
+        for episode in episodes:
+            season = episode["season"]
+            episode_number = episode.get("episode") or episode.get("number")
+            episode_media_id = f"{media_id}:{season}:{episode_number}"
+            print(f"scraping episode {episode_media_id}")
 
             manager = TorrentManager(
                 debrid_service="torrent",
@@ -381,7 +377,7 @@ class BackgroundScraperWorker:
                 year=metadata["year"],
                 year_end=metadata["year_end"],
                 season=season,
-                episode=episode,
+                episode=episode_number,
                 aliases=aliases,
                 remove_adult_content=settings.REMOVE_ADULT_CONTENT,
             )

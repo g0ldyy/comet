@@ -106,7 +106,13 @@ class CinemataClient:
                 async for item in self.fetch_all_from_category(
                     media_type, category, genre
                 ):
+                    if "imdb_id" not in item:
+                        item["imdb_id"] = item["id"]
+
                     imdb_id = item["imdb_id"]
                     if imdb_id not in seen_ids:
+                        if "year" not in item:
+                            item["year"] = item["releaseInfo"]
+
                         seen_ids.add(imdb_id)
                         yield item
