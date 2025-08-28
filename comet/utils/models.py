@@ -66,6 +66,8 @@ class AppSettings(BaseSettings):
     MEDIAFUSION_URL: Union[str, List[str]] = "https://mediafusion.elfhosted.com"
     MEDIAFUSION_API_PASSWORD: Union[str, List[str], None] = None
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
+    SCRAPE_AIOSTREAMS: Optional[bool] = False
+    AIOSTREAMS_URL: Optional[Union[str, List[str]]] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
@@ -101,6 +103,7 @@ class AppSettings(BaseSettings):
         "ZILEAN_URL",
         "TORRENTIO_URL",
         "MEDIAFUSION_URL",
+        "AIOSTREAMS_URL",
     )
     def normalize_urls(cls, v):
         if isinstance(v, str):

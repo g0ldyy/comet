@@ -16,11 +16,11 @@ data_pattern = re.compile(
 async def get_torrentio(manager, url: str):
     torrents = []
     try:
-        get_torrentio = await fetch_with_proxy_fallback(
+        results = await fetch_with_proxy_fallback(
             f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
-        for torrent in get_torrentio["streams"]:
+        for torrent in results["streams"]:
             title_full = torrent["title"]
 
             if "\n💾" in title_full:
@@ -38,11 +38,11 @@ async def get_torrentio(manager, url: str):
                 {
                     "title": title,
                     "infoHash": torrent["infoHash"].lower(),
-                    "fileIndex": torrent["fileIdx"] if "fileIdx" in torrent else None,
+                    "fileIndex": torrent.get("fileIdx", None),
                     "seeders": seeders,
                     "size": size,
                     "tracker": f"Torrentio|{tracker}",
-                    "sources": torrent["sources"] if "sources" in torrent else [],
+                    "sources": torrent.get("sources", []),
                 }
             )
     except Exception as e:

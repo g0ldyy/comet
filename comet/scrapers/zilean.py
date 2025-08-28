@@ -11,10 +11,10 @@ async def get_zilean(manager, session: aiohttp.ClientSession, url: str):
             if manager.media_type == "series"
             else ""
         )
-        get_dmm = await session.get(f"{url}/dmm/filtered?query={manager.title}{show}")
-        get_dmm = await get_dmm.json()
+        data = await session.get(f"{url}/dmm/filtered?query={manager.title}{show}")
+        data = await data.json()
 
-        for result in get_dmm:
+        for result in data:
             object = {
                 "title": result["raw_title"],
                 "infoHash": result["info_hash"].lower(),

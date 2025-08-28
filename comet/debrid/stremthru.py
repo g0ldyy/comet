@@ -230,7 +230,7 @@ class StremThru:
                     "size": file_size,
                     "season": file_season,
                     "episode": file_episode,
-                    "link": file["link"] if "link" in file else None,
+                    "link": file.get("link", None),
                 }
 
                 debrid_files_parsed.append(file)
@@ -264,7 +264,7 @@ class StremThru:
 
             if not target_file and len(debrid_files) > 0:
                 files_with_link = [
-                    file for file in debrid_files if "link" in file and file["link"]
+                    file for file in debrid_files if file.get("link", None)
                 ]
                 if len(files_with_link) > 0:
                     target_file = max(files_with_link, key=lambda x: x["size"])
