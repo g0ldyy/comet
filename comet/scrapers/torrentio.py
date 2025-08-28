@@ -38,11 +38,11 @@ async def get_torrentio(manager, url: str):
                 {
                     "title": title,
                     "infoHash": torrent["infoHash"].lower(),
-                    "fileIndex": torrent["fileIdx"] if "fileIdx" in torrent else None,
+                    "fileIndex": torrent.get("fileIdx", None),
                     "seeders": seeders,
                     "size": size,
                     "tracker": f"Torrentio|{tracker}",
-                    "sources": torrent["sources"] if "sources" in torrent else [],
+                    "sources": torrent.get("sources", []),
                 }
             )
     except Exception as e:

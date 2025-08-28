@@ -31,13 +31,13 @@ async def get_mediafusion(manager, url: str, api_password: str | None):
                 {
                     "title": title,
                     "infoHash": torrent["infoHash"].lower(),
-                    "fileIndex": torrent["fileIdx"] if "fileIdx" in torrent else None,
+                    "fileIndex": torrent.get("fileIdx", None),
                     "seeders": seeders,
                     "size": torrent["behaviorHints"][
                         "videoSize"
                     ],  # not the pack size but still useful for prowlarr userss
                     "tracker": f"MediaFusion|{tracker}",
-                    "sources": torrent["sources"] if "sources" in torrent else [],
+                    "sources": torrent.get("sources", []),
                 }
             )
     except Exception as e:
