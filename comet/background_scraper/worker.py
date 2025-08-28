@@ -364,7 +364,6 @@ class BackgroundScraperWorker:
             season = episode["season"]
             episode_number = episode.get("episode") or episode.get("number")
             episode_media_id = f"{media_id}:{season}:{episode_number}"
-            print(f"scraping episode {episode_media_id}")
 
             manager = TorrentManager(
                 debrid_service="torrent",
