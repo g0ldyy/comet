@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.17.0](https://github.com/g0ldyy/comet/compare/v2.16.0...v2.17.0) (2025-08-28)
+
+
+### Features
+
+* AIOStreams scraper ([f77a720](https://github.com/g0ldyy/comet/commit/f77a7207139df6324f576ed3c77c010621f4ceba))
+* AIOStreams scraper ([cc43614](https://github.com/g0ldyy/comet/commit/cc436148b4f5f29d7ed8eeffdf4174671db4de84))
+
+
+### Bug Fixes
+
+* Update AIOSTREAMS_URL type to be optional in AppSettings ([e150015](https://github.com/g0ldyy/comet/commit/e150015f24d3ee398d2050eb245f0e73290368b1))
+
 ## [2.16.0](https://github.com/g0ldyy/comet/compare/v2.15.1...v2.16.0) (2025-08-27)
 
 
