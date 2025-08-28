@@ -67,7 +67,7 @@ class AppSettings(BaseSettings):
     MEDIAFUSION_API_PASSWORD: Union[str, List[str], None] = None
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
     SCRAPE_AIOSTREAMS: Optional[bool] = False
-    AIOSTREAMS_URL: Union[str, List[str]] = ""
+    AIOSTREAMS_URL: Union[str, List[str]] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(

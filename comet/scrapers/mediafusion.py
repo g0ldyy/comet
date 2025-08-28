@@ -10,12 +10,12 @@ async def get_mediafusion(manager, url: str, api_password: str | None):
     try:
         headers = mediafusion_config.get_headers_for_password(api_password)
 
-        get_mediafusion = await fetch_with_proxy_fallback(
+        results = await fetch_with_proxy_fallback(
             f"{url}/stream/{manager.media_type}/{manager.media_id}.json",
             headers=headers,
         )
 
-        for torrent in get_mediafusion["streams"]:
+        for torrent in results["streams"]:
             title_full = torrent["description"]
             lines = title_full.split("\n")
 

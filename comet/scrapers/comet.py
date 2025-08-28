@@ -7,11 +7,11 @@ from comet.utils.general import (
 async def get_comet(manager, url: str):
     torrents = []
     try:
-        get_comet = await fetch_with_proxy_fallback(
+        results = await fetch_with_proxy_fallback(
             f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
-        for torrent in get_comet["streams"]:
+        for torrent in results["streams"]:
             title_full = torrent["description"]
             title = title_full.split("\n")[0].split("📄 ")[1]
 

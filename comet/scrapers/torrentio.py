@@ -16,11 +16,11 @@ data_pattern = re.compile(
 async def get_torrentio(manager, url: str):
     torrents = []
     try:
-        get_torrentio = await fetch_with_proxy_fallback(
+        results = await fetch_with_proxy_fallback(
             f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
-        for torrent in get_torrentio["streams"]:
+        for torrent in results["streams"]:
             title_full = torrent["title"]
 
             if "\n💾" in title_full:

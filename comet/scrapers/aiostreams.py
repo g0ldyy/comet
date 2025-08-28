@@ -7,11 +7,11 @@ from comet.utils.general import (
 async def get_aiostreams(manager, url: str):
     torrents = []
     try:
-        get_aiostreams = await fetch_with_proxy_fallback(
+        results = await fetch_with_proxy_fallback(
             f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
-        for torrent in get_aiostreams["streams"]:
+        for torrent in results["streams"]:
             stream_data = torrent["streamData"]
             torrent_info = stream_data["torrent"]
 

@@ -9,12 +9,12 @@ async def get_stremthru(manager, session: aiohttp.ClientSession, url: str):
     torrents = []
 
     try:
-        response = await session.get(
+        data = await session.get(
             f"{url}/v0/torznab/api?t=search&imdbid={manager.media_only_id}"
         )
-        response_text = await response.text()
+        data_text = await data.text()
 
-        root = ET.fromstring(response_text)
+        root = ET.fromstring(data_text)
 
         for item in root.findall(".//item"):
             try:
