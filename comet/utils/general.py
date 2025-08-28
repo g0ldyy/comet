@@ -437,11 +437,6 @@ def log_scraper_error(
     if "MediaFusion" in scraper_name:
         api_password_missing = " or your API password could be wrong"
 
-    if settings.DEBRID_PROXY_URL:
-        logger.warning(
-            f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), your proxy is most likely blacklisted{api_password_missing}: {error}"
-        )
-    else:
-        logger.warning(
-            f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), your IP is most likely blacklisted (you should try proxying Comet){api_password_missing}: {error}"
-        )
+    logger.warning(
+        f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), you are most likely being ratelimited{api_password_missing}: {error}"
+    )

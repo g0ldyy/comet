@@ -13,7 +13,15 @@ async def get_aiostreams(manager, url: str):
 
         for torrent in results["streams"]:
             stream_data = torrent["streamData"]
+
+            if "error" in stream_data:
+                continue
+
             torrent_info = stream_data["torrent"]
+
+            tracker = "AIOStreams"
+            if "indexer" in stream_data:
+                tracker += f"|{stream_data['indexer']}"
 
             torrents.append(
                 {
@@ -22,8 +30,8 @@ async def get_aiostreams(manager, url: str):
                     "fileIndex": torrent.get("fileIdx", None),
                     "seeders": torrent_info.get("seeders", None),
                     "size": stream_data["size"],
-                    "tracker": f"AIOStreams|{stream_data['indexer']}",
-                    "sources": torrent_info["sources"],
+                    "tracker": tracker,
+                    "sources": torrent_info.get("sources", []),
                 }
             )
     except Exception as e:

@@ -228,7 +228,9 @@ def start_log():
         f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_display} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
     )
 
-    aiostreams_url = f" - {settings.AIOSTREAMS_URL}" if settings.SCRAPE_AIOSTREAMS else ""
+    aiostreams_url = (
+        f" - {settings.AIOSTREAMS_URL}" if settings.SCRAPE_AIOSTREAMS else ""
+    )
     logger.log(
         "COMET",
         f"AIOStreams Scraper: {bool(settings.SCRAPE_AIOSTREAMS)}{aiostreams_url}",
