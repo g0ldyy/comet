@@ -245,10 +245,13 @@ async def admin_login(request: Request, password: str = Form(...)):
 
 
 @main.get("/admin/dashboard")
-async def admin_dashboard(request: Request, admin_session: str = Cookie(None)):
+async def admin_dashboard(request: Request, admin_session: str = Cookie(None), tab: str = None):
     try:
         await require_admin_auth(admin_session)
-        return templates.TemplateResponse("admin_dashboard.html", {"request": request})
+        return templates.TemplateResponse("admin_dashboard.html", {
+            "request": request,
+            "active_tab": tab or "connections"
+        })
     except HTTPException:
         return RedirectResponse("/admin", status_code=303)
 

@@ -825,18 +825,18 @@
       </div>
 
       <div class="dashboard-container">
-        <sl-tab-group>
+        <sl-tab-group id="main-tab-group">
           <sl-tab slot="nav" panel="connections">
             <sl-icon name="wifi"></sl-icon>
             &nbsp;Active Connections
           </sl-tab>
-          <sl-tab slot="nav" panel="logs">
-            <sl-icon name="list-ul"></sl-icon>
-            &nbsp;System Logs
-          </sl-tab>
           <sl-tab slot="nav" panel="metrics">
             <sl-icon name="bar-chart"></sl-icon>
             &nbsp;Metrics
+          </sl-tab>
+          <sl-tab slot="nav" panel="logs">
+            <sl-icon name="list-ul"></sl-icon>
+            &nbsp;System Logs
           </sl-tab>
 
           <sl-tab-panel name="connections">
@@ -1073,6 +1073,9 @@
 
         // Initialize dashboard
         initializeDashboard();
+        
+        // Initialize URL remembering for tabs
+        initializeTabUrlRemembering();
       });
 
       let connectionsInterval;
@@ -1108,6 +1111,9 @@
         document
           .querySelector("sl-tab-group")
           .addEventListener("sl-tab-show", handleTabChange);
+
+        // Add scroll event listener to logs container for better UX
+        setupLogsScrollTracking();
       }
 
       function setupAutoRefresh() {
@@ -1149,6 +1155,9 @@
         } else if (activePanel === "metrics") {
           loadMetrics();
         }
+        
+        // Update URL with current tab
+        updateUrlWithTab(activePanel);
       }
 
       async function loadConnections() {
@@ -1294,9 +1303,34 @@
         }
       }
 
+      function isUserNearBottom(container, threshold = 100) {
+        // If container has no scrollable content or is empty, consider as "at bottom"
+        if (container.scrollHeight <= container.clientHeight) {
+          return true;
+        }
+        return container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
+      }
+
+      function setupLogsScrollTracking() {
+        const container = document.getElementById("logs-container");
+        let scrollTimeout;
+        
+        container.addEventListener('scroll', () => {
+          // Clear any existing timeout to debounce scroll events
+          clearTimeout(scrollTimeout);
+          scrollTimeout = setTimeout(() => {
+            // Optional: Could add visual indicator or other UX improvements here
+            // For now, the scroll behavior is handled in appendLogs function
+          }, 150);
+        });
+      }
+
       function appendLogs(logs) {
         const container = document.getElementById("logs-container");
         const hideApiLogs = document.getElementById("hide-api-logs").checked;
+        
+        // Check if user is near bottom before adding new logs
+        const wasNearBottom = isUserNearBottom(container);
 
         // Remove empty state if present
         if (container.querySelector(".empty-state")) {
@@ -1330,8 +1364,10 @@
           container.appendChild(logEntry);
         });
 
-        // Auto-scroll to bottom
-        container.scrollTop = container.scrollHeight;
+        // Only auto-scroll if user was near bottom before new logs were added
+        if (wasNearBottom) {
+          container.scrollTop = container.scrollHeight;
+        }
 
         // Limit number of log entries to prevent memory issues
         const maxEntries = 500;
@@ -1566,6 +1602,45 @@
             )
             .join("");
         }
+      }
+      
+      function initializeTabUrlRemembering() {
+        // Get active tab from server-side template variable or URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const activeTab = urlParams.get('tab') || '{{ active_tab }}';
+        
+        // Set the active tab if provided
+        if (activeTab && activeTab !== 'connections') {
+          const tabGroup = document.getElementById('main-tab-group');
+          if (tabGroup) {
+            // Wait for the tab group to be fully initialized
+            setTimeout(() => {
+              tabGroup.show(activeTab);
+            }, 100);
+          }
+        }
+        
+        // Handle browser back/forward navigation
+        window.addEventListener('popstate', (event) => {
+          const urlParams = new URLSearchParams(window.location.search);
+          const tab = urlParams.get('tab') || 'connections';
+          const tabGroup = document.getElementById('main-tab-group');
+          if (tabGroup) {
+            tabGroup.show(tab);
+          }
+        });
+      }
+      
+      function updateUrlWithTab(tabName) {
+        const url = new URL(window.location);
+        if (tabName && tabName !== 'connections') {
+          url.searchParams.set('tab', tabName);
+        } else {
+          url.searchParams.delete('tab');
+        }
+        
+        // Update URL without triggering a page reload
+        window.history.pushState({ tab: tabName }, '', url.toString());
       }
     </script>
   </body>
