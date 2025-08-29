@@ -106,6 +106,7 @@ class AppSettings(BaseSettings):
         "TORRENTIO_URL",
         "MEDIAFUSION_URL",
         "AIOSTREAMS_URL",
+        "JACKETTIO_URL"
     )
     def normalize_urls(cls, v):
         if isinstance(v, str):
