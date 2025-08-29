@@ -18,6 +18,8 @@ async def get_aiostreams(manager, url: str):
                 continue
 
             torrent_info = stream_data["torrent"]
+            if "infoHash" not in torrent_info:
+                continue
 
             tracker = "AIOStreams"
             if "indexer" in stream_data:
