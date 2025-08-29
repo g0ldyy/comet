@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.17.1](https://github.com/g0ldyy/comet/compare/v2.17.0...v2.17.1) (2025-08-29)
+
+
+### Bug Fixes
+
+* Add check for missing infoHash in AIOStreams torrent data to prevent errors ([7b9975d](https://github.com/g0ldyy/comet/commit/7b9975d4376e643905d0b983543c5c85b90b69bb))
+
 ## [2.17.0](https://github.com/g0ldyy/comet/compare/v2.16.0...v2.17.0) (2025-08-28)
 
 
