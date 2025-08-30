@@ -72,6 +72,8 @@ class AppSettings(BaseSettings):
     JACKETTIO_URL: Optional[Union[str, List[str]]] = None
     SCRAPE_DEBRIDIO: Optional[bool] = False
     DEBRIDIO_API_KEY: Optional[str] = None
+    SCRAPE_TORBOX: Optional[bool] = False
+    TORBOX_API_KEY: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
