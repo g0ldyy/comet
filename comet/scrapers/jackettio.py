@@ -1,6 +1,5 @@
 import re
 
-
 from comet.utils.general import (
     size_to_bytes,
     log_scraper_error,

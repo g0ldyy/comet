@@ -242,6 +242,14 @@ def start_log():
         f"Jackettio Scraper: {bool(settings.SCRAPE_JACKETTIO)}{jackettio_url}",
     )
 
+    debridio_api_key = (
+        f" - {settings.DEBRIDIO_API_KEY}" if settings.SCRAPE_DEBRIDIO else ""
+    )
+    logger.log(
+        "COMET",
+        f"Debridio Scraper: {bool(settings.SCRAPE_DEBRIDIO)}{debridio_api_key}",
+    )
+
     logger.log(
         "COMET",
         f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",

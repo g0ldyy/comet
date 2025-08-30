@@ -28,6 +28,7 @@ from .comet import get_comet
 from .stremthru import get_stremthru
 from .aiostreams import get_aiostreams
 from .jackettio import get_jackettio
+from .debridio import get_debridio
 
 
 class TorrentManager:
@@ -85,6 +86,8 @@ class TorrentManager:
             tasks.extend(get_all_aiostreams_tasks(self))
         if settings.SCRAPE_JACKETTIO:
             tasks.extend(get_all_jackettio_tasks(self))
+        if settings.SCRAPE_DEBRIDIO:
+            tasks.append(get_debridio(self, session))
         if settings.INDEXER_MANAGER_API_KEY:
             queries = [self.title]
 
