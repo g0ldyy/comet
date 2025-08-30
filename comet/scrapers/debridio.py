@@ -16,19 +16,23 @@ async def get_debridio(manager, session: aiohttp.ClientSession):
 
         for torrent in data:
             size = torrent["size"]
-            if isinstance(size, str):
-                size = size_to_bytes(size)
+            if isinstance(size, str) and size != "Unknown":
+                size = size_to_bytes(size.replace(",", ""))
             elif isinstance(size, int):
                 pass
             else:
                 size = 0
+
+            seeders = torrent["seeders"]
+            if seeders == "Unknown":
+                seeders = None
 
             torrents.append(
                 {
                     "title": torrent["name"],
                     "infoHash": torrent["hash"],
                     "fileIndex": None,
-                    "seeders": torrent["seeders"],
+                    "seeders": seeders,
                     "size": size,
                     "tracker": f"Debridio|{torrent['indexer']}",
                     "sources": extract_trackers_from_magnet(torrent["magnet"]),
