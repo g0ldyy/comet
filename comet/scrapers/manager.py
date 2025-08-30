@@ -27,6 +27,7 @@ from .prowlarr import get_prowlarr
 from .comet import get_comet
 from .stremthru import get_stremthru
 from .aiostreams import get_aiostreams
+from .jackettio import get_jackettio
 
 
 class TorrentManager:
@@ -82,6 +83,8 @@ class TorrentManager:
             tasks.extend(get_all_stremthru_tasks(self, session))
         if settings.SCRAPE_AIOSTREAMS:
             tasks.extend(get_all_aiostreams_tasks(self))
+        if settings.SCRAPE_JACKETTIO:
+            tasks.extend(get_all_jackettio_tasks(self))
         if settings.INDEXER_MANAGER_API_KEY:
             queries = [self.title]
 
@@ -436,4 +439,15 @@ def get_all_aiostreams_tasks(manager):
     tasks = []
     for url in urls:
         tasks.append(get_aiostreams(manager, url))
+    return tasks
+
+
+def get_all_jackettio_tasks(manager):
+    urls = settings.JACKETTIO_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_jackettio(manager, url))
     return tasks
