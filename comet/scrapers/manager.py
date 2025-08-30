@@ -29,6 +29,7 @@ from .stremthru import get_stremthru
 from .aiostreams import get_aiostreams
 from .jackettio import get_jackettio
 from .debridio import get_debridio
+from .torbox import get_torbox
 
 
 class TorrentManager:
@@ -88,6 +89,8 @@ class TorrentManager:
             tasks.extend(get_all_jackettio_tasks(self))
         if settings.SCRAPE_DEBRIDIO:
             tasks.append(get_debridio(self, session))
+        if settings.SCRAPE_TORBOX:
+            tasks.append(get_torbox(self, session))
         if settings.INDEXER_MANAGER_API_KEY:
             queries = [self.title]
 

@@ -250,6 +250,12 @@ def start_log():
         f"Debridio Scraper: {bool(settings.SCRAPE_DEBRIDIO)}{debridio_api_key}",
     )
 
+    torbox_api_key = f" - {settings.TORBOX_API_KEY}" if settings.SCRAPE_TORBOX else ""
+    logger.log(
+        "COMET",
+        f"TorBox Scraper: {bool(settings.SCRAPE_TORBOX)}{torbox_api_key}",
+    )
+
     logger.log(
         "COMET",
         f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",
