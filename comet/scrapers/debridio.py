@@ -21,7 +21,7 @@ async def get_debridio(manager, session: aiohttp.ClientSession):
             elif isinstance(size, int):
                 pass
             else:
-                size = None
+                size = 0
 
             torrents.append(
                 {
