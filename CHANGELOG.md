@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.0](https://github.com/g0ldyy/comet/compare/v2.17.1...v2.18.0) (2025-08-30)
+
+
+### Features
+
+* jackettio scraper ([b24b545](https://github.com/g0ldyy/comet/commit/b24b5451d1514b3449124598d23cd0f94ac17d49))
+
 ## [2.17.1](https://github.com/g0ldyy/comet/compare/v2.17.0...v2.17.1) (2025-08-29)
 
 
