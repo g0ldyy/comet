@@ -19,7 +19,7 @@ async def get_debridio(manager, session: aiohttp.ClientSession):
             if isinstance(size, str):
                 size = size_to_bytes(size)
             elif isinstance(size, int):
-                size = size
+                pass
             else:
                 size = None
 
