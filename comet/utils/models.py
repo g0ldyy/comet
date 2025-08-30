@@ -70,6 +70,8 @@ class AppSettings(BaseSettings):
     AIOSTREAMS_URL: Optional[Union[str, List[str]]] = None
     SCRAPE_JACKETTIO: Optional[bool] = False
     JACKETTIO_URL: Optional[Union[str, List[str]]] = None
+    SCRAPE_DEBRIDIO: Optional[bool] = False
+    DEBRIDIO_API_KEY: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
@@ -106,7 +108,7 @@ class AppSettings(BaseSettings):
         "TORRENTIO_URL",
         "MEDIAFUSION_URL",
         "AIOSTREAMS_URL",
-        "JACKETTIO_URL"
+        "JACKETTIO_URL",
     )
     def normalize_urls(cls, v):
         if isinstance(v, str):
