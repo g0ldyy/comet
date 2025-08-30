@@ -89,6 +89,8 @@ def size_to_bytes(size_str: str):
     sizes = ["b", "kb", "mb", "gb", "tb"]
 
     value, unit = size_str.split()
+
+    value = value.replace(",", "")
     value = float(value)
     unit = unit.lower()
 
