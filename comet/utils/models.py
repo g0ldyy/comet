@@ -39,6 +39,8 @@ class AppSettings(BaseSettings):
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
+    REDIS_URI: Optional[str] = None
+    ENABLE_REDIS: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
@@ -634,6 +636,11 @@ database_url = (
 database = Database(
     f"{'sqlite' if settings.DATABASE_TYPE == 'sqlite' else 'postgresql+asyncpg'}://{'/' if settings.DATABASE_TYPE == 'sqlite' else ''}{database_url}"
 )
+
+# Initialize Redis if enabled
+redis_client = None
+if settings.ENABLE_REDIS:
+    from comet.utils.redis import redis_client
 
 trackers = [
     "udp://tracker-udp.gbitt.info:80/announce",

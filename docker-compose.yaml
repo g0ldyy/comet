@@ -1,10 +1,11 @@
 volumes:
   comet_data:
+  redis_data:
 
 services:
   comet:
     container_name: comet
-    image: g0ldyy/comet
+    image: midnightignite1/comet:redis-enabled
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -12,3 +13,32 @@ services:
       - .env
     volumes:
       - comet_data:/data
+    depends_on:
+      - redis
+    environment:
+      - ENABLE_REDIS=true
+      - REDIS_HOST=redis
+
+  redis:
+    container_name: comet_redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  redis-commander:
+    container_name: redis_commander
+    image: rediscommander/redis-commander:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=comet:comet_redis:6379
+    depends_on:
+      - redis

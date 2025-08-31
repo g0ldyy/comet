@@ -1,0 +1,107 @@
+services:
+  comet:
+    image: midnightignite1/comet:redis-enabled
+    restart: unless-stopped
+    expose:
+      - 2020
+    env_file:
+      - .env
+    environment:
+      - ENABLE_REDIS=true
+      - REDIS_URI=redis://comet_redis:6379
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comet.rule=Host(`${COMET_HOSTNAME?}`)"
+      - "traefik.http.routers.comet.entrypoints=websecure"
+      - "traefik.http.routers.comet.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.comet.service=comet-base"
+      - "traefik.http.services.comet-base.loadbalancer.server.port=2020"
+      - "traefik.http.routers.comet-stream.rule=Host(`${COMET_HOSTNAME?}`) && PathPrefix(`/stream/`)"
+      - "traefik.http.routers.comet-stream.entrypoints=websecure"
+      - "traefik.http.routers.comet-stream.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.comet-stream.middlewares=comet-stream-ratelimit"
+      - "traefik.http.routers.comet-stream.service=comet-stream-service"
+      - "traefik.http.services.comet-stream-service.loadbalancer.server.port=2020"
+      - "traefik.http.middlewares.comet-stream-ratelimit.ratelimit.average=10"
+      - "traefik.http.middlewares.comet-stream-ratelimit.ratelimit.period=1m"
+      - "traefik.http.middlewares.comet-stream-ratelimit.ratelimit.burst=20"
+      - "traefik.http.middlewares.comet-stream-ratelimit.ratelimit.sourcecriterion.requestheadername=cf-connecting-ip"
+    volumes:
+      - ${DOCKER_DATA_DIR}/comet:/app/data
+    depends_on:
+      comet_redis:
+        condition: service_healthy
+      comet_postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2020/health"]
+      interval: 1m
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    deploy:
+      replicas: 3
+    profiles:
+      - comet
+      - all
+
+  comet_redis:
+    image: redis:7-alpine
+    container_name: comet_redis
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIR}/comet/redis:/data
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save 60 1000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - comet
+      - all
+
+  comet_postgres:
+    image: postgres:17
+    container_name: comet_postgres
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIR}/comet/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: comet
+      POSTGRES_PASSWORD: comet
+      POSTGRES_DB: comet
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=2GB"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "comet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - comet
+      - all
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: comet_redis_commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    expose:
+      - 8081
+    environment:
+      - REDIS_HOSTS=comet:comet_redis:6379
+    depends_on:
+      comet_redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comet-redis.rule=Host(`${COMET_HOSTNAME?}`) && PathPrefix(`/redis/`)"
+      - "traefik.http.routers.comet-redis.entrypoints=websecure"
+      - "traefik.http.routers.comet-redis.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.comet-redis.middlewares=authelia@docker,comet-redis-strip"
+      - "traefik.http.middlewares.comet-redis-strip.stripprefix.prefixes=/redis"
+      - "traefik.http.services.comet-redis.loadbalancer.server.port=8081"
+    profiles:
+      - comet-monitoring

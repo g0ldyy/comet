@@ -24,5 +24,6 @@ dependencies = [
     "pydantic-settings",
     "python-multipart",
     "rank-torrent-name",
+    "redis",
     "uvicorn",
 ]

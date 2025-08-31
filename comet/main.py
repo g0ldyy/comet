@@ -27,7 +27,7 @@ from comet.utils.database import (
 from comet.utils.trackers import download_best_trackers
 from comet.utils.mediafusion import associate_mediafusion_urls_passwords
 from comet.utils.logger import logger
-from comet.utils.models import settings
+from comet.utils.models import settings, redis_client
 from comet.utils.bandwidth_monitor import bandwidth_monitor
 from comet.background_scraper.worker import background_scraper
 
@@ -53,6 +53,10 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     await setup_database()
     await download_best_trackers()
+    
+    # Initialize Redis connection if enabled
+    if redis_client:
+        await redis_client.connect()
 
     # Initialize bandwidth monitoring system
     await bandwidth_monitor.initialize()
@@ -89,6 +93,10 @@ async def lifespan(app: FastAPI):
             pass
 
         await bandwidth_monitor.shutdown()
+        
+        # Disconnect Redis if connected
+        if redis_client:
+            await redis_client.disconnect()
 
         await teardown_database()
 
