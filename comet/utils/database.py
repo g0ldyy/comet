@@ -451,6 +451,10 @@ async def setup_database():
 async def cleanup_expired_locks():
     while True:
         try:
+            if not database.is_connected:
+                await asyncio.sleep(5)
+                continue
+                
             current_time = time.time()
             await database.execute(
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
@@ -465,6 +469,10 @@ async def cleanup_expired_locks():
 async def cleanup_expired_sessions():
     while True:
         try:
+            if not database.is_connected:
+                await asyncio.sleep(5)
+                continue
+                
             current_time = time.time()
             await database.execute(
                 "DELETE FROM admin_sessions WHERE expires_at < :current_time",
