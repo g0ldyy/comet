@@ -1,5 +1,6 @@
 import aiohttp
 import asyncio
+import logging
 import orjson
 import time
 import hashlib
@@ -16,6 +17,8 @@ from RTN import (
 )
 
 from comet.utils.models import settings, database, redis_client, CometSettingsModel
+
+logger = logging.getLogger(__name__)
 from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
@@ -342,7 +345,7 @@ class TorrentManager:
             self.filter(new_torrents[i : i + chunk_size])
             for i in range(0, len(new_torrents), chunk_size)
         ]
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def rank_torrents(
         self,
