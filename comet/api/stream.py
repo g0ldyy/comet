@@ -123,16 +123,13 @@ async def stream(
         }
 
     # Check for cached stream results
-    stream_cache_key = f"comet:v1:streams:{media_type}:{media_id}:{b64config}"
+    norm_b64config = b64config or "none"
+    stream_cache_key = f"comet:v1:streams:{media_type}:{media_id}:{norm_b64config}"
     if redis_client and redis_client.is_connected():
         cached_streams = await redis_client.get(stream_cache_key)
         if cached_streams:
-            try:
-                streams_data = orjson.loads(cached_streams) if isinstance(cached_streams, str) else cached_streams
-                logger.log("SCRAPER", f"🚀 Serving cached stream results for {media_id}")
-                return streams_data
-            except (KeyError, orjson.JSONDecodeError):
-                pass
+            logger.log("SCRAPER", f"🚀 Serving cached stream results for {media_id}")
+            return cached_streams
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:

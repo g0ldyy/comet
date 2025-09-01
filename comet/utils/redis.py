@@ -34,8 +34,8 @@ class RedisClient:
                     settings.REDIS_URI, 
                     encoding='utf-8', 
                     decode_responses=True,
-                    socket_connect_timeout=5,
-                    socket_timeout=5,
+                    socket_connect_timeout=2,
+                    socket_timeout=3,
                     retry_on_timeout=True,
                     health_check_interval=30
                 )
@@ -119,7 +119,7 @@ class RedisClient:
             elif not isinstance(value, str):
                 value = str(value)
             
-            if ttl:
+            if ttl and ttl > 0:
                 await self.redis.setex(key, ttl, value)
             else:
                 await self.redis.set(key, value)
@@ -145,8 +145,12 @@ class RedisClient:
             await self.redis.delete(key)
             return True
             
-        except Exception as e:
-            logger.error(f"Redis DELETE error for key {key}: {e}")
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection issue during DELETE for key {self._sanitize_key_for_logging(key)}: {e}")
+            self._connected = False
+            return False
+        except RedisError as e:
+            logger.error(f"Redis error during DELETE for key {self._sanitize_key_for_logging(key)}: {e}")
             return False
 
     async def exists(self, key: str) -> bool:
@@ -157,8 +161,12 @@ class RedisClient:
             result = await self.redis.exists(key)
             return bool(result)
             
-        except Exception as e:
-            logger.error(f"Redis EXISTS error for key {key}: {e}")
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection issue during EXISTS for key {self._sanitize_key_for_logging(key)}: {e}")
+            self._connected = False
+            return False
+        except RedisError as e:
+            logger.error(f"Redis error during EXISTS for key {self._sanitize_key_for_logging(key)}: {e}")
             return False
 
     async def expire(self, key: str, ttl: int) -> bool:
@@ -169,8 +177,12 @@ class RedisClient:
             await self.redis.expire(key, ttl)
             return True
             
-        except Exception as e:
-            logger.error(f"Redis EXPIRE error for key {key}: {e}")
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection issue during EXPIRE for key {self._sanitize_key_for_logging(key)}: {e}")
+            self._connected = False
+            return False
+        except RedisError as e:
+            logger.error(f"Redis error during EXPIRE for key {self._sanitize_key_for_logging(key)}: {e}")
             return False
 
     async def get_stats(self) -> dict:
@@ -191,8 +203,12 @@ class RedisClient:
                 "app_cache_misses": self.cache_misses,
                 "app_hit_rate": (self.cache_hits / (self.cache_hits + self.cache_misses) * 100) if (self.cache_hits + self.cache_misses) > 0 else 0,
             }
-        except Exception as e:
-            logger.error(f"Redis STATS error: {e}")
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection issue during STATS: {e}")
+            self._connected = False
+            return {"connected": False, "error": str(e)}
+        except RedisError as e:
+            logger.error(f"Redis error during STATS: {e}")
             return {"connected": False, "error": str(e)}
 
 
