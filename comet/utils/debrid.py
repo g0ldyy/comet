@@ -131,7 +131,7 @@ async def cache_availability(debrid_service: str, availability: list):
 
     if redis_client and redis_client.is_connected() and availability:
         for file in availability:
-            redis_key = f"debrid:{debrid_service}:{file['info_hash']}:{file.get('season', 'none')}:{file.get('episode', 'none')}"
+            redis_key = f"debrid:{debrid_service}:{file['info_hash']}:{file['season'] if file['season'] is not None else 'none'}:{file['episode'] if file['episode'] is not None else 'none'}"
             file_data = {
                 "file_index": str(file["index"]) if file["index"] is not None else None,
                 "title": file["title"],

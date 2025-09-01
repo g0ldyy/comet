@@ -43,7 +43,7 @@ class AppSettings(BaseSettings):
     ENABLE_REDIS: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
-    DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
+    DEBRID_CACHE_TTL: Optional[int] = 604800  # 7 days
     SCRAPE_LOCK_TTL: Optional[int] = 300  # 5 minutes
     SCRAPE_WAIT_TIMEOUT: Optional[int] = (
         30  # Max time to wait for other instance to complete

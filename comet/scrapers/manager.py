@@ -145,7 +145,7 @@ class TorrentManager:
 
     async def get_cached_torrents(self):
         if redis_client and redis_client.is_connected():
-            redis_key = f"torrents:{self.media_only_id}:{self.season}:{self.episode}"
+            redis_key = f"torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
             cached_data = await redis_client.get(redis_key)
             if cached_data:
                 try:
@@ -207,7 +207,7 @@ class TorrentManager:
             }
 
         if redis_client and redis_client.is_connected() and torrents_for_redis:
-            redis_key = f"torrents:{self.media_only_id}:{self.season}:{self.episode}"
+            redis_key = f"torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
             await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def cache_torrents(self):
@@ -261,7 +261,7 @@ class TorrentManager:
                     "parsed": torrent["parsed"].__dict__,
                 }
             
-            redis_key = f"torrents:{self.media_only_id}:{self.season}:{self.episode}"
+            redis_key = f"torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
             await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def filter(self, torrents: list):
