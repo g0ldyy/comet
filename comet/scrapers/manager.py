@@ -14,7 +14,7 @@ from RTN import (
     Torrent,
 )
 
-from comet.utils.models import settings, database, CometSettingsModel
+from comet.utils.models import settings, database, redis_client, CometSettingsModel
 from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
@@ -131,6 +131,26 @@ class TorrentManager:
             }
 
     async def get_cached_torrents(self):
+        if redis_client and redis_client.is_connected():
+            redis_key = f"torrents:{self.media_only_id}:{self.season}:{self.episode}"
+            cached_data = await redis_client.get(redis_key)
+            if cached_data:
+                try:
+                    torrents_data = orjson.loads(cached_data) if isinstance(cached_data, str) else cached_data
+                    for info_hash, torrent_data in torrents_data.items():
+                        self.torrents[info_hash] = {
+                            "fileIndex": torrent_data["fileIndex"],
+                            "title": torrent_data["title"],
+                            "seeders": torrent_data["seeders"],
+                            "size": torrent_data["size"],
+                            "tracker": torrent_data["tracker"],
+                            "sources": torrent_data["sources"],
+                            "parsed": ParsedData(**torrent_data["parsed"]),
+                        }
+                    return
+                except (KeyError, orjson.JSONDecodeError):
+                    pass
+
         rows = await database.fetch_all(
             """
                 SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed
@@ -149,9 +169,10 @@ class TorrentManager:
             },
         )
 
+        torrents_for_redis = {}
         for row in rows:
             info_hash = row["info_hash"]
-            self.torrents[info_hash] = {
+            torrent_data = {
                 "fileIndex": row["file_index"],
                 "title": row["title"],
                 "seeders": row["seeders"],
@@ -160,6 +181,21 @@ class TorrentManager:
                 "sources": orjson.loads(row["sources"]),
                 "parsed": ParsedData(**orjson.loads(row["parsed"])),
             }
+            self.torrents[info_hash] = torrent_data
+            
+            torrents_for_redis[info_hash] = {
+                "fileIndex": row["file_index"],
+                "title": row["title"],
+                "seeders": row["seeders"],
+                "size": row["size"],
+                "tracker": row["tracker"],
+                "sources": orjson.loads(row["sources"]),
+                "parsed": orjson.loads(row["parsed"]),
+            }
+
+        if redis_client and redis_client.is_connected() and torrents_for_redis:
+            redis_key = f"torrents:{self.media_only_id}:{self.season}:{self.episode}"
+            await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def cache_torrents(self):
         current_time = time.time()
@@ -197,6 +233,23 @@ class TorrentManager:
         """
 
         await database.execute_many(query, values)
+
+        if redis_client and redis_client.is_connected() and self.ready_to_cache:
+            torrents_for_redis = {}
+            for torrent in self.ready_to_cache:
+                info_hash = torrent["infoHash"]
+                torrents_for_redis[info_hash] = {
+                    "fileIndex": torrent["fileIndex"],
+                    "title": torrent["title"],
+                    "seeders": torrent["seeders"],
+                    "size": torrent["size"],
+                    "tracker": torrent["tracker"],
+                    "sources": torrent["sources"],
+                    "parsed": torrent["parsed"].__dict__,
+                }
+            
+            redis_key = f"torrents:{self.media_only_id}:{self.season}:{self.episode}"
+            await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def filter(self, torrents: list):
         title = self.title

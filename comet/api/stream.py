@@ -11,7 +11,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
-from comet.utils.models import settings, database, trackers
+from comet.utils.models import settings, database, redis_client, trackers
 from comet.utils.general import parse_media_id
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
@@ -121,6 +121,18 @@ async def stream(
                 }
             ]
         }
+
+    # Check for cached stream results
+    stream_cache_key = f"streams:{media_type}:{media_id}:{b64config}"
+    if redis_client and redis_client.is_connected():
+        cached_streams = await redis_client.get(stream_cache_key)
+        if cached_streams:
+            try:
+                streams_data = orjson.loads(cached_streams) if isinstance(cached_streams, str) else cached_streams
+                logger.log("SCRAPER", f"🚀 Serving cached stream results for {media_id}")
+                return streams_data
+            except (KeyError, orjson.JSONDecodeError):
+                pass
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -434,7 +446,14 @@ async def stream(
             else:
                 non_cached_results.append(the_stream)
 
-        return {"streams": cached_results + non_cached_results}
+        final_results = {"streams": cached_results + non_cached_results}
+
+        # Cache the final stream results
+        if redis_client and redis_client.is_connected():
+            # Cache for 30 minutes - streams change more frequently than metadata
+            await redis_client.set(stream_cache_key, final_results, 1800)
+
+        return final_results
 
 
 @streams.get(

@@ -1,7 +1,7 @@
 import time
 import orjson
 
-from comet.utils.models import settings, database
+from comet.utils.models import settings, database, redis_client
 from comet.utils.general import default_dump
 
 
@@ -116,10 +116,50 @@ async def cache_availability(debrid_service: str, availability: list):
         """
         await database.execute_many(query, values)
 
+    if redis_client and redis_client.is_connected() and availability:
+        for file in availability:
+            redis_key = f"debrid:{debrid_service}:{file['info_hash']}:{file.get('season', 'none')}:{file.get('episode', 'none')}"
+            file_data = {
+                "file_index": str(file["index"]) if file["index"] is not None else None,
+                "title": file["title"],
+                "season": file["season"],
+                "episode": file["episode"],
+                "size": file["size"] if file["index"] is not None else None,
+                "parsed": file["parsed"].__dict__ if hasattr(file["parsed"], '__dict__') else file["parsed"],
+            }
+            await redis_client.set(redis_key, file_data, settings.DEBRID_CACHE_TTL)
+
 
 async def get_cached_availability(
     debrid_service: str, info_hashes: list, season: int = None, episode: int = None
 ):
+    redis_results = []
+    remaining_hashes = []
+
+    if redis_client and redis_client.is_connected():
+        for info_hash in info_hashes:
+            redis_key = f"debrid:{debrid_service}:{info_hash}:{season if season is not None else 'none'}:{episode if episode is not None else 'none'}"
+            cached_data = await redis_client.get(redis_key)
+            if cached_data:
+                try:
+                    file_data = orjson.loads(cached_data) if isinstance(cached_data, str) else cached_data
+                    redis_results.append({
+                        "info_hash": info_hash,
+                        "file_index": file_data["file_index"],
+                        "title": file_data["title"],
+                        "size": file_data["size"],
+                        "parsed": file_data["parsed"],
+                    })
+                    continue
+                except (KeyError, orjson.JSONDecodeError):
+                    pass
+            remaining_hashes.append(info_hash)
+    else:
+        remaining_hashes = info_hashes
+
+    if not remaining_hashes:
+        return redis_results
+
     base_query = f"""
         SELECT info_hash, file_index, title, size, parsed
         FROM debrid_availability
@@ -129,7 +169,7 @@ async def get_cached_availability(
     """
 
     params = {
-        "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
+        "info_hashes": orjson.dumps(remaining_hashes).decode("utf-8"),
         "debrid_service": debrid_service,
         "cache_ttl": settings.DEBRID_CACHE_TTL,
         "current_time": time.time(),
@@ -170,4 +210,17 @@ async def get_cached_availability(
         )
         results = await database.fetch_all(query, params)
 
-    return results
+    db_results = results
+    
+    if redis_client and redis_client.is_connected() and db_results:
+        for result in db_results:
+            redis_key = f"debrid:{debrid_service}:{result['info_hash']}:{season if season is not None else 'none'}:{episode if episode is not None else 'none'}"
+            file_data = {
+                "file_index": result["file_index"],
+                "title": result["title"],
+                "size": result["size"],
+                "parsed": orjson.loads(result["parsed"]) if result["parsed"] else None,
+            }
+            await redis_client.set(redis_key, file_data, settings.DEBRID_CACHE_TTL)
+
+    return redis_results + db_results
