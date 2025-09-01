@@ -3,6 +3,7 @@ import orjson
 
 from comet.utils.models import settings, database, redis_client
 from comet.utils.general import default_dump
+from comet.utils.logger import logger
 
 
 async def cache_availability(debrid_service: str, availability: list):
@@ -31,8 +32,8 @@ async def cache_availability(debrid_service: str, availability: list):
     try:
         if settings.DATABASE_TYPE == "sqlite":
             query = """
-                INSERT OR REPLACE
-                INTO debrid_availability
+                INSERT OR REPLACE INTO debrid_availability
+                (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
             """
             await database.execute_many(query, values)
@@ -56,6 +57,7 @@ async def cache_availability(debrid_service: str, availability: list):
             if both_values:
                 query = """
                     INSERT INTO debrid_availability
+                    (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                     VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                     ON CONFLICT (debrid_service, info_hash, season, episode) 
                     WHERE season IS NOT NULL AND episode IS NOT NULL
@@ -71,6 +73,7 @@ async def cache_availability(debrid_service: str, availability: list):
             if season_only_values:
                 query = """
                     INSERT INTO debrid_availability
+                    (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                     VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                     ON CONFLICT (debrid_service, info_hash, season) 
                     WHERE season IS NOT NULL AND episode IS NULL
@@ -86,6 +89,7 @@ async def cache_availability(debrid_service: str, availability: list):
             if episode_only_values:
                 query = """
                     INSERT INTO debrid_availability
+                    (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                     VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                     ON CONFLICT (debrid_service, info_hash, episode) 
                     WHERE season IS NULL AND episode IS NOT NULL
@@ -101,6 +105,7 @@ async def cache_availability(debrid_service: str, availability: list):
             if no_season_episode_values:
                 query = """
                     INSERT INTO debrid_availability
+                    (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                     VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                     ON CONFLICT (debrid_service, info_hash) 
                     WHERE season IS NULL AND episode IS NULL
@@ -114,13 +119,14 @@ async def cache_availability(debrid_service: str, availability: list):
                 await database.execute_many(query, no_season_episode_values)
         else:
             query = """
-                INSERT 
-                INTO debrid_availability
+                INSERT INTO debrid_availability
+                (debrid_service, info_hash, file_index, title, season, episode, size, parsed, timestamp)
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
             """
             await database.execute_many(query, values)
     except Exception as e:
-        print(f"Database error caching {debrid_service} availability: {e}")
+        logger.error(f"Database error caching {debrid_service} availability: {e}")
+        logger.exception(e)
         return
 
     if redis_client and redis_client.is_connected() and availability:
@@ -218,7 +224,8 @@ async def get_cached_availability(
         try:
             results = await database.fetch_all(query, params)
         except Exception as e:
-            print(f"Database error getting {debrid_service} availability: {e}")
+            logger.error(f"Database error getting {debrid_service} availability: {e}")
+            logger.exception(e)
             return redis_results
 
     db_results = results

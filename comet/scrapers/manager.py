@@ -451,9 +451,11 @@ class TorrentManager:
             self.torrents[info_hash]["cached"] = True
 
             if row["parsed"] is not None:
-                self.torrents[info_hash]["parsed"] = ParsedData(
-                    **orjson.loads(row["parsed"])
-                )
+                try:
+                    parsed_data = orjson.loads(row["parsed"]) if isinstance(row["parsed"], str) else row["parsed"]
+                    self.torrents[info_hash]["parsed"] = ParsedData(**parsed_data)
+                except (orjson.JSONDecodeError, TypeError, ValueError):
+                    pass
             if row["file_index"] is not None:
                 self.torrents[info_hash]["fileIndex"] = row["file_index"]
             if row["title"] is not None:
