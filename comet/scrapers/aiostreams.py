@@ -2,38 +2,39 @@ from comet.utils.general import (
     log_scraper_error,
     fetch_with_proxy_fallback,
 )
+from comet.utils.aiostreams import aiostreams_config
 
 
-async def get_aiostreams(manager, url: str):
+async def get_aiostreams(manager, url: str, uuid_password: str | None = None):
     torrents = []
     try:
+        headers = aiostreams_config.get_headers_for_credential(uuid_password)
+
+        params = {
+            "type": manager.media_type,
+            "id": manager.media_id,
+        }
+
         results = await fetch_with_proxy_fallback(
-            f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
+            f"{url}/api/v1/search",
+            params=params,
+            headers=headers,
         )
 
-        for torrent in results["streams"]:
-            stream_data = torrent["streamData"]
-
-            if "error" in stream_data:
-                continue
-
-            torrent_info = stream_data["torrent"]
-            if "infoHash" not in torrent_info:
-                continue
-
+        for torrent in results["data"]["results"]:
             tracker = "AIOStreams"
-            if "indexer" in stream_data:
-                tracker += f"|{stream_data['indexer']}"
+            if "indexer" in torrent:
+                tracker += f"|{torrent['indexer']}"
 
             torrents.append(
                 {
-                    "title": stream_data["filename"],
-                    "infoHash": torrent_info["infoHash"],
+                    "title": torrent["filename"],
+                    "infoHash": torrent["infoHash"],
                     "fileIndex": torrent.get("fileIdx", None),
-                    "seeders": torrent_info.get("seeders", None),
-                    "size": stream_data["size"],
+                    "seeders": torrent.get("seeders", None),
+                    "size": torrent["size"],
                     "tracker": tracker,
-                    "sources": torrent_info.get("sources", []),
+                    "sources": torrent.get("sources", []),
                 }
             )
     except Exception as e:

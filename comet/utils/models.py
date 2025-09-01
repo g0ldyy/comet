@@ -68,6 +68,7 @@ class AppSettings(BaseSettings):
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
     SCRAPE_AIOSTREAMS: Optional[bool] = False
     AIOSTREAMS_URL: Optional[Union[str, List[str]]] = None
+    AIOSTREAMS_USER_UUID_AND_PASSWORD: Union[str, List[str], None] = None
     SCRAPE_JACKETTIO: Optional[bool] = False
     JACKETTIO_URL: Optional[Union[str, List[str]]] = None
     SCRAPE_DEBRIDIO: Optional[bool] = False

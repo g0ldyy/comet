@@ -18,7 +18,7 @@ from comet.utils.models import settings, database, CometSettingsModel
 from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
-from comet.utils.mediafusion import associate_mediafusion_urls_passwords
+from comet.utils.general import associate_urls_credentials
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
@@ -404,13 +404,12 @@ def get_all_torrentio_tasks(manager):
 
 
 def get_all_mediafusion_tasks(manager):
-    urls = settings.MEDIAFUSION_URL
-    passwords = settings.MEDIAFUSION_API_PASSWORD
-
-    url_password_pairs = associate_mediafusion_urls_passwords(urls, passwords)
+    url_credentials_pairs = associate_urls_credentials(
+        settings.MEDIAFUSION_URL, settings.MEDIAFUSION_API_PASSWORD
+    )
 
     tasks = []
-    for url, password in url_password_pairs:
+    for url, password in url_credentials_pairs:
         tasks.append(get_mediafusion(manager, url, password))
     return tasks
 
@@ -438,13 +437,13 @@ def get_all_stremthru_tasks(manager, session):
 
 
 def get_all_aiostreams_tasks(manager):
-    urls = settings.AIOSTREAMS_URL
-    if isinstance(urls, str):
-        urls = [urls]
+    url_credentials_pairs = associate_urls_credentials(
+        settings.AIOSTREAMS_URL, settings.AIOSTREAMS_USER_UUID_AND_PASSWORD
+    )
 
     tasks = []
-    for url in urls:
-        tasks.append(get_aiostreams(manager, url))
+    for url, uuid_password in url_credentials_pairs:
+        tasks.append(get_aiostreams(manager, url, uuid_password))
     return tasks
 
 

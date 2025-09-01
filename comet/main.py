@@ -25,7 +25,7 @@ from comet.utils.database import (
     cleanup_expired_sessions,
 )
 from comet.utils.trackers import download_best_trackers
-from comet.utils.mediafusion import associate_mediafusion_urls_passwords
+from comet.utils.general import associate_urls_credentials
 from comet.utils.logger import logger
 from comet.utils.models import settings
 from comet.utils.bandwidth_monitor import bandwidth_monitor
@@ -148,14 +148,11 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-def get_mediafusion_urls_with_passwords():
-    urls = settings.MEDIAFUSION_URL
-    passwords = settings.MEDIAFUSION_API_PASSWORD
-
-    url_password_pairs = associate_mediafusion_urls_passwords(urls, passwords)
+def get_urls_with_passwords(urls, passwords):
+    url_credentials_pairs = associate_urls_credentials(urls, passwords)
 
     result = []
-    for url, password in url_password_pairs:
+    for url, password in url_credentials_pairs:
         if password:
             result.append(f"{url}|{password}")
         else:
@@ -219,7 +216,7 @@ def start_log():
     )
 
     mediafusion_display = (
-        f" - {', '.join(get_mediafusion_urls_with_passwords())}"
+        f" - {', '.join(get_urls_with_passwords(settings.MEDIAFUSION_URL, settings.MEDIAFUSION_API_PASSWORD))}"
         if settings.SCRAPE_MEDIAFUSION
         else ""
     )
@@ -228,12 +225,14 @@ def start_log():
         f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_display} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
     )
 
-    aiostreams_url = (
-        f" - {settings.AIOSTREAMS_URL}" if settings.SCRAPE_AIOSTREAMS else ""
+    aiostreams_display = (
+        f" - {', '.join(get_urls_with_passwords(settings.AIOSTREAMS_URL, settings.AIOSTREAMS_USER_UUID_AND_PASSWORD))}"
+        if settings.SCRAPE_AIOSTREAMS
+        else ""
     )
     logger.log(
         "COMET",
-        f"AIOStreams Scraper: {bool(settings.SCRAPE_AIOSTREAMS)}{aiostreams_url}",
+        f"AIOStreams Scraper: {bool(settings.SCRAPE_AIOSTREAMS)}{aiostreams_display}",
     )
 
     jackettio_url = f" - {settings.JACKETTIO_URL}" if settings.SCRAPE_JACKETTIO else ""
