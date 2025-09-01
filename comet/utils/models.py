@@ -87,8 +87,8 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
     BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
-    BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 1000
-    BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 500
+    BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
+    BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
