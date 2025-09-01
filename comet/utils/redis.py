@@ -1,5 +1,6 @@
 import json
 import redis.asyncio as redis
+from redis.exceptions import RedisError, ConnectionError, TimeoutError
 from typing import Optional, Any, Union
 from loguru import logger
 
@@ -13,6 +14,16 @@ class RedisClient:
         self.cache_hits = 0
         self.cache_misses = 0
 
+    def _sanitize_key_for_logging(self, key: str) -> str:
+        """Sanitize key for safe logging without exposing sensitive data"""
+        if not key:
+            return "<empty_key>"
+        
+        # For logging, show key structure without sensitive values
+        if len(key) > 50:
+            return f"{key[:20]}...{key[-10:]}"
+        return key
+
     async def connect(self):
         if not settings.ENABLE_REDIS:
             return False
@@ -22,7 +33,11 @@ class RedisClient:
                 self.redis = redis.from_url(
                     settings.REDIS_URI, 
                     encoding='utf-8', 
-                    decode_responses=True
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=5,
+                    retry_on_timeout=True,
+                    health_check_interval=30
                 )
             else:
                 logger.error("REDIS_URI not configured")
@@ -34,8 +49,16 @@ class RedisClient:
             logger.success(f"🔗 Redis connection established - Server: {info.get('redis_version', 'unknown')}")
             return True
             
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection failed: {e}")
+            self._connected = False
+            return False
+        except RedisError as e:
+            logger.error(f"Redis error during connection: {e}")
+            self._connected = False
+            return False
         except Exception as e:
-            logger.warning(f"Failed to connect to Redis: {e}")
+            logger.error(f"Unexpected error connecting to Redis: {e}")
             self._connected = False
             return False
 
@@ -67,8 +90,15 @@ class RedisClient:
             except json.JSONDecodeError:
                 return value
                 
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection issue during GET for key {self._sanitize_key_for_logging(key)}: {e}")
+            self._connected = False
+            return None
+        except RedisError as e:
+            logger.error(f"Redis error during GET for key {self._sanitize_key_for_logging(key)}: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Redis GET error for key {key}: {e}")
+            logger.error(f"Unexpected error during Redis GET for key {self._sanitize_key_for_logging(key)}: {e}")
             return None
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
@@ -88,8 +118,15 @@ class RedisClient:
             
             return True
             
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning(f"Redis connection issue during SET for key {self._sanitize_key_for_logging(key)}: {e}")
+            self._connected = False
+            return False
+        except RedisError as e:
+            logger.error(f"Redis error during SET for key {self._sanitize_key_for_logging(key)}: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Redis SET error for key {key}: {e}")
+            logger.error(f"Unexpected error during Redis SET for key {self._sanitize_key_for_logging(key)}: {e}")
             return False
 
     async def delete(self, key: str) -> bool:
