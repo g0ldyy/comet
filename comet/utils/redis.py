@@ -10,6 +10,8 @@ class RedisClient:
     def __init__(self):
         self.redis = None
         self._connected = False
+        self.cache_hits = 0
+        self.cache_misses = 0
 
     async def connect(self):
         if not settings.ENABLE_REDIS:
@@ -28,7 +30,8 @@ class RedisClient:
             
             await self.redis.ping()
             self._connected = True
-            logger.info("Redis connection established")
+            info = await self.redis.info('server')
+            logger.success(f"🔗 Redis connection established - Server: {info.get('redis_version', 'unknown')}")
             return True
             
         except Exception as e:
@@ -38,8 +41,12 @@ class RedisClient:
 
     async def disconnect(self):
         if self.redis:
+            if self.cache_hits + self.cache_misses > 0:
+                hit_rate = (self.cache_hits / (self.cache_hits + self.cache_misses)) * 100
+                logger.info(f"📊 Redis cache stats - Hits: {self.cache_hits}, Misses: {self.cache_misses}, Hit Rate: {hit_rate:.1f}%")
             await self.redis.aclose()
             self._connected = False
+            logger.info("🔌 Redis connection closed")
 
     def is_connected(self) -> bool:
         return self._connected
@@ -51,8 +58,10 @@ class RedisClient:
         try:
             value = await self.redis.get(key)
             if value is None:
+                self.cache_misses += 1
                 return None
             
+            self.cache_hits += 1
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
@@ -118,6 +127,28 @@ class RedisClient:
         except Exception as e:
             logger.error(f"Redis EXPIRE error for key {key}: {e}")
             return False
+
+    async def get_stats(self) -> dict:
+        if not self.is_connected():
+            return {"connected": False}
+        
+        try:
+            info = await self.redis.info()
+            return {
+                "connected": True,
+                "redis_version": info.get('redis_version', 'unknown'),
+                "used_memory": info.get('used_memory_human', 'unknown'),
+                "keyspace_hits": info.get('keyspace_hits', 0),
+                "keyspace_misses": info.get('keyspace_misses', 0),
+                "connected_clients": info.get('connected_clients', 0),
+                "total_commands_processed": info.get('total_commands_processed', 0),
+                "app_cache_hits": self.cache_hits,
+                "app_cache_misses": self.cache_misses,
+                "app_hit_rate": (self.cache_hits / (self.cache_hits + self.cache_misses) * 100) if (self.cache_hits + self.cache_misses) > 0 else 0,
+            }
+        except Exception as e:
+            logger.error(f"Redis STATS error: {e}")
+            return {"connected": False, "error": str(e)}
 
 
 redis_client = RedisClient()

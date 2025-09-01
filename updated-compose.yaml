@@ -1,6 +1,6 @@
 services:
   comet:
-    image: midnightignite1/comet:redis-enabled
+    image: midnightignite1/comet:redis-enhanced
     restart: unless-stopped
     expose:
       - 2020

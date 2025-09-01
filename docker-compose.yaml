@@ -5,7 +5,7 @@ volumes:
 services:
   comet:
     container_name: comet
-    image: midnightignite1/comet:redis-enabled
+    image: midnightignite1/comet:redis-enhanced
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -17,7 +17,7 @@ services:
       - redis
     environment:
       - ENABLE_REDIS=true
-      - REDIS_HOST=redis
+      - REDIS_URI=redis://redis:6379
 
   redis:
     container_name: comet_redis
