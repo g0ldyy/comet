@@ -129,9 +129,9 @@ async def cache_availability(debrid_service: str, availability: list):
         logger.exception(e)
         return
 
-    if redis_client and redis_client.is_connected() and availability:
+    if redis_client and redis_client.is_connected() and availability and settings.DEBRID_CACHE_TTL > 0:
         for file in availability:
-            redis_key = f"debrid:{debrid_service}:{file['info_hash']}:{file['season'] if file['season'] is not None else 'none'}:{file['episode'] if file['episode'] is not None else 'none'}"
+            redis_key = f"comet:v1:debrid:{debrid_service}:{file['info_hash']}:{file['season'] if file['season'] is not None else 'none'}:{file['episode'] if file['episode'] is not None else 'none'}"
             file_data = {
                 "file_index": str(file["index"]) if file["index"] is not None else None,
                 "title": file["title"],
@@ -151,7 +151,7 @@ async def get_cached_availability(
 
     if redis_client and redis_client.is_connected():
         for info_hash in info_hashes:
-            redis_key = f"debrid:{debrid_service}:{info_hash}:{season if season is not None else 'none'}:{episode if episode is not None else 'none'}"
+            redis_key = f"comet:v1:debrid:{debrid_service}:{info_hash}:{season if season is not None else 'none'}:{episode if episode is not None else 'none'}"
             cached_data = await redis_client.get(redis_key)
             if cached_data:
                 try:
@@ -230,9 +230,9 @@ async def get_cached_availability(
 
     db_results = results
     
-    if redis_client and redis_client.is_connected() and db_results:
+    if redis_client and redis_client.is_connected() and db_results and settings.DEBRID_CACHE_TTL > 0:
         for result in db_results:
-            redis_key = f"debrid:{debrid_service}:{result['info_hash']}:{season if season is not None else 'none'}:{episode if episode is not None else 'none'}"
+            redis_key = f"comet:v1:debrid:{debrid_service}:{result['info_hash']}:{season if season is not None else 'none'}:{episode if episode is not None else 'none'}"
             file_data = {
                 "file_index": result["file_index"],
                 "title": result["title"],

@@ -48,6 +48,7 @@ class AppSettings(BaseSettings):
     SCRAPE_WAIT_TIMEOUT: Optional[int] = (
         30  # Max time to wait for other instance to complete
     )
+    API_CONCURRENCY_LIMIT: Optional[int] = 32  # Max concurrent external API calls
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"

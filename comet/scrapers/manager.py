@@ -71,7 +71,7 @@ class TorrentManager:
         self.ready_to_cache = []
         self.ranked_torrents = {}
         
-        self.api_semaphore = asyncio.Semaphore(32)
+        self.api_semaphore = asyncio.Semaphore(settings.API_CONCURRENCY_LIMIT)
 
     async def _run_with_semaphore(self, coro):
         async with self.api_semaphore:
@@ -118,7 +118,12 @@ class TorrentManager:
         for task in tasks:
             semaphore_tasks.append(self._run_with_semaphore(task))
         
-        await asyncio.gather(*semaphore_tasks)
+        results = await asyncio.gather(*semaphore_tasks, return_exceptions=True)
+        
+        # Log any exceptions that occurred during scraping
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(f"Scraper task {i} failed: {result}")
         await self.cache_torrents()  # Wait for cache to be written before continuing
 
         for torrent in self.ready_to_cache:
@@ -145,7 +150,7 @@ class TorrentManager:
 
     async def get_cached_torrents(self):
         if redis_client and redis_client.is_connected():
-            redis_key = f"torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
+            redis_key = f"comet:v1:torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
             cached_data = await redis_client.get(redis_key)
             if cached_data:
                 try:
@@ -185,14 +190,19 @@ class TorrentManager:
         torrents_for_redis = {}
         for row in rows:
             info_hash = row["info_hash"]
+            
+            # Decode JSON data once and reuse to reduce CPU overhead
+            sources_data = orjson.loads(row["sources"])
+            parsed_data = orjson.loads(row["parsed"])
+            
             torrent_data = {
                 "fileIndex": row["file_index"],
                 "title": row["title"],
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": orjson.loads(row["sources"]),
-                "parsed": ParsedData(**orjson.loads(row["parsed"])),
+                "sources": sources_data,
+                "parsed": ParsedData(**parsed_data),
             }
             self.torrents[info_hash] = torrent_data
             
@@ -202,13 +212,15 @@ class TorrentManager:
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": orjson.loads(row["sources"]),
-                "parsed": orjson.loads(row["parsed"]),
+                "sources": sources_data,
+                "parsed": parsed_data,
             }
 
         if redis_client and redis_client.is_connected() and torrents_for_redis:
-            redis_key = f"torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
-            await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
+            # Add safeguards for Redis caching
+            if settings.TORRENT_CACHE_TTL > 0:
+                redis_key = f"comet:v1:torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
+                await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def cache_torrents(self):
         current_time = time.time()
@@ -261,8 +273,10 @@ class TorrentManager:
                     "parsed": torrent["parsed"].__dict__,
                 }
             
-            redis_key = f"torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
-            await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
+            # Add safeguards for Redis caching
+            if settings.TORRENT_CACHE_TTL > 0:
+                redis_key = f"comet:v1:torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
+                await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def filter(self, torrents: list):
         title = self.title
