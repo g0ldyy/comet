@@ -49,6 +49,7 @@ class AppSettings(BaseSettings):
         30  # Max time to wait for other instance to complete
     )
     API_CONCURRENCY_LIMIT: Optional[int] = 32  # Max concurrent external API calls
+    STREAM_CACHE_TTL: Optional[int] = 1800  # 30 minutes - streams change more frequently
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"

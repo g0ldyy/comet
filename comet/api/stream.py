@@ -123,7 +123,7 @@ async def stream(
         }
 
     # Check for cached stream results
-    stream_cache_key = f"streams:{media_type}:{media_id}:{b64config}"
+    stream_cache_key = f"comet:v1:streams:{media_type}:{media_id}:{b64config}"
     if redis_client and redis_client.is_connected():
         cached_streams = await redis_client.get(stream_cache_key)
         if cached_streams:
@@ -449,9 +449,8 @@ async def stream(
         final_results = {"streams": cached_results + non_cached_results}
 
         # Cache the final stream results
-        if redis_client and redis_client.is_connected():
-            # Cache for 30 minutes - streams change more frequently than metadata
-            await redis_client.set(stream_cache_key, final_results, 1800)
+        if redis_client and redis_client.is_connected() and settings.STREAM_CACHE_TTL > 0:
+            await redis_client.set(stream_cache_key, final_results, settings.STREAM_CACHE_TTL)
 
         return final_results
 

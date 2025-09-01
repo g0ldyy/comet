@@ -74,8 +74,16 @@ class RedisClient:
     def is_connected(self) -> bool:
         return self._connected
 
+    async def _ensure_connection(self) -> bool:
+        """Ensure Redis connection is active, attempt reconnection if needed"""
+        if self._connected:
+            return True
+        
+        logger.info("Attempting Redis reconnection...")
+        return await self.connect()
+
     async def get(self, key: str) -> Optional[Any]:
-        if not self.is_connected():
+        if not await self._ensure_connection():
             return None
         
         try:
@@ -102,7 +110,7 @@ class RedisClient:
             return None
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        if not self.is_connected():
+        if not await self._ensure_connection():
             return False
         
         try:
