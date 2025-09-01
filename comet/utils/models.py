@@ -42,10 +42,15 @@ class AppSettings(BaseSettings):
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
+    STREAM_CACHE_TTL: Optional[int] = 1800  # 30 minutes - streams change frequently
     SCRAPE_LOCK_TTL: Optional[int] = 300  # 5 minutes
     SCRAPE_WAIT_TIMEOUT: Optional[int] = (
         30  # Max time to wait for other instance to complete
     )
+    REDIS_URI: Optional[str] = None
+    REDIS_PASSWORD: Optional[str] = None
+    ENABLE_REDIS: Optional[bool] = False
+    API_CONCURRENCY_LIMIT: Optional[int] = 32  # Max concurrent external API calls
     DEBRID_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
@@ -634,6 +639,11 @@ database_url = (
 database = Database(
     f"{'sqlite' if settings.DATABASE_TYPE == 'sqlite' else 'postgresql+asyncpg'}://{'/' if settings.DATABASE_TYPE == 'sqlite' else ''}{database_url}"
 )
+
+try:
+    from comet.utils.redis import redis_client
+except ImportError:
+    redis_client = None
 
 trackers = [
     "udp://tracker-udp.gbitt.info:80/announce",
