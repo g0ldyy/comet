@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import orjson
 import time
+import hashlib
 
 from RTN import (
     parse,
@@ -31,6 +32,8 @@ from .jackettio import get_jackettio
 from .debridio import get_debridio
 from .torbox import get_torbox
 
+_parse_cache = {}
+_cache_max_size = 10000
 
 class TorrentManager:
     def __init__(
@@ -67,6 +70,12 @@ class TorrentManager:
         self.torrents = {}
         self.ready_to_cache = []
         self.ranked_torrents = {}
+        
+        self.api_semaphore = asyncio.Semaphore(32)
+
+    async def _run_with_semaphore(self, coro):
+        async with self.api_semaphore:
+            return await coro
 
     async def scrape_torrents(
         self,
@@ -105,7 +114,11 @@ class TorrentManager:
                 elif settings.INDEXER_MANAGER_TYPE == "prowlarr":
                     tasks.append(get_prowlarr(self, session, query, seen_already))
 
-        await asyncio.gather(*tasks)
+        semaphore_tasks = []
+        for task in tasks:
+            semaphore_tasks.append(self._run_with_semaphore(task))
+        
+        await asyncio.gather(*semaphore_tasks)
         await self.cache_torrents()  # Wait for cache to be written before continuing
 
         for torrent in self.ready_to_cache:
@@ -258,12 +271,28 @@ class TorrentManager:
         aliases = self.aliases
         remove_adult_content = self.remove_adult_content
 
-        for torrent in torrents:
+        for i, torrent in enumerate(torrents):
+            if i % 10 == 0:
+                await asyncio.sleep(0)
+            
             torrent_title = torrent["title"]
             if "sample" in torrent_title.lower() or torrent_title == "":
                 continue
+                
+            title_lower = torrent_title.lower()
+            title_check = title.lower()
+            if title_check not in title_lower and not any(alias.lower() in title_lower for alias in aliases.get('title', [])):
+                if len(title_check) > 3 and title_check[:4] not in title_lower:
+                    continue
 
-            parsed = parse(torrent_title)
+            title_hash = hashlib.md5(torrent_title.encode()).hexdigest()
+            if title_hash in _parse_cache:
+                parsed = _parse_cache[title_hash]
+            else:
+                parsed = parse(torrent_title)
+                if len(_parse_cache) >= _cache_max_size:
+                    _parse_cache.clear()
+                _parse_cache[title_hash] = parsed
 
             if remove_adult_content and parsed.adult:
                 continue
@@ -294,7 +323,7 @@ class TorrentManager:
             (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
         )
 
-        chunk_size = 50
+        chunk_size = 25
         tasks = [
             self.filter(new_torrents[i : i + chunk_size])
             for i in range(0, len(new_torrents), chunk_size)

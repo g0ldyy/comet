@@ -320,6 +320,78 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_timestamp 
+            ON torrents (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_metadata_timestamp 
+            ON metadata_cache (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_timestamp 
+            ON debrid_availability (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_media_season_episode 
+            ON torrents (media_id, season, episode, timestamp)
+            """
+        )
+
+        if settings.DATABASE_TYPE == "postgresql":
+            await database.execute(
+                """
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_torrents_info_hash_season_episode
+                ON torrents (info_hash, season, episode)
+                """
+            )
+        else:
+            await database.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_torrents_info_hash_season_episode
+                ON torrents (info_hash, season, episode)
+                """
+            )
+
+        if settings.DATABASE_TYPE == "postgresql":
+            await database.execute(
+                """
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_debrid_info_hash_season_episode
+                ON debrid_availability (debrid_service, info_hash, season, episode)
+                """
+            )
+        else:
+            await database.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_debrid_info_hash_season_episode
+                ON debrid_availability (debrid_service, info_hash, season, episode)
+                """
+            )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scrape_locks_expires_at
+            ON scrape_locks (expires_at)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at
+            ON admin_sessions (expires_at)
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
