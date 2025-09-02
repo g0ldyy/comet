@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.19.0](https://github.com/g0ldyy/comet/compare/v2.18.0...v2.19.0) (2025-08-30)
+
+
+### Features
+
+* debridio scraper ([feaca56](https://github.com/g0ldyy/comet/commit/feaca56b36b0f8215c7a000261433aaf6d48fcbb))
+* debridio scraper ([95c3879](https://github.com/g0ldyy/comet/commit/95c3879f34c23e7fdb4bcfee94326cb31aedea21))
+* torbox scraper ([95c457b](https://github.com/g0ldyy/comet/commit/95c457b6ca0fdea074272df57b3d096b262f14b2))
+* torbox scraper ([29fe925](https://github.com/g0ldyy/comet/commit/29fe9258d0e41a2391728a3fa4b975a40b97778a))
+
+
+### Bug Fixes
+
+* enhance logging in background scraper and handle unknown seeders in debridio scraper ([43805b3](https://github.com/g0ldyy/comet/commit/43805b32813e7b90f9c7cd326c601b092ec9a196))
+* handle commas in size string for size_to_bytes function ([17f2796](https://github.com/g0ldyy/comet/commit/17f27966f884b6910d9d3a0366ee9ae6c1359385))
+* initialize size to 0 in debridio scraper ([b592a09](https://github.com/g0ldyy/comet/commit/b592a093b47cdf98870ece97755fd2c369561fbc))
+* remove unnecessary assignment in debridio scraper ([031582d](https://github.com/g0ldyy/comet/commit/031582d546533c871bfa4a0e7a3f21653c7315a8))
+
+## [2.18.0](https://github.com/g0ldyy/comet/compare/v2.17.1...v2.18.0) (2025-08-30)
+
+
+### Features
+
+* jackettio scraper ([b24b545](https://github.com/g0ldyy/comet/commit/b24b5451d1514b3449124598d23cd0f94ac17d49))
+
+## [2.17.1](https://github.com/g0ldyy/comet/compare/v2.17.0...v2.17.1) (2025-08-29)
+
+
+### Bug Fixes
+
+* Add check for missing infoHash in AIOStreams torrent data to prevent errors ([7b9975d](https://github.com/g0ldyy/comet/commit/7b9975d4376e643905d0b983543c5c85b90b69bb))
+
 ## [2.17.0](https://github.com/g0ldyy/comet/compare/v2.16.0...v2.17.0) (2025-08-28)
 
 

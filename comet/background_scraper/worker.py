@@ -320,7 +320,7 @@ class BackgroundScraperWorker:
 
                 logger.log(
                     "BACKGROUND_SCRAPER",
-                    f"✅ Successfully scraped {media_id}",
+                    f"✅ Successfully scraped {media_id} - {torrents_found} torrents found",
                 )
 
             self.stats.total_processed += 1
@@ -398,7 +398,7 @@ class BackgroundScraperWorker:
                 )
                 logger.log(
                     "BACKGROUND_SCRAPER",
-                    f"✅ Successfully scraped {episode_media_id}",
+                    f"✅ Successfully scraped {episode_media_id} - {episode_torrents} torrents found",
                 )
 
         return total_torrents

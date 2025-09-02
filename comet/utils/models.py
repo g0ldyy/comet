@@ -68,6 +68,13 @@ class AppSettings(BaseSettings):
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
     SCRAPE_AIOSTREAMS: Optional[bool] = False
     AIOSTREAMS_URL: Optional[Union[str, List[str]]] = None
+    AIOSTREAMS_USER_UUID_AND_PASSWORD: Union[str, List[str], None] = None
+    SCRAPE_JACKETTIO: Optional[bool] = False
+    JACKETTIO_URL: Optional[Union[str, List[str]]] = None
+    SCRAPE_DEBRIDIO: Optional[bool] = False
+    DEBRIDIO_API_KEY: Optional[str] = None
+    SCRAPE_TORBOX: Optional[bool] = False
+    TORBOX_API_KEY: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
@@ -81,8 +88,8 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
     BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
-    BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 1000
-    BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 500
+    BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
+    BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
@@ -104,6 +111,7 @@ class AppSettings(BaseSettings):
         "TORRENTIO_URL",
         "MEDIAFUSION_URL",
         "AIOSTREAMS_URL",
+        "JACKETTIO_URL",
     )
     def normalize_urls(cls, v):
         if isinstance(v, str):

@@ -89,6 +89,7 @@ def size_to_bytes(size_str: str):
     sizes = ["b", "kb", "mb", "gb", "tb"]
 
     value, unit = size_str.split()
+
     value = float(value)
     unit = unit.lower()
 
@@ -413,16 +414,20 @@ def get_proxies():
     return None
 
 
-async def fetch_with_proxy_fallback(url: str, headers: dict = None):
+async def fetch_with_proxy_fallback(
+    url: str, headers: dict = None, params: dict = None
+):
     async with AsyncSession(impersonate="chrome") as session:
         try:
-            response = await session.get(url, headers=headers)
+            response = await session.get(url, headers=headers, params=params)
             return response.json()
         except Exception as first_error:
             proxies = get_proxies()
             if proxies:
                 try:
-                    response = await session.get(url, headers=headers, proxies=proxies)
+                    response = await session.get(
+                        url, headers=headers, proxies=proxies, params=params
+                    )
                     return response.json()
                 except Exception as second_error:
                     raise second_error
@@ -440,3 +445,38 @@ def log_scraper_error(
     logger.warning(
         f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), you are most likely being ratelimited{api_password_missing}: {error}"
     )
+
+
+def associate_urls_credentials(urls, credentials):
+    if not urls:
+        return []
+
+    if isinstance(urls, str):
+        urls = [urls]
+
+    if len(urls) == 1:
+        if credentials is None:
+            credential = None
+        elif isinstance(credentials, str):
+            credential = credentials or None
+        elif isinstance(credentials, list) and len(credentials) > 0:
+            credential = credentials[0]
+        else:
+            credential = None
+
+        credentials_list = [credential]
+    else:
+        if credentials is None:
+            credentials_list = [None] * len(urls)
+        elif isinstance(credentials, str):
+            credentials_list = [credentials or None] * len(urls)
+        elif isinstance(credentials, list):
+            credentials_list = []
+            for i in range(len(urls)):
+                if i < len(credentials):
+                    cred = credentials[i] or None
+                    credentials_list.append(cred)
+                else:
+                    credentials_list.append(None)
+
+    return list(zip(urls, credentials_list))
