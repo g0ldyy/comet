@@ -1152,6 +1152,10 @@
           loadConnections();
         } else if (activePanel === "logs") {
           loadLogs();
+          // Ensure we scroll to bottom on tab show (initial visibility may have reset scroll)
+          setTimeout(() => {
+            forceScrollLogsToBottomIfUserAtTop();
+          }, 50);
         } else if (activePanel === "metrics") {
           loadMetrics();
         }
@@ -1373,6 +1377,17 @@
         const maxEntries = 500;
         while (container.children.length > maxEntries) {
           container.removeChild(container.firstChild);
+        }
+      }
+
+      // Helper to force scroll to bottom when logs tab becomes visible and user hasn't scrolled elsewhere yet
+      function forceScrollLogsToBottomIfUserAtTop() {
+        const container = document.getElementById('logs-container');
+        if (!container) return;
+        // If user is already scrolled somewhere in the middle (not near top), respect their position
+        const userAtTop = container.scrollTop <= 50; // small threshold
+        if (userAtTop) {
+          container.scrollTop = container.scrollHeight;
         }
       }
 
