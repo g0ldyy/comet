@@ -166,9 +166,11 @@ def start_log():
         "COMET",
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
+    # Mask sensitive credentials in logs
+    admin_pw_masked = "****" if settings.ADMIN_DASHBOARD_PASSWORD else "(not set)"
     logger.log(
         "COMET",
-        f"Admin Dashboard Password: {settings.ADMIN_DASHBOARD_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
+        f"Admin Dashboard Password: {admin_pw_masked} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
     logger.log(
         "COMET",
