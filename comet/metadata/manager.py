@@ -5,7 +5,7 @@ import orjson
 
 from RTN.patterns import normalize_title
 
-from comet.utils.models import database, settings
+from comet.utils.models import database, settings, redis_client
 from comet.utils.general import parse_media_id
 
 from .kitsu import get_kitsu_metadata, get_kitsu_aliases
@@ -39,6 +39,23 @@ class MetadataScraper:
         return metadata, aliases
 
     async def get_cached(self, media_id: str, season: int, episode: int):
+        if redis_client and redis_client.is_connected():
+            redis_key = f"metadata:{media_id}"
+            cached_data = await redis_client.get(redis_key)
+            if cached_data:
+                try:
+                    metadata_data = orjson.loads(cached_data) if isinstance(cached_data, str) else cached_data
+                    metadata = {
+                        "title": metadata_data["title"],
+                        "year": metadata_data["year"],
+                        "year_end": metadata_data["year_end"],
+                        "season": season,
+                        "episode": episode,
+                    }
+                    return metadata, metadata_data["aliases"]
+                except (KeyError, orjson.JSONDecodeError):
+                    pass
+        
         row = await database.fetch_one(
             """
                 SELECT title, year, year_end, aliases
@@ -60,7 +77,19 @@ class MetadataScraper:
                 "season": season,
                 "episode": episode,
             }
-            return metadata, orjson.loads(row["aliases"])
+            aliases = orjson.loads(row["aliases"])
+            
+            if redis_client and redis_client.is_connected():
+                redis_key = f"metadata:{media_id}"
+                cache_data = {
+                    "title": row["title"],
+                    "year": row["year"],
+                    "year_end": row["year_end"],
+                    "aliases": aliases
+                }
+                await redis_client.set(redis_key, cache_data, settings.METADATA_CACHE_TTL)
+            
+            return metadata, aliases
 
         return None
 
@@ -81,6 +110,16 @@ class MetadataScraper:
                 "timestamp": time.time(),
             },
         )
+        
+        if redis_client and redis_client.is_connected():
+            redis_key = f"metadata:{media_id}"
+            cache_data = {
+                "title": metadata["title"],
+                "year": metadata["year"],
+                "year_end": metadata["year_end"],
+                "aliases": aliases
+            }
+            await redis_client.set(redis_key, cache_data, settings.METADATA_CACHE_TTL)
 
     def normalize_metadata(self, metadata: dict, season: int, episode: int):
         title, year, year_end = metadata

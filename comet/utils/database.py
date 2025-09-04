@@ -320,6 +320,148 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_timestamp 
+            ON torrents (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_metadata_timestamp 
+            ON metadata_cache (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_timestamp 
+            ON debrid_availability (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_media_season_episode 
+            ON torrents (media_id, season, episode, timestamp)
+            """
+        )
+
+        if settings.DATABASE_TYPE == "postgresql":
+            await database.execute(
+                """
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_torrents_info_hash_season_episode
+                ON torrents (info_hash, season, episode)
+                """
+            )
+        else:
+            await database.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_torrents_info_hash_season_episode
+                ON torrents (info_hash, season, episode)
+                """
+            )
+
+        if settings.DATABASE_TYPE == "postgresql":
+            await database.execute(
+                """
+                CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_debrid_info_hash_season_episode
+                ON debrid_availability (debrid_service, info_hash, season, episode)
+                """
+            )
+        else:
+            await database.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_debrid_info_hash_season_episode
+                ON debrid_availability (debrid_service, info_hash, season, episode)
+                """
+            )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scrape_locks_expires_at
+            ON scrape_locks (expires_at)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at
+            ON admin_sessions (expires_at)
+            """
+        )
+
+        # Additional performance indexes with error handling
+        index_queries = [
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_seeders_desc
+            ON torrents (media_id, seeders DESC) WHERE seeders IS NOT NULL
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_size
+            ON torrents (media_id, size DESC) WHERE size IS NOT NULL
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_metadata_title_year
+            ON metadata_cache (title, year) WHERE title IS NOT NULL
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_tracker
+            ON torrents (tracker, timestamp DESC) WHERE tracker IS NOT NULL
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_service_timestamp
+            ON debrid_availability (debrid_service, timestamp DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_background_scraper_media_type
+            ON background_scraper_state (media_type, scraped_at DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_hash_only
+            ON torrents (info_hash) WHERE info_hash IS NOT NULL
+            """
+        ]
+        
+        for query in index_queries:
+            try:
+                await database.execute(query)
+            except Exception as e:
+                if "already exists" not in str(e).lower():
+                    logger.error(f"Error creating index: {e}")
+
+        postgres_index_queries = [
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_torrents_media_timestamp_desc
+            ON torrents (media_id, timestamp DESC)
+            """,
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_torrents_composite_lookup
+            ON torrents (media_id, info_hash, season, episode, seeders DESC, timestamp DESC)
+            """
+        ]
+        
+        sqlite_index_queries = [
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_media_timestamp_desc
+            ON torrents (media_id, timestamp DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_composite_lookup
+            ON torrents (media_id, info_hash, season, episode, seeders DESC, timestamp DESC)
+            """
+        ]
+        
+        db_specific_queries = postgres_index_queries if settings.DATABASE_TYPE == "postgresql" else sqlite_index_queries
+        
+        for query in db_specific_queries:
+            try:
+                await database.execute(query)
+            except Exception as e:
+                if "already exists" not in str(e).lower():
+                    logger.error(f"Error creating database-specific index: {e}")
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -379,6 +521,10 @@ async def setup_database():
 async def cleanup_expired_locks():
     while True:
         try:
+            if not database.is_connected:
+                await asyncio.sleep(5)
+                continue
+                
             current_time = time.time()
             await database.execute(
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
@@ -393,6 +539,10 @@ async def cleanup_expired_locks():
 async def cleanup_expired_sessions():
     while True:
         try:
+            if not database.is_connected:
+                await asyncio.sleep(5)
+                continue
+                
             current_time = time.time()
             await database.execute(
                 "DELETE FROM admin_sessions WHERE expires_at < :current_time",

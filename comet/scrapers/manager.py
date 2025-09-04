@@ -1,7 +1,9 @@
 import aiohttp
 import asyncio
+import logging
 import orjson
 import time
+import hashlib
 
 from RTN import (
     parse,
@@ -14,7 +16,9 @@ from RTN import (
     Torrent,
 )
 
-from comet.utils.models import settings, database, CometSettingsModel
+from comet.utils.models import settings, database, redis_client, CometSettingsModel
+
+logger = logging.getLogger(__name__)
 from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
@@ -31,6 +35,8 @@ from .jackettio import get_jackettio
 from .debridio import get_debridio
 from .torbox import get_torbox
 
+_parse_cache = {}
+_cache_max_size = 10000
 
 class TorrentManager:
     def __init__(
@@ -67,6 +73,12 @@ class TorrentManager:
         self.torrents = {}
         self.ready_to_cache = []
         self.ranked_torrents = {}
+        
+        self.api_semaphore = asyncio.Semaphore(settings.API_CONCURRENCY_LIMIT)
+
+    async def _run_with_semaphore(self, coro):
+        async with self.api_semaphore:
+            return await coro
 
     async def scrape_torrents(
         self,
@@ -105,7 +117,16 @@ class TorrentManager:
                 elif settings.INDEXER_MANAGER_TYPE == "prowlarr":
                     tasks.append(get_prowlarr(self, session, query, seen_already))
 
-        await asyncio.gather(*tasks)
+        semaphore_tasks = []
+        for task in tasks:
+            semaphore_tasks.append(self._run_with_semaphore(task))
+        
+        results = await asyncio.gather(*semaphore_tasks, return_exceptions=True)
+        
+        # Log any exceptions that occurred during scraping
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(f"Scraper task {i} failed: {result}")
         await self.cache_torrents()  # Wait for cache to be written before continuing
 
         for torrent in self.ready_to_cache:
@@ -131,6 +152,26 @@ class TorrentManager:
             }
 
     async def get_cached_torrents(self):
+        if redis_client and redis_client.is_connected():
+            redis_key = f"comet:v1:torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
+            cached_data = await redis_client.get(redis_key)
+            if cached_data:
+                try:
+                    torrents_data = orjson.loads(cached_data) if isinstance(cached_data, str) else cached_data
+                    for info_hash, torrent_data in torrents_data.items():
+                        self.torrents[info_hash] = {
+                            "fileIndex": torrent_data["fileIndex"],
+                            "title": torrent_data["title"],
+                            "seeders": torrent_data["seeders"],
+                            "size": torrent_data["size"],
+                            "tracker": torrent_data["tracker"],
+                            "sources": torrent_data["sources"],
+                            "parsed": ParsedData(**torrent_data["parsed"]),
+                        }
+                    return
+                except (KeyError, orjson.JSONDecodeError):
+                    pass
+
         rows = await database.fetch_all(
             """
                 SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed
@@ -149,17 +190,40 @@ class TorrentManager:
             },
         )
 
+        torrents_for_redis = {}
         for row in rows:
             info_hash = row["info_hash"]
-            self.torrents[info_hash] = {
+            
+            # Decode JSON data once and reuse to reduce CPU overhead
+            sources_data = orjson.loads(row["sources"])
+            parsed_data = orjson.loads(row["parsed"])
+            
+            torrent_data = {
                 "fileIndex": row["file_index"],
                 "title": row["title"],
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": orjson.loads(row["sources"]),
-                "parsed": ParsedData(**orjson.loads(row["parsed"])),
+                "sources": sources_data,
+                "parsed": ParsedData(**parsed_data),
             }
+            self.torrents[info_hash] = torrent_data
+            
+            torrents_for_redis[info_hash] = {
+                "fileIndex": row["file_index"],
+                "title": row["title"],
+                "seeders": row["seeders"],
+                "size": row["size"],
+                "tracker": row["tracker"],
+                "sources": sources_data,
+                "parsed": parsed_data,
+            }
+
+        if redis_client and redis_client.is_connected() and torrents_for_redis:
+            # Add safeguards for Redis caching
+            if settings.TORRENT_CACHE_TTL > 0:
+                redis_key = f"comet:v1:torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
+                await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
 
     async def cache_torrents(self):
         current_time = time.time()
@@ -198,6 +262,25 @@ class TorrentManager:
 
         await database.execute_many(query, values)
 
+        if redis_client and redis_client.is_connected() and self.ready_to_cache:
+            torrents_for_redis = {}
+            for torrent in self.ready_to_cache:
+                info_hash = torrent["infoHash"]
+                torrents_for_redis[info_hash] = {
+                    "fileIndex": torrent["fileIndex"],
+                    "title": torrent["title"],
+                    "seeders": torrent["seeders"],
+                    "size": torrent["size"],
+                    "tracker": torrent["tracker"],
+                    "sources": torrent["sources"],
+                    "parsed": torrent["parsed"].__dict__,
+                }
+            
+            # Add safeguards for Redis caching
+            if settings.TORRENT_CACHE_TTL > 0:
+                redis_key = f"comet:v1:torrents:{self.media_only_id}:{self.season if self.season is not None else 'none'}:{self.episode if self.episode is not None else 'none'}"
+                await redis_client.set(redis_key, torrents_for_redis, settings.TORRENT_CACHE_TTL)
+
     async def filter(self, torrents: list):
         title = self.title
         year = self.year
@@ -205,12 +288,28 @@ class TorrentManager:
         aliases = self.aliases
         remove_adult_content = self.remove_adult_content
 
-        for torrent in torrents:
+        for i, torrent in enumerate(torrents):
+            if i % 10 == 0:
+                await asyncio.sleep(0)
+            
             torrent_title = torrent["title"]
             if "sample" in torrent_title.lower() or torrent_title == "":
                 continue
+                
+            title_lower = torrent_title.lower()
+            title_check = title.lower()
+            if title_check not in title_lower and not any(alias.lower() in title_lower for alias in aliases.get('title', [])):
+                if len(title_check) > 3 and title_check[:4] not in title_lower:
+                    continue
 
-            parsed = parse(torrent_title)
+            title_hash = hashlib.md5(torrent_title.encode()).hexdigest()
+            if title_hash in _parse_cache:
+                parsed = _parse_cache[title_hash]
+            else:
+                parsed = parse(torrent_title)
+                if len(_parse_cache) >= _cache_max_size:
+                    _parse_cache.clear()
+                _parse_cache[title_hash] = parsed
 
             if remove_adult_content and parsed.adult:
                 continue
@@ -241,12 +340,12 @@ class TorrentManager:
             (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
         )
 
-        chunk_size = 50
+        chunk_size = 25
         tasks = [
             self.filter(new_torrents[i : i + chunk_size])
             for i in range(0, len(new_torrents), chunk_size)
         ]
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def rank_torrents(
         self,
@@ -369,9 +468,11 @@ class TorrentManager:
             self.torrents[info_hash]["cached"] = True
 
             if row["parsed"] is not None:
-                self.torrents[info_hash]["parsed"] = ParsedData(
-                    **orjson.loads(row["parsed"])
-                )
+                try:
+                    parsed_data = orjson.loads(row["parsed"]) if isinstance(row["parsed"], str) else row["parsed"]
+                    self.torrents[info_hash]["parsed"] = ParsedData(**parsed_data)
+                except (orjson.JSONDecodeError, TypeError, ValueError):
+                    pass
             if row["file_index"] is not None:
                 self.torrents[info_hash]["fileIndex"] = row["file_index"]
             if row["title"] is not None:
