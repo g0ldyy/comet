@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.19.1](https://github.com/g0ldyy/comet/compare/v2.19.0...v2.19.1) (2025-09-01)
+
+
+### Bug Fixes
+
+* aiostreams scraper ([9cefe9b](https://github.com/g0ldyy/comet/commit/9cefe9bf4919b14bde04c1a1732b39548a9e12a8))
+* aiostreams scraper ([2962686](https://github.com/g0ldyy/comet/commit/29626864a2786e80a3b4b28a5a501a712baeb656))
+
 ## [2.19.0](https://github.com/g0ldyy/comet/compare/v2.18.0...v2.19.0) (2025-08-30)
 
 
