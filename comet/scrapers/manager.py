@@ -30,6 +30,7 @@ from .aiostreams import get_aiostreams
 from .jackettio import get_jackettio
 from .debridio import get_debridio
 from .torbox import get_torbox
+from .nyaa import get_nyaa
 
 
 class TorrentManager:
@@ -79,6 +80,12 @@ class TorrentManager:
             tasks.extend(get_all_torrentio_tasks(self))
         if settings.SCRAPE_MEDIAFUSION:
             tasks.extend(get_all_mediafusion_tasks(self))
+        if settings.SCRAPE_NYAA:
+            if settings.NYAA_KITSU_ONLY:
+                if "kitsu" in self.media_id:
+                    tasks.append(get_nyaa(self))
+            else:
+                tasks.append(get_nyaa(self))
         if settings.SCRAPE_ZILEAN:
             tasks.extend(get_all_zilean_tasks(self, session))
         if settings.SCRAPE_STREMTHRU:

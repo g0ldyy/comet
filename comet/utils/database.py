@@ -323,7 +323,7 @@ async def setup_database():
         # =============================================================================
         # TORRENTS TABLE INDEXES - Most critical for performance
         # =============================================================================
-        
+
         # Primary lookup index: media_id + season + episode + timestamp (cache TTL filter)
         await database.execute(
             """
@@ -365,9 +365,9 @@ async def setup_database():
         )
 
         # =============================================================================
-        # DEBRID_AVAILABILITY TABLE INDEXES - Critical for cache performance  
+        # DEBRID_AVAILABILITY TABLE INDEXES - Critical for cache performance
         # =============================================================================
-        
+
         # Primary cache lookup: service + info_hash list + timestamp
         await database.execute(
             """
@@ -403,7 +403,7 @@ async def setup_database():
         # =============================================================================
         # DOWNLOAD_LINKS_CACHE TABLE INDEXES - Playback performance
         # =============================================================================
-        
+
         # Primary playback lookup: debrid_key + info_hash + season + episode
         await database.execute(
             """
@@ -423,7 +423,7 @@ async def setup_database():
         # =============================================================================
         # METADATA_CACHE TABLE INDEXES - Metadata performance
         # =============================================================================
-        
+
         # Primary cache lookup: media_id + timestamp
         await database.execute(
             """
@@ -443,7 +443,7 @@ async def setup_database():
         # =============================================================================
         # FIRST_SEARCHES TABLE INDEXES - Search optimization
         # =============================================================================
-        
+
         # Primary search check: media_id (already PRIMARY KEY, but explicit for clarity)
         # Media ID is already PRIMARY KEY, so focusing on timestamp for TTL cleanup
         await database.execute(
@@ -456,7 +456,7 @@ async def setup_database():
         # =============================================================================
         # ACTIVE_CONNECTIONS TABLE INDEXES - Admin dashboard performance
         # =============================================================================
-        
+
         # Admin dashboard ordering: timestamp DESC (most recent first)
         await database.execute(
             """
@@ -484,7 +484,7 @@ async def setup_database():
         # =============================================================================
         # SCRAPE_LOCKS TABLE INDEXES - Lock management
         # =============================================================================
-        
+
         # Expired locks cleanup: expires_at < current_time
         await database.execute(
             """
@@ -504,7 +504,7 @@ async def setup_database():
         # =============================================================================
         # ADMIN_SESSIONS TABLE INDEXES - Authentication performance
         # =============================================================================
-        
+
         # Session cleanup: expires_at < current_time
         await database.execute(
             """
@@ -516,7 +516,7 @@ async def setup_database():
         # =============================================================================
         # BACKGROUND_SCRAPER_STATE TABLE INDEXES - Scraper performance
         # =============================================================================
-        
+
         # Media type filtering for scraper analytics
         await database.execute(
             """
@@ -544,7 +544,7 @@ async def setup_database():
         # =============================================================================
         # COMPOSITE INDEXES FOR COMPLEX QUERIES
         # =============================================================================
-        
+
         # Torrents: media + quality filtering + cache validity
         await database.execute(
             """

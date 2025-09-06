@@ -56,6 +56,9 @@ class AppSettings(BaseSettings):
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Optional[bool] = False
     COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
+    SCRAPE_NYAA: Optional[bool] = False
+    NYAA_KITSU_ONLY: Optional[bool] = False
+    NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
     SCRAPE_ZILEAN: Optional[bool] = False
     ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
     SCRAPE_STREMTHRU: Optional[bool] = False

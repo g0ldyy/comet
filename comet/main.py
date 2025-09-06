@@ -195,6 +195,11 @@ def start_log():
         f"Comet Scraper: {bool(settings.SCRAPE_COMET)}{comet_url}",
     )
 
+    logger.log(
+        "COMET",
+        f"Nyaa Scraper: {bool(settings.SCRAPE_NYAA)} - Kitsu Only: {bool(settings.NYAA_KITSU_ONLY)}",
+    )
+
     zilean_url = f" - {settings.ZILEAN_URL}" if settings.SCRAPE_ZILEAN else ""
     logger.log(
         "COMET",
