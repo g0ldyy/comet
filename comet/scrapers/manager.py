@@ -20,7 +20,7 @@ from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.utils.general import associate_urls_credentials
 from .zilean import get_zilean
-from .torrentio import get_torrentio
+from .torrentio import get_torrentio, get_torrentio_with_delay
 from .mediafusion import get_mediafusion
 from .jackett import get_jackett
 from .prowlarr import get_prowlarr
@@ -398,8 +398,12 @@ def get_all_torrentio_tasks(manager):
         urls = [urls]
 
     tasks = []
-    for url in urls:
-        tasks.append(get_torrentio(manager, url))
+    for i, url in enumerate(urls):
+        # Add staggered delays to reduce simultaneous requests
+        if i > 0:
+            tasks.append(get_torrentio_with_delay(manager, url, i * 1.0))
+        else:
+            tasks.append(get_torrentio(manager, url))
     return tasks
 
 

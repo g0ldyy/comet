@@ -1,5 +1,5 @@
 import re
-
+import asyncio
 
 from comet.utils.general import (
     size_to_bytes,
@@ -15,6 +15,10 @@ data_pattern = re.compile(
 
 async def get_torrentio(manager, url: str):
     torrents = []
+    
+    # Add a small delay before making the request to reduce aggressiveness
+    await asyncio.sleep(0.5)
+    
     try:
         results = await fetch_with_proxy_fallback(
             f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
@@ -47,5 +51,16 @@ async def get_torrentio(manager, url: str):
             )
     except Exception as e:
         log_scraper_error("Torrentio", url, manager.media_id, e)
+        # Add a longer delay after errors to avoid hammering failing endpoints
+        await asyncio.sleep(2.0)
 
     await manager.filter_manager(torrents)
+
+
+async def get_torrentio_with_delay(manager, url: str, delay: float):
+    """
+    Wrapper function for get_torrentio with an additional delay
+    to stagger multiple Torrentio instance requests
+    """
+    await asyncio.sleep(delay)
+    return await get_torrentio(manager, url)
