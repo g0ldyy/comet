@@ -7,6 +7,7 @@ import asyncio
 import orjson
 import time
 import base64
+import html
 
 from urllib.parse import parse_qs, urlparse
 from demagnetize.core import Demagnetizer
@@ -22,7 +23,8 @@ info_hash_pattern = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
 
 def extract_trackers_from_magnet(magnet_uri: str):
     try:
-        parsed = urlparse(magnet_uri)
+        decoded_uri = html.unescape(magnet_uri)
+        parsed = urlparse(decoded_uri)
         params = parse_qs(parsed.query)
         return params.get("tr", [])
     except Exception as e:
