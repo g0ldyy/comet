@@ -81,7 +81,11 @@ class TorrentManager:
         if settings.SCRAPE_MEDIAFUSION:
             tasks.extend(get_all_mediafusion_tasks(self))
         if settings.SCRAPE_NYAA:
-            tasks.extend(get_nyaa(self))
+            if settings.NYAA_KITSU_ONLY:
+                if "kitsu" in self.media_id:
+                    tasks.append(get_nyaa(self))
+            else:
+                tasks.append(get_nyaa(self))
         if settings.SCRAPE_ZILEAN:
             tasks.extend(get_all_zilean_tasks(self, session))
         if settings.SCRAPE_STREMTHRU:

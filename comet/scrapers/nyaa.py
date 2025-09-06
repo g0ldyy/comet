@@ -110,20 +110,17 @@ async def get_all_nyaa_pages(session: requests.AsyncSession, query: str):
     return all_torrents
 
 
-def get_nyaa(manager):
-    async def nyaa_scraper_task():
-        torrents = []
+async def get_nyaa(manager):
+    torrents = []
 
-        try:
-            async with requests.AsyncSession() as session:
-                query = manager.title
+    try:
+        async with requests.AsyncSession() as session:
+            query = manager.title
 
-                all_torrents = await get_all_nyaa_pages(session, query)
-                torrents.extend(all_torrents)
+            all_torrents = await get_all_nyaa_pages(session, query)
+            torrents.extend(all_torrents)
 
-        except Exception as e:
-            log_scraper_error("Nyaa", "https://nyaa.si", manager.media_id, e)
+    except Exception as e:
+        log_scraper_error("Nyaa", "https://nyaa.si", manager.media_id, e)
 
-        await manager.filter_manager(torrents)
-
-    return [nyaa_scraper_task()]
+    await manager.filter_manager(torrents)
