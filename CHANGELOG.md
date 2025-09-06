@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.20.0](https://github.com/g0ldyy/comet/compare/v2.19.1...v2.20.0) (2025-09-06)
+
+
+### Features
+
+* add database indexes for performance optimization across multiple tables ([c806078](https://github.com/g0ldyy/comet/commit/c80607871ee9c0101bdb5a4757eaeb2cc3d10087))
+
 ## [2.19.1](https://github.com/g0ldyy/comet/compare/v2.19.0...v2.19.1) (2025-09-01)
 
 
