@@ -318,10 +318,10 @@ class BackgroundScraperWorker:
                     {"media_id": media_id, "timestamp": time.time()},
                 )
 
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    f"✅ Successfully scraped {media_id} - {torrents_found} torrents found",
-                )
+            logger.log(
+                "BACKGROUND_SCRAPER",
+                f"✅ Successfully scraped {media_id} - {torrents_found} torrents found",
+            )
 
             self.stats.total_processed += 1
 
@@ -344,6 +344,7 @@ class BackgroundScraperWorker:
             episode=None,
             aliases=aliases,
             remove_adult_content=settings.REMOVE_ADULT_CONTENT,
+            context="background",
         )
 
         await manager.scrape_torrents(self.current_session)
@@ -379,6 +380,7 @@ class BackgroundScraperWorker:
                 episode=episode_number,
                 aliases=aliases,
                 remove_adult_content=settings.REMOVE_ADULT_CONTENT,
+                context="background",
             )
 
             await manager.scrape_torrents(self.current_session)
@@ -396,10 +398,11 @@ class BackgroundScraperWorker:
                     """,
                     {"media_id": episode_media_id, "timestamp": time.time()},
                 )
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    f"✅ Successfully scraped {episode_media_id} - {episode_torrents} torrents found",
-                )
+
+            logger.log(
+                "BACKGROUND_SCRAPER",
+                f"✅ Successfully scraped {episode_media_id} - {episode_torrents} torrents found",
+            )
 
         return total_torrents
 

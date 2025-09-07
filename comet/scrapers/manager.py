@@ -50,6 +50,7 @@ class TorrentManager:
         episode: int,
         aliases: dict,
         remove_adult_content: bool,
+        context: str = "live",  # "live" or "background"
     ):
         self.debrid_service = debrid_service
         self.debrid_api_key = debrid_api_key
@@ -64,6 +65,7 @@ class TorrentManager:
         self.episode = episode
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
+        self.context = context
 
         self.seen_hashes = set()
         self.torrents = {}
@@ -86,13 +88,13 @@ class TorrentManager:
         session: aiohttp.ClientSession,
     ):
         tasks = []
-        if settings.SCRAPE_COMET:
+        if settings.is_scraper_enabled(settings.SCRAPE_COMET, self.context):
             tasks.extend(get_all_comet_tasks(self))
-        if settings.SCRAPE_TORRENTIO:
+        if settings.is_scraper_enabled(settings.SCRAPE_TORRENTIO, self.context):
             tasks.extend(get_all_torrentio_tasks(self))
-        if settings.SCRAPE_MEDIAFUSION:
+        if settings.is_scraper_enabled(settings.SCRAPE_MEDIAFUSION, self.context):
             tasks.extend(get_all_mediafusion_tasks(self))
-        if settings.SCRAPE_NYAA:
+        if settings.is_scraper_enabled(settings.SCRAPE_NYAA, self.context):
             should_use_nyaa = True
 
             if settings.NYAA_ANIME_ONLY:
@@ -100,19 +102,21 @@ class TorrentManager:
 
             if should_use_nyaa:
                 tasks.append(get_nyaa(self))
-        if settings.SCRAPE_ZILEAN:
+        if settings.is_scraper_enabled(settings.SCRAPE_ZILEAN, self.context):
             tasks.extend(get_all_zilean_tasks(self, session))
-        if settings.SCRAPE_STREMTHRU:
+        if settings.is_scraper_enabled(settings.SCRAPE_STREMTHRU, self.context):
             tasks.extend(get_all_stremthru_tasks(self, session))
-        if settings.SCRAPE_AIOSTREAMS:
+        if settings.is_scraper_enabled(settings.SCRAPE_AIOSTREAMS, self.context):
             tasks.extend(get_all_aiostreams_tasks(self))
-        if settings.SCRAPE_JACKETTIO:
+        if settings.is_scraper_enabled(settings.SCRAPE_JACKETTIO, self.context):
             tasks.extend(get_all_jackettio_tasks(self))
-        if settings.SCRAPE_DEBRIDIO:
+        if settings.is_scraper_enabled(settings.SCRAPE_DEBRIDIO, self.context):
             tasks.append(get_debridio(self, session))
-        if settings.SCRAPE_TORBOX:
+        if settings.is_scraper_enabled(settings.SCRAPE_TORBOX, self.context):
             tasks.append(get_torbox(self, session))
-        if settings.INDEXER_MANAGER_API_KEY:
+        if settings.INDEXER_MANAGER_API_KEY and settings.is_scraper_enabled(
+            settings.INDEXER_MANAGER_MODE, self.context
+        ):
             queries = [self.title]
 
             if self.media_type == "series" and self.episode is not None:

@@ -50,33 +50,34 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: Optional[str] = None
+    INDEXER_MANAGER_MODE: Union[bool, str] = "both"
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
-    SCRAPE_COMET: Optional[bool] = False
+    SCRAPE_COMET: Union[bool, str] = False
     COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
-    SCRAPE_NYAA: Optional[bool] = False
+    SCRAPE_NYAA: Union[bool, str] = False
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
-    SCRAPE_ZILEAN: Optional[bool] = False
+    SCRAPE_ZILEAN: Union[bool, str] = False
     ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
-    SCRAPE_STREMTHRU: Optional[bool] = False
+    SCRAPE_STREMTHRU: Union[bool, str] = False
     STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
-    SCRAPE_TORRENTIO: Optional[bool] = False
+    SCRAPE_TORRENTIO: Union[bool, str] = False
     TORRENTIO_URL: Union[str, List[str]] = "https://torrentio.strem.fun"
-    SCRAPE_MEDIAFUSION: Optional[bool] = False
+    SCRAPE_MEDIAFUSION: Union[bool, str] = False
     MEDIAFUSION_URL: Union[str, List[str]] = "https://mediafusion.elfhosted.com"
     MEDIAFUSION_API_PASSWORD: Union[str, List[str], None] = None
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
-    SCRAPE_AIOSTREAMS: Optional[bool] = False
+    SCRAPE_AIOSTREAMS: Union[bool, str] = False
     AIOSTREAMS_URL: Optional[Union[str, List[str]]] = None
     AIOSTREAMS_USER_UUID_AND_PASSWORD: Union[str, List[str], None] = None
-    SCRAPE_JACKETTIO: Optional[bool] = False
+    SCRAPE_JACKETTIO: Union[bool, str] = False
     JACKETTIO_URL: Optional[Union[str, List[str]]] = None
-    SCRAPE_DEBRIDIO: Optional[bool] = False
+    SCRAPE_DEBRIDIO: Union[bool, str] = False
     DEBRIDIO_API_KEY: Optional[str] = None
-    SCRAPE_TORBOX: Optional[bool] = False
+    SCRAPE_TORBOX: Union[bool, str] = False
     TORBOX_API_KEY: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
@@ -122,6 +123,40 @@ class AppSettings(BaseSettings):
         elif isinstance(v, list):
             return [url.rstrip("/") for url in v]
         return v
+
+    def is_scraper_enabled(self, scraper_setting: Union[bool, str], context: str):
+        if isinstance(scraper_setting, bool):
+            return scraper_setting
+
+        if isinstance(scraper_setting, str):
+            scraper_setting = scraper_setting.lower()
+            if scraper_setting in ["true", "both"]:
+                return True
+            elif scraper_setting == context:
+                return True
+
+        return False
+
+    def format_scraper_mode(self, scraper_setting: Union[bool, str]):
+        if isinstance(scraper_setting, bool):
+            return "both" if scraper_setting else "False"
+
+        if isinstance(scraper_setting, str):
+            scraper_setting = scraper_setting.lower()
+            if scraper_setting in ["true", "both"]:
+                return "both"
+            elif scraper_setting in ["live", "background"]:
+                return scraper_setting
+
+        return "False"
+
+    def is_any_context_enabled(self, scraper_setting: Union[bool, str]):
+        if isinstance(scraper_setting, bool):
+            return scraper_setting
+
+        if isinstance(scraper_setting, str):
+            scraper_setting = scraper_setting.lower()
+            return scraper_setting in ["true", "both", "live", "background"]
 
 
 settings = AppSettings()
