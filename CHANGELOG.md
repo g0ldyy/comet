@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.22.0](https://github.com/g0ldyy/comet/compare/v2.21.0...v2.22.0) (2025-09-07)
+
+
+### Features
+
+* different modes for scrapers (live/background/both) ([b27e6ad](https://github.com/g0ldyy/comet/commit/b27e6adebaa4a311aa6a9144595bd94259cb9bfc))
+* different modes for scrapers (live/background/both) ([278a130](https://github.com/g0ldyy/comet/commit/278a130d009d07cfadd363b6e9c4e125ee30279f))
+
 ## [2.21.0](https://github.com/g0ldyy/comet/compare/v2.20.0...v2.21.0) (2025-09-07)
 
 
