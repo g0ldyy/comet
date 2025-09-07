@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.21.0](https://github.com/g0ldyy/comet/compare/v2.20.0...v2.21.0) (2025-09-07)
+
+
+### Features
+
+* enhance Nyaa scraper with anime-only option and integrate anime mapping functionality ([f9c361c](https://github.com/g0ldyy/comet/commit/f9c361cc7d05f39911822b2b2780d86613ca74d7))
+* enhance Nyaa scraper with anime-only option and integrate anime… ([a424f81](https://github.com/g0ldyy/comet/commit/a424f8181a418a04c28434e8258be53bf759cbda))
+* enhance Nyaa scraper with Kitsu-only option ([1b5b734](https://github.com/g0ldyy/comet/commit/1b5b7344c426b08521de4074f7d297b6a12377a5))
+* Nyaa scraper ([950db79](https://github.com/g0ldyy/comet/commit/950db795699c831e0e849d6d29e6d6cf5b0ae3a4))
+* Nyaa scraper ([a96986c](https://github.com/g0ldyy/comet/commit/a96986cec7a2266bf07685e1a09a63b0646bfff4))
+
+
+### Bug Fixes
+
+* remove timeout parameter from anime mapping request ([c37e959](https://github.com/g0ldyy/comet/commit/c37e959bfd81910b3ee26f13123d7f6e11773cf5))
+
 ## [2.20.0](https://github.com/g0ldyy/comet/compare/v2.19.1...v2.20.0) (2025-09-06)
 
 
