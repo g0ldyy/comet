@@ -182,10 +182,10 @@ def start_log():
     )
     logger.log("COMET", f"Debrid Proxy: {settings.DEBRID_PROXY_URL}")
 
-    if settings.INDEXER_MANAGER_TYPE:
+    if settings.is_any_context_enabled(settings.INDEXER_MANAGER_MODE):
         logger.log(
             "COMET",
-            f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
+            f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Mode: {settings.INDEXER_MANAGER_MODE} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
         )
         logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
         logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
@@ -195,80 +195,114 @@ def start_log():
     else:
         logger.log("COMET", "Indexer Manager: False")
 
-    comet_url = f" - {settings.COMET_URL}" if settings.SCRAPE_COMET else ""
+    comet_url = (
+        f" - {settings.COMET_URL}"
+        if settings.is_any_context_enabled(settings.SCRAPE_COMET)
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Comet Scraper: {bool(settings.SCRAPE_COMET)}{comet_url}",
+        f"Comet Scraper: {settings.format_scraper_mode(settings.SCRAPE_COMET)}{comet_url}",
     )
 
+    nyaa_anime_only = (
+        f" - Anime Only: {bool(settings.NYAA_ANIME_ONLY)}"
+        if settings.is_any_context_enabled(settings.SCRAPE_NYAA)
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Nyaa Scraper: {bool(settings.SCRAPE_NYAA)} - Anime Only: {bool(settings.NYAA_ANIME_ONLY)}",
+        f"Nyaa Scraper: {settings.format_scraper_mode(settings.SCRAPE_NYAA)}{nyaa_anime_only}",
     )
 
-    zilean_url = f" - {settings.ZILEAN_URL}" if settings.SCRAPE_ZILEAN else ""
+    zilean_url = (
+        f" - {settings.ZILEAN_URL}"
+        if settings.is_any_context_enabled(settings.SCRAPE_ZILEAN)
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Zilean Scraper: {bool(settings.SCRAPE_ZILEAN)}{zilean_url}",
+        f"Zilean Scraper: {settings.format_scraper_mode(settings.SCRAPE_ZILEAN)}{zilean_url}",
     )
 
     stremthru_scrape_url = (
-        f" - {settings.STREMTHRU_SCRAPE_URL}" if settings.SCRAPE_STREMTHRU else ""
+        f" - {settings.STREMTHRU_SCRAPE_URL}"
+        if settings.is_any_context_enabled(settings.SCRAPE_STREMTHRU)
+        else ""
     )
     logger.log(
         "COMET",
-        f"StremThru Scraper: {bool(settings.SCRAPE_STREMTHRU)}{stremthru_scrape_url}",
+        f"StremThru Scraper: {settings.format_scraper_mode(settings.SCRAPE_STREMTHRU)}{stremthru_scrape_url}",
     )
 
-    torrentio_url = f" - {settings.TORRENTIO_URL}" if settings.SCRAPE_TORRENTIO else ""
+    torrentio_url = (
+        f" - {settings.TORRENTIO_URL}"
+        if settings.is_any_context_enabled(settings.SCRAPE_TORRENTIO)
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Torrentio Scraper: {bool(settings.SCRAPE_TORRENTIO)}{torrentio_url}",
+        f"Torrentio Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORRENTIO)}{torrentio_url}",
     )
 
     mediafusion_display = (
         f" - {', '.join(get_urls_with_passwords(settings.MEDIAFUSION_URL, settings.MEDIAFUSION_API_PASSWORD))}"
-        if settings.SCRAPE_MEDIAFUSION
+        if settings.is_any_context_enabled(settings.SCRAPE_MEDIAFUSION)
         else ""
     )
     logger.log(
         "COMET",
-        f"MediaFusion Scraper: {bool(settings.SCRAPE_MEDIAFUSION)}{mediafusion_display} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
+        f"MediaFusion Scraper: {settings.format_scraper_mode(settings.SCRAPE_MEDIAFUSION)}{mediafusion_display} - Live Search: {settings.MEDIAFUSION_LIVE_SEARCH}",
     )
 
     aiostreams_display = (
         f" - {', '.join(get_urls_with_passwords(settings.AIOSTREAMS_URL, settings.AIOSTREAMS_USER_UUID_AND_PASSWORD))}"
-        if settings.SCRAPE_AIOSTREAMS
+        if settings.is_any_context_enabled(settings.SCRAPE_AIOSTREAMS)
         else ""
     )
     logger.log(
         "COMET",
-        f"AIOStreams Scraper: {bool(settings.SCRAPE_AIOSTREAMS)}{aiostreams_display}",
+        f"AIOStreams Scraper: {settings.format_scraper_mode(settings.SCRAPE_AIOSTREAMS)}{aiostreams_display}",
     )
 
-    jackettio_url = f" - {settings.JACKETTIO_URL}" if settings.SCRAPE_JACKETTIO else ""
+    jackettio_url = (
+        f" - {settings.JACKETTIO_URL}"
+        if settings.is_any_context_enabled(settings.SCRAPE_JACKETTIO)
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Jackettio Scraper: {bool(settings.SCRAPE_JACKETTIO)}{jackettio_url}",
+        f"Jackettio Scraper: {settings.format_scraper_mode(settings.SCRAPE_JACKETTIO)}{jackettio_url}",
     )
 
     debridio_api_key = (
-        f" - {settings.DEBRIDIO_API_KEY}" if settings.SCRAPE_DEBRIDIO else ""
+        f" - {settings.DEBRIDIO_API_KEY}"
+        if settings.is_any_context_enabled(settings.SCRAPE_DEBRIDIO)
+        else ""
     )
     logger.log(
         "COMET",
-        f"Debridio Scraper: {bool(settings.SCRAPE_DEBRIDIO)}{debridio_api_key}",
-    )
-
-    torbox_api_key = f" - {settings.TORBOX_API_KEY}" if settings.SCRAPE_TORBOX else ""
-    logger.log(
-        "COMET",
-        f"TorBox Scraper: {bool(settings.SCRAPE_TORBOX)}{torbox_api_key}",
+        f"Debridio Scraper: {settings.format_scraper_mode(settings.SCRAPE_DEBRIDIO)}{debridio_api_key}",
     )
 
+    torbox_api_key = (
+        f" - {settings.TORBOX_API_KEY}"
+        if settings.is_any_context_enabled(settings.SCRAPE_TORBOX)
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)} - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}",
+        f"TorBox Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORBOX)}{torbox_api_key}",
+    )
+
+    debrid_stream_proxy_display = (
+        f" - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}"
+        if settings.PROXY_DEBRID_STREAM
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)}{debrid_stream_proxy_display}",
     )
 
     logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
@@ -276,13 +310,14 @@ def start_log():
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
+    background_scraper_display = (
+        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN}"
+        if settings.BACKGROUND_SCRAPER_ENABLED
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Background Scraper: {bool(settings.BACKGROUND_SCRAPER_ENABLED)} - "
-        f"Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - "
-        f"Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - "
-        f"Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - "
-        f"Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN}",
+        f"Background Scraper: {bool(settings.BACKGROUND_SCRAPER_ENABLED)}{background_scraper_display}",
     )
 
 
