@@ -14,7 +14,7 @@ class AnimeMapper:
     async def load_anime_mapping(self, session: aiohttp.ClientSession):
         try:
             url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
-            response = await session.get(url, timeout=30)
+            response = await session.get(url)
 
             if response.status != 200:
                 logger.error(f"Failed to load anime mapping: HTTP {response.status}")
