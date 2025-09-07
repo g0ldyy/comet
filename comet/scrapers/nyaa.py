@@ -65,7 +65,7 @@ async def scrape_nyaa_page(
         response = await session.get(url)
         if response.status_code != 200:
             logger.warning(
-                f"Failed to scrape Nyaa page {page} (consider reducing NYAA_MAX_CONCURRENT_PAGES): {response.status_code}"
+                f"Failed to scrape Nyaa page {page} (consider reducing NYAA_MAX_CONCURRENT_PAGES): HTTP {response.status_code}"
             )
             return []
 
@@ -82,7 +82,7 @@ async def get_all_nyaa_pages(session: requests.AsyncSession, query: str):
     first_page_url = f"https://nyaa.si/?q={query}"
     response = await session.get(first_page_url)
     if response.status_code != 200:
-        logger.warning(f"Failed to scrape Nyaa page 1: {response.status_code}")
+        logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status_code}")
         return []
 
     first_page_text = response.text

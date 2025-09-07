@@ -7,6 +7,7 @@ from RTN.patterns import normalize_title
 
 from comet.utils.models import database, settings
 from comet.utils.general import parse_media_id
+from comet.utils.anime_mapper import anime_mapper
 
 from .kitsu import get_kitsu_metadata, get_kitsu_aliases
 from .imdb import get_imdb_metadata
@@ -135,8 +136,57 @@ class MetadataScraper:
 
         return metadata, aliases
 
-    async def get_aliases(self, media_type: str, media_id: str, is_kitsu: bool):
-        if is_kitsu:
-            return await get_kitsu_aliases(self.session, media_id)
+    def combine_aliases(self, kitsu_aliases: dict, trakt_aliases: dict):
+        combined = {"ez": []}
 
-        return await get_trakt_aliases(self.session, media_type, media_id)
+        # Add Kitsu aliases
+        if kitsu_aliases and "ez" in kitsu_aliases:
+            combined["ez"].extend(kitsu_aliases["ez"])
+
+        # Add Trakt aliases
+        if trakt_aliases and "ez" in trakt_aliases:
+            combined["ez"].extend(trakt_aliases["ez"])
+
+        # Case-insensitive deduplication
+        combined["ez"] = list(
+            {alias.lower(): alias for alias in combined["ez"]}.values()
+        )
+
+        return combined if combined["ez"] else {}
+
+    async def get_aliases(self, media_type: str, media_id: str, is_kitsu: bool):
+        if not anime_mapper.is_loaded():
+            # Fallback to original behavior if mapping not loaded
+            if is_kitsu:
+                return await get_kitsu_aliases(self.session, media_id)
+            return await get_trakt_aliases(self.session, media_type, media_id)
+
+        kitsu_aliases = {}
+        trakt_aliases = {}
+
+        if is_kitsu:
+            # Get Kitsu aliases
+            kitsu_aliases = await get_kitsu_aliases(self.session, media_id)
+
+            # Try to convert Kitsu ID to IMDB ID for Trakt aliases
+            try:
+                kitsu_id = int(media_id)
+                imdb_id = anime_mapper.get_imdb_from_kitsu(kitsu_id)
+                if imdb_id:
+                    # We have an IMDB ID, get Trakt aliases too
+                    trakt_aliases = await get_trakt_aliases(
+                        self.session, media_type, imdb_id
+                    )
+            except Exception:
+                pass
+        else:
+            # Get Trakt aliases for IMDB ID
+            trakt_aliases = await get_trakt_aliases(self.session, media_type, media_id)
+
+            # Check if this IMDB ID has a Kitsu equivalent for additional aliases
+            kitsu_id = anime_mapper.get_kitsu_from_imdb(media_id)
+            if kitsu_id:
+                kitsu_aliases = await get_kitsu_aliases(self.session, str(kitsu_id))
+
+        # Combine the aliases from both sources
+        return self.combine_aliases(kitsu_aliases, trakt_aliases)

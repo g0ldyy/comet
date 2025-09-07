@@ -19,6 +19,7 @@ from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.utils.general import associate_urls_credentials
+from comet.utils.anime_mapper import anime_mapper
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
@@ -69,6 +70,17 @@ class TorrentManager:
         self.ready_to_cache = []
         self.ranked_torrents = {}
 
+    def is_anime_content(self):
+        if "kitsu" in self.media_id:
+            # All Kitsu content is anime
+            return True
+
+        if not anime_mapper.is_loaded():
+            return True
+        else:
+            # Check if this IMDB ID corresponds to an anime
+            return anime_mapper.is_anime(self.media_only_id)
+
     async def scrape_torrents(
         self,
         session: aiohttp.ClientSession,
@@ -81,10 +93,12 @@ class TorrentManager:
         if settings.SCRAPE_MEDIAFUSION:
             tasks.extend(get_all_mediafusion_tasks(self))
         if settings.SCRAPE_NYAA:
-            if settings.NYAA_KITSU_ONLY:
-                if "kitsu" in self.media_id:
-                    tasks.append(get_nyaa(self))
-            else:
+            should_use_nyaa = True
+
+            if settings.NYAA_ANIME_ONLY:
+                should_use_nyaa = self.is_anime_content()
+
+            if should_use_nyaa:
                 tasks.append(get_nyaa(self))
         if settings.SCRAPE_ZILEAN:
             tasks.extend(get_all_zilean_tasks(self, session))
