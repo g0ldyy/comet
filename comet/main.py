@@ -7,6 +7,7 @@ import traceback
 import uvicorn
 import os
 import asyncio
+import aiohttp
 
 from contextlib import asynccontextmanager
 
@@ -30,6 +31,7 @@ from comet.utils.logger import logger
 from comet.utils.models import settings
 from comet.utils.bandwidth_monitor import bandwidth_monitor
 from comet.background_scraper.worker import background_scraper
+from comet.utils.anime_mapper import anime_mapper
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -53,6 +55,10 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     await setup_database()
     await download_best_trackers()
+
+    # Load anime ID mapping for enhanced metadata and anime detection
+    async with aiohttp.ClientSession() as session:
+        await anime_mapper.load_anime_mapping(session)
 
     # Initialize bandwidth monitoring system
     await bandwidth_monitor.initialize()
@@ -197,7 +203,7 @@ def start_log():
 
     logger.log(
         "COMET",
-        f"Nyaa Scraper: {bool(settings.SCRAPE_NYAA)} - Kitsu Only: {bool(settings.NYAA_KITSU_ONLY)}",
+        f"Nyaa Scraper: {bool(settings.SCRAPE_NYAA)} - Anime Only: {bool(settings.NYAA_ANIME_ONLY)}",
     )
 
     zilean_url = f" - {settings.ZILEAN_URL}" if settings.SCRAPE_ZILEAN else ""
