@@ -75,8 +75,8 @@ class DatabaseManager:
                     # Try to get partial index condition
                     try:
                         sql_result = await self.database.fetch_one(
-                            "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
-                            (index["name"],),
+                            "SELECT sql FROM sqlite_master WHERE type='index' AND name=:name",
+                            {"name": index["name"]},
                         )
                         condition = None
                         if (
@@ -503,10 +503,10 @@ class DatabaseManager:
                             "DB_IMPORT",
                             f"Database still locked after {max_retries} retries, falling back to individual inserts",
                         )
-                        raise e
+                        raise
                 else:
                     logger.log("DB_IMPORT", f"Non-recoverable batch error: {e}")
-                    raise e
+                    raise
 
         return 0
 
