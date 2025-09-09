@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.23.0](https://github.com/g0ldyy/comet/compare/v2.22.0...v2.23.0) (2025-09-09)
+
+
+### Features
+
+* Implement database import/export CLI tool ([52efbf1](https://github.com/g0ldyy/comet/commit/52efbf176941b92b9497eeaa33c0b90e1dc49f00))
+* Implement database import/export CLI tool ([07a0885](https://github.com/g0ldyy/comet/commit/07a0885e6928b72707980cacc13f200aec7ec1c0))
+
 ## [2.22.0](https://github.com/g0ldyy/comet/compare/v2.21.0...v2.22.0) (2025-09-07)
 
 
