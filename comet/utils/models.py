@@ -39,6 +39,7 @@ class AppSettings(BaseSettings):
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
+    DATABASE_BATCH_SIZE: Optional[int] = 20000
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day

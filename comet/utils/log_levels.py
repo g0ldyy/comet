@@ -44,6 +44,18 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #5fba64>",
         "no": 25,
     },
+    "DB_EXPORT": {
+        "color": "#4A90E2",
+        "icon": "📤",
+        "loguru_color": "<fg #4A90E2>",
+        "no": 20,
+    },
+    "DB_IMPORT": {
+        "color": "#E24A90",
+        "icon": "📥",
+        "loguru_color": "<fg #E24A90>",
+        "no": 20,
+    },
 }
 
 ALL_LOG_LEVELS = {**STANDARD_LOG_LEVELS, **CUSTOM_LOG_LEVELS}
