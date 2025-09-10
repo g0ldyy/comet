@@ -415,18 +415,20 @@ def get_proxies():
 
 
 async def fetch_with_proxy_fallback(
-    url: str, headers: dict = None, params: dict = None
+    url: str, headers: dict = None, params: dict = None, timeout: int = 10
 ):
     async with AsyncSession(impersonate="chrome") as session:
         try:
-            response = await session.get(url, headers=headers, params=params)
+            response = await session.get(
+                url, headers=headers, params=params, timeout=timeout
+            )
             return response.json()
         except Exception as first_error:
             proxies = get_proxies()
             if proxies:
                 try:
                     response = await session.get(
-                        url, headers=headers, proxies=proxies, params=params
+                        url, headers=headers, proxies=proxies, params=params, timeout=timeout
                     )
                     return response.json()
                 except Exception as second_error:
