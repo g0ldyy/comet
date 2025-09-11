@@ -115,7 +115,8 @@ loguru_logger.add(
 
 
 async def create_admin_session():
-    session_id = str(uuid.uuid4())
+    # Prefix session ids to distinguish session types
+    session_id = f"admin:{uuid.uuid4()}"
     created_at = time.time()
     expires_at = created_at + 86400  # 24 hours
 
@@ -135,7 +136,18 @@ async def verify_admin_session(admin_session: str = Cookie(None)):
 
     current_time = time.time()
 
-    # Check if session exists and is valid
+    # Only accept admin-prefixed sessions for the admin auth
+    if not admin_session.startswith("admin:"):
+        # Treat existing sessions without prefix as valid if present
+        session = await database.fetch_one(
+            """
+                SELECT session_id FROM admin_sessions 
+                WHERE session_id = :session_id AND expires_at > :current_time
+            """,
+            {"session_id": admin_session, "current_time": current_time},
+        )
+        return session is not None
+
     session = await database.fetch_one(
         """
             SELECT session_id FROM admin_sessions 
@@ -162,20 +174,81 @@ async def health():
     return {"status": "ok"}
 
 
+async def create_configure_session():
+    session_id = f"configure:{uuid.uuid4()}"
+    created_at = time.time()
+    expires_at = created_at + 86400  # 24 hours
+
+    await database.execute(
+        """
+            INSERT INTO admin_sessions (session_id, created_at, expires_at)
+            VALUES (:session_id, :created_at, :expires_at)
+        """,
+        {"session_id": session_id, "created_at": created_at, "expires_at": expires_at},
+    )
+    return session_id
+
+
+async def verify_configure_session(configure_session: str = Cookie(None)):
+    if not configure_session:
+        return False
+
+    current_time = time.time()
+
+    if not configure_session.startswith("configure:"):
+        return False
+
+    session = await database.fetch_one(
+        """
+            SELECT session_id FROM admin_sessions 
+            WHERE session_id = :session_id AND expires_at > :current_time
+        """,
+        {"session_id": configure_session, "current_time": current_time},
+    )
+
+    return session is not None
+
+
 @main.get("/configure")
 @main.get("/{b64config}/configure")
-async def configure(request: Request):
+async def configure(request: Request, configure_session: str = Cookie(None)):
+    if settings.ENABLE_CONFIGURE_PAGE_PASSWORD:
+        if not await verify_configure_session(configure_session):
+            return templates.TemplateResponse("configure_login.html", {"request": request})
+
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML
-            if settings.CUSTOM_HEADER_HTML
-            else "",
+            "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML if settings.CUSTOM_HEADER_HTML else "",
             "webConfig": web_config,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
         },
     )
+
+
+@main.post("/configure/login")
+async def configure_login(request: Request, password: str = Form(...)):
+    if not settings.ENABLE_CONFIGURE_PAGE_PASSWORD:
+        return RedirectResponse("/configure", status_code=303)
+
+    is_correct = secrets.compare_digest(password, settings.CONFIGURE_PAGE_PASSWORD)
+    if not is_correct:
+        return templates.TemplateResponse(
+            "configure_login.html", {"request": request, "error": "Invalid password"}
+        )
+
+    session_id = await create_configure_session()
+    response = RedirectResponse("/configure", status_code=303)
+    response.set_cookie(
+        key="configure_session",
+        value=session_id,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=86400,
+    )
+    return response
 
 
 @main.get("/manifest.json")

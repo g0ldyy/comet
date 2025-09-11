@@ -172,6 +172,11 @@ def start_log():
         "COMET",
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
+    if settings.ENABLE_CONFIGURE_PAGE_PASSWORD:
+        logger.log(
+            "COMET",
+            f"Configure Page Password: {settings.CONFIGURE_PAGE_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/configure",
+        )
     logger.log(
         "COMET",
         f"Admin Dashboard Password: {settings.ADMIN_DASHBOARD_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
