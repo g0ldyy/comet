@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html class="sl-theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <meta content="Comet" property="og:title" />
+    <meta content="Comet Configure Login" property="og:description" />
+    <meta content="#6b6ef8" data-react-helmet="true" name="theme-color" />
+
+    <title>Comet - Login</title>
+    <link
+      id="favicon"
+      rel="icon"
+      type="image/x-icon"
+      href="https://i.imgur.com/jmVoVMu.jpeg"
+    />
+
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/dark.css"
+    />
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"
+    ></script>
+
+    <style>
+      :not(:defined) {
+        visibility: hidden;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        background: radial-gradient(
+          ellipse at bottom,
+          #25292c 0%,
+          #0c0d13 100%
+        );
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif,
+          "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+          "Noto Color Emoji";
+        font-size: 1rem;
+        font-weight: 400;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .comet-text {
+        font-size: calc(1.375rem + 1.5vw);
+        font-weight: 500;
+        margin-bottom: 10px;
+        color: #ffffff;
+      }
+
+      .admin-subtitle {
+        font-size: 1.1rem;
+        color: #9ca3af;
+        margin-bottom: 0;
+      }
+
+      .emoji {
+        width: 1em;
+        height: 1em;
+        vertical-align: middle;
+      }
+
+      .login-container {
+        background-color: #1a1d20;
+        padding: 2.5rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.25);
+        width: 100%;
+        max-width: 400px;
+        margin: 0 20px;
+      }
+
+      .form-item {
+        margin-bottom: 1.5rem;
+      }
+
+      .login-button {
+        width: 100%;
+      }
+
+      .error-message {
+        margin-bottom: 1rem;
+      }
+
+      .stars {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 120%;
+        transform: rotate(-45deg);
+        z-index: -1;
+      }
+
+      .star {
+        --star-color: var(--primary-color);
+        --star-tail-length: 6em;
+        --star-tail-height: 2px;
+        --star-width: calc(var(--star-tail-length) / 6);
+        --fall-duration: 9s;
+        --tail-fade-duration: var(--fall-duration);
+        position: absolute;
+        top: var(--top-offset);
+        left: 0;
+        width: var(--star-tail-length);
+        height: var(--star-tail-height);
+        color: var(--star-color);
+        background: linear-gradient(45deg, currentColor, transparent);
+        border-radius: 50%;
+        filter: drop-shadow(0 0 6px currentColor);
+        transform: translate3d(104em, 0, 0);
+        animation: fall var(--fall-duration) var(--fall-delay) linear infinite,
+          tail-fade var(--tail-fade-duration) var(--fall-delay) ease-out
+            infinite;
+      }
+
+      @media screen and (max-width: 750px) {
+        .star {
+          animation: fall var(--fall-duration) var(--fall-delay) linear infinite;
+        }
+      }
+
+      .star::before,
+      .star::after {
+        position: absolute;
+        content: "";
+        top: 0;
+        left: calc(var(--star-width) / -2);
+        width: var(--star-width);
+        height: 100%;
+        background: linear-gradient(
+          45deg,
+          transparent,
+          currentColor,
+          transparent
+        );
+        border-radius: inherit;
+        animation: blink 2s linear infinite;
+      }
+
+      .star::before {
+        transform: rotate(45deg);
+      }
+
+      .star::after {
+        transform: rotate(-45deg);
+      }
+
+      @keyframes fall {
+        to {
+          transform: translate3d(-30em, 0, 0);
+        }
+      }
+
+      @keyframes tail-fade {
+        0%,
+        50% {
+          width: var(--star-tail-length);
+          opacity: 1;
+        }
+
+        70%,
+        80% {
+          width: 0;
+          opacity: 0.4;
+        }
+
+        100% {
+          width: 0;
+          opacity: 0;
+        }
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0.6;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="stars"></div>
+
+    <script>
+      let hasTouchScreen = false;
+      if ("maxTouchPoints" in navigator) {
+        hasTouchScreen = navigator.maxTouchPoints > 0;
+      } else if ("msMaxTouchPoints" in navigator) {
+        hasTouchScreen = navigator.msMaxTouchPoints > 0;
+      } else {
+        const mQ = matchMedia?.("(pointer:coarse)");
+        if (mQ?.media === "(pointer:coarse)") {
+          hasTouchScreen = !!mQ.matches;
+        } else if ("orientation" in window) {
+          hasTouchScreen = true;
+        } else {
+          const UA = navigator.userAgent;
+          hasTouchScreen =
+            /\b(BlackBerry|webOS|iPhone|IEMobile)\b/i.test(UA) ||
+            /\b(Android|Windows Phone|iPad|iPod)\b/i.test(UA);
+        }
+      }
+
+      if (!hasTouchScreen) {
+        document.addEventListener("DOMContentLoaded", function () {
+          const starsContainer = document.querySelector(".stars");
+          const starCount = 30;
+
+          for (let i = 0; i < starCount; i++) {
+            const star = document.createElement("div");
+            star.classList.add("star");
+
+            const randomTopOffset = Math.random() * 100;
+            const randomLeftOffset = 80 + Math.random() * 40;
+            const randomTailLength = 5 + Math.random() * 2.5;
+            const randomFallDuration = 6 + Math.random() * 6;
+
+            star.style.setProperty("--top-offset", `${randomTopOffset}vh`);
+            star.style.setProperty(
+              "--star-tail-length",
+              `${randomTailLength}em`
+            );
+            star.style.setProperty("--fall-duration", `${randomFallDuration}s`);
+            star.style.setProperty("--fall-delay", "0s");
+            star.style.transform = `translate3d(${randomLeftOffset}em, 0, 0)`;
+
+            starsContainer.appendChild(star);
+          }
+        });
+      }
+    </script>
+
+    <div class="header">
+      <p class="comet-text">
+        <img
+          class="emoji"
+          src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4ab/512.gif"
+        />
+        Comet
+      </p>
+    </div>
+
+    <div class="login-container">
+      {% if error %}
+      <div class="form-item error-message">
+        <sl-alert variant="danger" open>
+          <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+          <strong>{{ error }}</strong>
+        </sl-alert>
+      </div>
+      {% endif %}
+
+      <form method="post" action="/configure/login">
+        <div class="form-item">
+          <sl-input
+            id="password"
+            name="password"
+            type="password"
+            label="Password"
+            placeholder="Enter password"
+            required
+            autofocus
+          ></sl-input>
+        </div>
+
+        <div class="form-item">
+          <sl-button type="submit" variant="primary" class="login-button">
+            Continue
+          </sl-button>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", async () => {
+        await Promise.allSettled([
+          customElements.whenDefined("sl-button"),
+          customElements.whenDefined("sl-alert"),
+          customElements.whenDefined("sl-input"),
+          customElements.whenDefined("sl-icon"),
+        ]);
+
+        document.body.classList.add("ready");
+
+        const form = document.querySelector("form");
+        const submitButton = document.querySelector('sl-button[type="submit"]');
+
+        form.addEventListener("submit", function () {
+          submitButton.loading = true;
+          submitButton.textContent = "Loading...";
+        });
+      });
+    </script>
+  </body>
+</html>
