@@ -183,7 +183,7 @@ async def configure(request: Request):
 async def manifest(request: Request, b64config: str = None):
     base_manifest = {
         "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",
-        "description": "Stremio's fastest torrent/debrid search add-on.",
+        "description": settings.ADDON_DESCRIPTION,
         "version": "2.0.0",
         "catalogs": [],
         "resources": [
@@ -194,8 +194,8 @@ async def manifest(request: Request, b64config: str = None):
             }
         ],
         "types": ["movie", "series", "anime", "other"],
-        "logo": "https://i.imgur.com/jmVoVMu.jpeg",
-        "background": "https://i.imgur.com/WwnXB3k.jpeg",
+        "logo": settings.ADDON_LOGO,
+        "background": settings.ADDON_BACKGROUND,
         "behaviorHints": {"configurable": True, "configurationRequired": False},
     }
 
