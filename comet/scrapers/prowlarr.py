@@ -82,9 +82,12 @@ async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen
     try:
         indexers = [indexer.lower() for indexer in settings.INDEXER_MANAGER_INDEXERS]
 
+        timeout = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
+
         get_indexers = await session.get(
             f"{settings.INDEXER_MANAGER_URL}/api/v1/indexer",
             headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            timeout=timeout,  # <-- ADDED TIMEOUT
         )
         get_indexers = await get_indexers.json()
 
@@ -99,6 +102,7 @@ async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen
         response = await session.get(
             f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={title}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
             headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            timeout=timeout,  # <-- ADDED TIMEOUT
         )
         response = await response.json()
 
