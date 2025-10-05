@@ -7,6 +7,7 @@ from comet.utils.models import settings, database
 from comet.utils.logger import logger
 from comet.utils.bandwidth_monitor import bandwidth_monitor
 from comet.utils.streaming_wrapper import monitored_handle_stream_request
+from comet.utils.general import NO_CACHE_HEADERS
 import mediaflow_proxy.handlers
 import mediaflow_proxy.utils.http_utils
 
@@ -88,7 +89,7 @@ async def custom_handle_stream_request(
     ip: str,
 ):
     if not await check_ip_connections(ip):
-        return FileResponse("comet/assets/proxylimit.mp4")
+        return FileResponse("comet/assets/proxylimit.mp4", headers=NO_CACHE_HEADERS)
 
     connection_id = await add_active_connection(media_id, ip)
 
