@@ -120,7 +120,7 @@ async def stream(
         return {
             "streams": [
                 {
-                    "name": "[❌] Comet",
+                    "name": f"[❌] {settings.ADDON_NAME}",
                     "description": f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️",
                     "url": "https://comet.fast",
                 }
@@ -206,7 +206,7 @@ async def stream(
             return {
                 "streams": [
                     {
-                        "name": "[⚠️] Comet",
+                        "name": f"[⚠️] {settings.ADDON_NAME}",
                         "description": "Unable to get metadata.",
                         "url": "https://comet.fast",
                     }
@@ -288,7 +288,7 @@ async def stream(
                     return {
                         "streams": [
                             {
-                                "name": "[🔄] Comet",
+                                "name": f"[🔄] {settings.ADDON_NAME}",
                                 "description": "Scraping in progress by another instance, please try again in a few seconds...",
                                 "url": "https://comet.fast",
                             }
@@ -307,7 +307,7 @@ async def stream(
 
             cached_results.append(
                 {
-                    "name": "[🔄] Comet",
+                    "name": f"[🔄] {settings.ADDON_NAME}",
                     "description": "First search for this media - More results will be available in a few seconds...",
                     "url": "https://comet.fast",
                 }
@@ -381,7 +381,7 @@ async def stream(
         ):
             cached_results.append(
                 {
-                    "name": "[⚠️] Comet",
+                    "name": f"[⚠️] {settings.ADDON_NAME}",
                     "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
                     "url": "https://comet.fast",
                 }
@@ -403,7 +403,7 @@ async def stream(
 
             torrent_title = torrent["title"]
             the_stream = {
-                "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
+                "name": f"[{debrid_extension}{debrid_emoji}] {settings.ADDON_NAME} {rtn_data.resolution}",
                 "description": format_title(
                     rtn_data,
                     torrent_title,
@@ -413,7 +413,7 @@ async def stream(
                     config["resultFormat"],
                 ),
                 "behaviorHints": {
-                    "bingeGroup": "comet|" + info_hash,
+                    "bingeGroup": f"{settings.ADDON_NAME}|" + info_hash,
                     "videoSize": torrent["size"],
                     "filename": rtn_data.raw_title,
                 },
