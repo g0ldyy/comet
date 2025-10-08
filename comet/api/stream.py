@@ -157,7 +157,7 @@ async def stream(
         )
 
         # If both metadata and torrents are cached, skip lock entirely
-        if cached_metadata is not None and cached_torrents_count > 0:
+        if not settings.IGNORE_CACHES_FOR_LIVE_SCRAPING and cached_metadata is not None and cached_torrents_count > 0:
             logger.log("SCRAPER", f"🚀 Fast path: using cached data for {media_id}")
             metadata, aliases = cached_metadata[0], cached_metadata[1]
             # Variables for fast path
@@ -166,7 +166,10 @@ async def stream(
             scrape_lock = None
             needs_scraping = False
         else:
-            # Something is missing, acquire lock for scraping
+            if settings.IGNORE_CACHES_FOR_LIVE_SCRAPING:
+                logger.log("SCRAPER", f"🔄 Ignoring caches for live scraping: {media_id}")
+            # If flag is False, something is missing (metadata or torrents), acquire lock for scraping
+
             scrape_lock = DistributedLock(media_id)
             lock_acquired = await scrape_lock.acquire()
             waited_for_other_scrape = False
