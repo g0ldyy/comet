@@ -23,6 +23,6 @@ dependencies = [
     "orjson",
     "pydantic-settings",
     "python-multipart",
-    "rank-torrent-name",
+    "rank-torrent-name==1.9.0",
     "uvicorn",
 ]
