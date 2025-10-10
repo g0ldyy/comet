@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.0](https://github.com/g0ldyy/comet/compare/v2.23.0...v2.24.0) (2025-10-05)
+
+
+### Features
+
+* Add NO_CACHE_HEADERS and update FileResponse usage in streaming ([52dce02](https://github.com/g0ldyy/comet/commit/52dce02b98417139b2afd775e5c23b8f51eb6f0a))
+
 ## [2.23.0](https://github.com/g0ldyy/comet/compare/v2.22.0...v2.23.0) (2025-09-09)
 
 

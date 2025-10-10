@@ -15,7 +15,12 @@ from comet.utils.models import settings, database, trackers
 from comet.utils.general import parse_media_id
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
-from comet.utils.general import config_check, format_title, get_client_ip
+from comet.utils.general import (
+    config_check,
+    format_title,
+    get_client_ip,
+    NO_CACHE_HEADERS,
+)
 from comet.debrid.manager import get_debrid_extension, get_debrid
 from comet.utils.streaming import custom_handle_stream_request
 from comet.utils.logger import logger
@@ -514,7 +519,9 @@ async def playback(
                 hash, index, name, torrent_name, season, episode, sources
             )
             if not download_url:
-                return FileResponse("comet/assets/uncached.mp4")
+                return FileResponse(
+                    "comet/assets/uncached.mp4", headers=NO_CACHE_HEADERS
+                )
 
             await database.execute(
                 f"""

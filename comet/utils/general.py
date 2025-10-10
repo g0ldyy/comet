@@ -15,6 +15,13 @@ from comet.utils.models import (
 from comet.utils.logger import logger
 
 
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
 def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
