@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.1](https://github.com/g0ldyy/comet/compare/v2.24.0...v2.24.1) (2025-10-18)
+
+
+### Bug Fixes
+
+* rtn ranking model ([831a0cf](https://github.com/g0ldyy/comet/commit/831a0cfeabac55b77f91a0d242ea198d95dba917))
+
 ## [2.24.0](https://github.com/g0ldyy/comet/compare/v2.23.0...v2.24.0) (2025-10-05)
 
 
