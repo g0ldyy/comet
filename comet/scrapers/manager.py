@@ -10,7 +10,7 @@ from RTN import (
     check_fetch,
     sort_torrents,
     ParsedData,
-    BestRanking,
+    DefaultRanking,
     Torrent,
 )
 
@@ -276,7 +276,7 @@ class TorrentManager:
     def rank_torrents(
         self,
         rtn_settings: CometSettingsModel,
-        rtn_ranking: BestRanking,
+        rtn_ranking: DefaultRanking,
         max_results_per_resolution: int,
         max_size: int,
         cached_only: int,

@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 from databases import Database
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from RTN import BestRanking, SettingsModel
+from RTN import DefaultRanking, SettingsModel
 from RTN.models import (
     ResolutionConfig,
     OptionsConfig,
@@ -592,7 +592,7 @@ rtn_settings_default_dumped = rtn_settings_default.model_dump()
 #         }
 #     }
 # }
-rtn_ranking_default = BestRanking()
+rtn_ranking_default = DefaultRanking()
 
 
 class ConfigModel(BaseModel):
@@ -608,7 +608,7 @@ class ConfigModel(BaseModel):
     resolutions: Optional[dict] = rtn_settings_default_dumped["resolutions"]
     options: Optional[dict] = rtn_settings_default_dumped["options"]
     rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
-    rtnRanking: Optional[BestRanking] = rtn_ranking_default
+    rtnRanking: Optional[DefaultRanking] = rtn_ranking_default
 
     @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):
