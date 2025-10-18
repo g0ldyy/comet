@@ -3,8 +3,6 @@ import asyncio
 import time
 import orjson
 
-from RTN.patterns import normalize_title
-
 from comet.utils.models import database, settings
 from comet.utils.general import parse_media_id
 from comet.utils.anime_mapper import anime_mapper
@@ -90,7 +88,7 @@ class MetadataScraper:
             return None
 
         return {
-            "title": normalize_title(title),
+            "title": title,
             "year": year,
             "year_end": year_end,
             "season": season,
@@ -124,7 +122,7 @@ class MetadataScraper:
             return get_cached[0], get_cached[1]
 
         metadata = {
-            "title": normalize_title(title),
+            "title": title,
             "year": year,
             "year_end": year_end,
         }
