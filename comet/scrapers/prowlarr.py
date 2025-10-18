@@ -77,16 +77,42 @@ async def process_torrent(
     return torrents
 
 
+async def fetch_prowlarr_results(
+    session: aiohttp.ClientSession, indexer_id: int, query: str
+):
+    """
+    Fetches results from a single Prowlarr indexer with a configured timeout.
+    """
+    try:
+        search_url = f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={indexer_id}&type=search"
+        response = await session.get(
+            search_url,
+            headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            # This is the key change, mirroring the Jackett implementation
+            timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
+        )
+        response.raise_for_status()
+        return await response.json()
+    except asyncio.TimeoutError:
+        logger.warning(f"Prowlarr search timed out for indexer ID {indexer_id}")
+        return []
+    except aiohttp.ClientError as e:
+        logger.warning(f"Prowlarr search failed for indexer ID {indexer_id}: {e}")
+        return []
+
+
 async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen: set):
     torrents = []
     try:
+        # Get all configured indexer IDs from Prowlarr
         indexers = [indexer.lower() for indexer in settings.INDEXER_MANAGER_INDEXERS]
-
-        get_indexers = await session.get(
+        
+        get_indexers_response = await session.get(
             f"{settings.INDEXER_MANAGER_URL}/api/v1/indexer",
             headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+            timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
         )
-        get_indexers = await get_indexers.json()
+        get_indexers = await get_indexers_response.json()
 
         indexers_id = []
         for indexer in get_indexers:
@@ -96,12 +122,17 @@ async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen
             ):
                 indexers_id.append(indexer["id"])
 
-        response = await session.get(
-            f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={title}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
-            headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
-        )
-        response = await response.json()
+        # Create a search task for each indexer ID
+        tasks = [
+            fetch_prowlarr_results(session, indexer_id, title)
+            for indexer_id in indexers_id
+        ]
+        all_results_lists = await asyncio.gather(*tasks)
 
+        # Flatten the list of lists into a single list of results
+        response = [result for sublist in all_results_lists for result in sublist]
+
+        # Process the combined results
         torrent_tasks = []
         for result in response:
             if result["infoUrl"] in seen:

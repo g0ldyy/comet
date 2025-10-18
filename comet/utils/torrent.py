@@ -50,6 +50,10 @@ async def download_torrent(session: aiohttp.ClientSession, url: str):
                         ).decode("utf-8")
                     return (None, info_hash, location)
             return (None, None, None)
+    except asyncio.TimeoutError:
+        # Log the specific message for a timeout
+        logger.warning(f"Timeout while trying to download torrent from {url}")
+        return (None, None, None)
     except Exception as e:
         logger.warning(
             f"Failed to download torrent from {url}: {e} (in most cases, you can ignore this error)"
