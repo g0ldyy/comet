@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.25.0](https://github.com/g0ldyy/comet/compare/v2.24.1...v2.25.0) (2025-10-19)
+
+
+### Features
+
+* remove normalize_title from metadata handling ([35d2171](https://github.com/g0ldyy/comet/commit/35d217168da40f3de20e2ea03c9d29d2c1512ace))
+
+
+### Bug Fixes
+
+* update title matching logic in StremThru and TorrentManager ([657748c](https://github.com/g0ldyy/comet/commit/657748c1e1973b1000ccbad8383760f84a6bed74))
+
 ## [2.24.1](https://github.com/g0ldyy/comet/compare/v2.24.0...v2.24.1) (2025-10-18)
 
 
