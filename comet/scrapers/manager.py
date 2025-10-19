@@ -240,7 +240,7 @@ class TorrentManager:
             if remove_adult_content and parsed.adult:
                 continue
 
-            if parsed.parsed_title and not title_match(
+            if not parsed.parsed_title or not title_match(
                 title, parsed.parsed_title, aliases=aliases
             ):
                 continue

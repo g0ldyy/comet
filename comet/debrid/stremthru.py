@@ -235,7 +235,7 @@ class StremThru:
 
                 debrid_files_parsed.append(file)
 
-                if not title_match(
+                if not filename_parsed.parsed_title or not title_match(
                     name_parsed.parsed_title, filename_parsed.parsed_title
                 ):
                     continue
