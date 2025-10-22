@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.1](https://github.com/g0ldyy/comet/compare/v2.25.0...v2.25.1) (2025-10-22)
+
+
+### Bug Fixes
+
+* update playback route to accept path parameters ([7658949](https://github.com/g0ldyy/comet/commit/76589492dc18d2cc9846643e0fe52d5281e687c2))
+
 ## [2.25.0](https://github.com/g0ldyy/comet/compare/v2.24.1...v2.25.0) (2025-10-19)
 
 
