@@ -443,7 +443,7 @@ async def stream(
 
 
 @streams.get(
-    "/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name}"
+    "/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name:path}"
 )
 async def playback(
     request: Request,
