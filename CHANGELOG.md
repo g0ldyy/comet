@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.2](https://github.com/g0ldyy/comet/compare/v2.25.1...v2.25.2) (2025-11-04)
+
+
+### Bug Fixes
+
+* use get method for safer access to seeders, tracker, and sources maps ([43e92a2](https://github.com/g0ldyy/comet/commit/43e92a2990dd3002a629e61b02d035b5910a315b))
+
 ## [2.25.1](https://github.com/g0ldyy/comet/compare/v2.25.0...v2.25.1) (2025-10-22)
 
 
