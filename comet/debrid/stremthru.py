@@ -104,9 +104,9 @@ class StremThru:
 
                 cached_count += 1
                 hash = torrent["hash"]
-                seeders = seeders_map[hash]
-                tracker = tracker_map[hash]
-                sources = sources_map[hash]
+                seeders = seeders_map.get(hash, 0)
+                tracker = tracker_map.get(hash, "")
+                sources = sources_map.get(hash, [])
 
                 if is_offcloud:
                     file_info = {
