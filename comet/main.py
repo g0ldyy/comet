@@ -25,7 +25,6 @@ from comet.utils.database import (
     cleanup_expired_locks,
     cleanup_expired_sessions,
 )
-from comet.utils.trackers import download_best_trackers
 from comet.utils.general import associate_urls_credentials
 from comet.utils.logger import logger
 from comet.utils.models import settings
