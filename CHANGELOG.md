@@ -1,5 +1,220 @@
 # Changelog
 
+## [2.25.2](https://github.com/g0ldyy/comet/compare/v2.25.1...v2.25.2) (2025-11-04)
+
+
+### Bug Fixes
+
+* use get method for safer access to seeders, tracker, and sources maps ([43e92a2](https://github.com/g0ldyy/comet/commit/43e92a2990dd3002a629e61b02d035b5910a315b))
+
+## [2.25.1](https://github.com/g0ldyy/comet/compare/v2.25.0...v2.25.1) (2025-10-22)
+
+
+### Bug Fixes
+
+* update playback route to accept path parameters ([7658949](https://github.com/g0ldyy/comet/commit/76589492dc18d2cc9846643e0fe52d5281e687c2))
+
+## [2.25.0](https://github.com/g0ldyy/comet/compare/v2.24.1...v2.25.0) (2025-10-19)
+
+
+### Features
+
+* remove normalize_title from metadata handling ([35d2171](https://github.com/g0ldyy/comet/commit/35d217168da40f3de20e2ea03c9d29d2c1512ace))
+
+
+### Bug Fixes
+
+* update title matching logic in StremThru and TorrentManager ([657748c](https://github.com/g0ldyy/comet/commit/657748c1e1973b1000ccbad8383760f84a6bed74))
+
+## [2.24.1](https://github.com/g0ldyy/comet/compare/v2.24.0...v2.24.1) (2025-10-18)
+
+
+### Bug Fixes
+
+* rtn ranking model ([831a0cf](https://github.com/g0ldyy/comet/commit/831a0cfeabac55b77f91a0d242ea198d95dba917))
+
+## [2.24.0](https://github.com/g0ldyy/comet/compare/v2.23.0...v2.24.0) (2025-10-05)
+
+
+### Features
+
+* Add NO_CACHE_HEADERS and update FileResponse usage in streaming ([52dce02](https://github.com/g0ldyy/comet/commit/52dce02b98417139b2afd775e5c23b8f51eb6f0a))
+
+## [2.23.0](https://github.com/g0ldyy/comet/compare/v2.22.0...v2.23.0) (2025-09-09)
+
+
+### Features
+
+* Implement database import/export CLI tool ([52efbf1](https://github.com/g0ldyy/comet/commit/52efbf176941b92b9497eeaa33c0b90e1dc49f00))
+* Implement database import/export CLI tool ([07a0885](https://github.com/g0ldyy/comet/commit/07a0885e6928b72707980cacc13f200aec7ec1c0))
+
+## [2.22.0](https://github.com/g0ldyy/comet/compare/v2.21.0...v2.22.0) (2025-09-07)
+
+
+### Features
+
+* different modes for scrapers (live/background/both) ([b27e6ad](https://github.com/g0ldyy/comet/commit/b27e6adebaa4a311aa6a9144595bd94259cb9bfc))
+* different modes for scrapers (live/background/both) ([278a130](https://github.com/g0ldyy/comet/commit/278a130d009d07cfadd363b6e9c4e125ee30279f))
+
+## [2.21.0](https://github.com/g0ldyy/comet/compare/v2.20.0...v2.21.0) (2025-09-07)
+
+
+### Features
+
+* enhance Nyaa scraper with anime-only option and integrate anime mapping functionality ([f9c361c](https://github.com/g0ldyy/comet/commit/f9c361cc7d05f39911822b2b2780d86613ca74d7))
+* enhance Nyaa scraper with anime-only option and integrate anime… ([a424f81](https://github.com/g0ldyy/comet/commit/a424f8181a418a04c28434e8258be53bf759cbda))
+* enhance Nyaa scraper with Kitsu-only option ([1b5b734](https://github.com/g0ldyy/comet/commit/1b5b7344c426b08521de4074f7d297b6a12377a5))
+* Nyaa scraper ([950db79](https://github.com/g0ldyy/comet/commit/950db795699c831e0e849d6d29e6d6cf5b0ae3a4))
+* Nyaa scraper ([a96986c](https://github.com/g0ldyy/comet/commit/a96986cec7a2266bf07685e1a09a63b0646bfff4))
+
+
+### Bug Fixes
+
+* remove timeout parameter from anime mapping request ([c37e959](https://github.com/g0ldyy/comet/commit/c37e959bfd81910b3ee26f13123d7f6e11773cf5))
+
+## [2.20.0](https://github.com/g0ldyy/comet/compare/v2.19.1...v2.20.0) (2025-09-06)
+
+
+### Features
+
+* add database indexes for performance optimization across multiple tables ([c806078](https://github.com/g0ldyy/comet/commit/c80607871ee9c0101bdb5a4757eaeb2cc3d10087))
+
+## [2.19.1](https://github.com/g0ldyy/comet/compare/v2.19.0...v2.19.1) (2025-09-01)
+
+
+### Bug Fixes
+
+* aiostreams scraper ([9cefe9b](https://github.com/g0ldyy/comet/commit/9cefe9bf4919b14bde04c1a1732b39548a9e12a8))
+* aiostreams scraper ([2962686](https://github.com/g0ldyy/comet/commit/29626864a2786e80a3b4b28a5a501a712baeb656))
+
+## [2.19.0](https://github.com/g0ldyy/comet/compare/v2.18.0...v2.19.0) (2025-08-30)
+
+
+### Features
+
+* debridio scraper ([feaca56](https://github.com/g0ldyy/comet/commit/feaca56b36b0f8215c7a000261433aaf6d48fcbb))
+* debridio scraper ([95c3879](https://github.com/g0ldyy/comet/commit/95c3879f34c23e7fdb4bcfee94326cb31aedea21))
+* torbox scraper ([95c457b](https://github.com/g0ldyy/comet/commit/95c457b6ca0fdea074272df57b3d096b262f14b2))
+* torbox scraper ([29fe925](https://github.com/g0ldyy/comet/commit/29fe9258d0e41a2391728a3fa4b975a40b97778a))
+
+
+### Bug Fixes
+
+* enhance logging in background scraper and handle unknown seeders in debridio scraper ([43805b3](https://github.com/g0ldyy/comet/commit/43805b32813e7b90f9c7cd326c601b092ec9a196))
+* handle commas in size string for size_to_bytes function ([17f2796](https://github.com/g0ldyy/comet/commit/17f27966f884b6910d9d3a0366ee9ae6c1359385))
+* initialize size to 0 in debridio scraper ([b592a09](https://github.com/g0ldyy/comet/commit/b592a093b47cdf98870ece97755fd2c369561fbc))
+* remove unnecessary assignment in debridio scraper ([031582d](https://github.com/g0ldyy/comet/commit/031582d546533c871bfa4a0e7a3f21653c7315a8))
+
+## [2.18.0](https://github.com/g0ldyy/comet/compare/v2.17.1...v2.18.0) (2025-08-30)
+
+
+### Features
+
+* jackettio scraper ([b24b545](https://github.com/g0ldyy/comet/commit/b24b5451d1514b3449124598d23cd0f94ac17d49))
+
+## [2.17.1](https://github.com/g0ldyy/comet/compare/v2.17.0...v2.17.1) (2025-08-29)
+
+
+### Bug Fixes
+
+* Add check for missing infoHash in AIOStreams torrent data to prevent errors ([7b9975d](https://github.com/g0ldyy/comet/commit/7b9975d4376e643905d0b983543c5c85b90b69bb))
+
+## [2.17.0](https://github.com/g0ldyy/comet/compare/v2.16.0...v2.17.0) (2025-08-28)
+
+
+### Features
+
+* AIOStreams scraper ([f77a720](https://github.com/g0ldyy/comet/commit/f77a7207139df6324f576ed3c77c010621f4ceba))
+* AIOStreams scraper ([cc43614](https://github.com/g0ldyy/comet/commit/cc436148b4f5f29d7ed8eeffdf4174671db4de84))
+
+
+### Bug Fixes
+
+* Update AIOSTREAMS_URL type to be optional in AppSettings ([e150015](https://github.com/g0ldyy/comet/commit/e150015f24d3ee398d2050eb245f0e73290368b1))
+
+## [2.16.0](https://github.com/g0ldyy/comet/compare/v2.15.1...v2.16.0) (2025-08-27)
+
+
+### Features
+
+* Add StremThru scraper ([13da997](https://github.com/g0ldyy/comet/commit/13da997bb2bbf68949c3f55fcc363605614c218c))
+* background scraper ([7127a8e](https://github.com/g0ldyy/comet/commit/7127a8ebe144ac6bcff44afb0d307639a51cfdef))
+* background scraper ([ed52431](https://github.com/g0ldyy/comet/commit/ed5243143c60eaa5bdab434c659ebe49e6f077bf))
+* Implement associate_mediafusion_urls_passwords function and upd… ([37d080f](https://github.com/g0ldyy/comet/commit/37d080fea7ea815b7d66053104b1df8c6a56248d))
+* Implement associate_mediafusion_urls_passwords function and update mediafusion URL handling in main and manager modules ([de638d1](https://github.com/g0ldyy/comet/commit/de638d1f38893db3314d7f879d7edc47b9aec8a2))
+* Implement multi-instance scraping support for Comet, Zilean, Torrentio, and MediaFusion ([c0eeb0d](https://github.com/g0ldyy/comet/commit/c0eeb0da6e0c0866e813176fba181659c64626eb))
+* Implement multi-instance scraping support for Comet, Zilean, Torrentio, and MediaFusion ([30b6cf3](https://github.com/g0ldyy/comet/commit/30b6cf3c005a7a086ba2c43f66a702d0180faf43))
+
+
+### Bug Fixes
+
+* Adjust total_bytes column type in bandwidth_stats table based on database type ([a8c7ca5](https://github.com/g0ldyy/comet/commit/a8c7ca5a29f7c22ea499541ded6bbc9f04d3402a))
+* Rename scrape_attempts to scrape_failed_attempts in BackgroundScraperWorker and database schema for clarity ([cf19560](https://github.com/g0ldyy/comet/commit/cf1956011afc21bcd22da5c9230b77612cf901eb))
+* Update background scraper interval validation to enforce a minimum of 5 minutes ([f01f124](https://github.com/g0ldyy/comet/commit/f01f1245cb46801bc9965ee3a12d101ee2a8b728))
+* Update log_scraper_error to include URL in error messages for better debugging ([321fd62](https://github.com/g0ldyy/comet/commit/321fd624befb117c1e7288a5895134c9c9d27dfb))
+
+## [2.15.1](https://github.com/g0ldyy/comet/compare/v2.15.0...v2.15.1) (2025-08-25)
+
+
+### Bug Fixes
+
+* Add single announce URL to announce list ([789dcff](https://github.com/g0ldyy/comet/commit/789dcff4c4f93774d8784321dcd6b1703112a6d6))
+* update manifest name to exclude 'TORRENT' from debrid extension ([d916fe0](https://github.com/g0ldyy/comet/commit/d916fe03e0ec986ceb2960085f2776f4d809dbcf))
+
+## [2.15.0](https://github.com/g0ldyy/comet/compare/v2.14.0...v2.15.0) (2025-08-24)
+
+
+### Features
+
+* oupsie ([2678e9c](https://github.com/g0ldyy/comet/commit/2678e9c8046af38ef7b1bdae9457906636fd0c14))
+
+## [2.14.0](https://github.com/g0ldyy/comet/compare/v2.13.1...v2.14.0) (2025-08-24)
+
+
+### Features
+
+* switch admin session management from RAM to DB ([abf80fd](https://github.com/g0ldyy/comet/commit/abf80fd260d95b079ab053793d32f67641887b91))
+
+## [2.13.1](https://github.com/g0ldyy/comet/compare/v2.13.0...v2.13.1) (2025-08-24)
+
+
+### Bug Fixes
+
+* private trackers debrid download (now need stremthru to fix it) ([506ee5b](https://github.com/g0ldyy/comet/commit/506ee5bff22d7cea9e1856ee33d6f9259daab1b6))
+
+## [2.13.0](https://github.com/g0ldyy/comet/compare/v2.12.0...v2.13.0) (2025-08-24)
+
+
+### Features
+
+* add metrics to dashboard ([37f3e86](https://github.com/g0ldyy/comet/commit/37f3e8664221e0f176817836e6e76c6cc284a5aa))
+* add support for Debrider debrid service ([e16f817](https://github.com/g0ldyy/comet/commit/e16f817a99bd9a23066a97a8b5768540b750c261))
+
+
+### Bug Fixes
+
+* comet scraper title parsing ([b51258a](https://github.com/g0ldyy/comet/commit/b51258aeaab80e45f28416bdb4110898a2ebe50e))
+* ensure PostgreSQL compatibility in admin API metrics ([38196c2](https://github.com/g0ldyy/comet/commit/38196c21a0c94b56da0408179b5fed715e38243a))
+
+## [2.12.0](https://github.com/g0ldyy/comet/compare/v2.11.0...v2.12.0) (2025-08-24)
+
+
+### Features
+
+* bandwidth monitoring ([5f7c033](https://github.com/g0ldyy/comet/commit/5f7c03306906cabc71f1c523430868cb15443b97))
+
+## [2.11.0](https://github.com/g0ldyy/comet/compare/v2.10.0...v2.11.0) (2025-08-23)
+
+
+### Features
+
+* implement new admin dashboard ([dfe00a2](https://github.com/g0ldyy/comet/commit/dfe00a280c37686df9cc0ad5a1bc9e0d32fcc125))
+
+
+### Bug Fixes
+
+* use torrent name as media_id instead of torrent hash ([740140e](https://github.com/g0ldyy/comet/commit/740140eb2748fa1ccde70c1fea39f6add5d03c6f))
+
 ## [2.10.0](https://github.com/g0ldyy/comet/compare/v2.9.0...v2.10.0) (2025-06-12)
 
 

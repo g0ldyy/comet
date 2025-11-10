@@ -2,11 +2,11 @@ import random
 import string
 import RTN
 
-from typing import List, Optional
+from typing import List, Optional, Union
 from databases import Database
 from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from RTN import BestRanking, SettingsModel
+from RTN import DefaultRanking, SettingsModel
 from RTN.models import (
     ResolutionConfig,
     OptionsConfig,
@@ -32,12 +32,14 @@ class AppSettings(BaseSettings):
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
-    DASHBOARD_ADMIN_PASSWORD: Optional[str] = "".join(
+    ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
+    PUBLIC_METRICS_API: Optional[bool] = False
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
+    DATABASE_BATCH_SIZE: Optional[int] = 20000
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
@@ -49,20 +51,35 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: Optional[str] = None
+    INDEXER_MANAGER_MODE: Union[bool, str] = "both"
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
-    SCRAPE_COMET: Optional[bool] = False
-    COMET_URL: Optional[str] = "https://comet.elfhosted.com"
-    SCRAPE_ZILEAN: Optional[bool] = False
-    ZILEAN_URL: Optional[str] = "https://zilean.elfhosted.com"
-    SCRAPE_TORRENTIO: Optional[bool] = False
-    TORRENTIO_URL: Optional[str] = "https://torrentio.strem.fun"
-    SCRAPE_MEDIAFUSION: Optional[bool] = False
-    MEDIAFUSION_URL: Optional[str] = "https://mediafusion.elfhosted.com"
-    MEDIAFUSION_API_PASSWORD: Optional[str] = None
+    SCRAPE_COMET: Union[bool, str] = False
+    COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
+    SCRAPE_NYAA: Union[bool, str] = False
+    NYAA_ANIME_ONLY: Optional[bool] = True
+    NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
+    SCRAPE_ZILEAN: Union[bool, str] = False
+    ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
+    SCRAPE_STREMTHRU: Union[bool, str] = False
+    STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
+    SCRAPE_TORRENTIO: Union[bool, str] = False
+    TORRENTIO_URL: Union[str, List[str]] = "https://torrentio.strem.fun"
+    SCRAPE_MEDIAFUSION: Union[bool, str] = False
+    MEDIAFUSION_URL: Union[str, List[str]] = "https://mediafusion.elfhosted.com"
+    MEDIAFUSION_API_PASSWORD: Union[str, List[str], None] = None
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
+    SCRAPE_AIOSTREAMS: Union[bool, str] = False
+    AIOSTREAMS_URL: Optional[Union[str, List[str]]] = None
+    AIOSTREAMS_USER_UUID_AND_PASSWORD: Union[str, List[str], None] = None
+    SCRAPE_JACKETTIO: Union[bool, str] = False
+    JACKETTIO_URL: Optional[Union[str, List[str]]] = None
+    SCRAPE_DEBRIDIO: Union[bool, str] = False
+    DEBRIDIO_API_KEY: Optional[str] = None
+    SCRAPE_TORBOX: Union[bool, str] = False
+    TORBOX_API_KEY: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
@@ -73,19 +90,11 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
     REMOVE_ADULT_CONTENT: Optional[bool] = False
-
-    @field_validator(
-        "INDEXER_MANAGER_URL",
-        "ZILEAN_URL",
-        "TORRENTIO_URL",
-        "MEDIAFUSION_URL",
-        "COMET_URL",
-        "STREMTHRU_URL",
-    )
-    def remove_trailing_slash(cls, v):
-        if v and v.endswith("/"):
-            return v[:-1]
-        return v
+    BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
+    BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
+    BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
+    BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
+    BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
@@ -97,6 +106,58 @@ class AppSettings(BaseSettings):
     def indexer_manager_indexers_normalization(cls, v, values):
         v = [indexer.replace(" ", "").lower() for indexer in v]
         return v
+
+    @field_validator(
+        "INDEXER_MANAGER_URL",
+        "STREMTHRU_URL",
+        "STREMTHRU_SCRAPE_URL",
+        "COMET_URL",
+        "ZILEAN_URL",
+        "TORRENTIO_URL",
+        "MEDIAFUSION_URL",
+        "AIOSTREAMS_URL",
+        "JACKETTIO_URL",
+    )
+    def normalize_urls(cls, v):
+        if isinstance(v, str):
+            return v.rstrip("/")
+        elif isinstance(v, list):
+            return [url.rstrip("/") for url in v]
+        return v
+
+    def is_scraper_enabled(self, scraper_setting: Union[bool, str], context: str):
+        if isinstance(scraper_setting, bool):
+            return scraper_setting
+
+        if isinstance(scraper_setting, str):
+            scraper_setting = scraper_setting.lower()
+            if scraper_setting in ["true", "both"]:
+                return True
+            elif scraper_setting == context:
+                return True
+
+        return False
+
+    def format_scraper_mode(self, scraper_setting: Union[bool, str]):
+        if isinstance(scraper_setting, bool):
+            return "both" if scraper_setting else "False"
+
+        if isinstance(scraper_setting, str):
+            scraper_setting = scraper_setting.lower()
+            if scraper_setting in ["true", "both"]:
+                return "both"
+            elif scraper_setting in ["live", "background"]:
+                return scraper_setting
+
+        return "False"
+
+    def is_any_context_enabled(self, scraper_setting: Union[bool, str]):
+        if isinstance(scraper_setting, bool):
+            return scraper_setting
+
+        if isinstance(scraper_setting, str):
+            scraper_setting = scraper_setting.lower()
+            return scraper_setting in ["true", "both", "live", "background"]
 
 
 settings = AppSettings()
@@ -531,7 +592,7 @@ rtn_settings_default_dumped = rtn_settings_default.model_dump()
 #         }
 #     }
 # }
-rtn_ranking_default = BestRanking()
+rtn_ranking_default = DefaultRanking()
 
 
 class ConfigModel(BaseModel):
@@ -547,7 +608,7 @@ class ConfigModel(BaseModel):
     resolutions: Optional[dict] = rtn_settings_default_dumped["resolutions"]
     options: Optional[dict] = rtn_settings_default_dumped["options"]
     rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
-    rtnRanking: Optional[BestRanking] = rtn_ranking_default
+    rtnRanking: Optional[DefaultRanking] = rtn_ranking_default
 
     @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):
@@ -574,6 +635,7 @@ class ConfigModel(BaseModel):
             "alldebrid",
             "premiumize",
             "torbox",
+            "debrider",
             "easydebrid",
             "debridlink",
             "offcloud",

@@ -2,6 +2,7 @@ import sys
 import logging
 
 from loguru import logger
+from comet.utils.log_levels import CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS
 
 logging.getLogger("demagnetize").setLevel(
     logging.CRITICAL
@@ -9,15 +10,20 @@ logging.getLogger("demagnetize").setLevel(
 
 
 def setupLogger(level: str):
-    logger.level("COMET", no=50, icon="🌠", color="<fg #7871d6>")
-    logger.level("API", no=45, icon="👾", color="<fg #006989>")
-    logger.level("SCRAPER", no=40, icon="👻", color="<fg #d6bb71>")
-    logger.level("STREAM", no=35, icon="🎬", color="<fg #d171d6>")
-    logger.level("LOCK", no=30, icon="🔒", color="<fg #71d6d6>")
+    # Configure custom log levels
+    for level_name, level_config in CUSTOM_LOG_LEVELS.items():
+        logger.level(
+            level_name,
+            no=level_config["no"],
+            icon=level_config["icon"],
+            color=level_config["loguru_color"],
+        )
 
-    logger.level("INFO", icon="📰", color="<fg #FC5F39>")
-    logger.level("DEBUG", icon="🕸️", color="<fg #DC5F00>")
-    logger.level("WARNING", icon="⚠️", color="<fg #DC5F00>")
+    # Configure standard log levels (override defaults)
+    for level_name, level_config in STANDARD_LOG_LEVELS.items():
+        logger.level(
+            level_name, icon=level_config["icon"], color=level_config["loguru_color"]
+        )
 
     log_format = (
         "<white>{time:YYYY-MM-DD}</white> <magenta>{time:HH:mm:ss}</magenta> | "

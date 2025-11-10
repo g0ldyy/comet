@@ -1,7 +1,6 @@
 import re
 
 
-from comet.utils.models import settings
 from comet.utils.general import (
     size_to_bytes,
     log_scraper_error,
@@ -14,20 +13,20 @@ data_pattern = re.compile(
 )
 
 
-async def get_torrentio(manager, media_type: str, media_id: str):
+async def get_torrentio(manager, url: str):
     torrents = []
     try:
-        get_torrentio = await fetch_with_proxy_fallback(
-            f"{settings.TORRENTIO_URL}/stream/{media_type}/{media_id}.json"
+        results = await fetch_with_proxy_fallback(
+            f"{url}/stream/{manager.media_type}/{manager.media_id}.json"
         )
 
-        for torrent in get_torrentio["streams"]:
+        for torrent in results["streams"]:
             title_full = torrent["title"]
-            title = (
-                title_full.split("\n")[0]
-                if settings.TORRENTIO_URL == "https://torrentio.strem.fun"
-                else title_full.split("\n💾")[0].split("\n")[-1]
-            )
+
+            if "\n💾" in title_full:
+                title = title_full.split("\n💾")[0].split("\n")[-1]
+            else:
+                title = title_full.split("\n")[0]
 
             match = data_pattern.search(title_full)
 
@@ -39,14 +38,14 @@ async def get_torrentio(manager, media_type: str, media_id: str):
                 {
                     "title": title,
                     "infoHash": torrent["infoHash"].lower(),
-                    "fileIndex": torrent["fileIdx"] if "fileIdx" in torrent else None,
+                    "fileIndex": torrent.get("fileIdx", None),
                     "seeders": seeders,
                     "size": size,
                     "tracker": f"Torrentio|{tracker}",
-                    "sources": torrent["sources"] if "sources" in torrent else [],
+                    "sources": torrent.get("sources", []),
                 }
             )
     except Exception as e:
-        log_scraper_error("Torrentio", media_id, e)
+        log_scraper_error("Torrentio", url, manager.media_id, e)
 
     await manager.filter_manager(torrents)

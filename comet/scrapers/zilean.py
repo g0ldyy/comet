@@ -1,21 +1,20 @@
 import aiohttp
 
-from comet.utils.models import settings
 from comet.utils.logger import logger
 
 
-async def get_zilean(
-    manager, session: aiohttp.ClientSession, title: str, season: int, episode: int
-):
+async def get_zilean(manager, session: aiohttp.ClientSession, url: str):
     torrents = []
     try:
-        show = f"&season={season}&episode={episode}"
-        get_dmm = await session.get(
-            f"{settings.ZILEAN_URL}/dmm/filtered?query={title}{show if episode else ''}"
+        show = (
+            f"&season={manager.season}&episode={manager.episode}"
+            if manager.media_type == "series"
+            else ""
         )
-        get_dmm = await get_dmm.json()
+        data = await session.get(f"{url}/dmm/filtered?query={manager.title}{show}")
+        data = await data.json()
 
-        for result in get_dmm:
+        for result in data:
             object = {
                 "title": result["raw_title"],
                 "infoHash": result["info_hash"].lower(),
@@ -28,6 +27,8 @@ async def get_zilean(
 
             torrents.append(object)
     except Exception as e:
-        logger.warning(f"Exception while getting torrents for {title} with Zilean: {e}")
+        logger.warning(
+            f"Exception while getting torrents for {manager.title} with Zilean ({url}): {e}"
+        )
 
     await manager.filter_manager(torrents)

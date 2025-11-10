@@ -1,6 +1,7 @@
 import os
 import time
 import traceback
+import asyncio
 
 from comet.utils.logger import logger
 from comet.utils.models import database, settings
@@ -99,6 +100,16 @@ async def setup_database():
                 CREATE TABLE IF NOT EXISTS first_searches (
                     media_id TEXT PRIMARY KEY, 
                     timestamp INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS admin_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    created_at INTEGER,
+                    expires_at INTEGER
                 )
             """
         )
@@ -271,6 +282,293 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            f"""
+                CREATE TABLE IF NOT EXISTS bandwidth_stats (
+                    id INTEGER PRIMARY KEY, 
+                    total_bytes {"INTEGER" if settings.DATABASE_TYPE == "sqlite" else "BIGINT"}, 
+                    last_updated INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS background_scraper_progress (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    current_run_started_at INTEGER,
+                    last_completed_run_at INTEGER,
+                    is_running BOOLEAN DEFAULT FALSE,
+                    current_phase TEXT,
+                    total_movies_processed INTEGER,
+                    total_series_processed INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS background_scraper_state (
+                    media_id TEXT PRIMARY KEY,
+                    media_type TEXT,
+                    title TEXT,
+                    year INTEGER,
+                    scraped_at INTEGER,
+                    total_torrents_found INTEGER,
+                    scrape_failed_attempts INTEGER
+                )
+            """
+        )
+
+        # =============================================================================
+        # TORRENTS TABLE INDEXES - Most critical for performance
+        # =============================================================================
+
+        # Primary lookup index: media_id + season + episode + timestamp (cache TTL filter)
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_media_cache_lookup 
+            ON torrents (media_id, season, episode, timestamp)
+            """
+        )
+
+        # Info hash lookup for playback (very frequent)
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_info_hash 
+            ON torrents (info_hash)
+            """
+        )
+
+        # Analytics queries: tracker-based aggregation
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_tracker_analytics 
+            ON torrents (tracker, seeders, size)
+            """
+        )
+
+        # Size filtering for user preferences
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_size_filter 
+            ON torrents (size, timestamp)
+            """
+        )
+
+        # Seeders ordering for quality ranking
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_seeders_desc 
+            ON torrents (seeders DESC, timestamp)
+            """
+        )
+
+        # =============================================================================
+        # DEBRID_AVAILABILITY TABLE INDEXES - Critical for cache performance
+        # =============================================================================
+
+        # Primary cache lookup: service + info_hash list + timestamp
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_service_hash_cache 
+            ON debrid_availability (debrid_service, info_hash, timestamp)
+            """
+        )
+
+        # Season/episode filtering for series content
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_season_episode_filter 
+            ON debrid_availability (debrid_service, season, episode, timestamp)
+            """
+        )
+
+        # Service-based analytics and cleanup
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_service_timestamp 
+            ON debrid_availability (debrid_service, timestamp)
+            """
+        )
+
+        # Title filtering for OffCloud special case
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_title_filter 
+            ON debrid_availability (debrid_service, info_hash, title, timestamp)
+            """
+        )
+
+        # =============================================================================
+        # DOWNLOAD_LINKS_CACHE TABLE INDEXES - Playback performance
+        # =============================================================================
+
+        # Primary playback lookup: debrid_key + info_hash + season + episode
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_download_links_playback 
+            ON download_links_cache (debrid_key, info_hash, season, episode, timestamp)
+            """
+        )
+
+        # Timestamp-based cleanup
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_download_links_cleanup 
+            ON download_links_cache (timestamp)
+            """
+        )
+
+        # =============================================================================
+        # METADATA_CACHE TABLE INDEXES - Metadata performance
+        # =============================================================================
+
+        # Primary cache lookup: media_id + timestamp
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_metadata_cache_lookup 
+            ON metadata_cache (media_id, timestamp)
+            """
+        )
+
+        # Title search for metadata discovery
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_metadata_title_search 
+            ON metadata_cache (title, year, timestamp)
+            """
+        )
+
+        # =============================================================================
+        # FIRST_SEARCHES TABLE INDEXES - Search optimization
+        # =============================================================================
+
+        # Primary search check: media_id (already PRIMARY KEY, but explicit for clarity)
+        # Media ID is already PRIMARY KEY, so focusing on timestamp for TTL cleanup
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_first_searches_cleanup 
+            ON first_searches (timestamp)
+            """
+        )
+
+        # =============================================================================
+        # ACTIVE_CONNECTIONS TABLE INDEXES - Admin dashboard performance
+        # =============================================================================
+
+        # Admin dashboard ordering: timestamp DESC (most recent first)
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_connections_timestamp_desc 
+            ON active_connections (timestamp DESC)
+            """
+        )
+
+        # IP-based filtering and monitoring
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_connections_ip_filter 
+            ON active_connections (ip, timestamp)
+            """
+        )
+
+        # Connection monitoring by content type
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_connections_content_monitoring 
+            ON active_connections (content, timestamp)
+            """
+        )
+
+        # =============================================================================
+        # SCRAPE_LOCKS TABLE INDEXES - Lock management
+        # =============================================================================
+
+        # Expired locks cleanup: expires_at < current_time
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scrape_locks_expires 
+            ON scrape_locks (expires_at)
+            """
+        )
+
+        # Instance-based lock monitoring
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scrape_locks_instance 
+            ON scrape_locks (instance_id, timestamp)
+            """
+        )
+
+        # =============================================================================
+        # ADMIN_SESSIONS TABLE INDEXES - Authentication performance
+        # =============================================================================
+
+        # Session cleanup: expires_at < current_time
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires 
+            ON admin_sessions (expires_at)
+            """
+        )
+
+        # =============================================================================
+        # BACKGROUND_SCRAPER_STATE TABLE INDEXES - Scraper performance
+        # =============================================================================
+
+        # Media type filtering for scraper analytics
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scraper_state_media_type 
+            ON background_scraper_state (media_type, scraped_at)
+            """
+        )
+
+        # Scraping timestamp for progress tracking
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scraper_state_scraped_at 
+            ON background_scraper_state (scraped_at)
+            """
+        )
+
+        # Failed attempts monitoring
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scraper_state_failures 
+            ON background_scraper_state (scrape_failed_attempts, scraped_at)
+            """
+        )
+
+        # =============================================================================
+        # COMPOSITE INDEXES FOR COMPLEX QUERIES
+        # =============================================================================
+
+        # Torrents: media + quality filtering + cache validity
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_quality_cache 
+            ON torrents (media_id, seeders DESC, size DESC, timestamp)
+            """
+        )
+
+        # Debrid: comprehensive availability lookup
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_comprehensive 
+            ON debrid_availability (debrid_service, info_hash, season, episode, size, timestamp)
+            """
+        )
+
+        # Background scraper: comprehensive state tracking
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scraper_comprehensive 
+            ON background_scraper_state (media_type, total_torrents_found, scraped_at)
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -328,14 +626,9 @@ async def setup_database():
 
 
 async def cleanup_expired_locks():
-    """Periodic cleanup task for expired locks."""
-    import asyncio
-    import time
-    from comet.utils.logger import logger
-
     while True:
         try:
-            current_time = int(time.time())
+            current_time = time.time()
             await database.execute(
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
                 {"current_time": current_time},
@@ -344,6 +637,20 @@ async def cleanup_expired_locks():
             logger.log("LOCK", f"❌ Error during periodic lock cleanup: {e}")
 
         await asyncio.sleep(60)
+
+
+async def cleanup_expired_sessions():
+    while True:
+        try:
+            current_time = time.time()
+            await database.execute(
+                "DELETE FROM admin_sessions WHERE expires_at < :current_time",
+                {"current_time": current_time},
+            )
+        except Exception as e:
+            logger.log("SESSION", f"❌ Error during periodic session cleanup: {e}")
+
+        await asyncio.sleep(5)  # Clean up every 5 seconds
 
 
 async def teardown_database():

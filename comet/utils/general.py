@@ -3,6 +3,7 @@ import orjson
 
 from RTN import ParsedData
 from fastapi import Request
+from curl_cffi import AsyncSession
 
 from comet.utils.models import (
     ConfigModel,
@@ -12,6 +13,13 @@ from comet.utils.models import (
     rtn_ranking_default,
 )
 from comet.utils.logger import logger
+
+
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 def config_check(b64config: str):
@@ -88,6 +96,7 @@ def size_to_bytes(size_str: str):
     sizes = ["b", "kb", "mb", "gb", "tb"]
 
     value, unit = size_str.split()
+
     value = float(value)
     unit = unit.lower()
 
@@ -399,6 +408,7 @@ def parse_media_id(media_type: str, media_id: str):
     if media_type == "series":
         info = media_id.split(":")
         return info[0], int(info[1]), int(info[2])
+
     return media_id, None, None
 
 
@@ -411,34 +421,69 @@ def get_proxies():
     return None
 
 
-async def fetch_with_proxy_fallback(url: str, headers: dict = None):
-    from curl_cffi import requests
+async def fetch_with_proxy_fallback(
+    url: str, headers: dict = None, params: dict = None
+):
+    async with AsyncSession(impersonate="chrome") as session:
+        try:
+            response = await session.get(url, headers=headers, params=params)
+            return response.json()
+        except Exception as first_error:
+            proxies = get_proxies()
+            if proxies:
+                try:
+                    response = await session.get(
+                        url, headers=headers, proxies=proxies, params=params
+                    )
+                    return response.json()
+                except Exception as second_error:
+                    raise second_error
+            else:
+                raise first_error
 
-    try:
-        response = requests.get(url, headers=headers)
-        return response.json()
-    except Exception as first_error:
-        proxies = get_proxies()
-        if proxies:
-            try:
-                response = requests.get(url, headers=headers, proxies=proxies)
-                return response.json()
-            except Exception as second_error:
-                raise second_error
-        else:
-            raise first_error
 
-
-def log_scraper_error(scraper_name: str, media_id: str, error: Exception):
+def log_scraper_error(
+    scraper_name: str, scraper_url: str, media_id: str, error: Exception
+):
     api_password_missing = ""
     if "MediaFusion" in scraper_name:
         api_password_missing = " or your API password could be wrong"
 
-    if settings.DEBRID_PROXY_URL:
-        logger.warning(
-            f"Exception while getting torrents for {media_id} with {scraper_name}, your proxy is most likely blacklisted{api_password_missing}: {error}"
-        )
+    logger.warning(
+        f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), you are most likely being ratelimited{api_password_missing}: {error}"
+    )
+
+
+def associate_urls_credentials(urls, credentials):
+    if not urls:
+        return []
+
+    if isinstance(urls, str):
+        urls = [urls]
+
+    if len(urls) == 1:
+        if credentials is None:
+            credential = None
+        elif isinstance(credentials, str):
+            credential = credentials or None
+        elif isinstance(credentials, list) and len(credentials) > 0:
+            credential = credentials[0]
+        else:
+            credential = None
+
+        credentials_list = [credential]
     else:
-        logger.warning(
-            f"Exception while getting torrents for {media_id} with {scraper_name}, your IP is most likely blacklisted (you should try proxying Comet){api_password_missing}: {error}"
-        )
+        if credentials is None:
+            credentials_list = [None] * len(urls)
+        elif isinstance(credentials, str):
+            credentials_list = [credentials or None] * len(urls)
+        elif isinstance(credentials, list):
+            credentials_list = []
+            for i in range(len(urls)):
+                if i < len(credentials):
+                    cred = credentials[i] or None
+                    credentials_list.append(cred)
+                else:
+                    credentials_list.append(None)
+
+    return list(zip(urls, credentials_list))

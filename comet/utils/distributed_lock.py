@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from typing import Optional
+
 from comet.utils.models import database, settings
 from comet.utils.logger import logger
 
@@ -22,7 +22,7 @@ class DistributedLock:
         self.instance_id = str(uuid.uuid4())
         self.acquired = False
 
-    async def acquire(self, wait_timeout: Optional[int] = None) -> bool:
+    async def acquire(self, wait_timeout: int = None):
         """
         Attempts to acquire the lock.
 
@@ -51,7 +51,7 @@ class DistributedLock:
                     {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": int(time.time()),
+                        "timestamp": time.time(),
                         "expires_at": expires_at,
                     },
                 )
@@ -94,7 +94,6 @@ class DistributedLock:
                 return False
 
     async def release(self):
-        """Releases the lock."""
         if not self.acquired:
             return
 
@@ -112,9 +111,8 @@ class DistributedLock:
             logger.log("LOCK", f"❌ Error releasing lock for {self.lock_key}: {e}")
 
     async def _cleanup_expired_locks(self):
-        """Cleans up expired locks."""
         try:
-            current_time = int(time.time())
+            current_time = time.time()
             await database.execute(
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
                 {"current_time": current_time},
@@ -123,27 +121,19 @@ class DistributedLock:
             logger.log("LOCK", f"❌ Error cleaning up expired locks: {e}")
 
     async def __aenter__(self):
-        """Support for usage with 'async with'."""
         success = await self.acquire()
         if not success:
             raise RuntimeError(f"Failed to acquire lock for {self.lock_key}")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Support for usage with 'async with'."""
         await self.release()
 
 
-async def is_scrape_in_progress(media_id: str) -> bool:
-    """
-    Checks if a scrape is already in progress for this media_id.
-
-    Returns:
-        True if a scrape is in progress, False otherwise
-    """
+async def is_scrape_in_progress(media_id: str):
     try:
         # Clean up expired locks first
-        current_time = int(time.time())
+        current_time = time.time()
         await database.execute(
             "DELETE FROM scrape_locks WHERE expires_at < :current_time",
             {"current_time": current_time},

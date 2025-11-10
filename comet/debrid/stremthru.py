@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 
 from RTN import parse, title_match
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from comet.utils.models import settings
 from comet.utils.general import is_video
@@ -104,9 +104,9 @@ class StremThru:
 
                 cached_count += 1
                 hash = torrent["hash"]
-                seeders = seeders_map[hash]
-                tracker = tracker_map[hash]
-                sources = sources_map[hash]
+                seeders = seeders_map.get(hash, 0)
+                tracker = tracker_map.get(hash, "")
+                sources = sources_map.get(hash, [])
 
                 if is_offcloud:
                     file_info = {
@@ -177,11 +177,18 @@ class StremThru:
         torrent_name: str,
         season: int,
         episode: int,
+        sources: list = None,
     ):
         try:
+            magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name)}"
+
+            if sources:
+                for source in sources:
+                    magnet_uri += f"&tr={quote(source, safe='')}"
+
             magnet = await self.session.post(
                 f"{self.base_url}/magnets?client_ip={self.client_ip}",
-                json={"magnet": f"magnet:?xt=urn:btih:{hash}"},
+                json={"magnet": magnet_uri},
             )
             magnet = await magnet.json()
 
@@ -223,12 +230,12 @@ class StremThru:
                     "size": file_size,
                     "season": file_season,
                     "episode": file_episode,
-                    "link": file["link"] if "link" in file else None,
+                    "link": file.get("link", None),
                 }
 
                 debrid_files_parsed.append(file)
 
-                if not title_match(
+                if not filename_parsed.parsed_title or not title_match(
                     name_parsed.parsed_title, filename_parsed.parsed_title
                 ):
                     continue
@@ -257,7 +264,7 @@ class StremThru:
 
             if not target_file and len(debrid_files) > 0:
                 files_with_link = [
-                    file for file in debrid_files if "link" in file and file["link"]
+                    file for file in debrid_files if file.get("link", None)
                 ]
                 if len(files_with_link) > 0:
                     target_file = max(files_with_link, key=lambda x: x["size"])

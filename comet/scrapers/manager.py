@@ -10,7 +10,7 @@ from RTN import (
     check_fetch,
     sort_torrents,
     ParsedData,
-    BestRanking,
+    DefaultRanking,
     Torrent,
 )
 
@@ -18,12 +18,20 @@ from comet.utils.models import settings, database, CometSettingsModel
 from comet.utils.general import default_dump
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
+from comet.utils.general import associate_urls_credentials
+from comet.utils.anime_mapper import anime_mapper
 from .zilean import get_zilean
 from .torrentio import get_torrentio
 from .mediafusion import get_mediafusion
 from .jackett import get_jackett
 from .prowlarr import get_prowlarr
 from .comet import get_comet
+from .stremthru import get_stremthru
+from .aiostreams import get_aiostreams
+from .jackettio import get_jackettio
+from .debridio import get_debridio
+from .torbox import get_torbox
+from .nyaa import get_nyaa
 
 
 class TorrentManager:
@@ -42,6 +50,7 @@ class TorrentManager:
         episode: int,
         aliases: dict,
         remove_adult_content: bool,
+        context: str = "live",  # "live" or "background"
     ):
         self.debrid_service = debrid_service
         self.debrid_api_key = debrid_api_key
@@ -56,28 +65,58 @@ class TorrentManager:
         self.episode = episode
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
+        self.context = context
 
         self.seen_hashes = set()
         self.torrents = {}
         self.ready_to_cache = []
         self.ranked_torrents = {}
 
+    def is_anime_content(self):
+        if "kitsu" in self.media_id:
+            # All Kitsu content is anime
+            return True
+
+        if not anime_mapper.is_loaded():
+            return True
+        else:
+            # Check if this IMDB ID corresponds to an anime
+            return anime_mapper.is_anime(self.media_only_id)
+
     async def scrape_torrents(
         self,
         session: aiohttp.ClientSession,
     ):
         tasks = []
-        if settings.SCRAPE_COMET:
-            tasks.append(get_comet(self, self.media_type, self.media_id))
-        if settings.SCRAPE_TORRENTIO:
-            tasks.append(get_torrentio(self, self.media_type, self.media_id))
-        if settings.SCRAPE_MEDIAFUSION:
-            tasks.append(get_mediafusion(self, self.media_type, self.media_id))
-        if settings.SCRAPE_ZILEAN:
-            tasks.append(
-                get_zilean(self, session, self.title, self.season, self.episode)
-            )
-        if settings.INDEXER_MANAGER_API_KEY:
+        if settings.is_scraper_enabled(settings.SCRAPE_COMET, self.context):
+            tasks.extend(get_all_comet_tasks(self))
+        if settings.is_scraper_enabled(settings.SCRAPE_TORRENTIO, self.context):
+            tasks.extend(get_all_torrentio_tasks(self))
+        if settings.is_scraper_enabled(settings.SCRAPE_MEDIAFUSION, self.context):
+            tasks.extend(get_all_mediafusion_tasks(self))
+        if settings.is_scraper_enabled(settings.SCRAPE_NYAA, self.context):
+            should_use_nyaa = True
+
+            if settings.NYAA_ANIME_ONLY:
+                should_use_nyaa = self.is_anime_content()
+
+            if should_use_nyaa:
+                tasks.append(get_nyaa(self))
+        if settings.is_scraper_enabled(settings.SCRAPE_ZILEAN, self.context):
+            tasks.extend(get_all_zilean_tasks(self, session))
+        if settings.is_scraper_enabled(settings.SCRAPE_STREMTHRU, self.context):
+            tasks.extend(get_all_stremthru_tasks(self, session))
+        if settings.is_scraper_enabled(settings.SCRAPE_AIOSTREAMS, self.context):
+            tasks.extend(get_all_aiostreams_tasks(self))
+        if settings.is_scraper_enabled(settings.SCRAPE_JACKETTIO, self.context):
+            tasks.extend(get_all_jackettio_tasks(self))
+        if settings.is_scraper_enabled(settings.SCRAPE_DEBRIDIO, self.context):
+            tasks.append(get_debridio(self, session))
+        if settings.is_scraper_enabled(settings.SCRAPE_TORBOX, self.context):
+            tasks.append(get_torbox(self, session))
+        if settings.INDEXER_MANAGER_API_KEY and settings.is_scraper_enabled(
+            settings.INDEXER_MANAGER_MODE, self.context
+        ):
             queries = [self.title]
 
             if self.media_type == "series" and self.episode is not None:
@@ -193,7 +232,7 @@ class TorrentManager:
 
         for torrent in torrents:
             torrent_title = torrent["title"]
-            if "sample" in torrent_title.lower():
+            if "sample" in torrent_title.lower() or torrent_title == "":
                 continue
 
             parsed = parse(torrent_title)
@@ -201,7 +240,7 @@ class TorrentManager:
             if remove_adult_content and parsed.adult:
                 continue
 
-            if parsed.parsed_title and not title_match(
+            if not parsed.parsed_title or not title_match(
                 title, parsed.parsed_title, aliases=aliases
             ):
                 continue
@@ -237,7 +276,7 @@ class TorrentManager:
     def rank_torrents(
         self,
         rtn_settings: CometSettingsModel,
-        rtn_ranking: BestRanking,
+        rtn_ranking: DefaultRanking,
         max_results_per_resolution: int,
         max_size: int,
         cached_only: int,
@@ -364,3 +403,81 @@ class TorrentManager:
                 self.torrents[info_hash]["title"] = row["title"]
             if row["size"] is not None:
                 self.torrents[info_hash]["size"] = row["size"]
+
+
+# multi-instance scraping
+def get_all_comet_tasks(manager):
+    urls = settings.COMET_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_comet(manager, url))
+    return tasks
+
+
+def get_all_torrentio_tasks(manager):
+    urls = settings.TORRENTIO_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_torrentio(manager, url))
+    return tasks
+
+
+def get_all_mediafusion_tasks(manager):
+    url_credentials_pairs = associate_urls_credentials(
+        settings.MEDIAFUSION_URL, settings.MEDIAFUSION_API_PASSWORD
+    )
+
+    tasks = []
+    for url, password in url_credentials_pairs:
+        tasks.append(get_mediafusion(manager, url, password))
+    return tasks
+
+
+def get_all_zilean_tasks(manager, session):
+    urls = settings.ZILEAN_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_zilean(manager, session, url))
+    return tasks
+
+
+def get_all_stremthru_tasks(manager, session):
+    urls = settings.STREMTHRU_SCRAPE_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_stremthru(manager, session, url))
+    return tasks
+
+
+def get_all_aiostreams_tasks(manager):
+    url_credentials_pairs = associate_urls_credentials(
+        settings.AIOSTREAMS_URL, settings.AIOSTREAMS_USER_UUID_AND_PASSWORD
+    )
+
+    tasks = []
+    for url, uuid_password in url_credentials_pairs:
+        tasks.append(get_aiostreams(manager, url, uuid_password))
+    return tasks
+
+
+def get_all_jackettio_tasks(manager):
+    urls = settings.JACKETTIO_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_jackettio(manager, url))
+    return tasks

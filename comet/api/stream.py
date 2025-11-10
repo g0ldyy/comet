@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import time
+import orjson
 import mediaflow_proxy.utils.http_utils
 
 from urllib.parse import quote
@@ -15,7 +16,12 @@ from comet.utils.models import settings, database
 from comet.utils.general import parse_media_id
 from comet.metadata.manager import MetadataScraper
 from comet.scrapers.manager import TorrentManager
-from comet.utils.general import config_check, format_title, get_client_ip
+from comet.utils.general import (
+    config_check,
+    format_title,
+    get_client_ip,
+    NO_CACHE_HEADERS,
+)
 from comet.debrid.manager import get_debrid_extension, get_debrid
 from comet.utils.streaming import custom_handle_stream_request
 from comet.utils.logger import logger
@@ -66,7 +72,7 @@ async def background_scrape(
         await scrape_lock.release()
 
 
-async def wait_for_scrape_completion(media_id: str, context: str = "") -> bool:
+async def wait_for_scrape_completion(media_id: str, context: str = ""):
     """
     Wait for another scrape to complete for the given media_id.
 
@@ -440,7 +446,7 @@ async def stream(
 
 
 @streams.get(
-    "/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name}"
+    "/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name:path}"
 )
 async def playback(
     request: Request,
@@ -489,6 +495,21 @@ async def playback(
         )
 
         if download_url is None:
+            # Retrieve torrent sources from database for private trackers
+            torrent_data = await database.fetch_one(
+                """
+                SELECT sources
+                FROM torrents
+                WHERE info_hash = :info_hash
+                LIMIT 1
+                """,
+                {"info_hash": hash},
+            )
+
+            sources = []
+            if torrent_data and torrent_data["sources"]:
+                sources = orjson.loads(torrent_data["sources"])
+
             debrid = get_debrid(
                 session,
                 None,
@@ -498,10 +519,12 @@ async def playback(
                 ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
-                hash, index, name, torrent_name, season, episode
+                hash, index, name, torrent_name, season, episode, sources
             )
             if not download_url:
-                return FileResponse("comet/assets/uncached.mp4")
+                return FileResponse(
+                    "comet/assets/uncached.mp4", headers=NO_CACHE_HEADERS
+                )
 
             await database.execute(
                 f"""
@@ -529,7 +552,7 @@ async def playback(
                 request.method,
                 download_url,
                 mediaflow_proxy.utils.http_utils.get_proxy_headers(request),
-                media_id=hash,
+                media_id=torrent_name,
                 ip=ip,
             )
 
