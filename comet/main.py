@@ -235,6 +235,16 @@ def start_log():
         f"StremThru Scraper: {settings.format_scraper_mode(settings.SCRAPE_STREMTHRU)}{stremthru_scrape_url}",
     )
 
+    bitmagnet_url = (
+        f" - {settings.BITMAGNET_URL}"
+        if settings.is_any_context_enabled(settings.SCRAPE_BITMAGNET)
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"Bitmagnet Scraper: {settings.format_scraper_mode(settings.SCRAPE_BITMAGNET)}{bitmagnet_url}",
+    )
+
     torrentio_url = (
         f" - {settings.TORRENTIO_URL}"
         if settings.is_any_context_enabled(settings.SCRAPE_TORRENTIO)

@@ -27,6 +27,7 @@ from .jackett import get_jackett
 from .prowlarr import get_prowlarr
 from .comet import get_comet
 from .stremthru import get_stremthru
+from .bitmagnet import get_bitmagnet
 from .aiostreams import get_aiostreams
 from .jackettio import get_jackettio
 from .debridio import get_debridio
@@ -106,6 +107,8 @@ class TorrentManager:
             tasks.extend(get_all_zilean_tasks(self, session))
         if settings.is_scraper_enabled(settings.SCRAPE_STREMTHRU, self.context):
             tasks.extend(get_all_stremthru_tasks(self, session))
+        if settings.is_scraper_enabled(settings.SCRAPE_BITMAGNET, self.context):
+            tasks.extend(get_all_bitmagnet_tasks(self, session))
         if settings.is_scraper_enabled(settings.SCRAPE_AIOSTREAMS, self.context):
             tasks.extend(get_all_aiostreams_tasks(self))
         if settings.is_scraper_enabled(settings.SCRAPE_JACKETTIO, self.context):
@@ -458,6 +461,17 @@ def get_all_stremthru_tasks(manager, session):
     tasks = []
     for url in urls:
         tasks.append(get_stremthru(manager, session, url))
+    return tasks
+
+
+def get_all_bitmagnet_tasks(manager, session):
+    urls = settings.BITMAGNET_URL
+    if isinstance(urls, str):
+        urls = [urls]
+
+    tasks = []
+    for url in urls:
+        tasks.append(get_bitmagnet(manager, session, url))
     return tasks
 
 
