@@ -16,6 +16,7 @@ from RTN import (
 
 from comet.utils.models import settings, database, CometSettingsModel
 from comet.utils.general import default_dump
+from comet.utils.logger import logger
 from comet.utils.debrid import cache_availability, get_cached_availability
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.utils.general import associate_urls_credentials
@@ -265,6 +266,13 @@ class TorrentManager:
             for torrent in torrents
             if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
         ]
+
+        scraper_name = torrents[0]["tracker"].split("|")[0]
+        logger.log(
+            "SCRAPER",
+            f"Scraper {scraper_name} found {len(torrents)} torrents, {len(new_torrents)} new.",
+        )
+
         self.seen_hashes.update(
             (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
         )
