@@ -65,6 +65,11 @@ class AppSettings(BaseSettings):
     ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
     SCRAPE_STREMTHRU: Union[bool, str] = False
     STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
+    SCRAPE_BITMAGNET: Union[bool, str] = False
+    BITMAGNET_URL: Union[str, List[str]] = (
+        "https://bitmagnetfortheweebs.midnightignite.me"
+    )
+    BITMAGNET_MAX_CONCURRENT_PAGES: Optional[int] = 5
     SCRAPE_TORRENTIO: Union[bool, str] = False
     TORRENTIO_URL: Union[str, List[str]] = "https://torrentio.strem.fun"
     SCRAPE_MEDIAFUSION: Union[bool, str] = False
@@ -111,6 +116,7 @@ class AppSettings(BaseSettings):
         "INDEXER_MANAGER_URL",
         "STREMTHRU_URL",
         "STREMTHRU_SCRAPE_URL",
+        "BITMAGNET_URL",
         "COMET_URL",
         "ZILEAN_URL",
         "TORRENTIO_URL",
