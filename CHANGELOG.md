@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.26.0](https://github.com/g0ldyy/comet/compare/v2.25.2...v2.26.0) (2025-11-23)
+
+
+### Features
+
+* bitmagnet scraper ([26e3e5e](https://github.com/g0ldyy/comet/commit/26e3e5eb757c515c6335ad72cdb4547d833b46d7))
+* bitmagnet scraper ([3619fe5](https://github.com/g0ldyy/comet/commit/3619fe50849cab54f84070e7e79a78926d9fa03f))
+
 ## [2.25.2](https://github.com/g0ldyy/comet/compare/v2.25.1...v2.25.2) (2025-11-04)
 
 
