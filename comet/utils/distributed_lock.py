@@ -69,10 +69,6 @@ class DistributedLock:
 
                 if success:
                     self.acquired = True
-                    logger.log(
-                        "LOCK",
-                        f"🔒 Lock acquired for {self.lock_key} by {self.instance_id[:8]}",
-                    )
                     return True
 
                 # If we don't want to wait
@@ -103,10 +99,6 @@ class DistributedLock:
                 {"lock_key": self.lock_key, "instance_id": self.instance_id},
             )
             self.acquired = False
-            logger.log(
-                "LOCK",
-                f"🔓 Lock released for {self.lock_key} by {self.instance_id[:8]}",
-            )
         except Exception as e:
             logger.log("LOCK", f"❌ Error releasing lock for {self.lock_key}: {e}")
 
