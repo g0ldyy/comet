@@ -358,7 +358,7 @@ async def stream(
 
         initial_torrent_count = len(torrent_manager.torrents)
 
-        torrent_manager.rank_torrents(
+        await torrent_manager.rank_torrents(
             config["rtnSettings"],
             config["rtnRanking"],
             config["maxResultsPerResolution"],
