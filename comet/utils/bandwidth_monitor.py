@@ -139,16 +139,6 @@ class BandwidthMonitor:
 
             return stats
 
-    def format_bytes(self, bytes_value: int):
-        if bytes_value < 1024:
-            return f"{bytes_value} B"
-        elif bytes_value < 1024**2:
-            return f"{bytes_value / 1024:.1f} KB"
-        elif bytes_value < 1024**3:
-            return f"{bytes_value / (1024**2):.1f} MB"
-        else:
-            return f"{bytes_value / (1024**3):.2f} GB"
-
     def format_speed(self, bytes_per_second: float):
         if bytes_per_second < 1024:
             return f"{bytes_per_second:.0f} B/s"

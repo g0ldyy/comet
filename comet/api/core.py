@@ -4,6 +4,7 @@ import secrets
 import uuid
 import time
 import re
+import orjson
 
 from loguru import logger as loguru_logger
 
@@ -13,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic
 
 from comet.utils.models import settings, web_config, database
-from comet.utils.general import config_check
+from comet.utils.general import config_check, format_bytes
 from comet.utils.log_levels import get_level_info
 from comet.utils.bandwidth_monitor import bandwidth_monitor
 from comet.debrid.manager import get_debrid_extension
@@ -309,7 +310,7 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
             base_connection.update(
                 {
                     "bytes_transferred": metrics.bytes_transferred,
-                    "bytes_transferred_formatted": bandwidth_monitor.format_bytes(
+                    "bytes_transferred_formatted": format_bytes(
                         metrics.bytes_transferred
                     ),
                     "current_speed": metrics.current_speed,
@@ -331,11 +332,11 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
             "connections": connections,
             "global_stats": {
                 "total_bytes_alltime": global_stats.get("total_bytes_alltime", 0),
-                "total_bytes_alltime_formatted": bandwidth_monitor.format_bytes(
+                "total_bytes_alltime_formatted": format_bytes(
                     global_stats.get("total_bytes_alltime", 0)
                 ),
                 "total_bytes_session": global_stats.get("total_bytes_session", 0),
-                "total_bytes_session_formatted": bandwidth_monitor.format_bytes(
+                "total_bytes_session_formatted": format_bytes(
                     global_stats.get("total_bytes_session", 0)
                 ),
                 "total_current_speed": global_stats.get("total_current_speed", 0),
@@ -369,17 +370,42 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
 
     current_time = time.time()
 
+    # Try to get from cache
+    cached_metrics = await database.fetch_one(
+        "SELECT data, timestamp FROM metrics_cache WHERE id = 1"
+    )
+    if (
+        cached_metrics
+        and cached_metrics["timestamp"] + settings.METRICS_CACHE_TTL > current_time
+    ):
+        return JSONResponse(orjson.loads(cached_metrics["data"]))
+
     # 📊 TORRENTS METRICS
     total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
 
     # Torrents by tracker
-    tracker_stats = await database.fetch_all("""
-        SELECT tracker, COUNT(*) as count, AVG(seeders) as avg_seeders, AVG(size) as avg_size
+    top_trackers = await database.fetch_all("""
+        SELECT tracker, COUNT(*) as count
         FROM torrents 
         GROUP BY tracker 
         ORDER BY count DESC 
         LIMIT 5
     """)
+
+    tracker_stats = []
+    for row in top_trackers:
+        stats = await database.fetch_one(
+            "SELECT AVG(seeders) as avg_seeders, AVG(size) as avg_size FROM torrents WHERE tracker = :tracker",
+            {"tracker": row["tracker"]},
+        )
+        tracker_stats.append(
+            {
+                "tracker": row["tracker"],
+                "count": row["count"],
+                "avg_seeders": stats["avg_seeders"],
+                "avg_size": stats["avg_size"],
+            }
+        )
 
     # Size distribution
     size_distribution = await database.fetch_all("""
@@ -463,20 +489,6 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
         {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
     )
 
-    # Format helper function
-    def format_bytes(bytes_value):
-        if bytes_value is None:
-            return "0 B"
-
-        # PostgreSQL compatibility
-        bytes_value = float(bytes_value)
-
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if bytes_value < 1024.0:
-                return f"{bytes_value:.1f} {unit}"
-            bytes_value /= 1024.0
-        return f"{bytes_value:.1f} PB"
-
     # Process quality stats
     if quality_stats:
         quality_data = quality_stats[0]
@@ -489,55 +501,65 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
     else:
         avg_seeders = max_seeders = min_seeders = avg_size = max_size = 0
 
-    return JSONResponse(
-        {
-            "torrents": {
-                "total": total_torrents or 0,
-                "by_tracker": [
-                    {
-                        "tracker": row["tracker"],
-                        "count": row["count"],
-                        "avg_seeders": round(float(row["avg_seeders"] or 0), 1),
-                        "avg_size_formatted": format_bytes(row["avg_size"] or 0),
-                    }
-                    for row in tracker_stats
-                ],
-                "size_distribution": [
-                    {"range": row["size_range"], "count": row["count"]}
-                    for row in size_distribution
-                ],
-                "quality": {
-                    "avg_seeders": round(avg_seeders, 1),
-                    "max_seeders": int(max_seeders),
-                    "min_seeders": int(min_seeders),
-                    "avg_size_formatted": format_bytes(avg_size),
-                    "max_size_formatted": format_bytes(max_size),
-                },
-                "media_distribution": [
-                    {"type": row["media_type"], "count": row["count"]}
-                    for row in media_distribution
-                ],
+    metrics_data = {
+        "torrents": {
+            "total": total_torrents or 0,
+            "by_tracker": [
+                {
+                    "tracker": row["tracker"],
+                    "count": row["count"],
+                    "avg_seeders": round(float(row["avg_seeders"] or 0), 1),
+                    "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                }
+                for row in tracker_stats
+            ],
+            "size_distribution": [
+                {"range": row["size_range"], "count": row["count"]}
+                for row in size_distribution
+            ],
+            "quality": {
+                "avg_seeders": round(avg_seeders, 1),
+                "max_seeders": int(max_seeders),
+                "min_seeders": int(min_seeders),
+                "avg_size_formatted": format_bytes(avg_size),
+                "max_size_formatted": format_bytes(max_size),
             },
-            "searches": {
-                "total_unique": total_unique_searches or 0,
-                "last_24h": searches_24h or 0,
-                "last_7d": searches_7d or 0,
-                "last_30d": searches_30d or 0,
-            },
-            "scrapers": {
-                "active_locks": active_locks or 0,
-            },
-            "debrid_cache": {
-                "total": total_debrid_cache or 0,
-                "by_service": [
-                    {
-                        "service": row["debrid_service"],
-                        "count": row["count"],
-                        "avg_size_formatted": format_bytes(row["avg_size"] or 0),
-                        "total_size_formatted": format_bytes(row["total_size"] or 0),
-                    }
-                    for row in debrid_by_service
-                ],
-            },
-        }
+            "media_distribution": [
+                {"type": row["media_type"], "count": row["count"]}
+                for row in media_distribution
+            ],
+        },
+        "searches": {
+            "total_unique": total_unique_searches or 0,
+            "last_24h": searches_24h or 0,
+            "last_7d": searches_7d or 0,
+            "last_30d": searches_30d or 0,
+        },
+        "scrapers": {
+            "active_locks": active_locks or 0,
+        },
+        "debrid_cache": {
+            "total": total_debrid_cache or 0,
+            "by_service": [
+                {
+                    "service": row["debrid_service"],
+                    "count": row["count"],
+                    "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                    "total_size_formatted": format_bytes(row["total_size"] or 0),
+                }
+                for row in debrid_by_service
+            ],
+        },
+    }
+
+    # Save to cache
+    await database.execute(
+        """
+            INSERT INTO metrics_cache (id, data, timestamp) 
+            VALUES (1, :data, :timestamp)
+            ON CONFLICT(id) DO UPDATE SET data = :data, timestamp = :timestamp
+        """,
+        {"data": orjson.dumps(metrics_data).decode("utf-8"), "timestamp": current_time},
     )
+
+    return JSONResponse(metrics_data)
