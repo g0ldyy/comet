@@ -79,17 +79,18 @@ def config_check(b64config: str):
         return default_config  # if it doesn't pass, return default config
 
 
-def bytes_to_size(bytes: int):
-    sizes = ["Bytes", "KB", "MB", "GB", "TB"]
-    if bytes == 0:
-        return "0 Byte"
+def format_bytes(bytes_value):
+    if bytes_value is None:
+        return "0 B"
 
-    i = 0
-    while bytes >= 1024 and i < len(sizes) - 1:
-        bytes /= 1024
-        i += 1
+    # PostgreSQL compatibility
+    bytes_value = float(bytes_value)
 
-    return f"{round(bytes, 2)} {sizes[i]}"
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if bytes_value < 1024.0:
+            return f"{bytes_value:.1f} {unit}"
+        bytes_value /= 1024.0
+    return f"{bytes_value:.1f} PB"
 
 
 def size_to_bytes(size_str: str):
@@ -318,7 +319,7 @@ def format_title(
         info_parts.append(f"👤 {seeders}")
 
     if show_size:
-        info_parts.append(f"💾 {bytes_to_size(size)}")
+        info_parts.append(f"💾 {format_bytes(size)}")
 
     if show_tracker:
         info_parts.append(f"🔎 {tracker}")

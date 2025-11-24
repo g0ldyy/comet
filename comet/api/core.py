@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic
 
 from comet.utils.models import settings, web_config, database
-from comet.utils.general import config_check
+from comet.utils.general import config_check, format_bytes
 from comet.utils.log_levels import get_level_info
 from comet.utils.bandwidth_monitor import bandwidth_monitor
 from comet.debrid.manager import get_debrid_extension
@@ -310,7 +310,7 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
             base_connection.update(
                 {
                     "bytes_transferred": metrics.bytes_transferred,
-                    "bytes_transferred_formatted": bandwidth_monitor.format_bytes(
+                    "bytes_transferred_formatted": format_bytes(
                         metrics.bytes_transferred
                     ),
                     "current_speed": metrics.current_speed,
@@ -332,11 +332,11 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
             "connections": connections,
             "global_stats": {
                 "total_bytes_alltime": global_stats.get("total_bytes_alltime", 0),
-                "total_bytes_alltime_formatted": bandwidth_monitor.format_bytes(
+                "total_bytes_alltime_formatted": format_bytes(
                     global_stats.get("total_bytes_alltime", 0)
                 ),
                 "total_bytes_session": global_stats.get("total_bytes_session", 0),
-                "total_bytes_session_formatted": bandwidth_monitor.format_bytes(
+                "total_bytes_session_formatted": format_bytes(
                     global_stats.get("total_bytes_session", 0)
                 ),
                 "total_current_speed": global_stats.get("total_current_speed", 0),
@@ -488,20 +488,6 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
     """,
         {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
     )
-
-    # Format helper function
-    def format_bytes(bytes_value):
-        if bytes_value is None:
-            return "0 B"
-
-        # PostgreSQL compatibility
-        bytes_value = float(bytes_value)
-
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if bytes_value < 1024.0:
-                return f"{bytes_value:.1f} {unit}"
-            bytes_value /= 1024.0
-        return f"{bytes_value:.1f} PB"
 
     # Process quality stats
     if quality_stats:
