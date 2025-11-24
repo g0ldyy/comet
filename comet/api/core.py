@@ -373,13 +373,29 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
     total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
 
     # Torrents by tracker
-    tracker_stats = await database.fetch_all("""
-        SELECT tracker, COUNT(*) as count, AVG(seeders) as avg_seeders, AVG(size) as avg_size
+    # Torrents by tracker
+    top_trackers = await database.fetch_all("""
+        SELECT tracker, COUNT(*) as count
         FROM torrents 
         GROUP BY tracker 
         ORDER BY count DESC 
         LIMIT 5
     """)
+
+    tracker_stats = []
+    for row in top_trackers:
+        stats = await database.fetch_one(
+            "SELECT AVG(seeders) as avg_seeders, AVG(size) as avg_size FROM torrents WHERE tracker = :tracker",
+            {"tracker": row["tracker"]},
+        )
+        tracker_stats.append(
+            {
+                "tracker": row["tracker"],
+                "count": row["count"],
+                "avg_seeders": stats["avg_seeders"],
+                "avg_size": stats["avg_size"],
+            }
+        )
 
     # Size distribution
     size_distribution = await database.fetch_all("""
@@ -407,6 +423,7 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
         FROM torrents
     """)
 
+    # Media type distribution
     # Media type distribution
     media_distribution = await database.fetch_all("""
         SELECT 
