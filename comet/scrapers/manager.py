@@ -262,10 +262,6 @@ class TorrentManager:
 
     async def filter_manager(self, torrents: list):
         if len(torrents) == 0:
-            logger.log(
-                "SCRAPER",
-                f"Scraper {scraper_name} found 0 torrents.",
-            )
             return
 
         new_torrents = [
