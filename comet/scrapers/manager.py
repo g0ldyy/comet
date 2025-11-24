@@ -36,6 +36,81 @@ from .torbox import get_torbox
 from .nyaa import get_nyaa
 
 
+def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content):
+    results = []
+    for torrent in torrents:
+        torrent_title = torrent["title"]
+        if "sample" in torrent_title.lower() or torrent_title == "":
+            continue
+
+        parsed = parse(torrent_title)
+
+        if remove_adult_content and parsed.adult:
+            continue
+
+        if not parsed.parsed_title or not title_match(
+            title, parsed.parsed_title, aliases=aliases
+        ):
+            continue
+
+        if year and parsed.year:
+            if year_end is not None:
+                if not (year <= parsed.year <= year_end):
+                    continue
+            else:
+                if year < (parsed.year - 1) or year > (parsed.year + 1):
+                    continue
+
+        torrent["parsed"] = parsed
+        results.append(torrent)
+    return results
+
+
+def rank_worker(
+    torrents,
+    debrid_service,
+    rtn_settings,
+    rtn_ranking,
+    max_results_per_resolution,
+    max_size,
+    cached_only,
+    remove_trash,
+):
+    ranked_torrents = set()
+    for info_hash, torrent in torrents.items():
+        if cached_only and debrid_service != "torrent" and not torrent["cached"]:
+            continue
+
+        if max_size != 0 and torrent["size"] > max_size:
+            continue
+
+        parsed = torrent["parsed"]
+        raw_title = torrent["title"]
+
+        is_fetchable, failed_keys = check_fetch(parsed, rtn_settings)
+        rank = get_rank(parsed, rtn_settings, rtn_ranking)
+
+        if remove_trash:
+            if not is_fetchable or rank < rtn_settings.options["remove_ranks_under"]:
+                continue
+
+        try:
+            ranked_torrents.add(
+                Torrent(
+                    infohash=info_hash,
+                    raw_title=raw_title,
+                    data=parsed,
+                    fetch=is_fetchable,
+                    rank=rank,
+                    lev_ratio=0.0,
+                )
+            )
+        except Exception:
+            pass
+
+    return sort_torrents(ranked_torrents, max_results_per_resolution)
+
+
 class TorrentManager:
     def __init__(
         self,
@@ -227,39 +302,6 @@ class TorrentManager:
 
         await database.execute_many(query, values)
 
-    async def filter(self, torrents: list):
-        title = self.title
-        year = self.year
-        year_end = self.year_end
-        aliases = self.aliases
-        remove_adult_content = self.remove_adult_content
-
-        for torrent in torrents:
-            torrent_title = torrent["title"]
-            if "sample" in torrent_title.lower() or torrent_title == "":
-                continue
-
-            parsed = parse(torrent_title)
-
-            if remove_adult_content and parsed.adult:
-                continue
-
-            if not parsed.parsed_title or not title_match(
-                title, parsed.parsed_title, aliases=aliases
-            ):
-                continue
-
-            if year and parsed.year:
-                if year_end is not None:
-                    if not (year <= parsed.year <= year_end):
-                        continue
-                else:
-                    if year < (parsed.year - 1) or year > (parsed.year + 1):
-                        continue
-
-            torrent["parsed"] = parsed
-            self.ready_to_cache.append(torrent)
-
     async def filter_manager(self, scraper_name: str, torrents: list):
         if len(torrents) == 0:
             logger.log("SCRAPER", f"Scraper {scraper_name} found 0 torrents.")
@@ -280,14 +322,29 @@ class TorrentManager:
             f"Scraper {scraper_name} found {len(torrents)} torrents, {len(new_torrents)} new.",
         )
 
+        if not new_torrents:
+            return
+
+        loop = asyncio.get_running_loop()
         chunk_size = 50
         tasks = [
-            self.filter(new_torrents[i : i + chunk_size])
+            loop.run_in_executor(
+                None,
+                filter_worker,
+                new_torrents[i : i + chunk_size],
+                self.title,
+                self.year,
+                self.year_end,
+                self.aliases,
+                self.remove_adult_content,
+            )
             for i in range(0, len(new_torrents), chunk_size)
         ]
-        await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
+        for result in results:
+            self.ready_to_cache.extend(result)
 
-    def rank_torrents(
+    async def rank_torrents(
         self,
         rtn_settings: CometSettingsModel,
         rtn_ranking: DefaultRanking,
@@ -296,48 +353,18 @@ class TorrentManager:
         cached_only: int,
         remove_trash: int,
     ):
-        ranked_torrents = set()
-        for info_hash, torrent in self.torrents.items():
-            if (
-                cached_only
-                and self.debrid_service != "torrent"
-                and not torrent["cached"]
-            ):
-                continue
-
-            if max_size != 0 and torrent["size"] > max_size:
-                continue
-
-            parsed = torrent["parsed"]
-
-            raw_title = torrent["title"]
-
-            is_fetchable, failed_keys = check_fetch(parsed, rtn_settings)
-            rank = get_rank(parsed, rtn_settings, rtn_ranking)
-
-            if remove_trash:
-                if (
-                    not is_fetchable
-                    or rank < rtn_settings.options["remove_ranks_under"]
-                ):
-                    continue
-
-            try:
-                ranked_torrents.add(
-                    Torrent(
-                        infohash=info_hash,
-                        raw_title=raw_title,
-                        data=parsed,
-                        fetch=is_fetchable,
-                        rank=rank,
-                        lev_ratio=0.0,
-                    )
-                )
-            except Exception:
-                pass
-
-        self.ranked_torrents = sort_torrents(
-            ranked_torrents, max_results_per_resolution
+        loop = asyncio.get_running_loop()
+        self.ranked_torrents = await loop.run_in_executor(
+            None,
+            rank_worker,
+            self.torrents,
+            self.debrid_service,
+            rtn_settings,
+            rtn_ranking,
+            max_results_per_resolution,
+            max_size,
+            cached_only,
+            remove_trash,
         )
 
     async def get_and_cache_debrid_availability(self, session: aiohttp.ClientSession):

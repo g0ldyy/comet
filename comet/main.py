@@ -53,6 +53,9 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # loop = asyncio.get_running_loop()
+    # loop.set_debug(True)
+
     await setup_database()
     await download_best_trackers()
 
