@@ -288,14 +288,14 @@ def start_log():
         f"Jackettio Scraper: {settings.format_scraper_mode(settings.SCRAPE_JACKETTIO)}{jackettio_url}",
     )
 
-    debridio_api_key = (
-        f" - {settings.DEBRIDIO_API_KEY}"
+    debridio_info = (
+        f" - {settings.DEBRIDIO_API_KEY} - {settings.DEBRIDIO_PROVIDER}|{settings.DEBRIDIO_PROVIDER_KEY}"
         if settings.is_any_context_enabled(settings.SCRAPE_DEBRIDIO)
         else ""
     )
     logger.log(
         "COMET",
-        f"Debridio Scraper: {settings.format_scraper_mode(settings.SCRAPE_DEBRIDIO)}{debridio_api_key}",
+        f"Debridio Scraper: {settings.format_scraper_mode(settings.SCRAPE_DEBRIDIO)}{debridio_info}",
     )
 
     torbox_api_key = (

@@ -18,7 +18,7 @@ from comet.utils.logger import logger
 from comet.utils.models import settings, database
 from comet.utils.general import is_video, default_dump
 
-info_hash_pattern = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
+INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
 
 
 def extract_trackers_from_magnet(magnet_uri: str):
@@ -41,7 +41,7 @@ async def download_torrent(session: aiohttp.ClientSession, url: str):
 
             location = response.headers.get("Location", "")
             if location:
-                match = info_hash_pattern.search(location)
+                match = INFO_HASH_PATTERN.search(location)
                 if match:
                     info_hash = match.group(1)
                     if len(info_hash) == 32:
