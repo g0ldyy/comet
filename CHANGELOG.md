@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.28.0](https://github.com/g0ldyy/comet/compare/v2.27.0...v2.28.0) (2025-11-24)
+
+
+### Features
+
+* fix Debridio scraper ([85c0aee](https://github.com/g0ldyy/comet/commit/85c0aee7dcf7c3a641bfaa079c4c7b5428e298bf))
+* fix Debridio scraper ([3f93e1e](https://github.com/g0ldyy/comet/commit/3f93e1e783a6b491c5d3837b08eae4fded1cc396))
+
 ## [2.27.0](https://github.com/g0ldyy/comet/compare/v2.26.0...v2.27.0) (2025-11-24)
 
 
