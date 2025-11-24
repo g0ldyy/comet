@@ -495,7 +495,7 @@ async def playback(
             # Retrieve torrent sources from database for private trackers
             torrent_data = await database.fetch_one(
                 """
-                SELECT sources
+                SELECT sources, media_id
                 FROM torrents
                 WHERE info_hash = :info_hash
                 LIMIT 1
@@ -504,8 +504,33 @@ async def playback(
             )
 
             sources = []
-            if torrent_data and torrent_data["sources"]:
-                sources = orjson.loads(torrent_data["sources"])
+            media_id = None
+            if torrent_data:
+                if torrent_data["sources"]:
+                    sources = orjson.loads(torrent_data["sources"])
+                media_id = torrent_data["media_id"]
+
+            aliases = {}
+            if media_id:
+                metadata_scraper = MetadataScraper(session)
+                media_type = "series" if season is not None else "movie"
+
+                if "tt" in media_id:
+                    full_media_id = (
+                        f"{media_id}:{season}:{episode}"
+                        if media_type == "series"
+                        else media_id
+                    )
+                else:
+                    full_media_id = (
+                        f"kitsu:{media_id}:{episode}"
+                        if media_type == "series"
+                        else f"kitsu:{media_id}"
+                    )
+
+                _, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+                    media_type, full_media_id
+                )
 
             debrid = get_debrid(
                 session,
@@ -516,7 +541,7 @@ async def playback(
                 ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
-                hash, index, name, torrent_name, season, episode, sources
+                hash, index, name, torrent_name, season, episode, sources, aliases
             )
             if not download_url:
                 return FileResponse(

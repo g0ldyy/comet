@@ -178,6 +178,7 @@ class StremThru:
         season: int,
         episode: int,
         sources: list = None,
+        aliases: dict = None,
     ):
         try:
             magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name)}"
@@ -236,7 +237,9 @@ class StremThru:
                 debrid_files_parsed.append(file)
 
                 if not filename_parsed.parsed_title or not title_match(
-                    name_parsed.parsed_title, filename_parsed.parsed_title
+                    name_parsed.parsed_title,
+                    filename_parsed.parsed_title,
+                    aliases=aliases,
                 ):
                     continue
 
