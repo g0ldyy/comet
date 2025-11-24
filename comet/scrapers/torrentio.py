@@ -8,7 +8,7 @@ from comet.utils.general import (
 )
 
 
-data_pattern = re.compile(
+DATA_PATTERN = re.compile(
     r"(?:👤 (\d+) )?💾 ([\d.]+ [KMGT]B)(?: ⚙️ (\w+))?", re.IGNORECASE
 )
 
@@ -28,7 +28,7 @@ async def get_torrentio(manager, url: str):
             else:
                 title = title_full.split("\n")[0]
 
-            match = data_pattern.search(title_full)
+            match = DATA_PATTERN.search(title_full)
 
             seeders = int(match.group(1)) if match.group(1) else None
             size = size_to_bytes(match.group(2))

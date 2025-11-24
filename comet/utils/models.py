@@ -84,6 +84,8 @@ class AppSettings(BaseSettings):
     JACKETTIO_URL: Optional[Union[str, List[str]]] = None
     SCRAPE_DEBRIDIO: Union[bool, str] = False
     DEBRIDIO_API_KEY: Optional[str] = None
+    DEBRIDIO_PROVIDER: Optional[str] = None
+    DEBRIDIO_PROVIDER_KEY: Optional[str] = None
     SCRAPE_TORBOX: Union[bool, str] = False
     TORBOX_API_KEY: Optional[str] = None
     CUSTOM_HEADER_HTML: Optional[str] = None
