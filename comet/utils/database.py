@@ -320,6 +320,16 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS metrics_cache (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    data TEXT,
+                    timestamp INTEGER
+                )
+            """
+        )
+
         # =============================================================================
         # TORRENTS TABLE INDEXES - Most critical for performance
         # =============================================================================

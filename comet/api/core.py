@@ -4,6 +4,7 @@ import secrets
 import uuid
 import time
 import re
+import orjson
 
 from loguru import logger as loguru_logger
 
@@ -369,10 +370,19 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
 
     current_time = time.time()
 
+    # Try to get from cache
+    cached_metrics = await database.fetch_one(
+        "SELECT data, timestamp FROM metrics_cache WHERE id = 1"
+    )
+    if (
+        cached_metrics
+        and cached_metrics["timestamp"] + settings.METRICS_CACHE_TTL > current_time
+    ):
+        return JSONResponse(orjson.loads(cached_metrics["data"]))
+
     # 📊 TORRENTS METRICS
     total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
 
-    # Torrents by tracker
     # Torrents by tracker
     top_trackers = await database.fetch_all("""
         SELECT tracker, COUNT(*) as count
@@ -423,7 +433,6 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
         FROM torrents
     """)
 
-    # Media type distribution
     # Media type distribution
     media_distribution = await database.fetch_all("""
         SELECT 
@@ -506,55 +515,65 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
     else:
         avg_seeders = max_seeders = min_seeders = avg_size = max_size = 0
 
-    return JSONResponse(
-        {
-            "torrents": {
-                "total": total_torrents or 0,
-                "by_tracker": [
-                    {
-                        "tracker": row["tracker"],
-                        "count": row["count"],
-                        "avg_seeders": round(float(row["avg_seeders"] or 0), 1),
-                        "avg_size_formatted": format_bytes(row["avg_size"] or 0),
-                    }
-                    for row in tracker_stats
-                ],
-                "size_distribution": [
-                    {"range": row["size_range"], "count": row["count"]}
-                    for row in size_distribution
-                ],
-                "quality": {
-                    "avg_seeders": round(avg_seeders, 1),
-                    "max_seeders": int(max_seeders),
-                    "min_seeders": int(min_seeders),
-                    "avg_size_formatted": format_bytes(avg_size),
-                    "max_size_formatted": format_bytes(max_size),
-                },
-                "media_distribution": [
-                    {"type": row["media_type"], "count": row["count"]}
-                    for row in media_distribution
-                ],
+    metrics_data = {
+        "torrents": {
+            "total": total_torrents or 0,
+            "by_tracker": [
+                {
+                    "tracker": row["tracker"],
+                    "count": row["count"],
+                    "avg_seeders": round(float(row["avg_seeders"] or 0), 1),
+                    "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                }
+                for row in tracker_stats
+            ],
+            "size_distribution": [
+                {"range": row["size_range"], "count": row["count"]}
+                for row in size_distribution
+            ],
+            "quality": {
+                "avg_seeders": round(avg_seeders, 1),
+                "max_seeders": int(max_seeders),
+                "min_seeders": int(min_seeders),
+                "avg_size_formatted": format_bytes(avg_size),
+                "max_size_formatted": format_bytes(max_size),
             },
-            "searches": {
-                "total_unique": total_unique_searches or 0,
-                "last_24h": searches_24h or 0,
-                "last_7d": searches_7d or 0,
-                "last_30d": searches_30d or 0,
-            },
-            "scrapers": {
-                "active_locks": active_locks or 0,
-            },
-            "debrid_cache": {
-                "total": total_debrid_cache or 0,
-                "by_service": [
-                    {
-                        "service": row["debrid_service"],
-                        "count": row["count"],
-                        "avg_size_formatted": format_bytes(row["avg_size"] or 0),
-                        "total_size_formatted": format_bytes(row["total_size"] or 0),
-                    }
-                    for row in debrid_by_service
-                ],
-            },
-        }
+            "media_distribution": [
+                {"type": row["media_type"], "count": row["count"]}
+                for row in media_distribution
+            ],
+        },
+        "searches": {
+            "total_unique": total_unique_searches or 0,
+            "last_24h": searches_24h or 0,
+            "last_7d": searches_7d or 0,
+            "last_30d": searches_30d or 0,
+        },
+        "scrapers": {
+            "active_locks": active_locks or 0,
+        },
+        "debrid_cache": {
+            "total": total_debrid_cache or 0,
+            "by_service": [
+                {
+                    "service": row["debrid_service"],
+                    "count": row["count"],
+                    "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                    "total_size_formatted": format_bytes(row["total_size"] or 0),
+                }
+                for row in debrid_by_service
+            ],
+        },
+    }
+
+    # Save to cache
+    await database.execute(
+        """
+            INSERT INTO metrics_cache (id, data, timestamp) 
+            VALUES (1, :data, :timestamp)
+            ON CONFLICT(id) DO UPDATE SET data = :data, timestamp = :timestamp
+        """,
+        {"data": orjson.dumps(metrics_data).decode("utf-8"), "timestamp": current_time},
     )
+
+    return JSONResponse(metrics_data)
