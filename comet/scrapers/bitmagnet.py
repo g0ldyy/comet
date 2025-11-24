@@ -98,4 +98,4 @@ async def get_bitmagnet(manager, session: aiohttp.ClientSession, url: str):
 
         offset += batch_size * limit
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("BitMagnet", torrents)

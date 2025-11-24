@@ -260,8 +260,9 @@ class TorrentManager:
             torrent["parsed"] = parsed
             self.ready_to_cache.append(torrent)
 
-    async def filter_manager(self, torrents: list):
+    async def filter_manager(self, scraper_name: str, torrents: list):
         if len(torrents) == 0:
+            logger.log("SCRAPER", f"Scraper {scraper_name} found 0 torrents.")
             return
 
         new_torrents = [
@@ -269,12 +270,11 @@ class TorrentManager:
             for torrent in torrents
             if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
         ]
-        
+
         self.seen_hashes.update(
             (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
         )
 
-        scraper_name = torrents[0]["tracker"].split("|")[0]
         logger.log(
             "SCRAPER",
             f"Scraper {scraper_name} found {len(torrents)} torrents, {len(new_torrents)} new.",

@@ -31,4 +31,4 @@ async def get_zilean(manager, session: aiohttp.ClientSession, url: str):
             f"Exception while getting torrents for {manager.title} with Zilean ({url}): {e}"
         )
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("Zilean", torrents)

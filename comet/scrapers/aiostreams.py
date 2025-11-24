@@ -40,4 +40,4 @@ async def get_aiostreams(manager, url: str, uuid_password: str | None = None):
     except Exception as e:
         log_scraper_error("AIOStreams", url, manager.media_id, e)
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("AIOStreams", torrents)

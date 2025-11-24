@@ -57,4 +57,4 @@ async def get_stremthru(manager, session: aiohttp.ClientSession, url: str):
     except Exception as e:
         log_scraper_error("StremThru", url, manager.media_only_id, e)
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("StremThru", torrents)

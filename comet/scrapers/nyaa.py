@@ -123,4 +123,4 @@ async def get_nyaa(manager):
     except Exception as e:
         log_scraper_error("Nyaa", "https://nyaa.si", manager.media_id, e)
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("Nyaa", torrents)

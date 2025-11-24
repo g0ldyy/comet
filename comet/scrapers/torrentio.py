@@ -48,4 +48,4 @@ async def get_torrentio(manager, url: str):
     except Exception as e:
         log_scraper_error("Torrentio", url, manager.media_id, e)
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("Torrentio", torrents)

@@ -44,4 +44,4 @@ async def get_mediafusion(manager, url: str, api_password: str | None):
         log_scraper_error("MediaFusion", url, manager.media_id, e)
         pass
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("MediaFusion", torrents)

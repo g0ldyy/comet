@@ -44,4 +44,4 @@ async def get_jackettio(manager, url: str):
     except Exception as e:
         log_scraper_error("Jackettio", url, manager.media_id, e)
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("Jackettio", torrents)

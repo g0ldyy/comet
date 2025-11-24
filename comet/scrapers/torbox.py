@@ -30,4 +30,4 @@ async def get_torbox(manager, session: aiohttp.ClientSession):
     except Exception as e:
         log_scraper_error("TorBox", settings.TORBOX_API_KEY, manager.media_only_id, e)
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("TorBox", torrents)

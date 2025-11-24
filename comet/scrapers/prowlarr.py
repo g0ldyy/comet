@@ -121,4 +121,4 @@ async def get_prowlarr(manager, session: aiohttp.ClientSession, title: str, seen
             f"Exception while getting torrents for {title} with Prowlarr: {e}"
         )
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("Prowlarr", torrents)

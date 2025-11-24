@@ -125,4 +125,4 @@ async def get_jackett(manager, session: aiohttp.ClientSession, title: str, seen:
             f"Exception while getting torrents for {title} with Jackett: {e}"
         )
 
-    await manager.filter_manager(torrents)
+    await manager.filter_manager("Jackett", torrents)
