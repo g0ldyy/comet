@@ -141,11 +141,8 @@ async def get_cached_availability(
         query = (
             base_query
             + """
-            AND (
-                ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
-                AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
-                OR (season IS NULL AND episode IS NULL)
-            )
+            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
+            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         """
         )
         results = await database.fetch_all(query, params)
@@ -167,11 +164,8 @@ async def get_cached_availability(
         query = (
             base_query
             + """
-            AND (
-                ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
-                AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
-                OR (season IS NULL AND episode IS NULL)
-            )
+            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
+            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         """
         )
         results = await database.fetch_all(query, params)
