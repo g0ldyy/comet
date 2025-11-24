@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.27.0](https://github.com/g0ldyy/comet/compare/v2.26.0...v2.27.0) (2025-11-24)
+
+
+### Features
+
+* add handling for empty torrent lists in filter_manager ([aef2549](https://github.com/g0ldyy/comet/commit/aef2549f3697707a433a4ff459703a27aa1623b4))
+* add logging for scraper activity in TorrentManager ([6324112](https://github.com/g0ldyy/comet/commit/63241126a2980f54230412e4a63e904b9e0804a5))
+* add metrics caching functionality and update settings for metrics cache TTL ([e3c269b](https://github.com/g0ldyy/comet/commit/e3c269ba050be48a834bbf9cbe0609415362cee7))
+
 ## [2.26.0](https://github.com/g0ldyy/comet/compare/v2.25.2...v2.26.0) (2025-11-23)
 
 
