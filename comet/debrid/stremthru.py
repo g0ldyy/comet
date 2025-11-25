@@ -1,14 +1,14 @@
-import aiohttp
 import asyncio
-
-from RTN import parse, title_match
 from urllib.parse import quote, unquote
 
-from comet.utils.models import settings
-from comet.utils.general import is_video
-from comet.utils.debrid import cache_availability
-from comet.utils.logger import logger
-from comet.utils.torrent import torrent_update_queue
+import aiohttp
+from RTN import parse, title_match
+
+from comet.core.logger import logger
+from comet.core.models import settings
+from comet.services.debrid_cache import cache_availability
+from comet.services.torrent_manager import torrent_update_queue
+from comet.utils.parsing import is_video
 
 
 class StremThru:

@@ -1,6 +1,6 @@
 import aiohttp
 
-from comet.utils.logger import logger
+from comet.core.logger import logger
 
 
 class CinemataClient:

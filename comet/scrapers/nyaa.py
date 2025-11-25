@@ -1,12 +1,15 @@
-import re
 import asyncio
+import re
 
+import aiohttp
 from curl_cffi import requests
 
-from comet.utils.general import log_scraper_error, size_to_bytes
-from comet.utils.torrent import extract_trackers_from_magnet
-from comet.utils.logger import logger
-from comet.utils.models import settings
+from comet.core.logger import log_scraper_error, logger
+from comet.core.models import settings
+from comet.scrapers.base import BaseScraper
+from comet.scrapers.models import ScrapeRequest
+from comet.services.torrent_manager import extract_trackers_from_magnet
+from comet.utils.formatting import size_to_bytes
 
 PAGE_PATTERN = re.compile(r'(\d+)(?=">\d+<\/a><\/li><li class="next">)')
 MAGNET_PATTERN = re.compile(r'href="(magnet:[^"]+)"')
@@ -110,17 +113,21 @@ async def get_all_nyaa_pages(session: requests.AsyncSession, query: str):
     return all_torrents
 
 
-async def get_nyaa(manager):
-    torrents = []
+class NyaaScraper(BaseScraper):
+    def __init__(self, manager, session: aiohttp.ClientSession):
+        super().__init__(manager, session)
 
-    try:
-        async with requests.AsyncSession() as session:
-            query = manager.title
+    async def scrape(self, request: ScrapeRequest):
+        torrents = []
 
-            all_torrents = await get_all_nyaa_pages(session, query)
-            torrents.extend(all_torrents)
+        try:
+            async with requests.AsyncSession() as session:
+                query = request.title
 
-    except Exception as e:
-        log_scraper_error("Nyaa", "https://nyaa.si", manager.media_id, e)
+                all_torrents = await get_all_nyaa_pages(session, query)
+                torrents.extend(all_torrents)
 
-    await manager.filter_manager("Nyaa", torrents)
+        except Exception as e:
+            log_scraper_error("Nyaa", "https://nyaa.si", request.media_id, e)
+
+        return torrents
