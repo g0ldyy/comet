@@ -108,7 +108,7 @@ class ScraperManager:
                         scraper = scraper_class(self, session, url, password)
                         tasks.append(
                             self._scrape_wrapper(
-                                f"{scraper_name_clean} #{i+1}", scraper, request
+                                f"{scraper_name_clean} #{i + 1}", scraper, request
                             )
                         )
 
@@ -121,7 +121,7 @@ class ScraperManager:
                         scraper = scraper_class(self, session, url, credentials)
                         tasks.append(
                             self._scrape_wrapper(
-                                f"{scraper_name_clean} #{i+1}", scraper, request
+                                f"{scraper_name_clean} #{i + 1}", scraper, request
                             )
                         )
 
@@ -139,12 +139,14 @@ class ScraperManager:
                         scraper = scraper_class(self, session, url)
                         tasks.append(
                             self._scrape_wrapper(
-                                f"{scraper_name_clean} #{i+1}", scraper, request
+                                f"{scraper_name_clean} #{i + 1}", scraper, request
                             )
                         )
                 else:
                     scraper = scraper_class(self, session)
-                    tasks.append(self._scrape_wrapper(scraper_name_clean, scraper, request))
+                    tasks.append(
+                        self._scrape_wrapper(scraper_name_clean, scraper, request)
+                    )
 
         for future in asyncio.as_completed(tasks):
             try:
