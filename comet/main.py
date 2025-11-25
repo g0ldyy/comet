@@ -25,7 +25,6 @@ from comet.utils.database import (
     cleanup_expired_locks,
     cleanup_expired_sessions,
 )
-from comet.utils.trackers import download_best_trackers
 from comet.utils.general import associate_urls_credentials
 from comet.utils.logger import logger
 from comet.utils.models import settings
@@ -57,7 +56,6 @@ async def lifespan(app: FastAPI):
     # loop.set_debug(True)
 
     await setup_database()
-    await download_best_trackers()
 
     # Load anime ID mapping for enhanced metadata and anime detection
     async with aiohttp.ClientSession() as session:
