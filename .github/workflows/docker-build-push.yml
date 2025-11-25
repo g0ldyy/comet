@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - development
   workflow_dispatch:
 
 jobs:
@@ -49,6 +50,8 @@ jobs:
       run: |
         if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
           echo "tags=ghcr.io/g0ldyy/comet:latest,docker.io/g0ldyy/comet:latest" >> $GITHUB_OUTPUT
+        elif [ "${{ steps.branch-name.outputs.branch }}" = "development" ]; then
+          echo "tags=ghcr.io/g0ldyy/comet:dev,docker.io/g0ldyy/comet:dev" >> $GITHUB_OUTPUT
         else
           echo "tags=ghcr.io/g0ldyy/comet:${{ steps.branch-name.outputs.branch }},docker.io/g0ldyy/comet:${{ steps.branch-name.outputs.branch }}" >> $GITHUB_OUTPUT
         fi
