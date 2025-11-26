@@ -177,6 +177,8 @@ class YGGTorrentScraper(BaseScraper):
         total_results = 0
         if offset == 0:
             count_match = RESULTS_COUNT_PATTERN.search(html_content)
+            if not count_match:
+                return [], 0
             total_results = int(count_match.group(1))
 
         tasks = []
