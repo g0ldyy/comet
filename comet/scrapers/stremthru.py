@@ -44,17 +44,17 @@ class StremthruScraper(BaseScraper):
                     if size is None or info_hash is None:
                         continue
 
-                    torrent = {
-                        "title": title,
-                        "infoHash": info_hash,
-                        "fileIndex": None,
-                        "seeders": None,
-                        "size": size,
-                        "tracker": "StremThru",
-                        "sources": [],
-                    }
-
-                    torrents.append(torrent)
+                    torrents.append(
+                        {
+                            "title": title,
+                            "infoHash": info_hash,
+                            "fileIndex": None,
+                            "seeders": None,
+                            "size": size,
+                            "tracker": "StremThru",
+                            "sources": [],
+                        }
+                    )
 
                 except Exception as e:
                     logger.warning(f"Error parsing torrent item from StremThru: {e}")

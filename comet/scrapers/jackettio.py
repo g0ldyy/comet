@@ -37,17 +37,15 @@ class JackettioScraper(BaseScraper):
                 tracker = match.group(3) if match else "Jackettio"
 
                 torrents.append(
-                    torrents.append(
-                        {
-                            "title": title,
-                            "infoHash": torrent["infoHash"],
-                            "fileIndex": None,
-                            "seeders": seeders,
-                            "size": size,
-                            "tracker": f"Jackettio|{tracker}",
-                            "sources": None,
-                        }
-                    )
+                    {
+                        "title": title,
+                        "infoHash": torrent["infoHash"],
+                        "fileIndex": None,
+                        "seeders": seeders,
+                        "size": size,
+                        "tracker": f"Jackettio|{tracker}",
+                        "sources": None,
+                    }
                 )
         except Exception as e:
             log_scraper_error("Jackettio", self.url, request.media_id, e)

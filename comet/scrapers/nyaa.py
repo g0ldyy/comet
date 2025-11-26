@@ -43,16 +43,17 @@ def extract_torrent_data(html_content: str):
         except Exception:
             size_bytes = 0
 
-        torrent = {
-            "title": titles[i],
-            "infoHash": info_hash,
-            "fileIndex": None,
-            "seeders": seeders[i],
-            "size": size_bytes,
-            "tracker": "Nyaa",
-            "sources": extract_trackers_from_magnet(magnet),
-        }
-        torrents.append(torrent)
+        torrents.append(
+            {
+                "title": titles[i],
+                "infoHash": info_hash,
+                "fileIndex": None,
+                "seeders": seeders[i],
+                "size": size_bytes,
+                "tracker": "Nyaa",
+                "sources": extract_trackers_from_magnet(magnet),
+            }
+        )
 
     return torrents
 
