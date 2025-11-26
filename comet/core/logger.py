@@ -307,6 +307,16 @@ def log_startup_info(settings):
         f"TorBox Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORBOX)}{torbox_api_key}",
     )
 
+    yggtorrent_info = (
+        f" - Username: {settings.YGGTORRENT_USERNAME} - Password: {settings.YGGTORRENT_PASSWORD}"
+        if settings.is_any_context_enabled(settings.SCRAPE_YGGTORRENT)
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"YGGTorrent Scraper: {settings.format_scraper_mode(settings.SCRAPE_YGGTORRENT)}{yggtorrent_info}",
+    )
+
     debrid_stream_proxy_display = (
         f" - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}"
         if settings.PROXY_DEBRID_STREAM
