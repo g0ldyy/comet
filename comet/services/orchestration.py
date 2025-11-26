@@ -66,7 +66,6 @@ class TorrentManager:
             year_end=self.year_end,
             season=self.season,
             episode=self.episode,
-            aliases=self.aliases,
             context=self.context,
         )
 
