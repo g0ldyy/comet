@@ -139,11 +139,7 @@ async def playback(
                 },
             )
 
-        if (
-            settings.PROXY_DEBRID_STREAM
-            and settings.PROXY_DEBRID_STREAM_PASSWORD
-            == config["debridStreamProxyPassword"]
-        ):
+        if should_proxy:
             return await custom_handle_stream_request(
                 request.method,
                 download_url,
