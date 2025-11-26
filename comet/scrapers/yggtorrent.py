@@ -220,12 +220,16 @@ class YGGTorrentScraper(BaseScraper):
         semaphore = asyncio.Semaphore(limit)
 
         # Fetch page 0 first to get total results
-        results, total_results = await self._scrape_page(self._domain, request.title, 0, semaphore)
+        results, total_results = await self._scrape_page(
+            self._domain, request.title, 0, semaphore
+        )
 
         if total_results > 50:
             tasks = []
             for offset in range(50, total_results, 50):
-                tasks.append(self._scrape_page(self._domain, request.title, offset, semaphore))
+                tasks.append(
+                    self._scrape_page(self._domain, request.title, offset, semaphore)
+                )
 
             if tasks:
                 pages_results = await asyncio.gather(*tasks)

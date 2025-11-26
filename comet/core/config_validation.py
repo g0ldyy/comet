@@ -11,9 +11,6 @@ def config_check(b64config: str):
     try:
         config = orjson.loads(base64.b64decode(b64config).decode())
 
-        if "indexers" in config:
-            return False
-
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump()
 
