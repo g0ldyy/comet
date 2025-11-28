@@ -1,34 +1,42 @@
 import aiohttp
 
-from comet.utils.logger import logger
+from comet.core.logger import logger
+from comet.scrapers.base import BaseScraper
+from comet.scrapers.models import ScrapeRequest
 
 
-async def get_zilean(manager, session: aiohttp.ClientSession, url: str):
-    torrents = []
-    try:
-        show = (
-            f"&season={manager.season}&episode={manager.episode}"
-            if manager.media_type == "series"
-            else ""
-        )
-        data = await session.get(f"{url}/dmm/filtered?query={manager.title}{show}")
-        data = await data.json()
+class ZileanScraper(BaseScraper):
+    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+        super().__init__(manager, session, url)
 
-        for result in data:
-            object = {
-                "title": result["raw_title"],
-                "infoHash": result["info_hash"].lower(),
-                "fileIndex": None,
-                "seeders": None,
-                "size": int(result["size"]),
-                "tracker": "DMM",
-                "sources": [],
-            }
+    async def scrape(self, request: ScrapeRequest):
+        torrents = []
+        try:
+            show = (
+                f"&season={request.season}&episode={request.episode}"
+                if request.media_type == "series"
+                else ""
+            )
+            data = await self.session.get(
+                f"{self.url}/dmm/filtered?query={request.title}{show}"
+            )
+            data = await data.json()
 
-            torrents.append(object)
-    except Exception as e:
-        logger.warning(
-            f"Exception while getting torrents for {manager.title} with Zilean ({url}): {e}"
-        )
+            for result in data:
+                torrents.append(
+                    {
+                        "title": result["raw_title"],
+                        "infoHash": result["info_hash"].lower(),
+                        "fileIndex": None,
+                        "seeders": None,
+                        "size": int(result["size"]),
+                        "tracker": "DMM",
+                        "sources": [],
+                    }
+                )
+        except Exception as e:
+            logger.warning(
+                f"Exception while getting torrents for {request.title} with Zilean ({self.url}): {e}"
+            )
 
-    await manager.filter_manager("Zilean", torrents)
+        return torrents

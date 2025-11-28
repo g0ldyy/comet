@@ -1,13 +1,14 @@
 import asyncio
-import aiohttp
 import time
-
 from dataclasses import dataclass
 
-from comet.utils.logger import logger
-from comet.utils.models import settings, database
-from comet.scrapers.manager import TorrentManager
+import aiohttp
+
+from comet.core.logger import logger
+from comet.core.models import database, settings
 from comet.metadata.manager import MetadataScraper
+from comet.services.orchestration import TorrentManager
+
 from .cinemata_client import CinemataClient
 
 

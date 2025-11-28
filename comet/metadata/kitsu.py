@@ -1,6 +1,6 @@
 import aiohttp
 
-from comet.utils.logger import logger
+from comet.core.logger import logger
 
 
 async def get_kitsu_metadata(session: aiohttp.ClientSession, id: str):
@@ -35,12 +35,12 @@ async def get_kitsu_aliases(session: aiohttp.ClientSession, id: str):
         if total_aliases > 0:
             logger.log(
                 "SCRAPER",
-                f"📜 Found {total_aliases} Kitsu aliases for {id}",
+                f"📜 Found {total_aliases} Kitsu title aliases for {id}",
             )
             return aliases
     except Exception:
         pass
 
-    logger.log("SCRAPER", f"📜 No Kitsu aliases found for {id}")
+    logger.log("SCRAPER", f"📜 No Kitsu title aliases found for {id}")
 
     return {}

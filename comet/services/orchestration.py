@@ -1,0 +1,230 @@
+import asyncio
+import time
+
+import aiohttp
+import orjson
+from RTN import DefaultRanking, ParsedData
+
+from comet.core.logger import logger
+from comet.core.models import CometSettingsModel, database, settings
+from comet.scrapers.manager import scraper_manager
+from comet.services.filtering import filter_worker
+from comet.services.ranking import rank_worker
+from comet.utils.parsing import default_dump
+
+
+class TorrentManager:
+    def __init__(
+        self,
+        debrid_service: str,
+        debrid_api_key: str,
+        ip: str,
+        media_type: str,
+        media_full_id: str,
+        media_only_id: str,
+        title: str,
+        year: int,
+        year_end: int,
+        season: int,
+        episode: int,
+        aliases: dict,
+        remove_adult_content: bool,
+        context: str = "live",  # "live" or "background"
+    ):
+        self.debrid_service = debrid_service
+        self.debrid_api_key = debrid_api_key
+        self.ip = ip
+        self.media_type = media_type
+        self.media_id = media_full_id
+        self.media_only_id = media_only_id
+        self.title = title
+        self.year = year
+        self.year_end = year_end
+        self.season = season
+        self.episode = episode
+        self.aliases = aliases
+        self.remove_adult_content = remove_adult_content
+        self.context = context
+
+        self.seen_hashes = set()
+        self.torrents = {}
+        self.ready_to_cache = []
+        self.ranked_torrents = {}
+
+    async def scrape_torrents(
+        self,
+        session: aiohttp.ClientSession,
+    ):
+        from comet.scrapers.models import ScrapeRequest
+
+        request = ScrapeRequest(
+            media_type=self.media_type,
+            media_id=self.media_id,
+            media_only_id=self.media_only_id,
+            title=self.title,
+            year=self.year,
+            year_end=self.year_end,
+            season=self.season,
+            episode=self.episode,
+            context=self.context,
+        )
+
+        async for scraper_name, results in scraper_manager.scrape_all(request, session):
+            await self.filter_manager(scraper_name, results)
+
+        await self.cache_torrents()
+
+        for torrent in self.ready_to_cache:
+            season = torrent["parsed"].seasons[0] if torrent["parsed"].seasons else None
+            episode = (
+                torrent["parsed"].episodes[0] if torrent["parsed"].episodes else None
+            )
+
+            if (season is not None and season != self.season) or (
+                episode is not None and episode != self.episode
+            ):
+                continue
+
+            info_hash = torrent["infoHash"]
+            self.torrents[info_hash] = {
+                "fileIndex": torrent["fileIndex"],
+                "title": torrent["title"],
+                "seeders": torrent["seeders"],
+                "size": torrent["size"],
+                "tracker": torrent["tracker"],
+                "sources": torrent["sources"],
+                "parsed": torrent["parsed"],
+            }
+
+    async def get_cached_torrents(self):
+        rows = await database.fetch_all(
+            """
+                SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed
+                FROM torrents
+                WHERE media_id = :media_id
+                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
+                AND timestamp + :cache_ttl >= :current_time
+            """,
+            {
+                "media_id": self.media_only_id,
+                "season": self.season,
+                "episode": self.episode,
+                "cache_ttl": settings.TORRENT_CACHE_TTL,
+                "current_time": time.time(),
+            },
+        )
+
+        for row in rows:
+            info_hash = row["info_hash"]
+            self.torrents[info_hash] = {
+                "fileIndex": row["file_index"],
+                "title": row["title"],
+                "seeders": row["seeders"],
+                "size": row["size"],
+                "tracker": row["tracker"],
+                "sources": orjson.loads(row["sources"]),
+                "parsed": ParsedData(**orjson.loads(row["parsed"])),
+            }
+
+    async def cache_torrents(self):
+        current_time = time.time()
+        values = [
+            {
+                "media_id": self.media_only_id,
+                "info_hash": torrent["infoHash"],
+                "file_index": int(torrent["fileIndex"])
+                if torrent["fileIndex"] is not None
+                else None,
+                "season": torrent["parsed"].seasons[0]
+                if torrent["parsed"].seasons
+                else self.season,
+                "episode": torrent["parsed"].episodes[0]
+                if torrent["parsed"].episodes
+                else None,
+                "title": torrent["title"],
+                "seeders": int(torrent["seeders"])
+                if torrent["seeders"] is not None
+                else None,
+                "size": int(torrent["size"]) if torrent["size"] is not None else None,
+                "tracker": torrent["tracker"],
+                "sources": orjson.dumps(torrent["sources"]).decode("utf-8"),
+                "parsed": orjson.dumps(torrent["parsed"], default_dump).decode("utf-8"),
+                "timestamp": current_time,
+            }
+            for torrent in self.ready_to_cache
+        ]
+
+        query = f"""
+            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+            INTO torrents
+            VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
+            {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+        """
+
+        await database.execute_many(query, values)
+
+    async def filter_manager(self, scraper_name: str, torrents: list):
+        if len(torrents) == 0:
+            logger.log("SCRAPER", f"Scraper {scraper_name} found 0 torrents.")
+            return
+
+        new_torrents = [
+            torrent
+            for torrent in torrents
+            if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
+        ]
+
+        self.seen_hashes.update(
+            (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
+        )
+
+        logger.log(
+            "SCRAPER",
+            f"Scraper {scraper_name} found {len(torrents)} torrents, {len(new_torrents)} new.",
+        )
+
+        if not new_torrents:
+            return
+
+        loop = asyncio.get_running_loop()
+        chunk_size = 50
+        tasks = [
+            loop.run_in_executor(
+                None,
+                filter_worker,
+                new_torrents[i : i + chunk_size],
+                self.title,
+                self.year,
+                self.year_end,
+                self.aliases,
+                self.remove_adult_content,
+            )
+            for i in range(0, len(new_torrents), chunk_size)
+        ]
+        results = await asyncio.gather(*tasks)
+        for result in results:
+            self.ready_to_cache.extend(result)
+
+    async def rank_torrents(
+        self,
+        rtn_settings: CometSettingsModel,
+        rtn_ranking: DefaultRanking,
+        max_results_per_resolution: int,
+        max_size: int,
+        cached_only: int,
+        remove_trash: int,
+    ):
+        loop = asyncio.get_running_loop()
+        self.ranked_torrents = await loop.run_in_executor(
+            None,
+            rank_worker,
+            self.torrents,
+            self.debrid_service,
+            rtn_settings,
+            rtn_ranking,
+            max_results_per_resolution,
+            max_size,
+            cached_only,
+            remove_trash,
+        )

@@ -1,14 +1,13 @@
-import asyncio
 import argparse
+import asyncio
 import sys
-
 from pathlib import Path
 from typing import List, Optional
 
-from comet.utils.db_manager import DatabaseManager
-from comet.utils.database import setup_database
-from comet.utils.models import database
-from comet.utils.logger import logger
+from comet.core.database import setup_database
+from comet.core.db_manager import DatabaseManager
+from comet.core.logger import logger
+from comet.core.models import database
 
 
 async def list_tables_command(db_manager: DatabaseManager):

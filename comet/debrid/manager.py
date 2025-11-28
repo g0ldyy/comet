@@ -1,76 +1,24 @@
 import aiohttp
 
-from .realdebrid import RealDebrid
-from .alldebrid import AllDebrid
-from .premiumize import Premiumize
-from .torbox import TorBox
-from .debridlink import DebridLink
-from .torrent import Torrent
 from .stremthru import StremThru
-from .debrider import Debrider
-from .easydebrid import EasyDebrid
-from .offcloud import Offcloud
-from .pikpak import PikPak
 
 debrid_services = {
-    "realdebrid": {
-        "extension": "RD",
-        "cache_availability_endpoint": False,
-        "class": RealDebrid,
-    },
-    "alldebrid": {
-        "extension": "AD",
-        "cache_availability_endpoint": False,
-        "class": AllDebrid,
-    },
-    "premiumize": {
-        "extension": "PM",
-        "cache_availability_endpoint": True,
-        "class": Premiumize,
-    },
-    "torbox": {"extension": "TB", "cache_availability_endpoint": True, "class": TorBox},
-    "debridlink": {
-        "extension": "DL",
-        "cache_availability_endpoint": False,
-        "class": DebridLink,
-    },
-    "stremthru": {
-        "extension": "ST",
-        "cache_availability_endpoint": True,
-        "class": StremThru,
-    },
-    "debrider": {
-        "extension": "DB",
-        "cache_availability_endpoint": True,
-        "class": Debrider,
-    },
-    "easydebrid": {
-        "extension": "ED",
-        "cache_availability_endpoint": True,
-        "class": EasyDebrid,
-    },
-    "offcloud": {
-        "extension": "OC",
-        "cache_availability_endpoint": False,
-        "class": Offcloud,
-    },
-    "pikpak": {
-        "extension": "PP",
-        "cache_availability_endpoint": False,
-        "class": PikPak,
-    },
-    "torrent": {
-        "extension": "TORRENT",
-        "cache_availability_endpoint": False,
-        "class": Torrent,
-    },
+    "realdebrid": {"extension": "RD"},
+    "alldebrid": {"extension": "AD"},
+    "premiumize": {"extension": "PM"},
+    "torbox": {"extension": "TB"},
+    "debridlink": {"extension": "DL"},
+    "stremthru": {"extension": "ST"},
+    "debrider": {"extension": "DB"},
+    "easydebrid": {"extension": "ED"},
+    "offcloud": {"extension": "OC"},
+    "pikpak": {"extension": "PP"},
+    "torrent": {"extension": "TORRENT"},
 }
 
 
 def get_debrid_extension(debrid_service: str):
-    original_extension = debrid_services[debrid_service]["extension"]
-
-    return original_extension
+    return debrid_services[debrid_service]["extension"]
 
 
 def build_stremthru_token(debrid_service: str, debrid_api_key: str):
@@ -86,7 +34,7 @@ def get_debrid(
     ip: str,
 ):
     if debrid_service != "torrent":
-        return debrid_services["stremthru"]["class"](
+        return StremThru(
             session,
             video_id,
             media_only_id,

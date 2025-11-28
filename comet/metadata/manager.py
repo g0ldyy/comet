@@ -1,14 +1,15 @@
-import aiohttp
 import asyncio
 import time
+
+import aiohttp
 import orjson
 
-from comet.utils.models import database, settings
-from comet.utils.general import parse_media_id
-from comet.utils.anime_mapper import anime_mapper
+from comet.core.models import database, settings
+from comet.services.anime import anime_mapper
+from comet.utils.parsing import parse_media_id
 
-from .kitsu import get_kitsu_metadata, get_kitsu_aliases
 from .imdb import get_imdb_metadata
+from .kitsu import get_kitsu_aliases, get_kitsu_metadata
 from .trakt import get_trakt_aliases
 
 

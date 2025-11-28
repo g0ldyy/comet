@@ -1,6 +1,6 @@
 import aiohttp
 
-from comet.utils.logger import logger
+from comet.core.logger import logger
 
 
 async def get_trakt_aliases(
@@ -20,12 +20,12 @@ async def get_trakt_aliases(
         if total_aliases > 0:
             logger.log(
                 "SCRAPER",
-                f"📜 Found {total_aliases} Trakt aliases for {media_id}",
+                f"📜 Found {total_aliases} Trakt title aliases for {media_id}",
             )
             return {"ez": list(aliases)}
     except Exception:
         pass
 
-    logger.log("SCRAPER", f"📜 No Trakt aliases found for {media_id}")
+    logger.log("SCRAPER", f"📜 No Trakt title aliases found for {media_id}")
 
     return {}

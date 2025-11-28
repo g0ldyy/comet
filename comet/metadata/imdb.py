@@ -1,6 +1,6 @@
 import aiohttp
 
-from comet.utils.logger import logger
+from comet.core.logger import logger
 
 
 async def get_imdb_metadata(session: aiohttp.ClientSession, id: str):
