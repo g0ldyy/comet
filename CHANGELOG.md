@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.29.0](https://github.com/g0ldyy/comet/compare/v2.28.0...v2.29.0) (2025-11-28)
+
+
+### Features
+
+* add YGGTorrent scraper ([4a677bf](https://github.com/g0ldyy/comet/commit/4a677bf773f6e6351aee698b137b467bb23473ae))
+* add YGGTorrent scraper ([2317e88](https://github.com/g0ldyy/comet/commit/2317e884e215c4f6367d05b19d77e1971fccf612))
+* enhance playback functionality with media_id and aliases support ([eb9cbdc](https://github.com/g0ldyy/comet/commit/eb9cbdc680a491575457af6f8c8ac198533f8895))
+
+
+### Bug Fixes
+
+* handle missing results count in YGGTorrent scraper ([52c7718](https://github.com/g0ldyy/comet/commit/52c7718c0eaf6eeee2264022b268075257eb36f2))
+* remove double-nested append ([4763307](https://github.com/g0ldyy/comet/commit/47633073f0aec345a3fad7b63a11bb2b9d9c98cf))
+
 ## [2.28.0](https://github.com/g0ldyy/comet/compare/v2.27.0...v2.28.0) (2025-11-24)
 
 
