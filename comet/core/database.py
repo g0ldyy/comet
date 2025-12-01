@@ -631,6 +631,8 @@ async def setup_database():
 
         await database.execute("DELETE FROM active_connections")
 
+        await database.execute("DELETE FROM metrics_cache")
+
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
         logger.exception(traceback.format_exc())

@@ -223,25 +223,20 @@ async def admin_api_metrics(admin_session: str = Cookie(None)):
 
     # Torrents by tracker
     top_trackers = await database.fetch_all("""
-        SELECT tracker, COUNT(*) as count
+        SELECT tracker, COUNT(*) as count, AVG(seeders) as avg_seeders, AVG(size) as avg_size
         FROM torrents 
         GROUP BY tracker 
         ORDER BY count DESC 
-        LIMIT 5
     """)
 
     tracker_stats = []
     for row in top_trackers:
-        stats = await database.fetch_one(
-            "SELECT AVG(seeders) as avg_seeders, AVG(size) as avg_size FROM torrents WHERE tracker = :tracker",
-            {"tracker": row["tracker"]},
-        )
         tracker_stats.append(
             {
                 "tracker": row["tracker"],
                 "count": row["count"],
-                "avg_seeders": stats["avg_seeders"],
-                "avg_size": stats["avg_size"],
+                "avg_seeders": row["avg_seeders"],
+                "avg_size": row["avg_size"],
             }
         )
 
