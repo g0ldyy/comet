@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.30.0](https://github.com/g0ldyy/comet/compare/v2.29.0...v2.30.0) (2025-12-01)
+
+
+### Features
+
+* add live torrent cache TTL and update related settings ([6e2e420](https://github.com/g0ldyy/comet/commit/6e2e420d7379824d9b76ca603703f914349cf20b))
+* enhance admin dashboard with dynamic tracker limit selection and optimize database metrics query ([5df4121](https://github.com/g0ldyy/comet/commit/5df412125bbd668661473a5512f1f9c0b22d6b93))
+* fix imdb_id: in media_id ([607b5b3](https://github.com/g0ldyy/comet/commit/607b5b38a39b412d73f0e021048735de8dbf4d3f))
+
+
+### Bug Fixes
+
+* Strip 'imdb_id:' prefix from media ID in stream endpoint ([cc5b6a8](https://github.com/g0ldyy/comet/commit/cc5b6a8c95d88b5769cce0e2b27d2aa586bfcc07))
+
 ## [2.29.0](https://github.com/g0ldyy/comet/compare/v2.28.0...v2.29.0) (2025-11-28)
 
 
