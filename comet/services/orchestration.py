@@ -110,7 +110,7 @@ class TorrentManager:
                 "media_id": self.media_only_id,
                 "season": self.season,
                 "episode": self.episode,
-                "cache_ttl": settings.TORRENT_CACHE_TTL,
+                "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
                 "current_time": time.time(),
             },
         )
@@ -156,7 +156,7 @@ class TorrentManager:
         ]
 
         query = f"""
-            INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+            INSERT {"OR REPLACE " if settings.DATABASE_TYPE == "sqlite" else ""}
             INTO torrents
             VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
             {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}

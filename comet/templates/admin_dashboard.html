@@ -956,7 +956,16 @@
                   <h3><sl-icon name="download"></sl-icon> Torrents Analysis</h3>
                   <div class="metric-content">
                     <div class="metric-subsection">
-                      <h4>Top Trackers</h4>
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h4 style="margin: 0;">Top Trackers</h4>
+                        <sl-select id="tracker-limit" size="small" value="5" style="width: 110px;">
+                          <sl-option value="5">Top 5</sl-option>
+                          <sl-option value="10">Top 10</sl-option>
+                          <sl-option value="20">Top 20</sl-option>
+                          <sl-option value="50">Top 50</sl-option>
+                          <sl-option value="all">All</sl-option>
+                        </sl-select>
+                      </div>
                       <div id="tracker-stats" class="data-list">
                         <div class="loading-state">
                           <sl-spinner></sl-spinner>
@@ -1075,6 +1084,7 @@
         initializeDashboard();
       });
 
+      let currentMetricsData = null;
       let connectionsInterval;
       let logsInterval;
       let lastLogTimestamp = 0;
@@ -1103,6 +1113,13 @@
         document
           .getElementById("hide-api-logs")
           .addEventListener("sl-change", toggleApiLogsVisibility);
+        document
+          .getElementById("tracker-limit")
+          .addEventListener("sl-change", () => {
+            if (currentMetricsData) {
+              updateTorrentsSection(currentMetricsData.torrents);
+            }
+          });
 
         // Tab change handler
         document
@@ -1390,6 +1407,7 @@
         try {
           const response = await fetch("/admin/api/metrics");
           const data = await response.json();
+          currentMetricsData = data;
 
           updateMetricsOverview(data);
           updateTorrentsSection(data.torrents);
@@ -1414,11 +1432,19 @@
       function updateTorrentsSection(torrentsData) {
         // Update tracker statistics
         const trackerContainer = document.getElementById("tracker-stats");
-        if (torrentsData.by_tracker.length === 0) {
+        const limitSelect = document.getElementById("tracker-limit");
+        const limit = limitSelect ? limitSelect.value : "5";
+        
+        let displayTrackers = torrentsData.by_tracker;
+        if (limit !== "all") {
+          displayTrackers = displayTrackers.slice(0, parseInt(limit));
+        }
+
+        if (displayTrackers.length === 0) {
           trackerContainer.innerHTML =
             '<div class="empty-state"><sl-icon name="database-slash"></sl-icon><p>No tracker data available</p></div>';
         } else {
-          trackerContainer.innerHTML = torrentsData.by_tracker
+          trackerContainer.innerHTML = displayTrackers
             .map(
               (tracker) => `
             <div class="tracker-item">

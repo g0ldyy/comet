@@ -109,6 +109,8 @@ async def stream(
     if "tmdb:" in media_id:
         return {"streams": []}
 
+    media_id = media_id.replace("imdb_id:", "")
+
     config = config_check(b64config)
     if not config:
         return {
@@ -145,7 +147,7 @@ async def stream(
                 "media_id": id,
                 "season": season,
                 "episode": episode,
-                "cache_ttl": settings.TORRENT_CACHE_TTL,
+                "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
                 "current_time": time.time(),
             },
         )
