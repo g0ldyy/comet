@@ -109,8 +109,7 @@ async def stream(
     if "tmdb:" in media_id:
         return {"streams": []}
 
-    if "imdb_id:" in media_id:
-        media_id = media_id.split(":")[1]
+    media_id = media_id.replace("imdb_id:", "")
 
     config = config_check(b64config)
     if not config:
