@@ -148,7 +148,7 @@ async def add_torrent(
 
         await database.execute(
             f"""
-                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                INSERT {"OR REPLACE " if settings.DATABASE_TYPE == "sqlite" else ""}
                 INTO torrents
                 VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
                 {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
@@ -402,7 +402,7 @@ class TorrentUpdateQueue:
                         sub_batch = self.batches["inserts"][i : i + sub_batch_size]
                         async with database.transaction():
                             insert_query = f"""
-                                INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                                INSERT {"OR REPLACE " if settings.DATABASE_TYPE == "sqlite" else ""}
                                 INTO torrents
                                 VALUES (
                                     :media_id,

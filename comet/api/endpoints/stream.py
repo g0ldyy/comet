@@ -147,7 +147,7 @@ async def stream(
                 "media_id": id,
                 "season": season,
                 "episode": episode,
-                "cache_ttl": settings.TORRENT_CACHE_TTL,
+                "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
                 "current_time": time.time(),
             },
         )

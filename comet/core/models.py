@@ -34,6 +34,7 @@ class AppSettings(BaseSettings):
     DATABASE_BATCH_SIZE: Optional[int] = 20000
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
+    LIVE_TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
     METRICS_CACHE_TTL: Optional[int] = 60  # 1 minute
     SCRAPE_LOCK_TTL: Optional[int] = 300  # 5 minutes

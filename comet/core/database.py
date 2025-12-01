@@ -610,13 +610,14 @@ async def setup_database():
             {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": time.time()},
         )
 
-        await database.execute(
-            """
-            DELETE FROM torrents
-            WHERE timestamp + :cache_ttl < :current_time;
-            """,
-            {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": time.time()},
-        )
+        if settings.TORRENT_CACHE_TTL >= 0:
+            await database.execute(
+                """
+                DELETE FROM torrents
+                WHERE timestamp + :cache_ttl < :current_time;
+                """,
+                {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": time.time()},
+            )
 
         await database.execute(
             """
