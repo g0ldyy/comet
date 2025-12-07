@@ -181,7 +181,7 @@ class StremThru:
         aliases: dict = None,
     ):
         try:
-            magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name)}"
+            magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name, safe='')}"
 
             if sources:
                 for source in sources:
