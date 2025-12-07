@@ -443,7 +443,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote(title, safe='')}/{result_season}/{result_episode}/{quote(torrent_title, safe='')}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote(quote(title, safe=''), safe='')}/{result_season}/{result_episode}/{quote(torrent_title)}"
                 )
 
             if torrent["cached"]:
