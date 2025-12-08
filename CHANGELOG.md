@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.31.0](https://github.com/g0ldyy/comet/compare/v2.30.0...v2.31.0) (2025-12-08)
+
+
+### Features
+
+* Enhance URL encoding by using `safe=''` in `quote` calls for playback and magnet URIs ([5664a86](https://github.com/g0ldyy/comet/commit/5664a86eeb9a991796ff0d60e3c79f8bdbb5532d))
+* Enhance URL encoding by using `safe=''` in `quote` calls for playback and magnet URIs ([96a962f](https://github.com/g0ldyy/comet/commit/96a962faac555390bb9c461e345542324bdeb372))
+
+
+### Bug Fixes
+
+* double quote is better ([b9845dc](https://github.com/g0ldyy/comet/commit/b9845dc50d86d33ed690b23b401a6f0efbc8abb2))
+* Update YGG domain URL ([a9b223f](https://github.com/g0ldyy/comet/commit/a9b223f1cd713744693d576c830e9618471b39d0))
+
 ## [2.30.0](https://github.com/g0ldyy/comet/compare/v2.29.0...v2.30.0) (2025-12-01)
 
 
