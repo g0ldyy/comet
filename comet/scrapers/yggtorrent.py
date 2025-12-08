@@ -36,7 +36,7 @@ class YGGTorrentScraper(BaseScraper):
 
         try:
             async with requests.AsyncSession(impersonate="chrome") as session:
-                response = await session.get("https://ygg.to", allow_redirects=False)
+                response = await session.get("https://ygg.re", allow_redirects=False)
                 if "location" in response.headers:
                     location = response.headers["location"]
                     domain = urlparse(location).netloc
