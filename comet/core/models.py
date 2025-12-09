@@ -105,12 +105,23 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
     BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
     BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
+    ANIME_MAPPING_SOURCE: Optional[str] = "remote"
+    ANIME_MAPPING_REFRESH_INTERVAL: Optional[int] = 86400
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
         if v is not None and v.lower() == "none":
             return None
         return v
+
+    @field_validator("ANIME_MAPPING_SOURCE")
+    def normalize_anime_mapping_source(cls, v):
+        if not v:
+            return "remote"
+        normalized = v.strip().lower()
+        if normalized not in {"remote", "database"}:
+            raise ValueError("ANIME_MAPPING_SOURCE must be 'remote' or 'database'")
+        return normalized
 
     @field_validator("DATABASE_TYPE", mode="before")
     def normalize_database_type(cls, v):

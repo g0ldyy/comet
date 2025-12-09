@@ -341,6 +341,26 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS anime_mapping_cache (
+                    kitsu_id TEXT PRIMARY KEY,
+                    imdb_id TEXT,
+                    is_anime BOOLEAN,
+                    updated_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS anime_mapping_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    refreshed_at INTEGER
+                )
+            """
+        )
+
         # =============================================================================
         # TORRENTS TABLE INDEXES - Most critical for performance
         # =============================================================================
@@ -587,6 +607,13 @@ async def setup_database():
             """
             CREATE INDEX IF NOT EXISTS idx_scraper_comprehensive 
             ON background_scraper_state (media_type, total_torrents_found, scraped_at)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_anime_mapping_imdb
+            ON anime_mapping_cache (imdb_id)
             """
         )
 
