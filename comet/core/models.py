@@ -35,6 +35,7 @@ class AppSettings(BaseSettings):
     DATABASE_PATH: Optional[str] = "data/comet.db"
     DATABASE_BATCH_SIZE: Optional[int] = 20000
     DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
+    DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days

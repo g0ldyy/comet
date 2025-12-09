@@ -6,6 +6,8 @@ import traceback
 from comet.core.logger import logger
 from comet.core.models import database, settings
 
+STARTUP_CLEANUP_LOCK_ID = 0xC0FFEE
+
 DATABASE_VERSION = "1.0"
 
 
@@ -24,6 +26,15 @@ async def setup_database():
                 CREATE TABLE IF NOT EXISTS db_version (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     version TEXT
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS db_maintenance (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    last_startup_cleanup REAL
                 )
             """
         )
@@ -593,13 +604,41 @@ async def setup_database():
             await database.execute("PRAGMA auto_vacuum=OFF")
 
         await database.execute("DELETE FROM ongoing_searches")
+        await database.execute("DELETE FROM active_connections")
+        await database.execute("DELETE FROM metrics_cache")
+
+        await _run_startup_cleanup()
+
+    except Exception as e:
+        logger.error(f"Error setting up the database: {e}")
+        logger.exception(traceback.format_exc())
+
+
+async def _run_startup_cleanup():
+    interval = settings.DATABASE_STARTUP_CLEANUP_INTERVAL
+    if interval is None or interval < 0:
+        return
+
+    current_time = time.time()
+    should_run = True if interval == 0 else await _should_run_startup_cleanup(current_time, interval)
+    if not should_run:
+        logger.log("DATABASE", "Startup cleanup skipped (recent run)")
+        return
+
+    lock_acquired = await _try_acquire_startup_cleanup_lock()
+    if not lock_acquired:
+        logger.log("DATABASE", "Startup cleanup already running elsewhere; skipping")
+        return
+
+    try:
+        logger.log("DATABASE", "Running startup cleanup sweep")
 
         await database.execute(
             """
             DELETE FROM first_searches 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
         )
 
         await database.execute(
@@ -607,7 +646,7 @@ async def setup_database():
             DELETE FROM metadata_cache 
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
         )
 
         if settings.TORRENT_CACHE_TTL >= 0:
@@ -616,7 +655,7 @@ async def setup_database():
                 DELETE FROM torrents
                 WHERE timestamp + :cache_ttl < :current_time;
                 """,
-                {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": time.time()},
+                {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
             )
 
         await database.execute(
@@ -624,18 +663,54 @@ async def setup_database():
             DELETE FROM debrid_availability
             WHERE timestamp + :cache_ttl < :current_time;
             """,
-            {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": time.time()},
+            {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
         )
 
         await database.execute("DELETE FROM download_links_cache")
 
-        await database.execute("DELETE FROM active_connections")
+        await database.execute(
+            """
+            INSERT INTO db_maintenance (id, last_startup_cleanup)
+            VALUES (1, :timestamp)
+            ON CONFLICT (id) DO UPDATE SET last_startup_cleanup = :timestamp
+            """,
+            {"timestamp": current_time},
+        )
+    finally:
+        if lock_acquired:
+            await _release_startup_cleanup_lock()
 
-        await database.execute("DELETE FROM metrics_cache")
 
-    except Exception as e:
-        logger.error(f"Error setting up the database: {e}")
-        logger.exception(traceback.format_exc())
+async def _should_run_startup_cleanup(current_time: float, interval: int) -> bool:
+    row = await database.fetch_one(
+        "SELECT last_startup_cleanup FROM db_maintenance WHERE id = 1"
+    )
+    if not row or row["last_startup_cleanup"] is None:
+        return True
+
+    last_run = float(row["last_startup_cleanup"])
+    return (current_time - last_run) >= interval
+
+
+async def _try_acquire_startup_cleanup_lock() -> bool:
+    if settings.DATABASE_TYPE != "postgresql":
+        return True
+
+    result = await database.fetch_val(
+        "SELECT pg_try_advisory_lock(:lock_id)",
+        {"lock_id": STARTUP_CLEANUP_LOCK_ID},
+    )
+    return bool(result)
+
+
+async def _release_startup_cleanup_lock():
+    if settings.DATABASE_TYPE != "postgresql":
+        return
+
+    await database.fetch_val(
+        "SELECT pg_advisory_unlock(:lock_id)",
+        {"lock_id": STARTUP_CLEANUP_LOCK_ID},
+    )
 
 
 async def cleanup_expired_locks():
