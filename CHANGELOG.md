@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- markdownlint-disable MD024 -->
+
+## [Unreleased]
+
+### Features
+
+* add optional PostgreSQL read replica routing with transparent primary fallback
+
 ## [2.31.0](https://github.com/g0ldyy/comet/compare/v2.30.0...v2.31.0) (2025-12-08)
 
 
