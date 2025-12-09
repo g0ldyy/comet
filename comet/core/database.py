@@ -675,6 +675,7 @@ async def _run_startup_cleanup():
             ON CONFLICT (id) DO UPDATE SET last_startup_cleanup = :timestamp
             """,
             {"timestamp": current_time},
+            force_primary=True,
         )
     finally:
         if lock_acquired:
@@ -683,7 +684,8 @@ async def _run_startup_cleanup():
 
 async def _should_run_startup_cleanup(current_time: float, interval: int) -> bool:
     row = await database.fetch_one(
-        "SELECT last_startup_cleanup FROM db_maintenance WHERE id = 1"
+        "SELECT last_startup_cleanup FROM db_maintenance WHERE id = 1",
+        force_primary=True,
     )
     if not row or row["last_startup_cleanup"] is None:
         return True
@@ -699,6 +701,7 @@ async def _try_acquire_startup_cleanup_lock() -> bool:
     result = await database.fetch_val(
         "SELECT pg_try_advisory_lock(:lock_id)",
         {"lock_id": STARTUP_CLEANUP_LOCK_ID},
+        force_primary=True,
     )
     return bool(result)
 
@@ -710,6 +713,7 @@ async def _release_startup_cleanup_lock():
     await database.fetch_val(
         "SELECT pg_advisory_unlock(:lock_id)",
         {"lock_id": STARTUP_CLEANUP_LOCK_ID},
+        force_primary=True,
     )
 
 
