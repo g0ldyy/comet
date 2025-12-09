@@ -21,13 +21,34 @@ streams = APIRouter()
 
 
 async def is_first_search(media_id: str):
-    try:
-        await database.execute(
-            "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
-            {"media_id": media_id, "timestamp": time.time()},
-        )
+    params = {"media_id": media_id, "timestamp": time.time()}
 
-        return True
+    try:
+        if settings.DATABASE_TYPE == "sqlite":
+            existing = await database.fetch_one(
+                "SELECT 1 FROM first_searches WHERE media_id = :media_id",
+                {"media_id": media_id},
+            )
+
+            if existing:
+                return False
+
+            await database.execute(
+                "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
+                params,
+            )
+            return True
+
+        inserted = await database.fetch_val(
+            """
+            INSERT INTO first_searches (media_id, timestamp)
+            VALUES (:media_id, :timestamp)
+            ON CONFLICT (media_id) DO NOTHING
+            RETURNING 1
+            """,
+            params,
+        )
+        return inserted == 1
     except Exception:
         return False
 
