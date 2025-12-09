@@ -26,6 +26,12 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #d171d6>",
         "no": 35,
     },
+    "DATABASE": {
+        "color": "#5aa5d9",
+        "icon": "🗄️",
+        "loguru_color": "<fg #5aa5d9>",
+        "no": 32,
+    },
     "LOCK": {
         "color": "#71d6d6",
         "icon": "🔒",
