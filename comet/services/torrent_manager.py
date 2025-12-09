@@ -329,7 +329,7 @@ class TorrentUpdateQueue:
                             params[f"episode_{key}"] = item["episode"]
 
                         query = f"""
-                            SELECT info_hash, season, episode
+                            SELECT media_id, info_hash, season, episode
                             FROM torrents 
                             WHERE {" OR ".join(placeholders)}
                         """
@@ -339,6 +339,7 @@ class TorrentUpdateQueue:
 
                             existing_set = {
                                 (
+                                    row["media_id"],
                                     row["info_hash"],
                                     row["season"]
                                     if row["season"] is not None
@@ -352,6 +353,7 @@ class TorrentUpdateQueue:
 
                             for item in sub_batch:
                                 key = (
+                                    item["params"].get("media_id"),
                                     item["info_hash"],
                                     item["season"],
                                     item["episode"],
@@ -491,6 +493,7 @@ class TorrentUpdateQueue:
                     "info_hash": file_info["info_hash"],
                     "season": file_info["season"],
                     "episode": file_info["episode"],
+                    "media_id": media_id,
                     "params": params,
                 }
             )

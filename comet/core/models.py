@@ -111,6 +111,18 @@ class AppSettings(BaseSettings):
             return None
         return v
 
+    @field_validator("DATABASE_TYPE", mode="before")
+    def normalize_database_type(cls, v):
+        if v is None:
+            return v
+
+        value = str(v).strip().lower()
+        if value in {"postgres", "postgresql", "postgresql+asyncpg", "pgsql", "psql"}:
+            return "postgresql"
+        if value in {"sqlite", "sqlite3"}:
+            return "sqlite"
+        return value
+
     @field_validator("INDEXER_MANAGER_INDEXERS")
     def indexer_manager_indexers_normalization(cls, v, values):
         v = [indexer.replace(" ", "").lower() for indexer in v]
