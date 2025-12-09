@@ -47,6 +47,7 @@ async def is_first_search(media_id: str):
             RETURNING 1
             """,
             params,
+            force_primary=True,
         )
         return inserted == 1
     except Exception:
