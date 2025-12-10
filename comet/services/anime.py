@@ -63,7 +63,6 @@ class AnimeMapper:
         try:
             rows = await database.fetch_all(
                 "SELECT kitsu_id, imdb_id FROM anime_mapping_cache",
-                force_primary=True,
             )
 
             if not rows:
@@ -90,7 +89,6 @@ class AnimeMapper:
 
         row = await database.fetch_one(
             "SELECT refreshed_at FROM anime_mapping_state WHERE id = 1",
-            force_primary=True,
         )
 
         if not row:
