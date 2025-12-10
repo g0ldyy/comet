@@ -344,7 +344,7 @@ async def setup_database():
         await database.execute(
             """
                 CREATE TABLE IF NOT EXISTS anime_mapping_cache (
-                    kitsu_id TEXT PRIMARY KEY,
+                    kitsu_id INTEGER PRIMARY KEY,
                     imdb_id TEXT,
                     is_anime BOOLEAN,
                     updated_at INTEGER

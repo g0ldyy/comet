@@ -170,9 +170,8 @@ class AnimeMapper:
             imdb_id = self._entry_value(entry, "imdb_id")
 
             if kitsu_id and imdb_id:
-                kitsu_id_str = str(kitsu_id)
-                self.kitsu_to_imdb[kitsu_id_str] = imdb_id
-                self.imdb_to_kitsu[imdb_id] = kitsu_id_str
+                self.kitsu_to_imdb[kitsu_id] = imdb_id
+                self.imdb_to_kitsu[imdb_id] = kitsu_id
                 self.anime_imdb_ids.add(imdb_id)
 
         self.loaded = True
@@ -187,7 +186,7 @@ class AnimeMapper:
 
             params.append(
                 {
-                    "kitsu_id": str(kitsu_id),
+                    "kitsu_id": kitsu_id,
                     "imdb_id": self._entry_value(entry, "imdb_id"),
                     "is_anime": True,
                     "updated_at": timestamp,
