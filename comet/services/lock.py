@@ -54,6 +54,7 @@ class DistributedLock:
                     row = await database.fetch_one(
                         "SELECT instance_id FROM scrape_locks WHERE lock_key = :lock_key",
                         {"lock_key": self.lock_key},
+                        force_primary=True,
                     )
                     success = row and row["instance_id"] == self.instance_id
 
@@ -125,6 +126,7 @@ async def is_scrape_in_progress(media_id: str):
         row = await database.fetch_one(
             "SELECT instance_id FROM scrape_locks WHERE lock_key = :lock_key",
             {"lock_key": media_id},
+            force_primary=True,
         )
         return row is not None
     except Exception as e:

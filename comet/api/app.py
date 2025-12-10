@@ -19,6 +19,8 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
+from comet.services.torrent_manager import (add_torrent_queue,
+                                            torrent_update_queue)
 from comet.services.trackers import download_best_trackers
 
 
@@ -88,6 +90,10 @@ async def lifespan(app: FastAPI):
 
         if settings.PROXY_DEBRID_STREAM:
             await bandwidth_monitor.shutdown()
+
+        await anime_mapper.stop()
+        await add_torrent_queue.stop()
+        await torrent_update_queue.stop()
 
         await teardown_database()
 

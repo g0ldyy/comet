@@ -185,7 +185,7 @@ class MetadataScraper:
             # Check if this IMDB ID has a Kitsu equivalent for additional aliases
             kitsu_id = anime_mapper.get_kitsu_from_imdb(media_id)
             if kitsu_id:
-                kitsu_aliases = await get_kitsu_aliases(self.session, str(kitsu_id))
+                kitsu_aliases = await get_kitsu_aliases(self.session, kitsu_id)
 
         # Combine the aliases from both sources
         return self.combine_aliases(kitsu_aliases, trakt_aliases)

@@ -60,44 +60,25 @@ class ScraperManager:
             setting_name = scraper_name_clean.upper()
             setting_key = f"SCRAPE_{setting_name}"
 
-            if scraper_name == "JackettScraper":
-                if not (
-                    settings.INDEXER_MANAGER_API_KEY
-                    and settings.is_scraper_enabled(
-                        settings.INDEXER_MANAGER_MODE, request.context
-                    )
-                    and settings.INDEXER_MANAGER_TYPE == "jackett"
-                ):
-                    continue
-            elif scraper_name == "ProwlarrScraper":
-                if not (
-                    settings.INDEXER_MANAGER_API_KEY
-                    and settings.is_scraper_enabled(
-                        settings.INDEXER_MANAGER_MODE, request.context
-                    )
-                    and settings.INDEXER_MANAGER_TYPE == "prowlarr"
+            if hasattr(settings, setting_key):
+                if not settings.is_scraper_enabled(
+                    getattr(settings, setting_key), request.context
                 ):
                     continue
             else:
-                if hasattr(settings, setting_key):
-                    if not settings.is_scraper_enabled(
-                        getattr(settings, setting_key), request.context
-                    ):
-                        continue
-                else:
-                    logger.debug(
-                        f"No {setting_key} found for {scraper_name_clean}, disabling"
-                    )
-                    continue
+                logger.debug(
+                    f"No {setting_key} found for {scraper_name_clean}, disabling"
+                )
+                continue
 
-                if (
-                    scraper_name == "NyaaScraper"
-                    and settings.NYAA_ANIME_ONLY
-                    and not anime_mapper.is_anime_content(
-                        request.media_id, request.media_only_id
-                    )
-                ):
-                    continue
+            if (
+                scraper_name == "NyaaScraper"
+                and settings.NYAA_ANIME_ONLY
+                and not anime_mapper.is_anime_content(
+                    request.media_id, request.media_only_id
+                )
+            ):
+                continue
 
             if scraper_name == "MediaFusionScraper":
                 url_credentials_pairs = associate_urls_credentials(
