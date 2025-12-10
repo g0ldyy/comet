@@ -93,10 +93,14 @@ class AnimeMapper:
             force_primary=True,
         )
 
-        if not row or row.get("refreshed_at") is None:
+        if not row:
             return True
 
-        last_refresh = float(row["refreshed_at"])
+        last_refresh = row[0] if isinstance(row, tuple) else row["refreshed_at"]
+        if last_refresh is None:
+            return True
+
+        last_refresh = float(last_refresh)
         return (time.time() - last_refresh) >= interval
 
     def _ensure_periodic_refresh(self):
