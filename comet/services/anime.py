@@ -62,10 +62,15 @@ class AnimeMapper:
     async def _load_from_database(self):
         try:
             rows = await database.fetch_all(
-                "SELECT kitsu_id, imdb_id FROM anime_mapping_cache"
+                "SELECT kitsu_id, imdb_id FROM anime_mapping_cache",
+                force_primary=True,
             )
 
             if not rows:
+                logger.log(
+                    "DATABASE",
+                    "Anime mapping cache empty; falling back to remote source",
+                )
                 return False
 
             self._populate_from_rows(rows)
