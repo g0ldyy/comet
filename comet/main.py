@@ -1,6 +1,5 @@
 import contextlib
 import os
-import signal
 import sys
 import threading
 import time
@@ -32,17 +31,6 @@ class Server(uvicorn.Server):
         finally:
             self.should_exit = True
             sys.exit(0)
-
-
-def signal_handler(sig, frame):
-    # This will handle kubernetes/docker shutdowns better
-    # Toss anything that needs to be gracefully shutdown here
-    logger.log("COMET", "Exiting Gracefully.")
-    sys.exit(0)
-
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
 
 
 def run_with_uvicorn():
@@ -104,7 +92,7 @@ def run_with_gunicorn():
         "worker_class": "uvicorn.workers.UvicornWorker",
         "timeout": 120,
         "keepalive": 5,
-        "preload_app": True,
+        "preload_app": bool(settings.GUNICORN_PRELOAD_APP),
         "proxy_protocol": True,
         "forwarded_allow_ips": "*",
         "loglevel": "warning",

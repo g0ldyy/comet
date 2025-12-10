@@ -21,13 +21,30 @@ streams = APIRouter()
 
 
 async def is_first_search(media_id: str):
-    try:
-        await database.execute(
-            "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
-            {"media_id": media_id, "timestamp": time.time()},
-        )
+    params = {"media_id": media_id, "timestamp": time.time()}
 
-        return True
+    try:
+        if settings.DATABASE_TYPE == "sqlite":
+            try:
+                await database.execute(
+                    "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
+                    params,
+                )
+                return True
+            except Exception:
+                return False
+
+        inserted = await database.fetch_val(
+            """
+            INSERT INTO first_searches (media_id, timestamp)
+            VALUES (:media_id, :timestamp)
+            ON CONFLICT (media_id) DO NOTHING
+            RETURNING 1
+            """,
+            params,
+            force_primary=True,
+        )
+        return inserted == 1
     except Exception:
         return False
 
@@ -122,6 +139,17 @@ async def stream(
                 }
             ]
         }
+
+    if settings.DISABLE_TORRENT_STREAMS and config["debridService"] == "torrent":
+        placeholder_stream = {
+            "name": settings.TORRENT_DISABLED_STREAM_NAME or "[INFO] Comet",
+            "description": settings.TORRENT_DISABLED_STREAM_DESCRIPTION
+            or "Direct torrent playback is disabled on this server.",
+        }
+        if settings.TORRENT_DISABLED_STREAM_URL:
+            placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
+
+        return {"streams": [placeholder_stream]}
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:

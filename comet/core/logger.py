@@ -100,7 +100,7 @@ class LoguruHandler:
         if message.strip():
             # Try to extract timestamp, level, module, function, and message
             # This is a simplified parser for loguru format
-            pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| ([🌠👾👻🎬🔒🏭📰🕸️⚠️❌💀]?) ?(\w+) \| (\w+)\.(\w+) - (.+)"
+            pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| (.*?) ?(\w+) \| (\w+)\.(\w+) - (.+)"
             match = re.match(pattern, message.strip())
 
             if match:

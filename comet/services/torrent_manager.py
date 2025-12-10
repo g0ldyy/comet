@@ -4,6 +4,7 @@ import hashlib
 import html
 import re
 import time
+from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
 
 import aiohttp
@@ -148,13 +149,7 @@ async def add_torrent(
                 f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
             )
 
-        await database.execute(
-            f"""
-                INSERT {"OR REPLACE " if settings.DATABASE_TYPE == "sqlite" else ""}
-                INTO torrents
-                VALUES (:media_id, :info_hash, :file_index, :season, :episode, :title, :seeders, :size, :tracker, :sources, :parsed, :timestamp)
-                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-            """,
+        await _upsert_torrent_record(
             {
                 "media_id": media_id,
                 "info_hash": info_hash,
@@ -168,7 +163,7 @@ async def add_torrent(
                 "sources": orjson.dumps(sources).decode("utf-8"),
                 "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
                 "timestamp": time.time(),
-            },
+            }
         )
 
         additional = ""
@@ -243,6 +238,10 @@ class AddTorrentQueue:
 
         self.is_running = False
 
+    async def stop(self):
+        await self.queue.join()
+        self.is_running = False
+
 
 add_torrent_queue = AddTorrentQueue()
 
@@ -253,7 +252,7 @@ class TorrentUpdateQueue:
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.is_running = False
-        self.batches = {"to_check": [], "to_delete": [], "inserts": [], "updates": []}
+        self.batches = {"to_delete": [], "upserts": []}
 
     async def add_torrent_info(self, file_info: dict, media_id: str = None):
         await self.queue.put((file_info, media_id))
@@ -301,6 +300,22 @@ class TorrentUpdateQueue:
 
         self.is_running = False
 
+    async def stop(self):
+        self.is_running = False
+
+        # Process remaining items in queue
+        while not self.queue.empty():
+            try:
+                file_info, media_id = self.queue.get_nowait()
+                await self._process_file_info(file_info, media_id)
+            except Exception as e:
+                logger.warning(f"Error processing remaining queue items during shutdown: {e}")
+                break
+
+        # Flush any remaining batches
+        if any(len(batch) > 0 for batch in self.batches.values()):
+            await self._flush_batch()
+
     def _reset_batches(self):
         for key in self.batches:
             if len(self.batches[key]) > 0:
@@ -311,62 +326,6 @@ class TorrentUpdateQueue:
 
     async def _flush_batch(self):
         try:
-            if self.batches["to_check"]:
-                sub_batch_size = 100
-                for i in range(0, len(self.batches["to_check"]), sub_batch_size):
-                    try:
-                        sub_batch = self.batches["to_check"][i : i + sub_batch_size]
-                        placeholders = []
-                        params = {}
-
-                        for idx, item in enumerate(sub_batch):
-                            key = str(idx)
-                            placeholders.append(
-                                f"(CAST(:info_hash_{key} AS TEXT) = info_hash AND "
-                                f"(CAST(:season_{key} AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season_{key} AS INTEGER)) AND "
-                                f"(CAST(:episode_{key} AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode_{key} AS INTEGER)))"
-                            )
-                            params[f"info_hash_{key}"] = item["info_hash"]
-                            params[f"season_{key}"] = item["season"]
-                            params[f"episode_{key}"] = item["episode"]
-
-                        query = f"""
-                            SELECT info_hash, season, episode
-                            FROM torrents 
-                            WHERE {" OR ".join(placeholders)}
-                        """
-
-                        async with database.transaction():
-                            existing_rows = await database.fetch_all(query, params)
-
-                            existing_set = {
-                                (
-                                    row["info_hash"],
-                                    row["season"]
-                                    if row["season"] is not None
-                                    else None,
-                                    row["episode"]
-                                    if row["episode"] is not None
-                                    else None,
-                                )
-                                for row in existing_rows
-                            }
-
-                            for item in sub_batch:
-                                key = (
-                                    item["info_hash"],
-                                    item["season"],
-                                    item["episode"],
-                                )
-                                if key in existing_set:
-                                    self.batches["updates"].append(item["params"])
-                                else:
-                                    self.batches["inserts"].append(item["params"])
-                    except Exception as e:
-                        logger.warning(f"Error processing check batch: {e}")
-
-                self.batches["to_check"] = []
-
             if self.batches["to_delete"]:
                 sub_batch_size = 100
                 for i in range(0, len(self.batches["to_delete"]), sub_batch_size):
@@ -397,73 +356,26 @@ class TorrentUpdateQueue:
 
                 self.batches["to_delete"] = []
 
-            if self.batches["inserts"]:
-                sub_batch_size = 100
-                for i in range(0, len(self.batches["inserts"]), sub_batch_size):
-                    try:
-                        sub_batch = self.batches["inserts"][i : i + sub_batch_size]
-                        async with database.transaction():
-                            insert_query = f"""
-                                INSERT {"OR REPLACE " if settings.DATABASE_TYPE == "sqlite" else ""}
-                                INTO torrents
-                                VALUES (
-                                    :media_id,
-                                    :info_hash,
-                                    :file_index,
-                                    :season,
-                                    :episode,
-                                    :title,
-                                    :seeders,
-                                    :size,
-                                    :tracker,
-                                    :sources,
-                                    :parsed,
-                                    :timestamp
-                                )
-                                {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
-                            """
-                            await database.execute_many(insert_query, sub_batch)
-                    except Exception as e:
-                        logger.warning(f"Error processing insert batch: {e}")
+            if self.batches["upserts"]:
+                grouped: dict[str, list[dict]] = defaultdict(list)
+                for params in self.batches["upserts"]:
+                    key = _determine_conflict_key(params["season"], params["episode"])
+                    grouped[key].append(params)
 
-                if len(self.batches["inserts"]) > 0:
+                for key, rows in grouped.items():
+                    query = _get_torrent_upsert_query(key)
+                    try:
+                        async with database.transaction():
+                            await database.execute_many(query, rows)
+                    except Exception as e:
+                        logger.warning(f"Error processing upsert batch: {e}")
+
+                if len(self.batches["upserts"]) > 0:
                     logger.log(
                         "SCRAPER",
-                        f"Inserted {len(self.batches['inserts'])} new torrents in batch",
+                        f"Upserted {len(self.batches['upserts'])} torrents in batch",
                     )
-                self.batches["inserts"] = []
-
-            if self.batches["updates"]:
-                sub_batch_size = 100
-                for i in range(0, len(self.batches["updates"]), sub_batch_size):
-                    try:
-                        sub_batch = self.batches["updates"][i : i + sub_batch_size]
-                        async with database.transaction():
-                            update_query = """
-                                UPDATE torrents 
-                                SET title = CAST(:title AS TEXT),
-                                    file_index = CAST(:file_index AS INTEGER),
-                                    size = CAST(:size AS BIGINT),
-                                    seeders = CAST(:seeders AS INTEGER),
-                                    tracker = CAST(:tracker AS TEXT),
-                                    sources = CAST(:sources AS TEXT),
-                                    parsed = CAST(:parsed AS TEXT),
-                                    timestamp = CAST(:timestamp AS FLOAT),
-                                    media_id = CAST(:media_id AS TEXT)
-                                WHERE info_hash = CAST(:info_hash AS TEXT)
-                                AND (CAST(:season AS INTEGER) IS NULL AND season IS NULL OR season = CAST(:season AS INTEGER))
-                                AND (CAST(:episode AS INTEGER) IS NULL AND episode IS NULL OR episode = CAST(:episode AS INTEGER))
-                            """
-                            await database.execute_many(update_query, sub_batch)
-                    except Exception as e:
-                        logger.warning(f"Error processing update batch: {e}")
-
-                if len(self.batches["updates"]) > 0:
-                    logger.log(
-                        "SCRAPER",
-                        f"Updated {len(self.batches['updates'])} existing torrents in batch",
-                    )
-                self.batches["updates"] = []
+                self.batches["upserts"] = []
 
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
@@ -488,14 +400,7 @@ class TorrentUpdateQueue:
                 "media_id": media_id,
             }
 
-            self.batches["to_check"].append(
-                {
-                    "info_hash": file_info["info_hash"],
-                    "season": file_info["season"],
-                    "episode": file_info["episode"],
-                    "params": params,
-                }
-            )
+            self.batches["upserts"].append(params)
 
             if file_info["episode"] is not None:
                 self.batches["to_delete"].append(
@@ -512,6 +417,94 @@ class TorrentUpdateQueue:
     async def _check_batch_size(self):
         if any(len(batch) >= self.batch_size for batch in self.batches.values()):
             await self._flush_batch()
+
+
+TORRENT_INSERT_TEMPLATE = """
+INSERT INTO torrents (
+    media_id,
+    info_hash,
+    file_index,
+    season,
+    episode,
+    title,
+    seeders,
+    size,
+    tracker,
+    sources,
+    parsed,
+    timestamp
+) VALUES (
+    :media_id,
+    :info_hash,
+    :file_index,
+    :season,
+    :episode,
+    :title,
+    :seeders,
+    :size,
+    :tracker,
+    :sources,
+    :parsed,
+    :timestamp
+)
+"""
+
+SQLITE_UPSERT_QUERY = TORRENT_INSERT_TEMPLATE.replace("INSERT", "INSERT OR REPLACE", 1)
+POSTGRES_UPDATE_SET = """
+    DO UPDATE SET
+        media_id = EXCLUDED.media_id,
+        file_index = EXCLUDED.file_index,
+        title = EXCLUDED.title,
+        seeders = EXCLUDED.seeders,
+        size = EXCLUDED.size,
+        tracker = EXCLUDED.tracker,
+        sources = EXCLUDED.sources,
+        parsed = EXCLUDED.parsed,
+        timestamp = EXCLUDED.timestamp
+"""
+
+POSTGRES_CONFLICT_MAP = {
+    "series": "torrents_series_both_idx",
+    "season_only": "torrents_season_only_idx",
+    "episode_only": "torrents_episode_only_idx",
+    "none": "torrents_no_season_episode_idx",
+}
+
+_POSTGRES_UPSERT_CACHE: dict[str, str] = {}
+
+
+def _determine_conflict_key(season, episode) -> str:
+    if season is not None and episode is not None:
+        return "series"
+    if season is not None:
+        return "season_only"
+    if episode is not None:
+        return "episode_only"
+    return "none"
+
+
+def _get_torrent_upsert_query(conflict_key: str) -> str:
+    if settings.DATABASE_TYPE == "sqlite":
+        return SQLITE_UPSERT_QUERY
+
+    if settings.DATABASE_TYPE == "postgresql":
+        constraint = POSTGRES_CONFLICT_MAP[conflict_key]
+        if constraint not in _POSTGRES_UPSERT_CACHE:
+            _POSTGRES_UPSERT_CACHE[constraint] = (
+                TORRENT_INSERT_TEMPLATE
+                + f" ON CONFLICT ON CONSTRAINT {constraint} "
+                + POSTGRES_UPDATE_SET
+            )
+        return _POSTGRES_UPSERT_CACHE[constraint]
+
+    return TORRENT_INSERT_TEMPLATE
+
+
+async def _upsert_torrent_record(params: dict):
+    query = _get_torrent_upsert_query(
+        _determine_conflict_key(params.get("season"), params.get("episode"))
+    )
+    await database.execute(query, params)
 
 
 torrent_update_queue = TorrentUpdateQueue()

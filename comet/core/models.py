@@ -4,13 +4,16 @@ from typing import List, Optional, Union
 
 import RTN
 from databases import Database
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
 from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
                         ExtrasRankModel, HdrRankModel, LanguagesConfig,
                         OptionsConfig, QualityRankModel, ResolutionConfig,
                         RipsRankModel)
+
+from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.logger import logger
 
 
 class AppSettings(BaseSettings):
@@ -24,6 +27,7 @@ class AppSettings(BaseSettings):
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
+    GUNICORN_PRELOAD_APP: Optional[bool] = True
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
@@ -32,6 +36,8 @@ class AppSettings(BaseSettings):
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
     DATABASE_PATH: Optional[str] = "data/comet.db"
     DATABASE_BATCH_SIZE: Optional[int] = 20000
+    DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
+    DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
@@ -105,18 +111,47 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
+    DISABLE_TORRENT_STREAMS: Optional[bool] = False
+    TORRENT_DISABLED_STREAM_NAME: Optional[str] = "[INFO] Comet"
+    TORRENT_DISABLED_STREAM_DESCRIPTION: Optional[str] = (
+        "Direct torrent playback is disabled on this server."
+    )
+    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.fast"
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
     BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
     BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
     BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
+    ANIME_MAPPING_SOURCE: Optional[str] = "remote"
+    ANIME_MAPPING_REFRESH_INTERVAL: Optional[int] = 86400
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
         if v is not None and v.lower() == "none":
             return None
         return v
+
+    @field_validator("ANIME_MAPPING_SOURCE")
+    def normalize_anime_mapping_source(cls, v):
+        if not v:
+            return "remote"
+        normalized = v.strip().lower()
+        if normalized not in {"remote", "database"}:
+            raise ValueError("ANIME_MAPPING_SOURCE must be 'remote' or 'database'")
+        return normalized
+
+    @field_validator("DATABASE_TYPE", mode="before")
+    def normalize_database_type(cls, v):
+        if v is None:
+            return v
+
+        value = str(v).strip().lower()
+        if value in {"postgres", "postgresql", "postgresql+asyncpg", "pgsql", "psql"}:
+            return "postgresql"
+        if value in {"sqlite", "sqlite3"}:
+            return "sqlite"
+        return value
 
     @field_validator(
         "INDEXER_MANAGER_INDEXERS", "JACKETT_INDEXERS", "PROWLARR_INDEXERS"
@@ -710,13 +745,29 @@ web_config = {
     ],
 }
 
+
+def _build_database_instance(raw_url: str) -> Database:
+    driver = "sqlite" if settings.DATABASE_TYPE == "sqlite" else "postgresql+asyncpg"
+    prefix = "/" if settings.DATABASE_TYPE == "sqlite" else ""
+    return Database(f"{driver}://{prefix}{raw_url}")
+
+
 database_url = (
     settings.DATABASE_PATH
     if settings.DATABASE_TYPE == "sqlite"
     else settings.DATABASE_URL
 )
-database = Database(
-    f"{'sqlite' if settings.DATABASE_TYPE == 'sqlite' else 'postgresql+asyncpg'}://{'/' if settings.DATABASE_TYPE == 'sqlite' else ''}{database_url}"
+
+replica_instances: List[Database] = []
+if settings.DATABASE_TYPE != "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
+    for replica_url in settings.DATABASE_READ_REPLICA_URLS:
+        if replica_url:
+            replica_instances.append(_build_database_instance(replica_url))
+elif settings.DATABASE_TYPE == "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
+    logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
+
+database = ReplicaAwareDatabase(
+    _build_database_instance(database_url), replicas=replica_instances
 )
 
 trackers = [
