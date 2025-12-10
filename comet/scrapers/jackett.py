@@ -3,6 +3,7 @@ from typing import List, Set
 
 import aiohttp
 
+from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
@@ -11,8 +12,6 @@ from comet.services.torrent_manager import (add_torrent_queue,
                                             download_torrent,
                                             extract_torrent_metadata,
                                             extract_trackers_from_magnet)
-
-INDEXER_TIMEOUT = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
 
 
 class JackettScraper(BaseScraper):

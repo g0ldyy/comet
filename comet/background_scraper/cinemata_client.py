@@ -1,8 +1,7 @@
 import aiohttp
 
+from comet.core.constants import CATALOG_TIMEOUT
 from comet.core.logger import logger
-
-CATALOG_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
 class CinemataClient:

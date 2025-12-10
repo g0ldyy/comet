@@ -57,6 +57,8 @@ class AppSettings(BaseSettings):
     PROWLARR_API_KEY: Optional[str] = None
     PROWLARR_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
+    MAGNET_RESOLVE_TIMEOUT: Optional[int] = 60
+    CATALOG_TIMEOUT: Optional[int] = 30
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Union[bool, str] = False
     COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
