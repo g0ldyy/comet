@@ -30,14 +30,6 @@ async def setup_database():
             """
         )
 
-        await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS db_maintenance (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    last_startup_cleanup REAL
-                )
-            """
-        )
 
         current_version = await database.fetch_val(
             """
@@ -85,6 +77,15 @@ async def setup_database():
             logger.log(
                 "COMET", f"Database: Migration to version {DATABASE_VERSION} completed"
             )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS db_maintenance (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    last_startup_cleanup REAL
+                )
+            """
+        )
 
         await database.execute(
             """
