@@ -30,7 +30,6 @@ async def setup_database():
             """
         )
 
-
         current_version = await database.fetch_val(
             """
                 SELECT version FROM db_version WHERE id = 1
