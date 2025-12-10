@@ -16,7 +16,7 @@ from comet.services.torrent_manager import (add_torrent_queue,
 class JackettScraper(BaseScraper):
     def __init__(self, manager, session: aiohttp.ClientSession):
         super().__init__(manager, session)
-        self.url = settings.INDEXER_MANAGER_URL
+        self.url = settings.JACKETT_URL
 
     async def process_torrent(self, result: dict, media_id: str, season: int):
         base_torrent = {
@@ -88,7 +88,7 @@ class JackettScraper(BaseScraper):
     async def fetch_jackett_results(self, indexer: str, query: str):
         try:
             response = await self.session.get(
-                f"{self.url}/api/v2.0/indexers/all/results?apikey={settings.INDEXER_MANAGER_API_KEY}&Query={query}&Tracker[]={indexer}",
+                f"{self.url}/api/v2.0/indexers/all/results?apikey={settings.JACKETT_API_KEY}&Query={query}&Tracker[]={indexer}",
                 timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
             )
             response = await response.json()
@@ -116,7 +116,7 @@ class JackettScraper(BaseScraper):
                 tasks.extend(
                     [
                         self.fetch_jackett_results(indexer, query)
-                        for indexer in settings.INDEXER_MANAGER_INDEXERS
+                        for indexer in settings.JACKETT_INDEXERS
                     ]
                 )
 
