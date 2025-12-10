@@ -25,19 +25,14 @@ async def is_first_search(media_id: str):
 
     try:
         if settings.DATABASE_TYPE == "sqlite":
-            existing = await database.fetch_one(
-                "SELECT 1 FROM first_searches WHERE media_id = :media_id",
-                {"media_id": media_id},
-            )
-
-            if existing:
+            try:
+                await database.execute(
+                    "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
+                    params,
+                )
+                return True
+            except Exception:
                 return False
-
-            await database.execute(
-                "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
-                params,
-            )
-            return True
 
         inserted = await database.fetch_val(
             """
