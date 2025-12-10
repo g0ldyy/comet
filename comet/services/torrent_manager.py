@@ -239,8 +239,7 @@ class AddTorrentQueue:
         self.is_running = False
 
     async def stop(self):
-        if not self.queue.empty():
-            await self.queue.join()
+        await self.queue.join()
         self.is_running = False
 
 
@@ -309,7 +308,8 @@ class TorrentUpdateQueue:
             try:
                 file_info, media_id = self.queue.get_nowait()
                 await self._process_file_info(file_info, media_id)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Error processing remaining queue items during shutdown: {e}")
                 break
 
         # Flush any remaining batches
