@@ -14,9 +14,8 @@ from comet.services.torrent_manager import (add_torrent_queue,
 
 
 class JackettScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession):
-        super().__init__(manager, session)
-        self.url = settings.JACKETT_URL
+    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+        super().__init__(manager, session, url)
 
     async def process_torrent(self, result: dict, media_id: str, season: int):
         base_torrent = {
