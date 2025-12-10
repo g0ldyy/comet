@@ -12,6 +12,8 @@ from comet.services.torrent_manager import (add_torrent_queue,
                                             extract_torrent_metadata,
                                             extract_trackers_from_magnet)
 
+INDEXER_TIMEOUT = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
+
 
 class ProwlarrScraper(BaseScraper):
     def __init__(self, manager, session: aiohttp.ClientSession, url: str):
@@ -99,7 +101,7 @@ class ProwlarrScraper(BaseScraper):
             get_indexers = await self.session.get(
                 f"{self.url}/api/v1/indexer",
                 headers={"X-Api-Key": settings.PROWLARR_API_KEY},
-                timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
+                timeout=INDEXER_TIMEOUT,
             )
             get_indexers = await get_indexers.json()
 
@@ -117,9 +119,7 @@ class ProwlarrScraper(BaseScraper):
                     self.session.get(
                         f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
                         headers={"X-Api-Key": settings.PROWLARR_API_KEY},
-                        timeout=aiohttp.ClientTimeout(
-                            total=settings.INDEXER_MANAGER_TIMEOUT
-                        ),
+                        timeout=INDEXER_TIMEOUT,
                     )
                 )
 

@@ -19,6 +19,7 @@ from comet.core.models import database, settings
 from comet.utils.parsing import default_dump, is_video
 
 INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
+TORRENT_TIMEOUT = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
 
 
 def extract_trackers_from_magnet(magnet_uri: str):
@@ -34,7 +35,7 @@ def extract_trackers_from_magnet(magnet_uri: str):
 
 async def download_torrent(session: aiohttp.ClientSession, url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
+        timeout = TORRENT_TIMEOUT
         async with session.get(url, allow_redirects=False, timeout=timeout) as response:
             if response.status == 200:
                 return (await response.read(), None, None)

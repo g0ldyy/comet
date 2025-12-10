@@ -2,6 +2,8 @@ import aiohttp
 
 from comet.core.logger import logger
 
+CATALOG_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
 
 class CinemataClient:
     BASE_URL = "https://cinemeta-catalogs.strem.io"
@@ -28,9 +30,7 @@ class CinemataClient:
             url = "/".join(url_parts) + f"/skip={skip}.json"
 
         try:
-            async with self.session.get(
-                url, timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
+            async with self.session.get(url, timeout=CATALOG_TIMEOUT) as response:
                 response.raise_for_status()
                 data = await response.json()
                 return data

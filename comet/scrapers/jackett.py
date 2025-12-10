@@ -12,6 +12,8 @@ from comet.services.torrent_manager import (add_torrent_queue,
                                             extract_torrent_metadata,
                                             extract_trackers_from_magnet)
 
+INDEXER_TIMEOUT = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
+
 
 class JackettScraper(BaseScraper):
     def __init__(self, manager, session: aiohttp.ClientSession, url: str):
@@ -88,7 +90,7 @@ class JackettScraper(BaseScraper):
         try:
             response = await self.session.get(
                 f"{self.url}/api/v2.0/indexers/all/results?apikey={settings.JACKETT_API_KEY}&Query={query}&Tracker[]={indexer}",
-                timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
+                timeout=INDEXER_TIMEOUT,
             )
             response = await response.json()
             return response.get("Results", [])
