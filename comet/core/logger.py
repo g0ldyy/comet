@@ -184,18 +184,28 @@ def log_startup_info(settings):
     )
     logger.log("COMET", f"Bypass Proxy: {settings.BYPASS_PROXY_URL}")
 
-    if settings.is_any_context_enabled(settings.INDEXER_MANAGER_MODE):
-        logger.log(
-            "COMET",
-            f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Mode: {settings.INDEXER_MANAGER_MODE} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
-        )
-        logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
-        logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
-        logger.log(
-            "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
-        )
-    else:
-        logger.log("COMET", "Indexer Manager: False")
+    jackett_info = ""
+    if settings.is_any_context_enabled(settings.SCRAPE_JACKETT):
+        jackett_info = f" - {settings.JACKETT_URL} - Indexers: {', '.join(settings.JACKETT_INDEXERS)}"
+    logger.log(
+        "COMET",
+        f"Jackett Scraper: {settings.format_scraper_mode(settings.SCRAPE_JACKETT)}{jackett_info}",
+    )
+
+    prowlarr_info = ""
+    if settings.is_any_context_enabled(settings.SCRAPE_PROWLARR):
+        prowlarr_info = f" - {settings.PROWLARR_URL} - Indexers: {', '.join(settings.PROWLARR_INDEXERS)}"
+    logger.log(
+        "COMET",
+        f"Prowlarr Scraper: {settings.format_scraper_mode(settings.SCRAPE_PROWLARR)}{prowlarr_info}",
+    )
+
+    logger.log("COMET", f"Indexer Manager Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s")
+    logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+    logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
+    logger.log(
+        "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
+    )
 
     comet_url = (
         f" - {settings.COMET_URL}"
