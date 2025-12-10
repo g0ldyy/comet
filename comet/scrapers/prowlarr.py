@@ -99,6 +99,7 @@ class ProwlarrScraper(BaseScraper):
             get_indexers = await self.session.get(
                 f"{settings.PROWLARR_URL}/api/v1/indexer",
                 headers={"X-Api-Key": settings.PROWLARR_API_KEY},
+                timeout=aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT),
             )
             get_indexers = await get_indexers.json()
 
@@ -116,6 +117,9 @@ class ProwlarrScraper(BaseScraper):
                     self.session.get(
                         f"{settings.PROWLARR_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
                         headers={"X-Api-Key": settings.PROWLARR_API_KEY},
+                        timeout=aiohttp.ClientTimeout(
+                            total=settings.INDEXER_MANAGER_TIMEOUT
+                        ),
                     )
                 )
 
