@@ -15,6 +15,7 @@ from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
 from torf import Magnet
 
+from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.utils.parsing import default_dump, is_video
@@ -35,8 +36,9 @@ def extract_trackers_from_magnet(magnet_uri: str):
 
 async def download_torrent(session: aiohttp.ClientSession, url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
-        async with session.get(url, allow_redirects=False, timeout=timeout) as response:
+        async with session.get(
+            url, allow_redirects=False, timeout=TORRENT_TIMEOUT
+        ) as response:
             if response.status == 200:
                 return (await response.read(), None, None)
 
@@ -64,7 +66,7 @@ demagnetizer = Demagnetizer()
 async def get_torrent_from_magnet(magnet_uri: str):
     try:
         magnet = Magnet.from_string(magnet_uri)
-        with anyio.fail_after(60):
+        with anyio.fail_after(settings.MAGNET_RESOLVE_TIMEOUT):
             torrent_data = await demagnetizer.demagnetize(magnet)
             if torrent_data:
                 return torrent_data.dump()
