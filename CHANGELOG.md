@@ -8,6 +8,7 @@
 
 * add optional PostgreSQL read replica routing with transparent primary fallback
 * add optional database-backed anime mapping cache with configurable refresh interval
+* add `GUNICORN_PRELOAD_APP` setting to control whether workers inherit a preloaded app or initialize independently
 * add `DATABASE_STARTUP_CLEANUP_INTERVAL` to throttle heavy startup cleanup sweeps across workers
 
 ## [2.31.0](https://github.com/g0ldyy/comet/compare/v2.30.0...v2.31.0) (2025-12-08)

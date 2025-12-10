@@ -104,7 +104,7 @@ def run_with_gunicorn():
         "worker_class": "uvicorn.workers.UvicornWorker",
         "timeout": 120,
         "keepalive": 5,
-        "preload_app": True,
+        "preload_app": bool(settings.GUNICORN_PRELOAD_APP),
         "proxy_protocol": True,
         "forwarded_allow_ips": "*",
         "loglevel": "warning",

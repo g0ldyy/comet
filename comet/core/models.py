@@ -26,6 +26,7 @@ class AppSettings(BaseSettings):
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
+    GUNICORN_PRELOAD_APP: Optional[bool] = True
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
