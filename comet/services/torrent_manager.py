@@ -239,9 +239,9 @@ class AddTorrentQueue:
         self.is_running = False
 
     async def stop(self):
-        self.is_running = False
         if not self.queue.empty():
             await self.queue.join()
+        self.is_running = False
 
 
 add_torrent_queue = AddTorrentQueue()
