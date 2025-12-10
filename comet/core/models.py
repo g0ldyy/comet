@@ -100,6 +100,12 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
+    DISABLE_TORRENT_STREAMS: Optional[bool] = False
+    TORRENT_DISABLED_STREAM_NAME: Optional[str] = "[INFO] Comet"
+    TORRENT_DISABLED_STREAM_DESCRIPTION: Optional[str] = (
+        "Direct torrent playback is disabled on this server."
+    )
+    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.fast"
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
     BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
