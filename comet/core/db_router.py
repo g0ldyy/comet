@@ -11,7 +11,9 @@ from comet.core.logger import logger
 class ReplicaAwareDatabase:
     """Routes read queries to replicas while keeping writes on the primary."""
 
-    def __init__(self, primary: Database, replicas: Optional[Sequence[Database]] = None):
+    def __init__(
+        self, primary: Database, replicas: Optional[Sequence[Database]] = None
+    ):
         self._primary = primary
         self._configured_replicas = list(replicas or [])
         self._active_replicas: List[Database] = []
@@ -67,10 +69,10 @@ class ReplicaAwareDatabase:
         primary_transaction = self._primary.transaction(*args, **kwargs)
         return _ReplicaAwareTransaction(self, primary_transaction)
 
-    async def execute(self, query, values=None):
+    async def execute(self, query, values=None, *, force_primary: bool = False):
         return await self._primary.execute(query, values)
 
-    async def execute_many(self, query, values):
+    async def execute_many(self, query, values, *, force_primary: bool = False):
         return await self._primary.execute_many(query, values)
 
     async def fetch_all(self, query, values=None, *, force_primary: bool = False):
@@ -97,7 +99,9 @@ class ReplicaAwareDatabase:
         return False
 
     def _next_replica(self) -> Database:
-        replica = self._active_replicas[self._replica_index % len(self._active_replicas)]
+        replica = self._active_replicas[
+            self._replica_index % len(self._active_replicas)
+        ]
         self._replica_index = (self._replica_index + 1) % len(self._active_replicas)
         return replica
 
