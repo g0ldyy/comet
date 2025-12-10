@@ -4,6 +4,7 @@ import hashlib
 import html
 import re
 import time
+from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
 
 import aiohttp
@@ -13,8 +14,6 @@ import orjson
 from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
 from torf import Magnet
-
-from collections import defaultdict
 
 from comet.core.logger import logger
 from comet.core.models import database, settings
@@ -237,6 +236,11 @@ class AddTorrentQueue:
 
         self.is_running = False
 
+    async def stop(self):
+        self.is_running = False
+        if not self.queue.empty():
+            await self.queue.join()
+
 
 add_torrent_queue = AddTorrentQueue()
 
@@ -294,6 +298,21 @@ class TorrentUpdateQueue:
             await self._flush_batch()
 
         self.is_running = False
+
+    async def stop(self):
+        self.is_running = False
+
+        # Process remaining items in queue
+        while not self.queue.empty():
+            try:
+                file_info, media_id = self.queue.get_nowait()
+                await self._process_file_info(file_info, media_id)
+            except Exception:
+                break
+
+        # Flush any remaining batches
+        if any(len(batch) > 0 for batch in self.batches.values()):
+            await self._flush_batch()
 
     def _reset_batches(self):
         for key in self.batches:

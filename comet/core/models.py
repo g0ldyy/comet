@@ -13,6 +13,7 @@ from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
                         RipsRankModel)
 
 from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.logger import logger
 
 
 class AppSettings(BaseSettings):
@@ -726,9 +727,7 @@ if settings.DATABASE_TYPE != "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
         if replica_url:
             replica_instances.append(_build_database_instance(replica_url))
 elif settings.DATABASE_TYPE == "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
-    logger.log(
-        "DATABASE", "Read replicas are ignored for sqlite deployments"
-    )
+    logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
 
 database = ReplicaAwareDatabase(
     _build_database_instance(database_url), replicas=replica_instances

@@ -647,7 +647,11 @@ async def _run_startup_cleanup():
         return
 
     current_time = time.time()
-    should_run = True if interval == 0 else await _should_run_startup_cleanup(current_time, interval)
+    should_run = (
+        True
+        if interval == 0
+        else await _should_run_startup_cleanup(current_time, interval)
+    )
     if not should_run:
         logger.log("DATABASE", "Startup cleanup skipped (recent run)")
         return
