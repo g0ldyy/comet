@@ -237,7 +237,9 @@ class AnimeMapper:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning(f"Anime mapping refresh loop encountered an error: {exc}")
+                logger.warning(
+                    f"Anime mapping refresh loop encountered an error: {exc}"
+                )
 
     async def stop(self):
         if self._background_task:
