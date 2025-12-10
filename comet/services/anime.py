@@ -230,14 +230,14 @@ class AnimeMapper:
         return entry[key]
 
     async def _refresh_loop(self, interval: int):
-        try:
-            while True:
+        while True:
+            try:
                 await asyncio.sleep(interval)
                 await self._refresh_from_remote(background=True)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning(f"Anime mapping refresh loop encountered an error: {exc}")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"Anime mapping refresh loop encountered an error: {exc}")
 
     async def stop(self):
         if self._background_task:
