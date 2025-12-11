@@ -443,10 +443,10 @@ POSTGRES_UPDATE_SET = """
 """
 
 POSTGRES_CONFLICT_MAP = {
-    "series": "torrents_series_both_idx",
-    "season_only": "torrents_season_only_idx",
-    "episode_only": "torrents_episode_only_idx",
-    "none": "torrents_no_season_episode_idx",
+    "series": "(media_id, season, episode, info_hash)",
+    "season_only": "(media_id, season, info_hash)",
+    "episode_only": "(media_id, episode, info_hash)",
+    "none": "(media_id, info_hash)",
 }
 
 _POSTGRES_UPSERT_CACHE: dict[str, str] = {}
@@ -471,7 +471,7 @@ def _get_torrent_upsert_query(conflict_key: str) -> str:
         if constraint not in _POSTGRES_UPSERT_CACHE:
             _POSTGRES_UPSERT_CACHE[constraint] = (
                 TORRENT_INSERT_TEMPLATE
-                + f" ON CONFLICT ON CONSTRAINT {constraint} "
+                + f" ON CONFLICT {constraint} "
                 + POSTGRES_UPDATE_SET
             )
         return _POSTGRES_UPSERT_CACHE[constraint]

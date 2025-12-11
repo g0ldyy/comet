@@ -150,6 +150,10 @@ async def stream(
     if per_resolution_cap > 0:
         client_value = config.get("maxResultsPerResolution") or 0
         if client_value == 0 or client_value > per_resolution_cap:
+            logger.log(
+                "SCRAPER",
+                f"Clamping maxResultsPerResolution from {client_value} to {per_resolution_cap}",
+            )
             config["maxResultsPerResolution"] = per_resolution_cap
 
     record_stream_request(config.get("debridService"))
@@ -449,6 +453,10 @@ async def stream(
         streams_emitted = 0
         for info_hash in torrent_manager.ranked_torrents:
             if max_stream_results > 0 and streams_emitted >= max_stream_results:
+                logger.log(
+                    "SCRAPER",
+                    f"🔪 Truncated streams at {max_stream_results} entries (caps applied)",
+                )
                 break
             torrent = torrents[info_hash]
             rtn_data = torrent["parsed"]

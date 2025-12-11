@@ -702,7 +702,6 @@ async def _run_startup_cleanup():
             ON CONFLICT (id) DO UPDATE SET last_startup_cleanup = :timestamp
             """,
             {"timestamp": current_time},
-            force_primary=True,
         )
     finally:
         if lock_acquired:
