@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
+from comet.core.metrics import record_stream_request
 from comet.core.models import database, settings, trackers
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.manager import MetadataScraper
@@ -144,6 +145,14 @@ async def stream(
                 }
             ]
         }
+
+    per_resolution_cap = settings.MAX_RESULTS_PER_RESOLUTION_CAP or 0
+    if per_resolution_cap > 0:
+        client_value = config.get("maxResultsPerResolution") or 0
+        if client_value == 0 or client_value > per_resolution_cap:
+            config["maxResultsPerResolution"] = per_resolution_cap
+
+    record_stream_request(config.get("debridService"))
 
     if settings.DISABLE_TORRENT_STREAMS and config["debridService"] == "torrent":
         placeholder_stream = {
@@ -436,7 +445,11 @@ async def stream(
         result_episode = episode if episode is not None else "n"
 
         torrents = torrent_manager.torrents
+        max_stream_results = settings.MAX_STREAM_RESULTS_TOTAL or 0
+        streams_emitted = 0
         for info_hash in torrent_manager.ranked_torrents:
+            if max_stream_results > 0 and streams_emitted >= max_stream_results:
+                break
             torrent = torrents[info_hash]
             rtn_data = torrent["parsed"]
 
@@ -483,5 +496,7 @@ async def stream(
                 cached_results.append(the_stream)
             else:
                 non_cached_results.append(the_stream)
+
+            streams_emitted += 1
 
         return {"streams": cached_results + non_cached_results}

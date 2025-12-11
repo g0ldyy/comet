@@ -11,6 +11,8 @@
 * add `GUNICORN_PRELOAD_APP` setting to control whether workers inherit a preloaded app or initialize independently
 * add `DATABASE_STARTUP_CLEANUP_INTERVAL` to throttle heavy startup cleanup sweeps across workers
 * add `DISABLE_TORRENT_STREAMS` toggle with customizable placeholder stream metadata
+* expose Prometheus `/metrics` endpoint tracking stream requests per debrid service
+* add server-side stream result caps via `MAX_RESULTS_PER_RESOLUTION_CAP` and `MAX_STREAM_RESULTS_TOTAL`
 
 ## [2.31.0](https://github.com/g0ldyy/comet/compare/v2.30.0...v2.31.0) (2025-12-08)
 
