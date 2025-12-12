@@ -30,15 +30,6 @@ async def setup_database():
             """
         )
 
-        await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS db_maintenance (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    last_startup_cleanup REAL
-                )
-            """
-        )
-
         current_version = await database.fetch_val(
             """
                 SELECT version FROM db_version WHERE id = 1
@@ -85,6 +76,15 @@ async def setup_database():
             logger.log(
                 "COMET", f"Database: Migration to version {DATABASE_VERSION} completed"
             )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS db_maintenance (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    last_startup_cleanup REAL
+                )
+            """
+        )
 
         await database.execute(
             """
@@ -344,7 +344,7 @@ async def setup_database():
         await database.execute(
             """
                 CREATE TABLE IF NOT EXISTS anime_mapping_cache (
-                    kitsu_id TEXT PRIMARY KEY,
+                    kitsu_id INTEGER PRIMARY KEY,
                     imdb_id TEXT,
                     is_anime BOOLEAN,
                     updated_at INTEGER
@@ -647,7 +647,11 @@ async def _run_startup_cleanup():
         return
 
     current_time = time.time()
-    should_run = True if interval == 0 else await _should_run_startup_cleanup(current_time, interval)
+    should_run = (
+        True
+        if interval == 0
+        else await _should_run_startup_cleanup(current_time, interval)
+    )
     if not should_run:
         logger.log("DATABASE", "Startup cleanup skipped (recent run)")
         return

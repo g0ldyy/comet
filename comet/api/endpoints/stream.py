@@ -26,19 +26,14 @@ async def is_first_search(media_id: str):
 
     try:
         if settings.DATABASE_TYPE == "sqlite":
-            existing = await database.fetch_one(
-                "SELECT 1 FROM first_searches WHERE media_id = :media_id",
-                {"media_id": media_id},
-            )
-
-            if existing:
+            try:
+                await database.execute(
+                    "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
+                    params,
+                )
+                return True
+            except Exception:
                 return False
-
-            await database.execute(
-                "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
-                params,
-            )
-            return True
 
         inserted = await database.fetch_val(
             """
@@ -400,17 +395,18 @@ async def stream(
         await debrid_service_instance.check_existing_availability(
             torrent_manager.torrents, season, episode
         )
+        cached_count = sum(
+            1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
+        )
+        total_count = len(torrent_manager.torrents)
+
         if (
             (
                 not has_cached_results
-                or sum(
-                    1
-                    for torrent in torrent_manager.torrents.values()
-                    if torrent["cached"]
-                )
-                == 0
+                or cached_count == 0
+                or (cached_count / total_count) < settings.DEBRID_CACHE_CHECK_RATIO
             )
-            and len(torrent_manager.torrents) > 0
+            and total_count > 0
             and debrid_service != "torrent"
         ):
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
@@ -516,7 +512,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{quote(quote(title, safe=''), safe='')}/{result_season}/{result_episode}/{quote(torrent_title)}"
+                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
                 )
 
             if torrent["cached"]:

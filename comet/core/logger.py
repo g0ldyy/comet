@@ -100,7 +100,7 @@ class LoguruHandler:
         if message.strip():
             # Try to extract timestamp, level, module, function, and message
             # This is a simplified parser for loguru format
-            pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| ([🌠👾👻🎬🔒🏭📰🕸️⚠️❌💀]?) ?(\w+) \| (\w+)\.(\w+) - (.+)"
+            pattern = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| (.*?) ?(\w+) \| (\w+)\.(\w+) - (.+)"
             match = re.match(pattern, message.strip())
 
             if match:
@@ -174,28 +174,48 @@ def log_startup_info(settings):
         "COMET",
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
+    logger.log("COMET", f"Gunicorn Preload App: {settings.GUNICORN_PRELOAD_APP}")
     logger.log(
         "COMET",
         f"Admin Dashboard Password: {settings.ADMIN_DASHBOARD_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
+
+    replicas = ""
+    if settings.DATABASE_TYPE != "sqlite":
+        replicas = f" - Read Replicas: {settings.DATABASE_READ_REPLICA_URLS}"
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{replicas}",
+    )
+
+    logger.log(
+        "COMET",
+        f"Anime Mapping: source={settings.ANIME_MAPPING_SOURCE} - refresh_interval={settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
     )
     logger.log("COMET", f"Bypass Proxy: {settings.BYPASS_PROXY_URL}")
 
-    if settings.is_any_context_enabled(settings.INDEXER_MANAGER_MODE):
-        logger.log(
-            "COMET",
-            f"Indexer Manager: {settings.INDEXER_MANAGER_TYPE}|{settings.INDEXER_MANAGER_URL} - Mode: {settings.INDEXER_MANAGER_MODE} - Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s",
-        )
-        logger.log("COMET", f"Indexers: {', '.join(settings.INDEXER_MANAGER_INDEXERS)}")
-        logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
-        logger.log(
-            "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
-        )
-    else:
-        logger.log("COMET", "Indexer Manager: False")
+    jackett_info = ""
+    if settings.is_any_context_enabled(settings.SCRAPE_JACKETT):
+        jackett_info = f" - {settings.JACKETT_URL} - Indexers: {', '.join(settings.JACKETT_INDEXERS)}"
+    logger.log(
+        "COMET",
+        f"Jackett Scraper: {settings.format_scraper_mode(settings.SCRAPE_JACKETT)}{jackett_info}",
+    )
+
+    prowlarr_info = ""
+    if settings.is_any_context_enabled(settings.SCRAPE_PROWLARR):
+        prowlarr_info = f" - {settings.PROWLARR_URL} - Indexers: {', '.join(settings.PROWLARR_INDEXERS)}"
+    logger.log(
+        "COMET",
+        f"Prowlarr Scraper: {settings.format_scraper_mode(settings.SCRAPE_PROWLARR)}{prowlarr_info}",
+    )
+
+    logger.log("COMET", f"Indexer Manager Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s")
+    logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
+    logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
+    logger.log(
+        "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
+    )
 
     comet_url = (
         f" - {settings.COMET_URL}"
@@ -328,6 +348,11 @@ def log_startup_info(settings):
     )
 
     logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
+
+    logger.log(
+        "COMET",
+        f"Disable Torrent Streams: {bool(settings.DISABLE_TORRENT_STREAMS)}",
+    )
 
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")

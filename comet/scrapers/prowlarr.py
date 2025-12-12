@@ -3,6 +3,7 @@ from typing import List, Set
 
 import aiohttp
 
+from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
@@ -14,8 +15,8 @@ from comet.services.torrent_manager import (add_torrent_queue,
 
 
 class ProwlarrScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession):
-        super().__init__(manager, session)
+    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+        super().__init__(manager, session, url)
 
     async def process_torrent(self, result: dict, media_id: str, season: int):
         base_torrent = {
@@ -94,13 +95,12 @@ class ProwlarrScraper(BaseScraper):
             )
 
         try:
-            indexers = [
-                indexer.lower() for indexer in settings.INDEXER_MANAGER_INDEXERS
-            ]
+            indexers = [indexer.lower() for indexer in settings.PROWLARR_INDEXERS]
 
             get_indexers = await self.session.get(
-                f"{settings.INDEXER_MANAGER_URL}/api/v1/indexer",
-                headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+                f"{self.url}/api/v1/indexer",
+                headers={"X-Api-Key": settings.PROWLARR_API_KEY},
+                timeout=INDEXER_TIMEOUT,
             )
             get_indexers = await get_indexers.json()
 
@@ -116,8 +116,9 @@ class ProwlarrScraper(BaseScraper):
             for query in queries:
                 tasks.append(
                     self.session.get(
-                        f"{settings.INDEXER_MANAGER_URL}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
-                        headers={"X-Api-Key": settings.INDEXER_MANAGER_API_KEY},
+                        f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
+                        headers={"X-Api-Key": settings.PROWLARR_API_KEY},
+                        timeout=INDEXER_TIMEOUT,
                     )
                 )
 

@@ -4,6 +4,7 @@ import hashlib
 import html
 import re
 import time
+from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
 
 import aiohttp
@@ -14,8 +15,7 @@ from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
 from torf import Magnet
 
-from collections import defaultdict
-
+from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.utils.parsing import default_dump, is_video
@@ -36,8 +36,9 @@ def extract_trackers_from_magnet(magnet_uri: str):
 
 async def download_torrent(session: aiohttp.ClientSession, url: str):
     try:
-        timeout = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
-        async with session.get(url, allow_redirects=False, timeout=timeout) as response:
+        async with session.get(
+            url, allow_redirects=False, timeout=TORRENT_TIMEOUT
+        ) as response:
             if response.status == 200:
                 return (await response.read(), None, None)
 
@@ -65,7 +66,7 @@ demagnetizer = Demagnetizer()
 async def get_torrent_from_magnet(magnet_uri: str):
     try:
         magnet = Magnet.from_string(magnet_uri)
-        with anyio.fail_after(60):
+        with anyio.fail_after(settings.MAGNET_RESOLVE_TIMEOUT):
             torrent_data = await demagnetizer.demagnetize(magnet)
             if torrent_data:
                 return torrent_data.dump()
@@ -237,6 +238,10 @@ class AddTorrentQueue:
 
         self.is_running = False
 
+    async def stop(self):
+        await self.queue.join()
+        self.is_running = False
+
 
 add_torrent_queue = AddTorrentQueue()
 
@@ -294,6 +299,24 @@ class TorrentUpdateQueue:
             await self._flush_batch()
 
         self.is_running = False
+
+    async def stop(self):
+        self.is_running = False
+
+        # Process remaining items in queue
+        while not self.queue.empty():
+            try:
+                file_info, media_id = self.queue.get_nowait()
+                await self._process_file_info(file_info, media_id)
+            except Exception as e:
+                logger.warning(
+                    f"Error processing remaining queue items during shutdown: {e}"
+                )
+                break
+
+        # Flush any remaining batches
+        if any(len(batch) > 0 for batch in self.batches.values()):
+            await self._flush_batch()
 
     def _reset_batches(self):
         for key in self.batches:

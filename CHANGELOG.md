@@ -2,6 +2,24 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.33.0](https://github.com/g0ldyy/comet/compare/v2.32.0...v2.33.0) (2025-12-12)
+
+
+### Features
+
+* add DEBRID_CACHE_CHECK_RATIO setting and update availability ch… ([0173711](https://github.com/g0ldyy/comet/commit/0173711eeda1dd0cfe121e6b153c124ded8b31b9))
+* add DEBRID_CACHE_CHECK_RATIO setting and update availability check logic ([3ecd35a](https://github.com/g0ldyy/comet/commit/3ecd35aa9fcfa12de7910a7fc05c4fae05e231f6))
+
+## [2.32.0](https://github.com/g0ldyy/comet/compare/v2.31.0...v2.32.0) (2025-12-10)
+
+
+### Features
+
+* add catalog and magnet resolve timeouts to configuration ([eb3b5e8](https://github.com/g0ldyy/comet/commit/eb3b5e87c76729ba15c9110dd068256f3f57bbf6))
+* add timeouts to Prowlarr API requests ([c0d7060](https://github.com/g0ldyy/comet/commit/c0d70607b28164f6e29ca7481bf17ea0fa126b64))
+* decouple Jackett and Prowlarr scraper configurations from a generic indexer manager ([d17cb2d](https://github.com/g0ldyy/comet/commit/d17cb2d7b3b1c3d72f7b2df92a47f853d71a89fd))
+* decouple Jackett and Prowlarr scraper configurations from a generic indexer manager ([460fad2](https://github.com/g0ldyy/comet/commit/460fad22b48ddcf465fd4f126a244bb1295bec1d))
+
 ## [Unreleased]
 
 ### Features

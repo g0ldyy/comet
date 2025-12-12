@@ -3,7 +3,7 @@ import time
 import aiohttp
 import mediaflow_proxy.utils.http_utils
 import orjson
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
 from comet.core.config_validation import config_check
@@ -17,17 +17,17 @@ router = APIRouter()
 
 
 @router.get(
-    "/{b64config}/playback/{hash}/{index}/{name}/{season}/{episode}/{torrent_name:path}"
+    "/{b64config}/playback/{hash}/{index}/{season}/{episode}/{torrent_name:path}"
 )
 async def playback(
     request: Request,
     b64config: str,
     hash: str,
     index: str,
-    name: str,
     season: str,
     episode: str,
     torrent_name: str,
+    name_query: str = Query(None, alias="name"),
 ):
     config = config_check(b64config)
 
@@ -115,7 +115,7 @@ async def playback(
                 ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
-                hash, index, name, torrent_name, season, episode, sources, aliases
+                hash, index, name_query, torrent_name, season, episode, sources, aliases
             )
             if not download_url:
                 return FileResponse(

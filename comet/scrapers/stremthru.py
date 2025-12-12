@@ -5,6 +5,7 @@ import aiohttp
 from comet.core.logger import log_scraper_error, logger
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
+from comet.services.anime import anime_mapper
 
 
 class StremthruScraper(BaseScraper):
@@ -15,8 +16,14 @@ class StremthruScraper(BaseScraper):
         torrents = []
 
         try:
+            media_id = request.media_only_id
+            if "kitsu" in request.media_id:
+                imdb_id = anime_mapper.get_imdb_from_kitsu(int(media_id))
+                if imdb_id:
+                    media_id = imdb_id
+
             data = await self.session.get(
-                f"{self.url}/v0/torznab/api?t=search&imdbid={request.media_only_id}"
+                f"{self.url}/v0/torznab/api?t=search&imdbid={media_id}"
             )
             data_text = await data.text()
 

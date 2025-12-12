@@ -13,6 +13,7 @@ from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
                         RipsRankModel)
 
 from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.logger import logger
 
 
 class AppSettings(BaseSettings):
@@ -42,6 +43,7 @@ class AppSettings(BaseSettings):
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
     METRICS_CACHE_TTL: Optional[int] = 60  # 1 minute
+    DEBRID_CACHE_CHECK_RATIO: Optional[float] = 0.0  # 0.0 to 1.0
     SCRAPE_LOCK_TTL: Optional[int] = 300  # 5 minutes
     SCRAPE_WAIT_TIMEOUT: Optional[int] = (
         30  # Max time to wait for other instance to complete
@@ -53,7 +55,17 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_MODE: Union[bool, str] = "both"
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = []
+    SCRAPE_JACKETT: Union[bool, str] = False
+    JACKETT_URL: Optional[str] = "http://127.0.0.1:9117"
+    JACKETT_API_KEY: Optional[str] = None
+    JACKETT_INDEXERS: List[str] = []
+    SCRAPE_PROWLARR: Union[bool, str] = False
+    PROWLARR_URL: Optional[str] = "http://127.0.0.1:9696"
+    PROWLARR_API_KEY: Optional[str] = None
+    PROWLARR_INDEXERS: List[str] = []
     GET_TORRENT_TIMEOUT: Optional[int] = 5
+    MAGNET_RESOLVE_TIMEOUT: Optional[int] = 60
+    CATALOG_TIMEOUT: Optional[int] = 30
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Union[bool, str] = False
     COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
@@ -144,7 +156,9 @@ class AppSettings(BaseSettings):
             return "sqlite"
         return value
 
-    @field_validator("INDEXER_MANAGER_INDEXERS")
+    @field_validator(
+        "INDEXER_MANAGER_INDEXERS", "JACKETT_INDEXERS", "PROWLARR_INDEXERS"
+    )
     def indexer_manager_indexers_normalization(cls, v, values):
         v = [indexer.replace(" ", "").lower() for indexer in v]
         return v
@@ -160,6 +174,8 @@ class AppSettings(BaseSettings):
         "MEDIAFUSION_URL",
         "AIOSTREAMS_URL",
         "JACKETTIO_URL",
+        "JACKETT_URL",
+        "PROWLARR_URL",
     )
     def normalize_urls(cls, v):
         if isinstance(v, str):
@@ -215,6 +231,29 @@ class AppSettings(BaseSettings):
         if isinstance(scraper_setting, str):
             scraper_setting = scraper_setting.lower()
             return scraper_setting in ["true", "both", "live", "background"]
+
+    def model_post_init(self, __context):
+        if self.INDEXER_MANAGER_TYPE == "jackett":
+            if not self.SCRAPE_JACKETT:
+                self.SCRAPE_JACKETT = self.INDEXER_MANAGER_MODE
+            if self.JACKETT_URL == "http://127.0.0.1:9117" and self.INDEXER_MANAGER_URL:
+                self.JACKETT_URL = self.INDEXER_MANAGER_URL
+            if not self.JACKETT_API_KEY and self.INDEXER_MANAGER_API_KEY:
+                self.JACKETT_API_KEY = self.INDEXER_MANAGER_API_KEY
+            if not self.JACKETT_INDEXERS and self.INDEXER_MANAGER_INDEXERS:
+                self.JACKETT_INDEXERS = self.INDEXER_MANAGER_INDEXERS
+        elif self.INDEXER_MANAGER_TYPE == "prowlarr":
+            if not self.SCRAPE_PROWLARR:
+                self.SCRAPE_PROWLARR = self.INDEXER_MANAGER_MODE
+            if (
+                self.PROWLARR_URL == "http://127.0.0.1:9696"
+                and self.INDEXER_MANAGER_URL
+            ):
+                self.PROWLARR_URL = self.INDEXER_MANAGER_URL
+            if not self.PROWLARR_API_KEY and self.INDEXER_MANAGER_API_KEY:
+                self.PROWLARR_API_KEY = self.INDEXER_MANAGER_API_KEY
+            if not self.PROWLARR_INDEXERS and self.INDEXER_MANAGER_INDEXERS:
+                self.PROWLARR_INDEXERS = self.INDEXER_MANAGER_INDEXERS
 
 
 settings = AppSettings()
@@ -742,9 +781,7 @@ if settings.DATABASE_TYPE != "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
         if replica_url:
             replica_instances.append(_build_database_instance(replica_url))
 elif settings.DATABASE_TYPE == "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
-    logger.log(
-        "DATABASE", "Read replicas are ignored for sqlite deployments"
-    )
+    logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
 
 database = ReplicaAwareDatabase(
     _build_database_instance(database_url), replicas=replica_instances
