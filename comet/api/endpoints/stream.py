@@ -378,6 +378,25 @@ async def stream(
             await scrape_lock.release()
             lock_acquired = False
 
+        if debrid_service != "torrent":
+            is_valid_key = await debrid_service_instance.validate_credentials(
+                session, media_id, media_only_id
+            )
+            if not is_valid_key:
+                logger.log(
+                    "SCRAPER",
+                    f"❌ Invalid API key for {debrid_service}; refusing to serve streams",
+                )
+                return {
+                    "streams": [
+                        {
+                            "name": "[⚠️] Comet",
+                            "description": f"Invalid or unauthorized API key for {debrid_service}. Please update your configuration.",
+                            "url": "https://comet.fast",
+                        }
+                    ]
+                }
+
         await debrid_service_instance.check_existing_availability(
             torrent_manager.torrents, season, episode
         )

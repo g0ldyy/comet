@@ -3,7 +3,8 @@ import asyncio
 import orjson
 from RTN import ParsedData
 
-from comet.debrid.manager import retrieve_debrid_availability
+from comet.core.logger import logger
+from comet.debrid.manager import get_debrid, retrieve_debrid_availability
 from comet.services.debrid_cache import (cache_availability,
                                          get_cached_availability)
 
@@ -13,6 +14,30 @@ class DebridService:
         self.debrid_service = debrid_service
         self.debrid_api_key = debrid_api_key
         self.ip = ip
+
+    async def validate_credentials(
+        self, session, media_id: str, media_only_id: str
+    ) -> bool:
+        if self.debrid_service == "torrent":
+            return True
+
+        try:
+            client = get_debrid(
+                session,
+                media_id,
+                media_only_id,
+                self.debrid_service,
+                self.debrid_api_key,
+                self.ip,
+            )
+            if client is None:
+                return False
+            return await client.check_premium()
+        except Exception as e:
+            logger.warning(
+                f"Failed to validate credentials for {self.debrid_service}: {e}"
+            )
+            return False
 
     async def get_and_cache_availability(
         self,
