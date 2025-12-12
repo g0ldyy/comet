@@ -49,18 +49,31 @@ def default_dump(obj):
         return obj.model_dump()
 
 
+def _safe_int(value, fallback=None):
+    try:
+        if value is None:
+            return fallback
+        text = str(value).strip()
+        if text == "":
+            return fallback
+        return int(text)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def parse_media_id(media_type: str, media_id: str):
     if "kitsu" in media_id:
         info = media_id.split(":")
-
-        if len(info) > 2:
-            return info[1], 1, int(info[2])
-        else:
-            return info[1], 1, None
+        identifier = info[1] if len(info) > 1 else media_id
+        episode = _safe_int(info[2] if len(info) > 2 else None)
+        return identifier, 1, episode
 
     if media_type == "series":
         info = media_id.split(":")
-        return info[0], int(info[1]), int(info[2])
+        identifier = info[0]
+        season = _safe_int(info[1] if len(info) > 1 else None, fallback=1)
+        episode = _safe_int(info[2] if len(info) > 2 else None)
+        return identifier, season, episode
 
     return media_id, None, None
 
