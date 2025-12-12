@@ -363,17 +363,18 @@ async def stream(
         await debrid_service_instance.check_existing_availability(
             torrent_manager.torrents, season, episode
         )
+        cached_count = sum(
+            1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
+        )
+        total_count = len(torrent_manager.torrents)
+
         if (
             (
                 not has_cached_results
-                or sum(
-                    1
-                    for torrent in torrent_manager.torrents.values()
-                    if torrent["cached"]
-                )
-                == 0
+                or cached_count == 0
+                or (cached_count / total_count) < settings.DEBRID_CACHE_CHECK_RATIO
             )
-            and len(torrent_manager.torrents) > 0
+            and total_count > 0
             and debrid_service != "torrent"
         ):
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
