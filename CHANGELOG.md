@@ -2,6 +2,14 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.33.0](https://github.com/g0ldyy/comet/compare/v2.32.0...v2.33.0) (2025-12-12)
+
+
+### Features
+
+* add DEBRID_CACHE_CHECK_RATIO setting and update availability ch… ([0173711](https://github.com/g0ldyy/comet/commit/0173711eeda1dd0cfe121e6b153c124ded8b31b9))
+* add DEBRID_CACHE_CHECK_RATIO setting and update availability check logic ([3ecd35a](https://github.com/g0ldyy/comet/commit/3ecd35aa9fcfa12de7910a7fc05c4fae05e231f6))
+
 ## [2.32.0](https://github.com/g0ldyy/comet/compare/v2.31.0...v2.32.0) (2025-12-10)
 
 
