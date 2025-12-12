@@ -7,7 +7,8 @@ from fastapi import APIRouter, BackgroundTasks, Request
 
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
-from comet.core.metrics import record_stream_request
+from comet.core.metrics import (record_non_debrid_stream_request,
+                                record_stream_request)
 from comet.core.models import database, settings, trackers
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.manager import MetadataScraper
@@ -150,6 +151,9 @@ async def stream(
                 f"Clamping maxResultsPerResolution from {client_value} to {per_resolution_cap}",
             )
             config["maxResultsPerResolution"] = per_resolution_cap
+
+    if config.get("debridService") == "torrent":
+        record_non_debrid_stream_request()
 
     record_stream_request(config.get("debridService"))
 
