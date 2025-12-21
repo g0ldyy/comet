@@ -342,7 +342,7 @@ def log_startup_info(settings):
     )
 
     yggtorrent_info = (
-        f" - Username: {settings.YGGTORRENT_USERNAME} - Password: {settings.YGGTORRENT_PASSWORD}"
+        f" - Username: {settings.YGGTORRENT_USERNAME} - Password: {settings.YGGTORRENT_PASSWORD} - Passkey: {settings.YGGTORRENT_PASSKEY}"
         if settings.is_any_context_enabled(settings.SCRAPE_YGGTORRENT)
         else ""
     )
