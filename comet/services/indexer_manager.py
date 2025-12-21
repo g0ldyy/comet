@@ -126,6 +126,7 @@ class IndexerManager:
                     return
 
                 indexers = await resp_idx.json()
+                statuses = await resp_stat.json()
 
                 status_map = {s["indexerId"]: s for s in statuses}
                 active_ids = []
