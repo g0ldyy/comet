@@ -2,6 +2,17 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.34.0](https://github.com/g0ldyy/comet/compare/v2.33.0...v2.34.0) (2025-12-21)
+
+
+### Features
+
+* add YGGTORRENT_PASSKEY setting and update Yggtorrent scraper to parse info hash from page HTML and use passkey for tracker sources ([c442b0c](https://github.com/g0ldyy/comet/commit/c442b0c2691c2022e5da244010e9ae20621faaf2))
+* add YGGTORRENT_PASSKEY setting and update Yggtorrent scraper to parse info hash from page HTML and use passkey for tracker sources ([6e44eb2](https://github.com/g0ldyy/comet/commit/6e44eb260dcf4354308b9e7c36f61c3c55593f38))
+* dev to main ([2d2ded3](https://github.com/g0ldyy/comet/commit/2d2ded3f6a70b7efce0d134d281809cd8a5f7015))
+* introduce IndexerManager service to dynamically update and manage Jackett and Prowlarr indexers ([beacb2a](https://github.com/g0ldyy/comet/commit/beacb2a966fc8969aa3070cbc9e0511073d55b6d))
+* introduce IndexerManager service to dynamically update and manage Jackett and Prowlarr indexers ([8265cc5](https://github.com/g0ldyy/comet/commit/8265cc55aae8b796e18ee8b738e38d98b9a9990c))
+
 ## [2.33.0](https://github.com/g0ldyy/comet/compare/v2.32.0...v2.33.0) (2025-12-12)
 
 
