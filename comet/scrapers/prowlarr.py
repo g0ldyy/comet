@@ -95,28 +95,11 @@ class ProwlarrScraper(BaseScraper):
             )
 
         try:
-            indexers = [indexer.lower() for indexer in settings.PROWLARR_INDEXERS]
-
-            get_indexers = await self.session.get(
-                f"{self.url}/api/v1/indexer",
-                headers={"X-Api-Key": settings.PROWLARR_API_KEY},
-                timeout=INDEXER_TIMEOUT,
-            )
-            get_indexers = await get_indexers.json()
-
-            indexers_id = []
-            for indexer in get_indexers:
-                if (
-                    indexer["name"].lower() in indexers
-                    or indexer["definitionName"].lower() in indexers
-                ):
-                    indexers_id.append(indexer["id"])
-
             tasks = []
             for query in queries:
                 tasks.append(
                     self.session.get(
-                        f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in indexers_id)}&type=search",
+                        f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in settings.PROWLARR_INDEXERS)}&type=search",
                         headers={"X-Api-Key": settings.PROWLARR_API_KEY},
                         timeout=INDEXER_TIMEOUT,
                     )

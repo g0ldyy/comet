@@ -19,6 +19,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
+from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
@@ -66,9 +67,18 @@ async def lifespan(app: FastAPI):
     if settings.BACKGROUND_SCRAPER_ENABLED:
         background_scraper_task = asyncio.create_task(background_scraper.start())
 
+    # Start indexer manager
+    indexer_manager_task = asyncio.create_task(indexer_manager.run())
+
     try:
         yield
     finally:
+        indexer_manager_task.cancel()
+        try:
+            await indexer_manager_task
+        except asyncio.CancelledError:
+            pass
+
         if background_scraper_task:
             await background_scraper.stop()
             background_scraper_task.cancel()
