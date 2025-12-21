@@ -2,6 +2,16 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.35.0](https://github.com/g0ldyy/comet/compare/v2.34.0...v2.35.0) (2025-12-21)
+
+
+### Features
+
+* add API response to IMDB metadata retrieval error logs ([242e83a](https://github.com/g0ldyy/comet/commit/242e83a7e1bad5303fa6dfa8298d2fd9c2ec4f22))
+* add robust error handling to the Prowlarr scraper ([95866a6](https://github.com/g0ldyy/comet/commit/95866a68abe0bf4e38c6eab0f6f6576ebbcd37e6))
+* fetch indexer statuses from response ([bd51abf](https://github.com/g0ldyy/comet/commit/bd51abf40e9173fe3a366cfa9b5bcc0f91d77767))
+* implement dynamic Prowlarr indexer management with initialization wait, update Jackett management, and add related settings and logging ([1152b42](https://github.com/g0ldyy/comet/commit/1152b42c2ee072f73607bb9480f83e0993751c1c))
+
 ## [2.34.0](https://github.com/g0ldyy/comet/compare/v2.33.0...v2.34.0) (2025-12-21)
 
 
