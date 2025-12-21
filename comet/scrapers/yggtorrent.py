@@ -1,5 +1,6 @@
 import asyncio
 import re
+from urllib.parse import urlparse
 
 import aiohttp
 from curl_cffi import requests
@@ -9,6 +10,9 @@ from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.utils.formatting import size_to_bytes
+
+YGG_URL = "https://www.yggtorrent.org"
+TRACKER_URL = "http://tracker.p2p-world.net:8080"
 
 LOGIN_PAGE = "/auth/login"
 LOGIN_PROCESS_PAGE = "/auth/process_login"
@@ -20,7 +24,6 @@ NAME_PATTERN = re.compile(r'<a[^>]+href="([^"]+)"[^>]*>(.*)', re.DOTALL)
 
 
 class YGGTorrentScraper(BaseScraper):
-    _domain = None
     _session = None
     _lock = asyncio.Lock()
 
@@ -28,40 +31,11 @@ class YGGTorrentScraper(BaseScraper):
         super().__init__(manager, session)
 
     @classmethod
-    async def _get_domain(cls):
-        if cls._domain:
-            return cls._domain
-
-        cls._domain = "www.yggtorrent.org"
-        return cls._domain
-
-        # try:
-        #     async with requests.AsyncSession(impersonate="chrome") as session:
-        #         response = await session.get("https://ygg.re", allow_redirects=False)
-        #         if "location" in response.headers:
-        #             location = response.headers["location"]
-        #             domain = urlparse(location).netloc
-        #             logger.info(f"Resolved YGG domain to: {domain}")
-        #             cls._domain = domain
-        #             return domain
-        #         elif response.status_code == 200:
-        #             cls._domain = urlparse(response.url).netloc
-        #             return cls._domain
-        # except Exception as e:
-        #     logger.error(f"Error resolving YGG domain: {e}")
-        #     return None
-        # return None
-
-    @classmethod
     async def _ensure_session(cls):
         async with cls._lock:
             if cls._session:
-                domain = await cls._get_domain()
-                if not domain:
-                    return False
-
                 try:
-                    response = await cls._session.get(f"https://{domain}/")
+                    response = await cls._session.get(f"{YGG_URL}/")
                     if response.status_code == 200 and "Déconnexion" in response.text:
                         return True
                 except Exception:
@@ -71,15 +45,13 @@ class YGGTorrentScraper(BaseScraper):
                 await cls._session.close()
                 cls._session = None
 
-            domain = await cls._get_domain()
-            if not domain:
-                return False
+            domain = urlparse(YGG_URL).netloc
 
             session = requests.AsyncSession(impersonate="chrome")
             session.cookies.set("account_created", "true", domain=domain)
 
             try:
-                response = await session.get(f"https://{domain}{LOGIN_PAGE}")
+                response = await session.get(f"{YGG_URL}{LOGIN_PAGE}")
                 if response.status_code != 200:
                     logger.error(f"Failed to get login page: {response.status_code}")
                     await session.close()
@@ -91,7 +63,7 @@ class YGGTorrentScraper(BaseScraper):
                 }
 
                 response = await session.post(
-                    f"https://{domain}{LOGIN_PROCESS_PAGE}", data=payload
+                    f"{YGG_URL}{LOGIN_PROCESS_PAGE}", data=payload
                 )
 
                 if response.status_code != 200:
@@ -99,7 +71,7 @@ class YGGTorrentScraper(BaseScraper):
                     await session.close()
                     return False
 
-                response = await session.get(f"https://{domain}/")
+                response = await session.get(f"{YGG_URL}/")
                 if "Déconnexion" in response.text or "logout" in response.text.lower():
                     logger.info("Successfully logged in to YGGTorrent.")
                     cls._session = session
@@ -113,7 +85,7 @@ class YGGTorrentScraper(BaseScraper):
                 await session.close()
                 return False
 
-    async def _process_torrent(self, domain, url, title, seeders, size):
+    async def _process_torrent(self, url, title, seeders, size):
         try:
             response = await self._session.get(url)
             if response.status_code != 200:
@@ -150,7 +122,7 @@ class YGGTorrentScraper(BaseScraper):
                 )
                 return []
 
-            source = f"http://tracker.p2p-world.net:8080/{settings.YGGTORRENT_PASSKEY}/announce"
+            source = f"{TRACKER_URL}/{settings.YGGTORRENT_PASSKEY}/announce"
 
             return [
                 {
@@ -168,8 +140,8 @@ class YGGTorrentScraper(BaseScraper):
             logger.warning(f"Exception processing torrent {url}: {e}")
             return []
 
-    async def _scrape_page(self, domain, query, offset, semaphore):
-        url = f"https://{domain}/engine/search?name={query}&do=search&page={offset}&category=2145"
+    async def _scrape_page(self, query, offset, semaphore):
+        url = f"{YGG_URL}/engine/search?name={query}&do=search&page={offset}&category=2145"
 
         async with semaphore:
             try:
@@ -205,6 +177,9 @@ class YGGTorrentScraper(BaseScraper):
 
             href = name_match.group(1)
 
+            if href.startswith("/"):
+                href = f"{YGG_URL}{href}"
+
             title = name_match.group(2).split("</a>")[0].strip()
 
             seeders = int(tds[7])
@@ -214,7 +189,7 @@ class YGGTorrentScraper(BaseScraper):
             clean_size = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", clean_size)
             size = size_to_bytes(clean_size)
 
-            tasks.append(self._process_torrent(domain, href, title, seeders, size))
+            tasks.append(self._process_torrent(href, title, seeders, size))
 
         results = await asyncio.gather(*tasks)
         return [r for res in results for r in res], total_results
@@ -227,16 +202,12 @@ class YGGTorrentScraper(BaseScraper):
         semaphore = asyncio.Semaphore(limit)
 
         # Fetch page 0 first to get total results
-        results, total_results = await self._scrape_page(
-            self._domain, request.title, 0, semaphore
-        )
+        results, total_results = await self._scrape_page(request.title, 0, semaphore)
 
         if total_results > 50:
             tasks = []
             for offset in range(50, total_results, 50):
-                tasks.append(
-                    self._scrape_page(self._domain, request.title, offset, semaphore)
-                )
+                tasks.append(self._scrape_page(request.title, offset, semaphore))
 
             if tasks:
                 pages_results = await asyncio.gather(*tasks)
