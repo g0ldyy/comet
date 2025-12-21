@@ -196,7 +196,12 @@ def log_startup_info(settings):
 
     jackett_info = ""
     if settings.is_any_context_enabled(settings.SCRAPE_JACKETT):
-        jackett_info = f" - {settings.JACKETT_URL} - Indexers: {', '.join(settings.JACKETT_INDEXERS)}"
+        indexers = (
+            ", ".join(settings.JACKETT_INDEXERS)
+            if settings.JACKETT_INDEXERS
+            else "All Configured/Healthy"
+        )
+        jackett_info = f" - {settings.JACKETT_URL} - Indexers: {indexers}"
     logger.log(
         "COMET",
         f"Jackett Scraper: {settings.format_scraper_mode(settings.SCRAPE_JACKETT)}{jackett_info}",
@@ -204,13 +209,22 @@ def log_startup_info(settings):
 
     prowlarr_info = ""
     if settings.is_any_context_enabled(settings.SCRAPE_PROWLARR):
-        prowlarr_info = f" - {settings.PROWLARR_URL} - Indexers: {', '.join(settings.PROWLARR_INDEXERS)}"
+        indexers = (
+            ", ".join(settings.PROWLARR_INDEXERS)
+            if settings.PROWLARR_INDEXERS
+            else "All Configured/Healthy"
+        )
+        prowlarr_info = f" - {settings.PROWLARR_URL} - Indexers: {indexers}"
     logger.log(
         "COMET",
         f"Prowlarr Scraper: {settings.format_scraper_mode(settings.SCRAPE_PROWLARR)}{prowlarr_info}",
     )
 
     logger.log("COMET", f"Indexer Manager Timeout: {settings.INDEXER_MANAGER_TIMEOUT}s")
+    logger.log(
+        "COMET",
+        f"Indexer Manager Update Interval: {settings.INDEXER_MANAGER_UPDATE_INTERVAL}s",
+    )
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
     logger.log(
