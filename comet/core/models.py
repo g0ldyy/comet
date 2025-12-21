@@ -103,6 +103,7 @@ class AppSettings(BaseSettings):
     SCRAPE_YGGTORRENT: Union[bool, str] = False
     YGGTORRENT_USERNAME: Optional[str] = None
     YGGTORRENT_PASSWORD: Optional[str] = None
+    YGGTORRENT_PASSKEY: Optional[str] = None
     YGGTORRENT_MAX_CONCURRENT_PAGES: Optional[int] = 5
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
