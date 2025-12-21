@@ -55,6 +55,7 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_MODE: Union[bool, str] = "both"
     INDEXER_MANAGER_TIMEOUT: Optional[int] = 30
     INDEXER_MANAGER_INDEXERS: List[str] = []
+    INDEXER_MANAGER_UPDATE_INTERVAL: Optional[int] = 900
     SCRAPE_JACKETT: Union[bool, str] = False
     JACKETT_URL: Optional[str] = "http://127.0.0.1:9117"
     JACKETT_API_KEY: Optional[str] = None
@@ -102,6 +103,7 @@ class AppSettings(BaseSettings):
     SCRAPE_YGGTORRENT: Union[bool, str] = False
     YGGTORRENT_USERNAME: Optional[str] = None
     YGGTORRENT_PASSWORD: Optional[str] = None
+    YGGTORRENT_PASSKEY: Optional[str] = None
     YGGTORRENT_MAX_CONCURRENT_PAGES: Optional[int] = 5
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
