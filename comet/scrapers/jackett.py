@@ -8,6 +8,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
+from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
                                             download_torrent,
                                             extract_torrent_metadata,
@@ -100,6 +101,18 @@ class JackettScraper(BaseScraper):
             return []
 
     async def scrape(self, request: ScrapeRequest):
+        if not settings.JACKETT_INDEXERS:
+            try:
+                await asyncio.wait_for(
+                    indexer_manager.jackett_initialized.wait(),
+                    timeout=settings.INDEXER_MANAGER_WAIT_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        if not settings.JACKETT_INDEXERS:
+            logger.warning("No Jackett indexers available, skipping scrape.")
+            return []
         torrents: List[ScrapeResult] = []
         seen: Set[str] = set()
 

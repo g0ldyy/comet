@@ -8,6 +8,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
+from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
                                             download_torrent,
                                             extract_torrent_metadata,
@@ -84,6 +85,19 @@ class ProwlarrScraper(BaseScraper):
         return torrents
 
     async def scrape(self, request: ScrapeRequest):
+        if not settings.PROWLARR_INDEXERS:
+            try:
+                await asyncio.wait_for(
+                    indexer_manager.prowlarr_initialized.wait(),
+                    timeout=settings.INDEXER_MANAGER_WAIT_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        if not settings.PROWLARR_INDEXERS:
+            logger.warning("No Prowlarr indexers available, skipping scrape.")
+            return []
+
         torrents: List[ScrapeResult] = []
         seen: Set[str] = set()
 
@@ -120,7 +134,13 @@ class ProwlarrScraper(BaseScraper):
                     continue
 
                 try:
-                    all_results.extend(await response.json())
+                    response_json = await response.json()
+                    if isinstance(response_json, list):
+                        all_results.extend(response_json)
+                    else:
+                        logger.warning(
+                            f"Unexpected Prowlarr response format: {response_json}"
+                        )
                 except Exception as e:
                     logger.warning(
                         f"Exception while parsing Prowlarr JSON response: {e}"
