@@ -48,7 +48,7 @@ class AiostreamsScraper(BaseScraper):
                         "seeders": torrent.get("seeders", None),
                         "size": torrent["size"],
                         "tracker": tracker,
-                        "sources": torrent.get("sources", []),
+                        "sources": torrent.get("sources") or [],
                     }
                 )
         except Exception as e:

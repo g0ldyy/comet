@@ -466,7 +466,7 @@ async def stream(
                 if torrent["fileIndex"] is not None:
                     the_stream["fileIdx"] = torrent["fileIndex"]
 
-                if len(torrent["sources"]) == 0:
+                if not torrent["sources"]:
                     the_stream["sources"] = trackers
                 else:
                     the_stream["sources"] = torrent["sources"]
