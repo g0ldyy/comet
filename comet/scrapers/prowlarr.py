@@ -105,10 +105,26 @@ class ProwlarrScraper(BaseScraper):
                     )
                 )
 
-            responses = await asyncio.gather(*tasks)
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
             all_results = []
             for response in responses:
-                all_results.extend(await response.json())
+                if isinstance(response, Exception):
+                    if isinstance(response, asyncio.TimeoutError):
+                        logger.warning(
+                            f"Timeout while getting torrents for {request.title} with Prowlarr"
+                        )
+                    else:
+                        logger.warning(
+                            f"Exception while getting torrents for {request.title} with Prowlarr: {response}"
+                        )
+                    continue
+
+                try:
+                    all_results.extend(await response.json())
+                except Exception as e:
+                    logger.warning(
+                        f"Exception while parsing Prowlarr JSON response: {e}"
+                    )
 
             torrent_tasks = []
             for result in all_results:
@@ -120,10 +136,17 @@ class ProwlarrScraper(BaseScraper):
                     self.process_torrent(result, request.media_only_id, request.season)
                 )
 
-            processed_torrents = await asyncio.gather(*torrent_tasks)
-            torrents = [
-                t for sublist in processed_torrents for t in sublist if t["infoHash"]
-            ]
+            processed_torrents = await asyncio.gather(
+                *torrent_tasks, return_exceptions=True
+            )
+            for sublist in processed_torrents:
+                if isinstance(sublist, Exception):
+                    logger.warning(f"Error processing torrent with Prowlarr: {sublist}")
+                    continue
+                for t in sublist:
+                    if t["infoHash"]:
+                        torrents.append(t)
+
         except Exception as e:
             logger.warning(
                 f"Exception while getting torrents for {request.title} with Prowlarr: {e}"
