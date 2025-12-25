@@ -2,6 +2,18 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.36.0](https://github.com/g0ldyy/comet/compare/v2.35.0...v2.36.0) (2025-12-25)
+
+
+### Features
+
+* add default PostgreSQL service to Docker Compose, configure Comet to use it, and introduce SQLite concurrency warnings ([24fb50b](https://github.com/g0ldyy/comet/commit/24fb50bf77645dfbcf103df78e6e8f51d4855511))
+
+
+### Bug Fixes
+
+* correct PostgreSQL data volume mount path in docker-compose.yml ([7ae3788](https://github.com/g0ldyy/comet/commit/7ae3788a5cc81764297588b83dadb939aef6cac1))
+
 ## [2.35.0](https://github.com/g0ldyy/comet/compare/v2.34.0...v2.35.0) (2025-12-21)
 
 
