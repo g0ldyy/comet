@@ -188,6 +188,23 @@ def log_startup_info(settings):
         f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{replicas}",
     )
 
+    # SQLite concurrency warnings
+    if settings.DATABASE_TYPE == "sqlite":
+        logger.warning(
+            "⚠️  SQLite has poor concurrency support and is NOT recommended for production. "
+            "Consider using PostgreSQL for better performance and reliability."
+        )
+        if settings.FASTAPI_WORKERS != 1:
+            logger.warning(
+                f"⚠️  SQLite with {settings.FASTAPI_WORKERS} workers may cause database locking issues. "
+                "Use PostgreSQL or set FASTAPI_WORKERS=1."
+            )
+        if settings.BACKGROUND_SCRAPER_ENABLED:
+            logger.warning(
+                "⚠️  Background scraper with SQLite may cause database locking issues. "
+                "Use PostgreSQL for reliable background scraping."
+            )
+
     logger.log(
         "COMET",
         f"Anime Mapping: source={settings.ANIME_MAPPING_SOURCE} - refresh_interval={settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
