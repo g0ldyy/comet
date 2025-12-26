@@ -7,8 +7,18 @@ router = APIRouter()
 templates = Jinja2Templates("comet/templates")
 
 
-@router.get("/configure")
-@router.get("/{b64config}/configure")
+@router.get(
+    "/configure",
+    tags=["Configuration"],
+    summary="Configuration Page",
+    description="Renders the configuration page.",
+)
+@router.get(
+    "/{b64config}/configure",
+    tags=["Configuration"],
+    summary="Configuration Page",
+    description="Renders the configuration page with existing configuration.",
+)
 async def configure(request: Request):
     return templates.TemplateResponse(
         "index.html",

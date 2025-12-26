@@ -19,5 +19,7 @@ async def get_imdb_metadata(session: aiohttp.ClientSession, id: str):
         additional_info = ""
         if metadata:
             additional_info = f"- API Response: {metadata}"
-        logger.warning(f"Exception while getting IMDB metadata for {id}: {e}{additional_info}")
+        logger.warning(
+            f"Exception while getting IMDB metadata for {id}: {e}{additional_info}"
+        )
         return None, None, None

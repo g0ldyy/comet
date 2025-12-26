@@ -10,8 +10,18 @@ from comet.debrid.manager import get_debrid_extension
 router = APIRouter()
 
 
-@router.get("/manifest.json")
-@router.get("/{b64config}/manifest.json")
+@router.get(
+    "/manifest.json",
+    tags=["Stremio Add-on"],
+    summary="Add-on Manifest",
+    description="Returns the add-on manifest.",
+)
+@router.get(
+    "/{b64config}/manifest.json",
+    tags=["Stremio Add-on"],
+    summary="Add-on Manifest",
+    description="Returns the add-on manifest with existing configuration.",
+)
 async def manifest(request: Request, b64config: str = None):
     base_manifest = {
         "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",

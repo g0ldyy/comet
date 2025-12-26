@@ -108,11 +108,31 @@ async def lifespan(app: FastAPI):
         await teardown_database()
 
 
+tags_metadata = [
+    {
+        "name": "General",
+        "description": "General application endpoints.",
+    },
+    {
+        "name": "Configuration",
+        "description": "Endpoints for configuring Comet.",
+    },
+    {
+        "name": "Stremio Add-on",
+        "description": "Standard Stremio add-on endpoints.",
+    },
+    {
+        "name": "Admin",
+        "description": "Admin dashboard and API endpoints.",
+    },
+]
+
 app = FastAPI(
     title="Comet",
     summary="Stremio's fastest torrent/debrid search add-on.",
     lifespan=lifespan,
     redoc_url=None,
+    openapi_tags=tags_metadata,
 )
 
 

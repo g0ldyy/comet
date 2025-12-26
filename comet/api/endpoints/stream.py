@@ -114,8 +114,18 @@ async def wait_for_scrape_completion(media_id: str, context: str = ""):
     return False
 
 
-@streams.get("/stream/{media_type}/{media_id}.json")
-@streams.get("/{b64config}/stream/{media_type}/{media_id}.json")
+@streams.get(
+    "/stream/{media_type}/{media_id}.json",
+    tags=["Stremio Add-on"],
+    summary="Stream Provider",
+    description="Returns a list of streams for the specified media.",
+)
+@streams.get(
+    "/{b64config}/stream/{media_type}/{media_id}.json",
+    tags=["Stremio Add-on"],
+    summary="Stream Provider",
+    description="Returns a list of streams for the specified media with existing configuration.",
+)
 async def stream(
     request: Request,
     media_type: str,

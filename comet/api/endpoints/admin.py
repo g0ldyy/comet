@@ -54,15 +54,29 @@ async def require_admin_auth(admin_session: str = Cookie(None)):
         raise HTTPException(status_code=401, detail="Authentication required")
 
 
-@router.get("/admin")
-async def admin_root(request: Request, admin_session: str = Cookie(None)):
+@router.get(
+    "/admin",
+    tags=["Admin"],
+    summary="Admin Login Page",
+    description="Renders the admin login page.",
+)
+async def admin_root(
+    request: Request, admin_session: str = Cookie(None, description="Admin session ID")
+):
     if await verify_admin_session(admin_session):
         return RedirectResponse("/admin/dashboard")
     return templates.TemplateResponse("admin_login.html", {"request": request})
 
 
-@router.post("/admin/login")
-async def admin_login(request: Request, password: str = Form(...)):
+@router.post(
+    "/admin/login",
+    tags=["Admin"],
+    summary="Admin Login",
+    description="Authenticates the admin user.",
+)
+async def admin_login(
+    request: Request, password: str = Form(..., description="Admin password")
+):
     is_correct = secrets.compare_digest(password, settings.ADMIN_DASHBOARD_PASSWORD)
 
     if not is_correct:
@@ -83,8 +97,15 @@ async def admin_login(request: Request, password: str = Form(...)):
     return response
 
 
-@router.get("/admin/dashboard")
-async def admin_dashboard(request: Request, admin_session: str = Cookie(None)):
+@router.get(
+    "/admin/dashboard",
+    tags=["Admin"],
+    summary="Admin Dashboard",
+    description="Renders the admin dashboard.",
+)
+async def admin_dashboard(
+    request: Request, admin_session: str = Cookie(None, description="Admin session ID")
+):
     try:
         await require_admin_auth(admin_session)
         return templates.TemplateResponse("admin_dashboard.html", {"request": request})
@@ -92,8 +113,15 @@ async def admin_dashboard(request: Request, admin_session: str = Cookie(None)):
         return RedirectResponse("/admin", status_code=303)
 
 
-@router.post("/admin/logout")
-async def admin_logout(admin_session: str = Cookie(None)):
+@router.post(
+    "/admin/logout",
+    tags=["Admin"],
+    summary="Admin Logout",
+    description="Logs out the admin user.",
+)
+async def admin_logout(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
     if admin_session:
         # Remove session from database
         await database.execute(
@@ -106,8 +134,15 @@ async def admin_logout(admin_session: str = Cookie(None)):
     return response
 
 
-@router.get("/admin/api/connections")
-async def admin_api_connections(admin_session: str = Cookie(None)):
+@router.get(
+    "/admin/api/connections",
+    tags=["Admin"],
+    summary="Active Connections",
+    description="Returns a list of active connections and bandwidth usage.",
+)
+async def admin_api_connections(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
     await require_admin_auth(admin_session)
     rows = await database.fetch_all(
         "SELECT id, ip, content, timestamp FROM active_connections ORDER BY timestamp DESC"
@@ -188,8 +223,15 @@ async def admin_api_connections(admin_session: str = Cookie(None)):
     )
 
 
-@router.get("/admin/api/logs")
-async def admin_api_logs(admin_session: str = Cookie(None), since: float = 0):
+@router.get(
+    "/admin/api/logs",
+    tags=["Admin"],
+    summary="Application Logs",
+    description="Returns a list of recent application logs.",
+)
+async def admin_api_logs(
+    admin_session: str = Cookie(None, description="Admin session ID"), since: float = 0
+):
     await require_admin_auth(admin_session)
 
     # Get logs since the specified timestamp
@@ -201,8 +243,15 @@ async def admin_api_logs(admin_session: str = Cookie(None), since: float = 0):
     )
 
 
-@router.get("/admin/api/metrics")
-async def admin_api_metrics(admin_session: str = Cookie(None)):
+@router.get(
+    "/admin/api/metrics",
+    tags=["Admin"],
+    summary="Application Metrics",
+    description="Returns application metrics including torrents, searches, and cache stats.",
+)
+async def admin_api_metrics(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
     if not settings.PUBLIC_METRICS_API:
         await require_admin_auth(admin_session)
 
