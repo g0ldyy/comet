@@ -15,7 +15,7 @@ class CometScraper(BaseScraper):
         try:
             results = await fetch_with_proxy_fallback(
                 self.session,
-                f"{self.url}/stream/{request.media_type}/{request.media_id}.json",
+                f"{self.url}/e30=/stream/{request.media_type}/{request.media_id}.json",
             )
 
             for torrent in results["streams"]:
