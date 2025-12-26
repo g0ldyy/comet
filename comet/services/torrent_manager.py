@@ -372,8 +372,7 @@ class TorrentUpdateQueue:
                 for key, rows in grouped.items():
                     query = _get_torrent_upsert_query(key)
                     try:
-                        async with database.transaction():
-                            await database.execute_many(query, rows)
+                        await _execute_batched_upsert(query, rows)
                     except Exception as e:
                         logger.warning(f"Error processing upsert batch: {e}")
 
@@ -407,6 +406,13 @@ class TorrentUpdateQueue:
                 "timestamp": time.time(),
                 "media_id": media_id,
             }
+
+            params["lock_key"] = _compute_advisory_lock_key(
+                media_id,
+                file_info["info_hash"],
+                file_info["season"],
+                file_info["episode"],
+            )
 
             upsert_key = _build_upsert_key(
                 file_info["info_hash"],
@@ -507,6 +513,56 @@ def _determine_conflict_key(season, episode) -> str:
 
 def _build_upsert_key(info_hash, season, episode, media_id):
     return (media_id, info_hash, season, episode)
+
+
+def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
+    payload = f"{media_id}|{info_hash}|{season}|{episode}".encode("utf-8")
+    digest = hashlib.sha1(payload).digest()
+    value = int.from_bytes(digest[:8], byteorder="big", signed=False)
+    # Map to signed 64-bit range expected by pg_advisory_xact_lock
+    if value >= 1 << 63:
+        value -= 1 << 64
+    return value
+
+
+async def _execute_batched_upsert(query: str, rows):
+    if not rows:
+        return
+
+    ordered_rows = sorted(rows, key=lambda row: row.get("timestamp", 0), reverse=True)
+    sanitized_rows = [
+        {key: value for key, value in row.items() if key != "lock_key"}
+        for row in ordered_rows
+    ]
+
+    attempts = POSTGRES_LOCK_RETRY_ATTEMPTS + 1 if settings.DATABASE_TYPE == "postgresql" else 1
+
+    for attempt in range(attempts):
+        try:
+            async with database.transaction():
+                if settings.DATABASE_TYPE == "postgresql":
+                    await database.execute(
+                        f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
+                    )
+                    for row in ordered_rows:
+                        lock_key = row.get("lock_key")
+                        if lock_key is None:
+                            continue
+                        await database.execute(
+                            "SELECT pg_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
+                            {"lock_key": lock_key},
+                        )
+
+                await database.execute_many(query, sanitized_rows)
+            return
+        except Exception as exc:
+            if (
+                settings.DATABASE_TYPE != "postgresql"
+                or not _is_retryable_lock_error(exc)
+                or attempt == attempts - 1
+            ):
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
 
 
 def _get_torrent_upsert_query(conflict_key: str) -> str:
