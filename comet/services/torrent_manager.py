@@ -463,7 +463,12 @@ POSTGRES_UPDATE_SET = """
         sources = EXCLUDED.sources,
         parsed = EXCLUDED.parsed,
         timestamp = EXCLUDED.timestamp
+    WHERE COALESCE(torrents.timestamp, 0) < EXCLUDED.timestamp
 """
+
+POSTGRES_LOCK_TIMEOUT = "750ms"
+POSTGRES_LOCK_RETRY_ATTEMPTS = 1
+POSTGRES_RETRYABLE_SQLSTATES = {"55P03", "40P01"}
 
 POSTGRES_CONFLICT_TARGETS = {
     "series": "(media_id, info_hash, season, episode) WHERE season IS NOT NULL AND episode IS NOT NULL",
@@ -506,7 +511,30 @@ async def _upsert_torrent_record(params: dict):
     query = _get_torrent_upsert_query(
         _determine_conflict_key(params.get("season"), params.get("episode"))
     )
-    await database.execute(query, params)
+    if settings.DATABASE_TYPE != "postgresql":
+        await database.execute(query, params)
+        return
+
+    for attempt in range(POSTGRES_LOCK_RETRY_ATTEMPTS + 1):
+        try:
+            async with database.transaction():
+                await database.execute(
+                    f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
+                )
+                await database.execute(query, params)
+            return
+        except Exception as exc:  # pragma: no cover - driver specific
+            if not _is_retryable_lock_error(exc) or attempt == POSTGRES_LOCK_RETRY_ATTEMPTS:
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
+
+
+def _is_retryable_lock_error(exc: Exception) -> bool:
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate in POSTGRES_RETRYABLE_SQLSTATES:
+        return True
+    message = str(exc).lower()
+    return "lock timeout" in message or "deadlock detected" in message
 
 
 torrent_update_queue = TorrentUpdateQueue()
