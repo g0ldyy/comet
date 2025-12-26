@@ -49,18 +49,27 @@ def default_dump(obj):
         return obj.model_dump()
 
 
+def _parse_optional_int(value: str):
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 def parse_media_id(media_type: str, media_id: str):
     if "kitsu" in media_id:
         info = media_id.split(":")
 
         if len(info) > 2:
-            return info[1], 1, int(info[2])
+            return info[1], 1, _parse_optional_int(info[2])
         else:
             return info[1], 1, None
 
     if media_type == "series":
         info = media_id.split(":")
-        return info[0], int(info[1]), int(info[2])
+        return info[0], int(info[1]), _parse_optional_int(info[2])
 
     return media_id, None, None
 
