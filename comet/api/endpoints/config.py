@@ -19,5 +19,6 @@ async def configure(request: Request):
             else "",
             "webConfig": web_config,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
+            "disableTorrentStreams": settings.DISABLE_TORRENT_STREAMS,
         },
     )

@@ -83,9 +83,15 @@ class MetadataScraper:
         )
 
     def normalize_metadata(self, metadata: dict, season: int, episode: int):
-        title, year, year_end = metadata
+        if not metadata:
+            return None
 
-        if title is None:  # metadata retrieving failed
+        try:
+            title, year, year_end = metadata
+        except Exception:
+            return None
+
+        if title is None:
             return None
 
         return {

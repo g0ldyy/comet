@@ -121,6 +121,8 @@ class AppSettings(BaseSettings):
         "Direct torrent playback is disabled on this server."
     )
     TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.fast"
+    MAX_RESULTS_PER_RESOLUTION_CAP: Optional[int] = 0
+    MAX_STREAM_RESULTS_TOTAL: Optional[int] = 0
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
     BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
@@ -184,6 +186,20 @@ class AppSettings(BaseSettings):
         elif isinstance(v, list):
             return [url.rstrip("/") for url in v]
         return v
+
+    @field_validator(
+        "MAX_RESULTS_PER_RESOLUTION_CAP",
+        "MAX_STREAM_RESULTS_TOTAL",
+        mode="before",
+    )
+    def non_negative_int(cls, v):
+        if v is None:
+            return 0
+        try:
+            value = int(v)
+        except (TypeError, ValueError):
+            return 0
+        return value if value >= 0 else 0
 
     def is_scraper_enabled(self, scraper_setting: Union[bool, str], context: str):
         if isinstance(scraper_setting, bool):

@@ -465,11 +465,23 @@ POSTGRES_UPDATE_SET = """
         timestamp = EXCLUDED.timestamp
 """
 
-POSTGRES_CONFLICT_TARGETS = {
-    "series": "(media_id, info_hash, season, episode) WHERE season IS NOT NULL AND episode IS NOT NULL",
-    "season_only": "(media_id, info_hash, season) WHERE season IS NOT NULL AND episode IS NULL",
-    "episode_only": "(media_id, info_hash, episode) WHERE season IS NULL AND episode IS NOT NULL",
-    "none": "(media_id, info_hash) WHERE season IS NULL AND episode IS NULL",
+POSTGRES_CONFLICT_MAP = {
+    "series": {
+        "target": "(media_id, info_hash, season, episode)",
+        "predicate": "WHERE season IS NOT NULL AND episode IS NOT NULL",
+    },
+    "season_only": {
+        "target": "(media_id, info_hash, season)",
+        "predicate": "WHERE season IS NOT NULL AND episode IS NULL",
+    },
+    "episode_only": {
+        "target": "(media_id, info_hash, episode)",
+        "predicate": "WHERE season IS NULL AND episode IS NOT NULL",
+    },
+    "none": {
+        "target": "(media_id, info_hash)",
+        "predicate": "WHERE season IS NULL AND episode IS NULL",
+    },
 }
 
 _POSTGRES_UPSERT_CACHE: dict[str, str] = {}
@@ -490,11 +502,11 @@ def _get_torrent_upsert_query(conflict_key: str) -> str:
         return SQLITE_UPSERT_QUERY
 
     if settings.DATABASE_TYPE == "postgresql":
-        target = POSTGRES_CONFLICT_TARGETS[conflict_key]
+        conflict = POSTGRES_CONFLICT_MAP[conflict_key]
         if conflict_key not in _POSTGRES_UPSERT_CACHE:
             _POSTGRES_UPSERT_CACHE[conflict_key] = (
                 TORRENT_INSERT_TEMPLATE
-                + f" ON CONFLICT {target} "
+                + f" ON CONFLICT {conflict['target']} {conflict['predicate']} "
                 + POSTGRES_UPDATE_SET
             )
         return _POSTGRES_UPSERT_CACHE[conflict_key]
