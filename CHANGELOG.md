@@ -2,6 +2,15 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.37.0](https://github.com/g0ldyy/comet/compare/v2.36.0...v2.37.0) (2025-12-26)
+
+
+### Features
+
+* add OpenAPI tags, summaries, and descriptions to API endpoints and parameters ([da1d5a7](https://github.com/g0ldyy/comet/commit/da1d5a7fbd6feb9e0e2c9a57d9456fae5744bddb))
+* introduce a Python script for Comet instance uptime monitoring and Discord notifications ([b61f196](https://github.com/g0ldyy/comet/commit/b61f196d0b868ea53759363ef3452f622450a8b3))
+* update comet scraper stream endpoint path ([0f3a96f](https://github.com/g0ldyy/comet/commit/0f3a96f5fdee2cbecdd48b3090504ea5b52a13f3))
+
 ## [2.36.0](https://github.com/g0ldyy/comet/compare/v2.35.0...v2.36.0) (2025-12-25)
 
 
