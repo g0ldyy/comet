@@ -13,7 +13,8 @@ from comet.metadata.manager import MetadataScraper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
 from comet.services.orchestration import TorrentManager
-from comet.utils.formatting import format_title
+from comet.utils.formatting import (format_chilllink, format_title,
+                                    get_formatted_components)
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
 
@@ -116,13 +117,13 @@ async def wait_for_scrape_completion(media_id: str, context: str = ""):
 
 @streams.get(
     "/stream/{media_type}/{media_id}.json",
-    tags=["Stremio Add-on"],
+    tags=["Stremio"],
     summary="Stream Provider",
     description="Returns a list of streams for the specified media.",
 )
 @streams.get(
     "/{b64config}/stream/{media_type}/{media_id}.json",
-    tags=["Stremio Add-on"],
+    tags=["Stremio"],
     summary="Stream Provider",
     description="Returns a list of streams for the specified media with existing configuration.",
 )
@@ -132,6 +133,7 @@ async def stream(
     media_id: str,
     background_tasks: BackgroundTasks,
     b64config: str = None,
+    chilllink: bool = False,
 ):
     if "tmdb:" in media_id:
         return {"streams": []}
@@ -453,22 +455,29 @@ async def stream(
             )
 
             torrent_title = torrent["title"]
+            formatted_components = get_formatted_components(
+                rtn_data,
+                torrent_title,
+                torrent["seeders"],
+                torrent["size"],
+                torrent["tracker"],
+                config["resultFormat"],
+            )
+
             the_stream = {
                 "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
-                "description": format_title(
-                    rtn_data,
-                    torrent_title,
-                    torrent["seeders"],
-                    torrent["size"],
-                    torrent["tracker"],
-                    config["resultFormat"],
-                ),
+                "description": format_title(formatted_components),
                 "behaviorHints": {
                     "bingeGroup": "comet|" + info_hash,
                     "videoSize": torrent["size"],
                     "filename": rtn_data.raw_title,
                 },
             }
+
+            if chilllink:
+                the_stream["_chilllink"] = format_chilllink(
+                    formatted_components, torrent["cached"]
+                )
 
             if debrid_service == "torrent":
                 the_stream["infoHash"] = info_hash

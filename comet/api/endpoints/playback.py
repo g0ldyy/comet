@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get(
     "/{b64config}/playback/{hash}/{index}/{season}/{episode}/{torrent_name:path}",
-    tags=["Stremio Add-on"],
+    tags=["Stremio"],
     summary="Playback Proxy",
     description="Proxies the playback request to the Debrid service or returns a cached link.",
 )
