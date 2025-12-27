@@ -135,6 +135,22 @@ async def stream(
     b64config: str = None,
     chilllink: bool = False,
 ):
+    """
+    Provide a Stremio-compatible list of stream sources for the specified media item.
+    
+    This endpoint resolves metadata, uses cached torrents when available, optionally scrapes trackers (with distributed locking), checks debrid availability, ranks results according to user settings, and returns stream entries with cached results listed before non-cached ones. It also supports an optional ChillLink payload per stream.
+    
+    Parameters:
+    	request (Request): Incoming HTTP request (used to build playback URLs and derive client IP).
+    	media_type (str): Media category such as "movie" or "series".
+    	media_id (str): Provider-specific media identifier (e.g., internal id, "imdb_id:tt123...", or "kitsu" variants).
+    	background_tasks (BackgroundTasks): FastAPI background task manager for scheduling follow-up work.
+    	b64config (str, optional): Base64-encoded configuration token used to validate and build playback URLs; when invalid, returns an obsolete-configuration placeholder.
+    	chilllink (bool, optional): When true, include a ChillLink payload on each stream entry.
+    
+    Returns:
+    	dict: A mapping with key "streams" pointing to a list of stream objects formatted for Stremio (cached streams appear before non-cached streams).
+    """
     if "tmdb:" in media_id:
         return {"streams": []}
 

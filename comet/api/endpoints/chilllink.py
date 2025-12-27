@@ -25,6 +25,15 @@ router = APIRouter()
     description="Returns the add-on manifest with existing configuration.",
 )
 async def chilllink_manifest(request: Request, b64config: str = None):
+    """
+    Builds a ChillLink add-on manifest that reflects the provided configuration.
+    
+    Parameters:
+        b64config (str, optional): Base64-encoded configuration string used to determine the debrid service and influence the manifest name.
+    
+    Returns:
+        manifest (dict): Manifest containing 'id', 'version', 'description', 'supported_endpoints', and 'name'.
+    """
     config = config_check(b64config)
 
     manifest = {
@@ -63,6 +72,24 @@ async def chilllink_streams(
     episode: Optional[int] = Query(None),
     b64config: Optional[str] = None,
 ):
+    """
+    Provide ChillLink-compatible stream sources for a specified media item.
+    
+    Parameters:
+        imdbID (str): IMDb identifier for the media.
+        type (str): Media type, expected "movie" or "series".
+        season (Optional[int]): Season number for series; ignored for movies.
+        episode (Optional[int]): Episode number for series; ignored for movies.
+        b64config (Optional[str]): Optional base64-encoded configuration override.
+    
+    Returns:
+        dict: A mapping with key "sources" to a list of source objects. Each source object contains:
+            - id (str): source group identifier
+            - title (str): display title or filename
+            - url (str): direct stream URL
+            - metadata (any): ChillLink-specific metadata
+        If the configured debrid service is "torrent", returns a single informational source prompting the user to configure a debrid service. If `type` is not "movie" or "series", returns {"sources": []}.
+    """
     config = config_check(b64config)
     if config["debridService"] == "torrent":
         return {

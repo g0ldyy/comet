@@ -169,6 +169,15 @@ def format_quality_info(data: ParsedData):
 
 
 def format_group_info(data: ParsedData):
+    """
+    Format release group(s) from a ParsedData object into a single display string.
+    
+    Parameters:
+        data (ParsedData): Object that may have a `group` attribute containing either a string or a list of strings representing release group names.
+    
+    Returns:
+        str: A string of group names joined with " • ", or an empty string if no group information is present.
+    """
     group_parts = []
 
     if hasattr(data, "group") and data.group:
@@ -188,6 +197,20 @@ def get_formatted_components(
     tracker: str,
     result_format: list,
 ):
+    """
+    Builds a dictionary of formatted display components for a parsed release.
+    
+    Parameters:
+        data (ParsedData): Parsed release data used to generate video, audio, quality, group, and languages components. `data.languages` is read when present.
+        ttitle (str): The release title to format as the "title" component.
+        seeders (int): Seeder count included when requested and not None.
+        size (int): Size in bytes; converted to a human-readable string for the "size" component.
+        tracker (str): Tracker name or URL to include in the "tracker" component.
+        result_format (list): List of component keys to include (e.g., "title", "video_info", "audio_info", "quality_info", "release_group", "seeders", "size", "tracker", "languages"). The special value "all" includes every component.
+    
+    Returns:
+        dict: Mapping of component keys to their formatted string values. Possible keys include "title", "video", "audio", "quality", "group", "seeders", "size", "tracker", and "languages".
+    """
     has_all = "all" in result_format
     components = {}
 
@@ -237,6 +260,23 @@ def get_formatted_components(
 
 
 def format_title(components: dict):
+    """
+    Assembles a final multi-line title string from preformatted component fragments.
+    
+    Accepts a dictionary of named components (for example keys: "title", "video", "audio", "quality", "group", "seeders", "size", "tracker", "languages") and combines them into display lines:
+    - The "title" component becomes the first line.
+    - "video" and "audio" are joined with " | " on a single line.
+    - "quality" and "group" are joined with " | " on a single line.
+    - "seeders", "size", and "tracker" are joined with spaces on a single line.
+    - "languages" becomes its own line.
+    If no known components are present, a sentinel string is returned.
+    
+    Parameters:
+        components (dict): Mapping from component names to their formatted string values.
+    
+    Returns:
+        str: The assembled multi-line title; or "Empty result format configuration" when no components are available.
+    """
     lines = []
 
     if "title" in components:
@@ -264,6 +304,16 @@ def format_title(components: dict):
 
 
 def format_chilllink(components: dict, cached: bool):
+    """
+    Builds a ChillLink metadata list from formatted components and cache status.
+    
+    Parameters:
+    	components (dict): Mapping of component keys to their formatted string values; the value for the "title" key is omitted from the result.
+    	cached (bool): True if the item is cached (adds "⚡ Instant"), False if not cached (adds "⬇️ Not Cached").
+    
+    Returns:
+    	metadata (list): List of metadata strings beginning with a cache indicator followed by the component values (excluding the title), preserving the order of components.
+    """
     metadata = []
 
     if cached:
