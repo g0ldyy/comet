@@ -2,6 +2,15 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.38.0](https://github.com/g0ldyy/comet/compare/v2.37.0...v2.38.0) (2025-12-27)
+
+
+### Features
+
+* add ChillLink API endpoints and refactor stream description formatting logic ([ec2aa2b](https://github.com/g0ldyy/comet/commit/ec2aa2bb170b4bef70dee0ce452f94ab53d44f94))
+* add ChillLink Protocol support to README ([8d8c484](https://github.com/g0ldyy/comet/commit/8d8c4844cfe24c874260e665945af1a2ffde88da))
+* ChillLink Support ([b066b54](https://github.com/g0ldyy/comet/commit/b066b5495a86191bd08d366f8f198dc190a54974))
+
 ## [2.37.0](https://github.com/g0ldyy/comet/compare/v2.36.0...v2.37.0) (2025-12-26)
 
 
