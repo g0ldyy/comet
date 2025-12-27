@@ -9,7 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from comet.api.endpoints import admin, base, config, manifest, playback
+from comet.api.endpoints import (admin, base, chilllink, config, manifest,
+                                 playback)
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
 from comet.core.database import (cleanup_expired_locks,
@@ -118,8 +119,12 @@ tags_metadata = [
         "description": "Endpoints for configuring Comet.",
     },
     {
-        "name": "Stremio Add-on",
-        "description": "Standard Stremio add-on endpoints.",
+        "name": "Stremio",
+        "description": "Standard Stremio endpoints.",
+    },
+    {
+        "name": "ChillLink",
+        "description": "Chillio specific endpoints.",
     },
     {
         "name": "Admin",
@@ -153,3 +158,4 @@ app.include_router(manifest.router)
 app.include_router(admin.router)
 app.include_router(playback.router)
 app.include_router(streams_router.streams)
+app.include_router(chilllink.router)

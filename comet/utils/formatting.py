@@ -180,7 +180,7 @@ def format_group_info(data: ParsedData):
     return " • ".join(group_parts) if group_parts else ""
 
 
-def format_title(
+def get_formatted_components(
     data: ParsedData,
     ttitle: str,
     seeders: int,
@@ -189,74 +189,90 @@ def format_title(
     result_format: list,
 ):
     has_all = "all" in result_format
+    components = {}
+
+    if has_all or "title" in result_format:
+        components["title"] = f"📄 {ttitle}"
+
+    if has_all or "video_info" in result_format:
+        info = format_video_info(data)
+        if info:
+            components["video"] = f"📹 {info}"
+
+    if has_all or "audio_info" in result_format:
+        info = format_audio_info(data)
+        if info:
+            components["audio"] = f"🔊 {info}"
+
+    if has_all or "quality_info" in result_format:
+        info = format_quality_info(data)
+        if info:
+            components["quality"] = f"⭐ {info}"
+
+    if has_all or "release_group" in result_format:
+        info = format_group_info(data)
+        if info:
+            components["group"] = f"🏷️ {info}"
+
+    if (has_all or "seeders" in result_format) and seeders is not None:
+        components["seeders"] = f"👤 {seeders}"
+
+    if has_all or "size" in result_format:
+        components["size"] = f"💾 {format_bytes(size)}"
+
+    if has_all or "tracker" in result_format:
+        components["tracker"] = f"🔎 {tracker}"
+
+    if (
+        (has_all or "languages" in result_format)
+        and hasattr(data, "languages")
+        and data.languages
+    ):
+        formatted_languages = "/".join(
+            get_language_emoji(language) for language in data.languages
+        )
+        components["languages"] = formatted_languages
+
+    return components
+
+
+def format_title(components: dict):
     lines = []
 
-    show_title = has_all or "title" in result_format
-    if show_title:
-        lines.append(f"📄 {ttitle}")
+    if "title" in components:
+        lines.append(components["title"])
 
-    show_video = has_all or "video_info" in result_format
-    show_audio = has_all or "audio_info" in result_format
-    show_quality = has_all or "quality_info" in result_format
-    show_group = has_all or "release_group" in result_format
+    video_audio = [components[k] for k in ["video", "audio"] if k in components]
+    if video_audio:
+        lines.append(" | ".join(video_audio))
 
-    video_audio_parts = []
+    quality_group = [components[k] for k in ["quality", "group"] if k in components]
+    if quality_group:
+        lines.append(" | ".join(quality_group))
 
-    if show_video:
-        video_info = format_video_info(data)
-        if video_info:
-            video_audio_parts.append(f"📹 {video_info}")
+    info = [components[k] for k in ["seeders", "size", "tracker"] if k in components]
+    if info:
+        lines.append(" ".join(info))
 
-    if show_audio:
-        audio_info = format_audio_info(data)
-        if audio_info:
-            video_audio_parts.append(f"🔊 {audio_info}")
-
-    if video_audio_parts:
-        lines.append(" | ".join(video_audio_parts))
-
-    quality_parts = []
-
-    if show_quality:
-        quality_info = format_quality_info(data)
-        if quality_info:
-            quality_parts.append(f"⭐ {quality_info}")
-
-    if show_group:
-        groups = format_group_info(data)
-        if groups:
-            quality_parts.append(f"🏷️ {groups}")
-
-    if quality_parts:
-        lines.append(" | ".join(quality_parts))
-
-    show_seeders = has_all or "seeders" in result_format
-    show_size = has_all or "size" in result_format
-    show_tracker = has_all or "tracker" in result_format
-
-    info_parts = []
-
-    if show_seeders and seeders is not None:
-        info_parts.append(f"👤 {seeders}")
-
-    if show_size:
-        info_parts.append(f"💾 {format_bytes(size)}")
-
-    if show_tracker:
-        info_parts.append(f"🔎 {tracker}")
-
-    if info_parts:
-        lines.append(" ".join(info_parts))
-
-    show_languages = has_all or "languages" in result_format
-    if show_languages:
-        if hasattr(data, "languages") and data.languages:
-            formatted_languages = "/".join(
-                get_language_emoji(language) for language in data.languages
-            )
-            lines.append(f"{formatted_languages}")
+    if "languages" in components:
+        lines.append(components["languages"])
 
     if not lines:
         return "Empty result format configuration"
 
     return "\n".join(lines)
+
+
+def format_chilllink(components: dict, cached: bool):
+    metadata = []
+
+    if cached:
+        metadata.append("⚡ Instant")
+    else:
+        metadata.append("⬇️ Not Cached")
+
+    for key, value in components.items():
+        if key != "title":
+            metadata.append(value)
+
+    return metadata

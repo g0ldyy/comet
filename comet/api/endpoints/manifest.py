@@ -12,13 +12,13 @@ router = APIRouter()
 
 @router.get(
     "/manifest.json",
-    tags=["Stremio Add-on"],
+    tags=["Stremio"],
     summary="Add-on Manifest",
     description="Returns the add-on manifest.",
 )
 @router.get(
     "/{b64config}/manifest.json",
-    tags=["Stremio Add-on"],
+    tags=["Stremio"],
     summary="Add-on Manifest",
     description="Returns the add-on manifest with existing configuration.",
 )
