@@ -390,6 +390,13 @@ def log_startup_info(settings):
     )
 
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
+    logger.log(
+        "COMET", f"Digital Release Filter: {bool(settings.DIGITAL_RELEASE_FILTER)}"
+    )
+    logger.log(
+        "COMET",
+        f"TMDB Read Access Token: {settings.TMDB_READ_ACCESS_TOKEN if settings.TMDB_READ_ACCESS_TOKEN else 'Shared'}",
+    )
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
     background_scraper_display = (
