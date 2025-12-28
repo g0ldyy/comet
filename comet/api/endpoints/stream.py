@@ -171,24 +171,25 @@ async def stream(
     async with aiohttp.ClientSession(connector=connector) as session:
         metadata_scraper = MetadataScraper(session)
 
-        # Digital Release Filter
         id, season, episode = parse_media_id(media_type, media_id)
 
-        is_released = await release_filter.check_is_released(
-            session, media_type, media_id, season, episode
-        )
+        # Digital Release Filter
+        if settings.DIGITAL_RELEASE_FILTER:
+            is_released = await release_filter.check_is_released(
+                session, media_type, media_id, season, episode
+            )
 
-        if not is_released:
-            logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
-            return {
-                "streams": [
-                    {
-                        "name": "[🚫] Comet",
-                        "description": "Content not digitally released yet.",
-                        "url": "https://comet.fast",
-                    }
-                ]
-            }
+            if not is_released:
+                logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
+                return {
+                    "streams": [
+                        {
+                            "name": "[🚫] Comet",
+                            "description": "Content not digitally released yet.",
+                            "url": "https://comet.fast",
+                        }
+                    ]
+                }
 
         # Check if metadata is already cached
         cached_metadata = await metadata_scraper.get_cached(

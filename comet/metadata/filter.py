@@ -15,9 +15,6 @@ class DigitalReleaseFilter:
         season: int = None,
         episode: int = None,
     ):
-        if not settings.DIGITAL_RELEASE_FILTER:
-            return True
-
         try:
             cached_date = await database.fetch_val(
                 """
