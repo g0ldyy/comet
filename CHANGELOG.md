@@ -2,6 +2,14 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.39.0](https://github.com/g0ldyy/comet/compare/v2.38.0...v2.39.0) (2025-12-28)
+
+
+### Features
+
+* update image URLs from Imgur to ImgBB ([9f3649f](https://github.com/g0ldyy/comet/commit/9f3649fe9eb191fd35b03264421163204ca044b6))
+* update image URLs from Imgur to ImgBB ([01db8a8](https://github.com/g0ldyy/comet/commit/01db8a8ceb941b03dffd1c355e1461bcf151d142))
+
 ## [2.38.0](https://github.com/g0ldyy/comet/compare/v2.37.0...v2.38.0) (2025-12-27)
 
 
