@@ -35,14 +35,7 @@ class TMDBApi:
                 if release_dates:
                     return min(release_dates)
 
-                # Fallback
-                url_details = f"{self.base_url}/movie/{tmdb_id}"
-                async with self.session.get(
-                    url_details, headers=self.headers
-                ) as resp_details:
-                    if resp_details.status == 200:
-                        details = await resp_details.json()
-                        return details.get("release_date")
+                return None
         except Exception as e:
             logger.error(f"TMDB: Error getting movie release date for {tmdb_id}: {e}")
             return None
