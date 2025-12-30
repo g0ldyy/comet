@@ -16,6 +16,7 @@ from comet.background_scraper.worker import background_scraper
 from comet.core.database import (cleanup_expired_locks,
                                  cleanup_expired_sessions, setup_database,
                                  teardown_database)
+from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     # loop.set_debug(True)
 
     await setup_database()
+    setup_executor()
     await download_best_trackers()
 
     # Load anime ID mapping for enhanced metadata and anime detection
@@ -107,6 +109,7 @@ async def lifespan(app: FastAPI):
         await torrent_update_queue.stop()
 
         await teardown_database()
+        shutdown_executor()
 
 
 tags_metadata = [
