@@ -294,10 +294,10 @@ async def setup_database():
         )
 
         await database.execute(
-            f"""
+            """
                 CREATE TABLE IF NOT EXISTS bandwidth_stats (
                     id INTEGER PRIMARY KEY, 
-                    total_bytes {"INTEGER" if settings.DATABASE_TYPE == "sqlite" else "BIGINT"}, 
+                    total_bytes BIGINT, 
                     last_updated INTEGER
                 )
             """
@@ -365,7 +365,7 @@ async def setup_database():
             """
                 CREATE TABLE IF NOT EXISTS digital_release_cache (
                     media_id TEXT PRIMARY KEY,
-                    release_date INTEGER,
+                    release_date BIGINT,
                     timestamp INTEGER
                 )
             """
