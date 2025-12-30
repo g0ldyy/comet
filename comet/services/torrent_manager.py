@@ -1,11 +1,10 @@
 import asyncio
 import base64
 import hashlib
-import html
 import re
 import time
 from collections import defaultdict
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import unquote
 
 import aiohttp
 import anyio
@@ -20,15 +19,14 @@ from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.utils.parsing import default_dump, is_video
 
+TRACKER_PATTERN = re.compile(r"[&?]tr=([^&]+)")
 INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
 
 
 def extract_trackers_from_magnet(magnet_uri: str):
     try:
-        decoded_uri = html.unescape(magnet_uri)
-        parsed = urlparse(decoded_uri)
-        params = parse_qs(parsed.query)
-        return params.get("tr", [])
+        trackers = TRACKER_PATTERN.findall(magnet_uri)
+        return [unquote(tracker) for tracker in trackers]
     except Exception as e:
         logger.warning(f"Failed to extract trackers from magnet URI: {e}")
         return []
@@ -247,7 +245,7 @@ add_torrent_queue = AddTorrentQueue()
 
 
 class TorrentUpdateQueue:
-    def __init__(self, batch_size: int = 100, flush_interval: float = 5.0):
+    def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
         self.queue = asyncio.Queue()
         self.batch_size = batch_size
         self.flush_interval = flush_interval

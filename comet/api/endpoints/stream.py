@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
 from comet.core.models import database, settings, trackers
+from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
@@ -413,14 +414,25 @@ async def stream(
             and debrid_service != "torrent"
         ):
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
-            await debrid_service_instance.get_and_cache_availability(
-                session,
-                torrent_manager.torrents,
-                media_id,
-                media_only_id,
-                season,
-                episode,
-            )
+            try:
+                await debrid_service_instance.get_and_cache_availability(
+                    session,
+                    torrent_manager.torrents,
+                    media_id,
+                    media_only_id,
+                    season,
+                    episode,
+                )
+            except DebridAuthError as e:
+                return {
+                    "streams": [
+                        {
+                            "name": "[❌] Comet",
+                            "description": e.display_message,
+                            "url": "https://comet.fast",
+                        }
+                    ]
+                }
 
         if debrid_service != "torrent":
             cached_count = sum(

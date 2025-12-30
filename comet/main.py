@@ -44,20 +44,18 @@ def run_with_uvicorn():
         workers=settings.FASTAPI_WORKERS,
         log_config=None,
     )
-    server = Server(config=config)
+    server = uvicorn.Server(config=config)
 
-    with server.run_in_thread():
-        log_startup_info(settings)
-        try:
-            while True:
-                time.sleep(1)  # Keep the main thread alive
-        except KeyboardInterrupt:
-            logger.log("COMET", "Server stopped by user")
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            logger.exception(traceback.format_exc())
-        finally:
-            logger.log("COMET", "Server Shutdown")
+    log_startup_info(settings)
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        logger.log("COMET", "Server stopped by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        logger.exception(traceback.format_exc())
+    finally:
+        logger.log("COMET", "Server Shutdown")
 
 
 def run_with_gunicorn():
