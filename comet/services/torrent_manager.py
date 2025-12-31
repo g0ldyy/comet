@@ -317,30 +317,32 @@ class TorrentUpdateQueue:
             await self._flush_batch()
 
     def _reset_batches(self):
-        for key in self.batches:
-            if len(self.batches[key]) > 0:
+        for key, batch in self.batches.items():
+            if len(batch) > 0:
                 logger.warning(
-                    f"Ignoring {len(self.batches[key])} items in problematic '{key}' batch"
+                    f"Ignoring {len(batch)} items in problematic '{key}' batch"
                 )
-                self.batches[key] = []
+                batch.clear()
 
     async def _flush_batch(self):
         try:
             if self.batches["to_delete"]:
+                delete_items = list(self.batches["to_delete"])
                 sub_batch_size = 100
-                for i in range(0, len(self.batches["to_delete"]), sub_batch_size):
+                for i in range(0, len(delete_items), sub_batch_size):
                     try:
-                        sub_batch = self.batches["to_delete"][i : i + sub_batch_size]
+                        sub_batch = delete_items[i : i + sub_batch_size]
 
                         placeholders = []
                         params = {}
                         for idx, item in enumerate(sub_batch):
+                            info_hash, season = item
                             key_suffix = f"_{idx}"
                             placeholders.append(
                                 f"(CAST(:info_hash{key_suffix} AS TEXT), CAST(:season{key_suffix} AS INTEGER))"
                             )
-                            params[f"info_hash{key_suffix}"] = item["info_hash"]
-                            params[f"season{key_suffix}"] = item["season"]
+                            params[f"info_hash{key_suffix}"] = info_hash
+                            params[f"season{key_suffix}"] = season
 
                         async with database.transaction():
                             delete_query = f"""
@@ -354,28 +356,39 @@ class TorrentUpdateQueue:
                     except Exception as e:
                         logger.warning(f"Error processing delete batch: {e}")
 
-                self.batches["to_delete"] = []
+                self.batches["to_delete"].clear()
 
             if self.batches["upserts"]:
                 grouped: dict[str, list[dict]] = defaultdict(list)
-                for params in self.batches["upserts"]:
+                for params in self.batches["upserts"].values():
                     key = _determine_conflict_key(params["season"], params["episode"])
                     grouped[key].append(params)
 
                 for key, rows in grouped.items():
                     query = _get_torrent_upsert_query(key)
                     try:
-                        async with database.transaction():
-                            await database.execute_many(query, rows)
+                        async def _execute_batched_upsert(query: str, rows):
+                            if not rows:
+                                return
+
+                            ordered_rows = sorted(rows, key=lambda row: row.get("lock_key", 0))
+                            sanitized_rows = [
+                                {key: value for key, value in row.items() if key != "lock_key"}
+                                for row in ordered_rows
+                            ]
+                            await database.execute_many(query, sanitized_rows)
+                        await _execute_batched_upsert(query, rows)
                     except Exception as e:
                         logger.warning(f"Error processing upsert batch: {e}")
 
-                if len(self.batches["upserts"]) > 0:
+                total_upserts = len(self.batches["upserts"])
+                if total_upserts > 0:
                     logger.log(
                         "SCRAPER",
-                        f"Upserted {len(self.batches['upserts'])} torrents in batch",
+                        f"Upserted {total_upserts} torrents in batch",
                     )
-                self.batches["upserts"] = []
+                self.batches["upserts"].clear()
+            self.lock_key_counter = 0 # Reset counter after flushing upserts
 
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
