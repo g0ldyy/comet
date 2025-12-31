@@ -772,7 +772,9 @@ async def _migrate_indexes():
         for index_name in old_indexes:
             await database.execute(f"DROP INDEX IF EXISTS {index_name}")
 
-        logger.log("COMET", "Database: Legacy indexes dropped. New indexes will be created.")
+        logger.log(
+            "COMET", "Database: Legacy indexes dropped. New indexes will be created."
+        )
 
     except Exception as e:
         logger.warning(f"Error during index migration: {e}")
