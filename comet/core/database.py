@@ -294,10 +294,10 @@ async def setup_database():
         )
 
         await database.execute(
-            f"""
+            """
                 CREATE TABLE IF NOT EXISTS bandwidth_stats (
                     id INTEGER PRIMARY KEY, 
-                    total_bytes {"INTEGER" if settings.DATABASE_TYPE == "sqlite" else "BIGINT"}, 
+                    total_bytes BIGINT, 
                     last_updated INTEGER
                 )
             """
@@ -357,6 +357,16 @@ async def setup_database():
                 CREATE TABLE IF NOT EXISTS anime_mapping_state (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     refreshed_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS digital_release_cache (
+                    media_id TEXT PRIMARY KEY,
+                    release_date BIGINT,
+                    timestamp INTEGER
                 )
             """
         )
@@ -617,6 +627,13 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_digital_release_timestamp
+            ON digital_release_cache (timestamp)
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -695,6 +712,14 @@ async def _run_startup_cleanup():
             WHERE timestamp + :cache_ttl < :current_time;
             """,
             {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
+        )
+
+        await database.execute(
+            """
+            DELETE FROM digital_release_cache
+            WHERE timestamp + :cache_ttl < :current_time;
+            """,
+            {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
         )
 
         await database.execute("DELETE FROM download_links_cache")

@@ -4,11 +4,17 @@ from urllib.parse import quote, unquote
 import aiohttp
 from RTN import parse, title_match
 
+from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.debrid.exceptions import DebridAuthError
 from comet.services.debrid_cache import cache_availability
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.parsing import is_video
+
+
+def batch_parse(filenames):
+    return [parse(f) for f in filenames]
 
 
 class StremThru:
@@ -43,17 +49,29 @@ class StremThru:
 
     async def check_premium(self):
         try:
-            user = await self.session.get(
+            response = await self.session.get(
                 f"{self.base_url}/user?client_ip={self.client_ip}"
             )
-            user = await user.json()
-            return user["data"]["subscription_status"] == "premium"
-        except Exception as e:
-            logger.warning(
-                f"Exception while checking premium status on {self.name}: {e}"
-            )
+            user = await response.json()
 
-        return False
+            if "data" not in user:
+                raise DebridAuthError(
+                    self.name,
+                    f"{self.name}: Invalid API key.\nPlease check your configuration.",
+                )
+
+            if user["data"]["subscription_status"] != "premium":
+                raise DebridAuthError(
+                    self.name,
+                    f"{self.name}: No active subscription.\nPlease renew your debrid account.",
+                )
+        except DebridAuthError:
+            raise
+        except Exception as e:
+            raise DebridAuthError(
+                self.name,
+                f"{self.name}: Failed to check account status.\n{e}",
+            )
 
     async def get_instant(self, magnets: list):
         try:
@@ -72,8 +90,7 @@ class StremThru:
         tracker_map: dict,
         sources_map: dict,
     ):
-        if not await self.check_premium():
-            return []
+        await self.check_premium()
 
         chunk_size = 50
         chunks = [
@@ -94,6 +111,26 @@ class StremThru:
         ]
 
         is_offcloud = self.real_debrid_name == "offcloud"
+
+        filenames_to_parse = []
+        if not is_offcloud:
+            for result in availability:
+                for torrent in result:
+                    if torrent["status"] != "cached":
+                        continue
+                    for file in torrent["files"]:
+                        filename = file["name"].split("/")[-1]
+                        if not is_video(filename) or "sample" in filename.lower():
+                            continue
+                        filenames_to_parse.append(filename)
+
+        parsed_iter = iter([])
+        if filenames_to_parse:
+            loop = asyncio.get_running_loop()
+            parsed_results = await loop.run_in_executor(
+                get_executor(), batch_parse, filenames_to_parse
+            )
+            parsed_iter = iter(parsed_results)
 
         files = []
         cached_count = 0
@@ -127,7 +164,7 @@ class StremThru:
                         if not is_video(filename) or "sample" in filename.lower():
                             continue
 
-                        filename_parsed = parse(filename)
+                        filename_parsed = next(parsed_iter)
 
                         season = (
                             filename_parsed.seasons[0]

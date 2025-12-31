@@ -8,7 +8,9 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
 from comet.core.models import database, settings, trackers
+from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
+from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
@@ -135,6 +137,9 @@ async def stream(
     b64config: str = None,
     chilllink: bool = False,
 ):
+    if media_type not in ["movie", "series"]:
+        return {"streams": []}
+
     if "tmdb:" in media_id:
         return {"streams": []}
 
@@ -167,8 +172,27 @@ async def stream(
     async with aiohttp.ClientSession(connector=connector) as session:
         metadata_scraper = MetadataScraper(session)
 
-        # First, check if metadata is already cached
         id, season, episode = parse_media_id(media_type, media_id)
+
+        # Digital Release Filter
+        if settings.DIGITAL_RELEASE_FILTER:
+            is_released = await release_filter.check_is_released(
+                session, media_type, media_id, season, episode
+            )
+
+            if not is_released:
+                logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
+                return {
+                    "streams": [
+                        {
+                            "name": "[🚫] Comet",
+                            "description": "Content not digitally released yet.",
+                            "url": "https://comet.fast",
+                        }
+                    ]
+                }
+
+        # Check if metadata is already cached
         cached_metadata = await metadata_scraper.get_cached(
             id, season if "kitsu" not in media_id else 1, episode
         )
@@ -390,14 +414,25 @@ async def stream(
             and debrid_service != "torrent"
         ):
             logger.log("SCRAPER", "🔄 Checking availability on debrid service...")
-            await debrid_service_instance.get_and_cache_availability(
-                session,
-                torrent_manager.torrents,
-                media_id,
-                media_only_id,
-                season,
-                episode,
-            )
+            try:
+                await debrid_service_instance.get_and_cache_availability(
+                    session,
+                    torrent_manager.torrents,
+                    media_id,
+                    media_only_id,
+                    season,
+                    episode,
+                )
+            except DebridAuthError as e:
+                return {
+                    "streams": [
+                        {
+                            "name": "[❌] Comet",
+                            "description": e.display_message,
+                            "url": "https://comet.fast",
+                        }
+                    ]
+                }
 
         if debrid_service != "torrent":
             cached_count = sum(
