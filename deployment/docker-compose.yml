@@ -51,7 +51,7 @@ services:
       - "-c"
       - "max_connections=100"
     volumes:
-      - postgres_data:/var/lib/postgresql/18/docker
+      - postgres_data:/var/lib/postgresql/
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U comet -d comet"]
       interval: 5s
