@@ -386,15 +386,6 @@ async def setup_database():
             """
         )
 
-        # Cleanup index: timestamp
-        # Covers: DELETE WHERE timestamp + ttl < current
-        await database.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_torrents_timestamp 
-            ON torrents (timestamp)
-            """
-        )
-
         # =============================================================================
         # DEBRID_AVAILABILITY TABLE INDEXES
         # =============================================================================
@@ -440,27 +431,6 @@ async def setup_database():
             """
         )
 
-        # Title search for metadata discovery
-        await database.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_metadata_title_search 
-            ON metadata_cache (title, year, timestamp)
-            """
-        )
-
-        # =============================================================================
-        # FIRST_SEARCHES TABLE INDEXES
-        # =============================================================================
-
-        # Primary search check: media_id (already PRIMARY KEY, but explicit for clarity)
-        # Media ID is already PRIMARY KEY, so focusing on timestamp for TTL cleanup
-        await database.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_first_searches_cleanup 
-            ON first_searches (timestamp)
-            """
-        )
-
         # =============================================================================
         # ACTIVE_CONNECTIONS TABLE INDEXES
         # =============================================================================
@@ -486,18 +456,6 @@ async def setup_database():
             """
             CREATE INDEX IF NOT EXISTS idx_connections_content_monitoring 
             ON active_connections (content, timestamp)
-            """
-        )
-
-        # =============================================================================
-        # SCRAPE_LOCKS TABLE INDEXES
-        # =============================================================================
-
-        # Expired locks cleanup: expires_at < current_time
-        await database.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_scrape_locks_expires 
-            ON scrape_locks (expires_at)
             """
         )
 
@@ -613,7 +571,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM first_searches 
-            WHERE timestamp + :cache_ttl < :current_time;
+            WHERE timestamp < :current_time - :cache_ttl;
             """,
             {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
         )
@@ -621,7 +579,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM metadata_cache 
-            WHERE timestamp + :cache_ttl < :current_time;
+            WHERE timestamp < :current_time - :cache_ttl;
             """,
             {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
         )
@@ -630,7 +588,7 @@ async def _run_startup_cleanup():
             await database.execute(
                 """
                 DELETE FROM torrents
-                WHERE timestamp + :cache_ttl < :current_time;
+                WHERE timestamp < :current_time - :cache_ttl;
                 """,
                 {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
             )
@@ -638,7 +596,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM debrid_availability
-            WHERE timestamp + :cache_ttl < :current_time;
+            WHERE timestamp < :current_time - :cache_ttl;
             """,
             {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
         )
@@ -646,7 +604,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM digital_release_cache
-            WHERE timestamp + :cache_ttl < :current_time;
+            WHERE timestamp < :current_time - :cache_ttl;
             """,
             {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
         )
@@ -732,18 +690,6 @@ async def cleanup_expired_sessions():
 
 async def _migrate_indexes():
     try:
-        if settings.DATABASE_TYPE == "sqlite":
-            check_query = "SELECT name FROM sqlite_master WHERE type='index' AND name='torrents_series_both_idx'"
-        else:
-            check_query = "SELECT indexname FROM pg_indexes WHERE indexname='torrents_series_both_idx'"
-
-        exists = await database.fetch_val(check_query)
-
-        if not exists:
-            return
-
-        logger.log("COMET", "Database: Migrating indexes (dropping legacy indexes)...")
-
         old_indexes = [
             "torrents_series_both_idx",
             "torrents_season_only_idx",
@@ -767,15 +713,36 @@ async def _migrate_indexes():
             "idx_debrid_comprehensive",
             "idx_debrid_info_hash_season_episode",
             "idx_debrid_timestamp",
+            "torrents_cache_lookup_idx",
+            "idx_scrape_locks_expires_at",
+            "idx_scrape_locks_lock_key",
+            "idx_torrents_timestamp",
+            "torrents_seeders_idx",
+            "idx_first_searches_cleanup",
+            "idx_metadata_title_search",
         ]
 
+        dropped_count = 0
         for index_name in old_indexes:
-            await database.execute(f"DROP INDEX IF EXISTS {index_name}")
+            if settings.DATABASE_TYPE == "sqlite":
+                exists = await database.fetch_val(
+                    f"SELECT 1 FROM sqlite_master WHERE type='index' AND name='{index_name}'"
+                )
+            else:
+                exists = await database.fetch_val(
+                    f"SELECT 1 FROM pg_indexes WHERE indexname='{index_name}'"
+                )
 
-        logger.log(
-            "COMET", "Database: Legacy indexes dropped. New indexes will be created."
-        )
+            if exists:
+                await database.execute(f"DROP INDEX IF EXISTS {index_name}")
+                dropped_count += 1
+                logger.log("COMET", f"Database: Dropped legacy index '{index_name}'")
 
+        if dropped_count > 0:
+            logger.log(
+                "COMET",
+                f"Database: Legacy indexes cleanup completed. Dropped {dropped_count} indexes.",
+            )
     except Exception as e:
         logger.warning(f"Error during index migration: {e}")
 
