@@ -2,6 +2,27 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.40.0](https://github.com/g0ldyy/comet/compare/v2.39.0...v2.40.0) (2025-12-31)
+
+
+### Features
+
+* conditionally apply digital release filter based on settings and remove redundant internal filter check ([489ed9b](https://github.com/g0ldyy/comet/commit/489ed9bdbe79aef571cbccb3b3742c4f9162c04e))
+* implement digital release filtering for movies and series using TMDB ([172fb5b](https://github.com/g0ldyy/comet/commit/172fb5b7d454fabf34670daae150d177b439de4e))
+* implement digital release filtering for movies and series using TMDB ([e05a0da](https://github.com/g0ldyy/comet/commit/e05a0da0665e8bd48a3a6cf7e696f012f74c28ca))
+* improve performance with process pool executor and optimize torrent caching/database writes ([5666a7d](https://github.com/g0ldyy/comet/commit/5666a7d019dcb3039ca6d30fa4f6908d6c58dca4))
+* improve performance with process pool executor and optimize torrent caching/database writes ([0ce6579](https://github.com/g0ldyy/comet/commit/0ce6579f3ff740cf2a91f5c9d6d9ee8eea6b8010))
+
+
+### Bug Fixes
+
+* update digital_release_cache.release_date column type to BIGINT ([7219330](https://github.com/g0ldyy/comet/commit/7219330bbe0fdefd292f7b90cce18b5286a2d756))
+
+
+### Performance Improvements
+
+* reduce RTN parsing chunk size to 20 and rework ProcessPoolExecutor system ([32e5127](https://github.com/g0ldyy/comet/commit/32e5127dd322b487948557c5b5a077e8548802e1))
+
 ## [2.39.0](https://github.com/g0ldyy/comet/compare/v2.38.0...v2.39.0) (2025-12-28)
 
 
