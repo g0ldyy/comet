@@ -250,7 +250,7 @@ class TorrentUpdateQueue:
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.is_running = False
-        self.batches = {"to_delete": [], "upserts": []}
+        self.batches = {"to_delete": set(), "upserts": {}}
 
     async def add_torrent_info(self, file_info: dict, media_id: str = None):
         await self.queue.put((file_info, media_id))
@@ -317,30 +317,35 @@ class TorrentUpdateQueue:
             await self._flush_batch()
 
     def _reset_batches(self):
-        for key in self.batches:
-            if len(self.batches[key]) > 0:
+        for key, batch in self.batches.items():
+            if len(batch) > 0:
                 logger.warning(
-                    f"Ignoring {len(self.batches[key])} items in problematic '{key}' batch"
+                    f"Ignoring {len(batch)} items in problematic '{key}' batch"
                 )
-                self.batches[key] = []
+                if isinstance(batch, set):
+                    batch.clear()
+                else:
+                    batch.clear()
 
     async def _flush_batch(self):
         try:
             if self.batches["to_delete"]:
+                delete_items = list(self.batches["to_delete"])
                 sub_batch_size = 100
-                for i in range(0, len(self.batches["to_delete"]), sub_batch_size):
+                for i in range(0, len(delete_items), sub_batch_size):
                     try:
-                        sub_batch = self.batches["to_delete"][i : i + sub_batch_size]
+                        sub_batch = delete_items[i : i + sub_batch_size]
 
                         placeholders = []
                         params = {}
                         for idx, item in enumerate(sub_batch):
+                            info_hash, season = item
                             key_suffix = f"_{idx}"
                             placeholders.append(
                                 f"(CAST(:info_hash{key_suffix} AS TEXT), CAST(:season{key_suffix} AS INTEGER))"
                             )
-                            params[f"info_hash{key_suffix}"] = item["info_hash"]
-                            params[f"season{key_suffix}"] = item["season"]
+                            params[f"info_hash{key_suffix}"] = info_hash
+                            params[f"season{key_suffix}"] = season
 
                         async with database.transaction():
                             delete_query = f"""
@@ -354,28 +359,28 @@ class TorrentUpdateQueue:
                     except Exception as e:
                         logger.warning(f"Error processing delete batch: {e}")
 
-                self.batches["to_delete"] = []
+                self.batches["to_delete"].clear()
 
             if self.batches["upserts"]:
                 grouped: dict[str, list[dict]] = defaultdict(list)
-                for params in self.batches["upserts"]:
+                for params in self.batches["upserts"].values():
                     key = _determine_conflict_key(params["season"], params["episode"])
                     grouped[key].append(params)
 
                 for key, rows in grouped.items():
                     query = _get_torrent_upsert_query(key)
                     try:
-                        async with database.transaction():
-                            await database.execute_many(query, rows)
+                        await _execute_batched_upsert(query, rows)
                     except Exception as e:
                         logger.warning(f"Error processing upsert batch: {e}")
 
-                if len(self.batches["upserts"]) > 0:
+                total_upserts = len(self.batches["upserts"])
+                if total_upserts > 0:
                     logger.log(
                         "SCRAPER",
-                        f"Upserted {len(self.batches['upserts'])} torrents in batch",
+                        f"Upserted {total_upserts} torrents in batch",
                     )
-                self.batches["upserts"] = []
+                self.batches["upserts"].clear()
 
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
@@ -400,11 +405,27 @@ class TorrentUpdateQueue:
                 "media_id": media_id,
             }
 
-            self.batches["upserts"].append(params)
+            params["lock_key"] = _compute_advisory_lock_key(
+                media_id,
+                file_info["info_hash"],
+                file_info["season"],
+                file_info["episode"],
+            )
+
+            upsert_key = _build_upsert_key(
+                file_info["info_hash"],
+                file_info["season"],
+                file_info["episode"],
+                media_id,
+            )
+
+            existing = self.batches["upserts"].get(upsert_key)
+            if not existing or params["timestamp"] > existing["timestamp"]:
+                self.batches["upserts"][upsert_key] = params
 
             if file_info["episode"] is not None:
-                self.batches["to_delete"].append(
-                    {"info_hash": file_info["info_hash"], "season": file_info["season"]}
+                self.batches["to_delete"].add(
+                    (file_info["info_hash"], file_info["season"])
                 )
 
             await self._check_batch_size()
@@ -461,7 +482,12 @@ POSTGRES_UPDATE_SET = """
         sources = EXCLUDED.sources,
         parsed = EXCLUDED.parsed,
         timestamp = EXCLUDED.timestamp
+    WHERE COALESCE(torrents.timestamp, 0) < EXCLUDED.timestamp
 """
+
+POSTGRES_LOCK_TIMEOUT = "750ms"
+POSTGRES_LOCK_RETRY_ATTEMPTS = 1
+POSTGRES_RETRYABLE_SQLSTATES = {"55P03", "40P01"}
 
 POSTGRES_CONFLICT_TARGETS = {
     "series": "(media_id, info_hash, season, episode) WHERE season IS NOT NULL AND episode IS NOT NULL",
@@ -481,6 +507,60 @@ def _determine_conflict_key(season, episode) -> str:
     if episode is not None:
         return "episode_only"
     return "none"
+
+
+def _build_upsert_key(info_hash, season, episode, media_id):
+    return (media_id, info_hash, season, episode)
+
+
+def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
+    payload = f"{media_id}|{info_hash}|{season}|{episode}".encode("utf-8")
+    digest = hashlib.sha1(payload).digest()
+    value = int.from_bytes(digest[:8], byteorder="big", signed=False)
+    # Map to signed 64-bit range expected by pg_advisory_xact_lock
+    if value >= 1 << 63:
+        value -= 1 << 64
+    return value
+
+
+async def _execute_batched_upsert(query: str, rows):
+    if not rows:
+        return
+
+    ordered_rows = sorted(rows, key=lambda row: row.get("timestamp", 0), reverse=True)
+    sanitized_rows = [
+        {key: value for key, value in row.items() if key != "lock_key"}
+        for row in ordered_rows
+    ]
+
+    attempts = POSTGRES_LOCK_RETRY_ATTEMPTS + 1 if settings.DATABASE_TYPE == "postgresql" else 1
+
+    for attempt in range(attempts):
+        try:
+            async with database.transaction():
+                if settings.DATABASE_TYPE == "postgresql":
+                    await database.execute(
+                        f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
+                    )
+                    for row in ordered_rows:
+                        lock_key = row.get("lock_key")
+                        if lock_key is None:
+                            continue
+                        await database.execute(
+                            "SELECT pg_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
+                            {"lock_key": lock_key},
+                        )
+
+                await database.execute_many(query, sanitized_rows)
+            return
+        except Exception as exc:
+            if (
+                settings.DATABASE_TYPE != "postgresql"
+                or not _is_retryable_lock_error(exc)
+                or attempt == attempts - 1
+            ):
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
 
 
 def _get_torrent_upsert_query(conflict_key: str) -> str:
@@ -504,7 +584,30 @@ async def _upsert_torrent_record(params: dict):
     query = _get_torrent_upsert_query(
         _determine_conflict_key(params.get("season"), params.get("episode"))
     )
-    await database.execute(query, params)
+    if settings.DATABASE_TYPE != "postgresql":
+        await database.execute(query, params)
+        return
+
+    for attempt in range(POSTGRES_LOCK_RETRY_ATTEMPTS + 1):
+        try:
+            async with database.transaction():
+                await database.execute(
+                    f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
+                )
+                await database.execute(query, params)
+            return
+        except Exception as exc:  # pragma: no cover - driver specific
+            if not _is_retryable_lock_error(exc) or attempt == POSTGRES_LOCK_RETRY_ATTEMPTS:
+                raise
+            await asyncio.sleep(0.2 * (attempt + 1))
+
+
+def _is_retryable_lock_error(exc: Exception) -> bool:
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate in POSTGRES_RETRYABLE_SQLSTATES:
+        return True
+    message = str(exc).lower()
+    return "lock timeout" in message or "deadlock detected" in message
 
 
 torrent_update_queue = TorrentUpdateQueue()

@@ -3,7 +3,7 @@ import time
 import aiohttp
 import mediaflow_proxy.utils.http_utils
 import orjson
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
 from comet.core.config_validation import config_check
@@ -14,6 +14,15 @@ from comet.services.streaming.manager import custom_handle_stream_request
 from comet.utils.network import NO_CACHE_HEADERS, get_client_ip
 
 router = APIRouter()
+
+
+def _parse_optional_int(value: str, field_name: str) -> int | None:
+    if value == "n":
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name} parameter") from exc
 
 
 @router.get(
@@ -34,8 +43,8 @@ async def playback(
 ):
     config = config_check(b64config)
 
-    season = int(season) if season != "n" else None
-    episode = int(episode) if episode != "n" else None
+    season = _parse_optional_int(season, "season")
+    episode = _parse_optional_int(episode, "episode")
 
     async with aiohttp.ClientSession() as session:
         cached_link = await database.fetch_one(
