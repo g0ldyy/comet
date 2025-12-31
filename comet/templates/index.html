@@ -409,9 +409,19 @@
         help-text="Debrid Stream Proxying allows you to use your Debrid Service from multiple IPs at same time!"></sl-input>
     </div>
 
+    {% set default_debrid_service = 'torbox' if disableTorrentStreams else 'torrent' %}
     <div class="form-item">
-      <sl-select id="debridService" value="torrent" label="Debrid Service" placeholder="Select debrid service">
+      <sl-select
+        id="debridService"
+        value="{{ default_debrid_service }}"
+        data-default-service="{{ default_debrid_service }}"
+        data-disable-torrent="{{ 'true' if disableTorrentStreams else 'false' }}"
+        label="Debrid Service"
+        placeholder="Select debrid service"
+      >
+        {% if not disableTorrentStreams %}
         <sl-option value="torrent">Torrent</sl-option>
+        {% endif %}
         <sl-option value="torbox">TorBox</sl-option>
         <sl-option value="debrider">Debrider</sl-option>
         <sl-option value="easydebrid">EasyDebrid</sl-option>
@@ -455,9 +465,13 @@
     </sl-details>
 
     <script>
-      document
-        .getElementById("debridService")
-        .addEventListener("sl-change", function (event) {
+      const debridServiceElement = document.getElementById("debridService");
+      const torrentDisabled = debridServiceElement.dataset.disableTorrent === "true";
+      const defaultDebridService = debridServiceElement.dataset.defaultService;
+      window.disableTorrentStreams = torrentDisabled;
+      window.defaultDebridService = defaultDebridService;
+
+      debridServiceElement.addEventListener("sl-change", function (event) {
           const selectedService = event.target.value;
           const apiKeyLink = document.getElementById("apiKeyLink");
           const apiKeyInput = document.getElementById("debridApiKey");
@@ -528,13 +542,13 @@
             selectedService === "pikpak"
           ) {
             apiKeyInput.helpText = "Format: `email:password`";
-          } else if (selectedService != "torrent") {
-            apiKeyInput.helpText = "Format: `api-key`";
-          } else {
+          } else if (!torrentDisabled && selectedService === "torrent") {
             apiKeyInput.helpText = "";
+          } else {
+            apiKeyInput.helpText = "Format: `api-key`";
           }
 
-          if (selectedService === "torrent") {
+          if (!torrentDisabled && selectedService === "torrent") {
             apiKeyInput.disabled = true;
           } else {
             apiKeyInput.disabled = false;
@@ -746,7 +760,10 @@
           const allowEnglishInLanguages = document.getElementById("allowEnglishInLanguages").checked;
           const removeUnknownLanguages = document.getElementById("removeUnknownLanguages").checked;
           const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
-          const debridService = document.getElementById("debridService").value;
+          let debridService = document.getElementById("debridService").value;
+          if (window.disableTorrentStreams && debridService === "torrent") {
+            debridService = window.defaultDebridService;
+          }
           const debridApiKey = document.getElementById("debridApiKey").value;
           const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
 
@@ -824,8 +841,15 @@
             document.getElementById("maxResultsPerResolution").value = settings.maxResultsPerResolution;
           if (settings.maxSize !== null)
             document.getElementById("maxSize").value = settings.maxSize / 1073741824;
-          if (settings.debridService !== null)
-            document.getElementById("debridService").value = settings.debridService;
+          if (settings.debridService !== null) {
+            const debridServiceSelect = document.getElementById("debridService");
+            const requestedService = settings.debridService;
+            if (window.disableTorrentStreams && requestedService === "torrent") {
+              debridServiceSelect.value = window.defaultDebridService;
+            } else {
+              debridServiceSelect.value = requestedService;
+            }
+          }
           if (settings.debridApiKey !== null)
             document.getElementById("debridApiKey").value = settings.debridApiKey;
           if (settings.debridStreamProxyPassword !== null)
