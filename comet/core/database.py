@@ -571,7 +571,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM first_searches 
-            WHERE timestamp < :current_time - :cache_ttl;
+            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
             """,
             {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
         )
@@ -579,7 +579,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM metadata_cache 
-            WHERE timestamp < :current_time - :cache_ttl;
+            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
             """,
             {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
         )
@@ -588,7 +588,7 @@ async def _run_startup_cleanup():
             await database.execute(
                 """
                 DELETE FROM torrents
-                WHERE timestamp < :current_time - :cache_ttl;
+                WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
                 """,
                 {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
             )
@@ -596,7 +596,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM debrid_availability
-            WHERE timestamp < :current_time - :cache_ttl;
+            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
             """,
             {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
         )
@@ -604,7 +604,7 @@ async def _run_startup_cleanup():
         await database.execute(
             """
             DELETE FROM digital_release_cache
-            WHERE timestamp < :current_time - :cache_ttl;
+            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
             """,
             {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
         )
