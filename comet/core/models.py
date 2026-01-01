@@ -75,7 +75,7 @@ class AppSettings(BaseSettings):
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
     SCRAPE_ZILEAN: Union[bool, str] = False
-    ZILEAN_URL: Union[str, List[str]] = "https://zilean.elfhosted.com"
+    ZILEAN_URL: Union[str, List[str]] = "https://zileanfortheweebs.midnightignite.me"
     SCRAPE_STREMTHRU: Union[bool, str] = False
     STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
     SCRAPE_BITMAGNET: Union[bool, str] = False
