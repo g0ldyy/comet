@@ -12,6 +12,7 @@ from comet.debrid.manager import get_debrid
 from comet.metadata.manager import MetadataScraper
 from comet.services.streaming.manager import custom_handle_stream_request
 from comet.utils.network import NO_CACHE_HEADERS, get_client_ip
+from comet.utils.parsing import parse_optional_int
 
 router = APIRouter()
 
@@ -34,8 +35,8 @@ async def playback(
 ):
     config = config_check(b64config)
 
-    season = int(season) if season != "n" else None
-    episode = int(episode) if episode != "n" else None
+    season = parse_optional_int(season)
+    episode = parse_optional_int(episode)
 
     async with aiohttp.ClientSession() as session:
         cached_link = await database.fetch_one(
