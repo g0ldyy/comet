@@ -2,6 +2,19 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.41.0](https://github.com/g0ldyy/comet/compare/v2.40.0...v2.41.0) (2026-01-01)
+
+
+### Features
+
+* improve torrent batch processing with in-memory deduplication, PostgreSQL advisory locks, and enhance metadata handling ([ac061ac](https://github.com/g0ldyy/comet/commit/ac061acd71e3d68574f2cb22cdbc06fe705d78f8))
+* improve torrent batch processing with in-memory deduplication, PostgreSQL advisory locks, and enhance metadata handling ([45ff7c1](https://github.com/g0ldyy/comet/commit/45ff7c173abb49a050c4ba14103fe6beae845d32))
+
+
+### Bug Fixes
+
+* add explicit BIGINT casting to timestamp comparisons in cache cleanup queries ([a52e5c0](https://github.com/g0ldyy/comet/commit/a52e5c06a57f6c7d36d2eeb6cf68779b9a6d92f5))
+
 ## [2.40.0](https://github.com/g0ldyy/comet/compare/v2.39.0...v2.40.0) (2025-12-31)
 
 
