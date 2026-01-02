@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass, field
 
 from comet.core.logger import logger
-from comet.core.models import database
+from comet.core.models import database, settings
 
 
 @dataclass
@@ -67,7 +67,10 @@ class BandwidthMonitor:
             pass
 
         # Start background tasks
-        self._cleanup_task = asyncio.create_task(self._cleanup_inactive_connections())
+        if settings.PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD > 0:
+            self._cleanup_task = asyncio.create_task(
+                self._cleanup_inactive_connections()
+            )
         self._db_sync_task = asyncio.create_task(self._sync_to_database())
 
         self._initialized = True
@@ -150,21 +153,50 @@ class BandwidthMonitor:
             return f"{bytes_per_second / (1024**3):.2f} GB/s"
 
     async def _cleanup_inactive_connections(self):
+        threshold = settings.PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD
+        # min 5s, max 60s, or 1/5th of threshold
+        sleep_interval = max(5, min(60, threshold // 5))
+
         while True:
             try:
-                await asyncio.sleep(30)  # Check every 30 seconds
+                await asyncio.sleep(sleep_interval)
+
                 current_time = time.time()
 
                 with self._lock:
                     inactive_connections = [
                         conn_id
                         for conn_id, metrics in self._connections.items()
-                        if current_time - metrics.last_update > 60  # 60 seconds timeout
+                        if current_time - metrics.last_update > threshold
                     ]
 
-                # Remove inactive connections
-                for conn_id in inactive_connections:
-                    await self.end_connection(conn_id)
+                    for conn_id in inactive_connections:
+                        self._connections.pop(conn_id, None)
+
+                    if inactive_connections:
+                        self._global_stats["active_connections"] = len(
+                            self._connections
+                        )
+
+                if not inactive_connections:
+                    continue
+
+                try:
+                    placeholders = ", ".join(
+                        f":id_{i}" for i in range(len(inactive_connections))
+                    )
+                    params = {
+                        f"id_{i}": conn_id
+                        for i, conn_id in enumerate(inactive_connections)
+                    }
+                    await database.execute(
+                        f"DELETE FROM active_connections WHERE id IN ({placeholders})",
+                        params,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error batch cleaning {len(inactive_connections)} inactive connections from DB: {e}"
+                    )
 
             except Exception as e:
                 logger.warning(f"Error in bandwidth monitor cleanup: {e}")
