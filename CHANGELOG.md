@@ -2,6 +2,17 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.43.0](https://github.com/g0ldyy/comet/compare/v2.42.0...v2.43.0) (2026-01-02)
+
+
+### Features
+
+* add configurable `PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD` setting to enable and refine the cleanup of inactive debrid stream connections ([cfc0eae](https://github.com/g0ldyy/comet/commit/cfc0eaea847779e111b63a26d93f50714d859ab8))
+* add configurable `PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD` setting to enable and refine the cleanup of inactive debrid stream connections ([aef99f4](https://github.com/g0ldyy/comet/commit/aef99f43bed584f352c469c143693fdf27eb7b21))
+* add configuration and UI option to sort cached and uncached stream results together ([a472595](https://github.com/g0ldyy/comet/commit/a4725958d051a11eed651a065578691ec0d2e1d6))
+* add configuration and UI option to sort cached and uncached stream results together ([5fda0df](https://github.com/g0ldyy/comet/commit/5fda0df1a98f313c49fdd3e65eafd24ae792924e))
+* populate `sortCachedUncachedTogether` checkbox from settings ([a5698b2](https://github.com/g0ldyy/comet/commit/a5698b28ac64996e675dcf49867192286b5a33db))
+
 ## [2.42.0](https://github.com/g0ldyy/comet/compare/v2.41.0...v2.42.0) (2026-01-02)
 
 
