@@ -51,7 +51,7 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
 
 ### With Docker Compose
 - Copy *deployment/docker-compose.yml* in a directory
-- Copy *.env-sample* to *.env* in the same directory and keep only the variables you wish to modify, also remove all comments
+- Create a `.env` file in the same directory and add only the variables you wish to modify. All other variables will use the default values from `.env-sample`.
 - Pull the latest version from docker hub
     ```sh
       docker compose pull
