@@ -77,3 +77,16 @@ class TMDBApi:
         except Exception as e:
             logger.error(f"TMDB: Error converting IMDB ID {imdb_id}: {e}")
             return None
+
+    async def has_watch_providers(self, tmdb_id: str):
+        try:
+            url = f"{self.base_url}/movie/{tmdb_id}/watch/providers"
+            async with self.session.get(url, headers=self.headers) as response:
+                if response.status != 200:
+                    return None
+
+                data = await response.json()
+                return bool(data.get("results"))
+        except Exception as e:
+            logger.error(f"TMDB: Error getting watch providers for {tmdb_id}: {e}")
+            return None
