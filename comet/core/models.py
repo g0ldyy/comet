@@ -114,6 +114,7 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: Optional[int] = -1
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
+    PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD: Optional[int] = 300
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
     DISABLE_TORRENT_STREAMS: Optional[bool] = False
     TORRENT_DISABLED_STREAM_NAME: Optional[str] = "[INFO] Comet"
