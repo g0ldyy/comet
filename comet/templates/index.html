@@ -838,6 +838,8 @@
         function populateFormFromSettings(settings) {
           if (settings.cachedOnly !== null)
             document.getElementById("cachedOnly").checked = settings.cachedOnly;
+          if (settings.sortCachedUncachedTogether !== undefined && settings.sortCachedUncachedTogether !== null)
+            document.getElementById("sortCachedUncachedTogether").checked = settings.sortCachedUncachedTogether;
           if (settings.removeTrash !== null)
             document.getElementById("removeTrash").checked = settings.removeTrash;
           if (settings.maxResultsPerResolution !== null)
