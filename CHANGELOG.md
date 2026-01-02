@@ -2,6 +2,16 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.42.0](https://github.com/g0ldyy/comet/compare/v2.41.0...v2.42.0) (2026-01-02)
+
+
+### Features
+
+* add fallback to check watch providers for movie release dates when upcoming release date is unavailable ([ac2cafb](https://github.com/g0ldyy/comet/commit/ac2cafb8abc1c46f8d44c8682f80e0ea0b0cdf2f))
+* add fallback to check watch providers for movie release dates when upcoming release date is unavailable ([6b6e466](https://github.com/g0ldyy/comet/commit/6b6e466c7d053be137127d38d924e296cc03f192))
+* enhance client IP detection by checking multiple headers and validating IP addresses ([a584432](https://github.com/g0ldyy/comet/commit/a5844323d9a2fee4454fc88a4202a9c0e9d43519))
+* enhance client IP detection by checking multiple headers and validating IP addresses ([b64b7f6](https://github.com/g0ldyy/comet/commit/b64b7f6e57f321fad8671a8412b7d919e36285d4))
+
 ## [2.41.0](https://github.com/g0ldyy/comet/compare/v2.40.0...v2.41.0) (2026-01-01)
 
 
