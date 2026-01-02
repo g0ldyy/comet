@@ -28,7 +28,7 @@ IP_REQUEST_HEADERS = [
 ]
 
 
-def is_correct_ip(ip: str):
+def is_public_ip(ip: str):
     try:
         parsed_ip = ipaddress.ip_address(ip)
         return not parsed_ip.is_private and not parsed_ip.is_loopback
@@ -45,13 +45,13 @@ def get_client_ip(request: Request):
         if header == "X-Forwarded-For":
             for ip_part in header_value.split(","):
                 ip_part = ip_part.strip()
-                if is_correct_ip(ip_part):
+                if is_public_ip(ip_part):
                     return ip_part
         else:
-            if is_correct_ip(header_value):
+            if is_public_ip(header_value):
                 return header_value
 
-    if request.client and request.client.host and is_correct_ip(request.client.host):
+    if request.client and request.client.host and is_public_ip(request.client.host):
         return request.client.host
 
     return ""
