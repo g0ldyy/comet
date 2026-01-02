@@ -1,3 +1,5 @@
+import ipaddress
+
 import aiohttp
 from fastapi import Request
 
@@ -9,13 +11,54 @@ NO_CACHE_HEADERS = {
     "Expires": "0",
 }
 
+IP_REQUEST_HEADERS = [
+    "X-Client-Ip",
+    "Cf-Connecting-Ip",
+    "Do-Connecting-Ip",
+    "Fastly-Client-Ip",
+    "True-Client-Ip",
+    "X-Real-Ip",
+    "X-Cluster-Client-Ip",
+    "X-Forwarded",
+    "X-Forwarded-For",
+    "Forwarded-For",
+    "Forwarded",
+    "X-Appengine-User-Ip",
+    "Cf-Pseudo-IPv4",
+]
+
+
+def is_correct_ip(ip: str):
+    try:
+        parsed_ip = ipaddress.ip_address(ip)
+        return not parsed_ip.is_private and not parsed_ip.is_loopback
+    except ValueError:
+        return False
+
 
 def get_client_ip(request: Request):
-    return (
-        request.headers["cf-connecting-ip"]
-        if "cf-connecting-ip" in request.headers
-        else request.client.host
-    )
+    for header in IP_REQUEST_HEADERS:
+        header_value = request.headers.get(header)
+        if not header_value:
+            continue
+
+        if header == "X-Forwarded-For":
+            for ip_part in header_value.split(","):
+                ip_part = ip_part.strip()
+                if is_correct_ip(ip_part):
+                    return ip_part
+                if ":" in ip_part:
+                    host = ip_part.split(":")[0]
+                    if is_correct_ip(host):
+                        return host
+        else:
+            if is_correct_ip(header_value):
+                return header_value
+
+    if request.client and request.client.host and is_correct_ip(request.client.host):
+        return request.client.host
+
+    return ""
 
 
 async def fetch_with_proxy_fallback(
