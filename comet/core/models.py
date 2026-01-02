@@ -683,6 +683,7 @@ rtn_ranking_default = DefaultRanking()
 
 class ConfigModel(BaseModel):
     cachedOnly: Optional[bool] = False
+    sortCachedUncachedTogether: Optional[bool] = False
     removeTrash: Optional[bool] = True
     resultFormat: Optional[List[str]] = ["all"]
     maxResultsPerResolution: Optional[int] = 0

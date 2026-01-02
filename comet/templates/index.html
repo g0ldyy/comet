@@ -450,6 +450,7 @@
           help-text="Torrents ranked below this value will be excluded from results."></sl-input>
         <sl-checkbox id="cachedOnly" help-text="Show only content that has already been cached.">Show Cached
           Only</sl-checkbox>
+        <sl-checkbox id="sortCachedUncachedTogether" help-text="Disable the default behavior of sorting cached results first, and instead mixes cached and uncached results together.">Sort Cached and Uncached Together</sl-checkbox>
         <sl-checkbox id="allowEnglishInLanguages"
           help-text="Allows English language torrents to be included even if you excluded English from your language preferences.">Allow
           English in Languages</sl-checkbox>
@@ -756,6 +757,7 @@
           const maxResultsPerResolution = document.getElementById("maxResultsPerResolution").value;
           const maxSize = document.getElementById("maxSize").value;
           const cachedOnly = document.getElementById("cachedOnly").checked;
+          const sortCachedUncachedTogether = document.getElementById("sortCachedUncachedTogether").checked;
           const removeTrash = document.getElementById("removeTrash").checked;
           const allowEnglishInLanguages = document.getElementById("allowEnglishInLanguages").checked;
           const removeUnknownLanguages = document.getElementById("removeUnknownLanguages").checked;
@@ -773,6 +775,7 @@
             maxResultsPerResolution: parseInt(maxResultsPerResolution),
             maxSize: parseFloat(maxSize * 1073741824),
             cachedOnly: cachedOnly,
+            sortCachedUncachedTogether: sortCachedUncachedTogether,
             removeTrash: removeTrash,
             resultFormat: selectedResultFormat,
             debridService: debridService,
@@ -835,6 +838,8 @@
         function populateFormFromSettings(settings) {
           if (settings.cachedOnly !== null)
             document.getElementById("cachedOnly").checked = settings.cachedOnly;
+          if (settings.sortCachedUncachedTogether !== undefined && settings.sortCachedUncachedTogether !== null)
+            document.getElementById("sortCachedUncachedTogether").checked = settings.sortCachedUncachedTogether;
           if (settings.removeTrash !== null)
             document.getElementById("removeTrash").checked = settings.removeTrash;
           if (settings.maxResultsPerResolution !== null)
