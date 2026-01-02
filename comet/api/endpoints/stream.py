@@ -320,6 +320,7 @@ async def stream(
         is_first = await is_first_search(media_id)
         has_cached_results = len(torrent_manager.torrents) > 0
 
+        sort_mixed = config["sortCachedUncachedTogether"]
         cached_results = []
         non_cached_results = []
 
@@ -529,9 +530,14 @@ async def stream(
                     f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
                 )
 
-            if torrent["cached"]:
+            if sort_mixed:
+                cached_results.append(the_stream)
+            elif torrent["cached"]:
                 cached_results.append(the_stream)
             else:
                 non_cached_results.append(the_stream)
+
+        if sort_mixed:
+            return {"streams": cached_results}
 
         return {"streams": cached_results + non_cached_results}
