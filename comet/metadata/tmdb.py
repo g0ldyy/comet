@@ -78,7 +78,7 @@ class TMDBApi:
             logger.error(f"TMDB: Error converting IMDB ID {imdb_id}: {e}")
             return None
 
-    async def get_unique_watch_providers(self, tmdb_id: str):
+    async def has_watch_providers(self, tmdb_id: str):
         try:
             url = f"{self.base_url}/movie/{tmdb_id}/watch/providers"
             async with self.session.get(url, headers=self.headers) as response:

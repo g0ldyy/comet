@@ -54,7 +54,7 @@ class DigitalReleaseFilter:
                 release_date_str = await tmdb.get_upcoming_movie_release_date(tmdb_id)
                 if not release_date_str:
                     # Check watch providers as fallback
-                    has_watch_providers = await tmdb.get_unique_watch_providers(tmdb_id)
+                    has_watch_providers = await tmdb.has_watch_providers(tmdb_id)
                     if has_watch_providers:
                         # Treat as released a long time ago
                         release_date_str = "1970-01-01"
