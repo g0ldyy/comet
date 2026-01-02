@@ -47,10 +47,6 @@ def get_client_ip(request: Request):
                 ip_part = ip_part.strip()
                 if is_correct_ip(ip_part):
                     return ip_part
-                if ":" in ip_part:
-                    host = ip_part.split(":")[0]
-                    if is_correct_ip(host):
-                        return host
         else:
             if is_correct_ip(header_value):
                 return header_value
