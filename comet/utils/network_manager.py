@@ -134,7 +134,8 @@ class AsyncClientWrapper:
             scraper_proxy_key = (
                 f"{scraper_name.upper().replace('SCRAPER', '')}_PROXY_URL"
             )
-            self.proxy_url = getattr(settings, scraper_proxy_key, None)
+            if settings.model_extra:
+                self.proxy_url = settings.model_extra.get(scraper_proxy_key.lower())
 
         if not self.proxy_url:
             # Fallback to global proxy

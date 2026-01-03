@@ -18,7 +18,7 @@ from comet.core.logger import logger
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", extra="allow"
     )
 
     ADDON_ID: Optional[str] = "stremio.comet.fast"
@@ -127,7 +127,7 @@ class AppSettings(BaseSettings):
     DIGITAL_RELEASE_FILTER: Optional[bool] = False
     TMDB_READ_ACCESS_TOKEN: Optional[str] = None
     GLOBAL_PROXY_URL: Optional[str] = None
-    PROXY_ETHOS: Optional[str] = "never"
+    PROXY_ETHOS: Optional[str] = "always"
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
