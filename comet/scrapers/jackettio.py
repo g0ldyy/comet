@@ -1,12 +1,9 @@
 import re
 
-import aiohttp
-
 from comet.core.logger import log_scraper_error
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.utils.formatting import size_to_bytes
-from comet.utils.network import fetch_with_proxy_fallback
 
 data_pattern = re.compile(
     r"💾 ([\d.]+ [KMGT]B)\s+👥 (\d+)\s+⚙️ (\w+)",
@@ -14,16 +11,16 @@ data_pattern = re.compile(
 
 
 class JackettioScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+    def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
         try:
-            results = await fetch_with_proxy_fallback(
-                self.session,
+            async with self.session.get(
                 f"{self.url}/stream/{request.media_type}/{request.media_id}.json",
-            )
+            ) as response:
+                results = await response.json()
 
             for torrent in results["streams"]:
                 title_full = torrent["title"]

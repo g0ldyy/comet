@@ -1,7 +1,5 @@
 import xml.etree.ElementTree as ET
 
-import aiohttp
-
 from comet.core.logger import log_scraper_error, logger
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
@@ -9,7 +7,7 @@ from comet.services.anime import anime_mapper
 
 
 class StremthruScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+    def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
     async def scrape(self, request: ScrapeRequest):
@@ -22,10 +20,10 @@ class StremthruScraper(BaseScraper):
                 if imdb_id:
                     media_id = imdb_id
 
-            data = await self.session.get(
+            async with self.session.get(
                 f"{self.url}/v0/torznab/api?t=search&imdbid={media_id}"
-            )
-            data_text = await data.text()
+            ) as response:
+                data_text = await response.text()
 
             root = ET.fromstring(data_text)
 

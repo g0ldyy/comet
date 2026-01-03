@@ -1,6 +1,5 @@
 import asyncio
 
-import aiohttp
 import orjson
 from RTN import DefaultRanking, ParsedData
 
@@ -53,7 +52,6 @@ class TorrentManager:
 
     async def scrape_torrents(
         self,
-        session: aiohttp.ClientSession,
     ):
         from comet.scrapers.models import ScrapeRequest
 
@@ -69,7 +67,7 @@ class TorrentManager:
             context=self.context,
         )
 
-        async for scraper_name, results in scraper_manager.scrape_all(request, session):
+        async for scraper_name, results in scraper_manager.scrape_all(request):
             await self.filter_manager(scraper_name, results)
 
         asyncio.create_task(self.cache_torrents())

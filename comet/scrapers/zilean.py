@@ -1,12 +1,10 @@
-import aiohttp
-
 from comet.core.logger import logger
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 
 
 class ZileanScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+    def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
     async def scrape(self, request: ScrapeRequest):

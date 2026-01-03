@@ -48,7 +48,6 @@ class AppSettings(BaseSettings):
     SCRAPE_WAIT_TIMEOUT: Optional[int] = (
         30  # Max time to wait for other instance to complete
     )
-    BYPASS_PROXY_URL: Optional[str] = None
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: Optional[str] = None
@@ -101,11 +100,6 @@ class AppSettings(BaseSettings):
     DEBRIDIO_PROVIDER_KEY: Optional[str] = None
     SCRAPE_TORBOX: Union[bool, str] = False
     TORBOX_API_KEY: Optional[str] = None
-    SCRAPE_YGGTORRENT: Union[bool, str] = False
-    YGGTORRENT_USERNAME: Optional[str] = None
-    YGGTORRENT_PASSWORD: Optional[str] = None
-    YGGTORRENT_PASSKEY: Optional[str] = None
-    YGGTORRENT_MAX_CONCURRENT_PAGES: Optional[int] = 5
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(
@@ -128,10 +122,12 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
     BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
     BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
-    ANIME_MAPPING_SOURCE: Optional[str] = "remote"
+    ANIME_MAPPING_SOURCE: Optional[str] = "database"
     ANIME_MAPPING_REFRESH_INTERVAL: Optional[int] = 86400
     DIGITAL_RELEASE_FILTER: Optional[bool] = False
     TMDB_READ_ACCESS_TOKEN: Optional[str] = None
+    GLOBAL_PROXY_URL: Optional[str] = None
+    PROXY_ETHOS: Optional[str] = "never"
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):

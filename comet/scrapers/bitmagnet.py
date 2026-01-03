@@ -1,8 +1,6 @@
 import asyncio
 import xml.etree.ElementTree as ET
 
-import aiohttp
-
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
@@ -10,7 +8,7 @@ from comet.scrapers.models import ScrapeRequest
 
 
 class BitmagnetScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+    def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
     def parse_bitmagnet_items(self, root):

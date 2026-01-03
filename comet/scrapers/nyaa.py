@@ -1,9 +1,6 @@
 import asyncio
 import re
 
-import aiohttp
-from curl_cffi import requests
-
 from comet.core.logger import log_scraper_error, logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
@@ -59,37 +56,38 @@ def extract_torrent_data(html_content: str):
 
 
 async def scrape_nyaa_page(
-    session: requests.AsyncSession, semaphore: asyncio.Semaphore, query: str, page: int
+    session, semaphore: asyncio.Semaphore, query: str, page: int
 ):
     async with semaphore:
         url = f"https://nyaa.si/?q={query}"
         if page > 1:
             url += f"&p={page}"
 
-        response = await session.get(url)
-        if response.status_code != 200:
-            logger.warning(
-                f"Failed to scrape Nyaa page {page} (consider reducing NYAA_MAX_CONCURRENT_PAGES): HTTP {response.status_code}"
-            )
-            return []
+        async with session.get(url) as response:
+            if response.status_code != 200:
+                logger.warning(
+                    f"Failed to scrape Nyaa page {page} (consider reducing NYAA_MAX_CONCURRENT_PAGES): HTTP {response.status_code}"
+                )
+                return []
 
-        html_content = response.text
-        return extract_torrent_data(html_content)
+            html_content = await response.text()
+            return extract_torrent_data(html_content)
 
 
-async def get_all_nyaa_pages(session: requests.AsyncSession, query: str):
+async def get_all_nyaa_pages(session, query: str):
     all_torrents = []
 
     max_concurrent = settings.NYAA_MAX_CONCURRENT_PAGES
     semaphore = asyncio.Semaphore(max_concurrent)
 
     first_page_url = f"https://nyaa.si/?q={query}"
-    response = await session.get(first_page_url)
-    if response.status_code != 200:
-        logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status_code}")
-        return []
 
-    first_page_text = response.text
+    async with session.get(first_page_url) as response:
+        if response.status_code != 200:
+            logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status_code}")
+            return []
+
+        first_page_text = await response.text()
 
     first_page_torrents = extract_torrent_data(first_page_text)
     all_torrents.extend(first_page_torrents)
@@ -115,18 +113,19 @@ async def get_all_nyaa_pages(session: requests.AsyncSession, query: str):
 
 
 class NyaaScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession):
+    impersonate = "chrome"
+
+    def __init__(self, manager, session):
         super().__init__(manager, session)
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
 
         try:
-            async with requests.AsyncSession() as session:
-                query = request.title
+            query = request.title
 
-                all_torrents = await get_all_nyaa_pages(session, query)
-                torrents.extend(all_torrents)
+            all_torrents = await get_all_nyaa_pages(self.session, query)
+            torrents.extend(all_torrents)
 
         except Exception as e:
             log_scraper_error("Nyaa", "https://nyaa.si", request.media_id, e)

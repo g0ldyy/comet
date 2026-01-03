@@ -5,13 +5,12 @@ import os
 import pkgutil
 from typing import Dict
 
-import aiohttp
-
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.services.anime import anime_mapper
+from comet.utils.network_manager import network_manager
 from comet.utils.parsing import associate_urls_credentials
 
 
@@ -51,7 +50,7 @@ class ScraperManager:
             logger.warning(f"Scraper {name} failed: {e}")  # todo: better error handling
             return name, []
 
-    async def scrape_all(self, request: ScrapeRequest, session: aiohttp.ClientSession):
+    async def scrape_all(self, request: ScrapeRequest):
         tasks = []
         for scraper_name, scraper_class in self.scrapers.items():
             # Determine if scraper should be enabled
@@ -80,13 +79,18 @@ class ScraperManager:
             ):
                 continue
 
+            # Get client wrapper
+            client = network_manager.get_client(
+                scraper_name=scraper_name_clean, impersonate=scraper_class.impersonate
+            )
+
             if scraper_name == "MediaFusionScraper":
                 url_credentials_pairs = associate_urls_credentials(
                     settings.MEDIAFUSION_URL, settings.MEDIAFUSION_API_PASSWORD
                 )
                 if url_credentials_pairs:
                     for i, (url, password) in enumerate(url_credentials_pairs):
-                        scraper = scraper_class(self, session, url, password)
+                        scraper = scraper_class(self, client, url, password)
                         tasks.append(
                             self._scrape_wrapper(
                                 f"{scraper_name_clean} #{i + 1}", scraper, request
@@ -99,7 +103,7 @@ class ScraperManager:
                 )
                 if url_credentials_pairs:
                     for i, (url, credentials) in enumerate(url_credentials_pairs):
-                        scraper = scraper_class(self, session, url, credentials)
+                        scraper = scraper_class(self, client, url, credentials)
                         tasks.append(
                             self._scrape_wrapper(
                                 f"{scraper_name_clean} #{i + 1}", scraper, request
@@ -117,14 +121,14 @@ class ScraperManager:
 
                 if urls:
                     for i, url in enumerate(urls):
-                        scraper = scraper_class(self, session, url)
+                        scraper = scraper_class(self, client, url)
                         tasks.append(
                             self._scrape_wrapper(
                                 f"{scraper_name_clean} #{i + 1}", scraper, request
                             )
                         )
                 else:
-                    scraper = scraper_class(self, session)
+                    scraper = scraper_class(self, client)
                     tasks.append(
                         self._scrape_wrapper(scraper_name_clean, scraper, request)
                     )

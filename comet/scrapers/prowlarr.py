@@ -1,8 +1,6 @@
 import asyncio
 from typing import List, Set
 
-import aiohttp
-
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -16,7 +14,7 @@ from comet.services.torrent_manager import (add_torrent_queue,
 
 
 class ProwlarrScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+    def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
     async def process_torrent(self, result: dict, media_id: str, season: int):
@@ -84,6 +82,18 @@ class ProwlarrScraper(BaseScraper):
 
         return torrents
 
+    async def _fetch_search_results(self, query):
+        try:
+            url = f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in settings.PROWLARR_INDEXERS)}&type=search"
+            async with self.session.get(
+                url,
+                headers={"X-Api-Key": settings.PROWLARR_API_KEY},
+                timeout=INDEXER_TIMEOUT,
+            ) as response:
+                return await response.json()
+        except Exception as e:
+            return e
+
     async def scrape(self, request: ScrapeRequest):
         if not settings.PROWLARR_INDEXERS:
             try:
@@ -111,13 +121,7 @@ class ProwlarrScraper(BaseScraper):
         try:
             tasks = []
             for query in queries:
-                tasks.append(
-                    self.session.get(
-                        f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in settings.PROWLARR_INDEXERS)}&type=search",
-                        headers={"X-Api-Key": settings.PROWLARR_API_KEY},
-                        timeout=INDEXER_TIMEOUT,
-                    )
-                )
+                tasks.append(self._fetch_search_results(query))
 
             responses = await asyncio.gather(*tasks, return_exceptions=True)
             all_results = []
@@ -134,7 +138,7 @@ class ProwlarrScraper(BaseScraper):
                     continue
 
                 try:
-                    response_json = await response.json()
+                    response_json = response
                     if isinstance(response_json, list):
                         all_results.extend(response_json)
                     else:
