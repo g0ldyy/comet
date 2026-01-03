@@ -39,8 +39,8 @@ class AppSettings(BaseSettings):
     DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
     DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
-    TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
-    LIVE_TORRENT_CACHE_TTL: Optional[int] = 1296000  # 15 days
+    TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days
+    LIVE_TORRENT_CACHE_TTL: Optional[int] = 604800  # 7 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
     METRICS_CACHE_TTL: Optional[int] = 60  # 1 minute
     DEBRID_CACHE_CHECK_RATIO: Optional[float] = 0.0  # 0.0 to 1.0

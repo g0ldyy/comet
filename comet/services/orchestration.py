@@ -1,5 +1,4 @@
 import asyncio
-import time
 
 import aiohttp
 import orjson
@@ -7,7 +6,7 @@ from RTN import DefaultRanking, ParsedData
 
 from comet.core.execution import get_executor
 from comet.core.logger import logger
-from comet.core.models import CometSettingsModel, database, settings
+from comet.core.models import CometSettingsModel, database
 from comet.scrapers.manager import scraper_manager
 from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
@@ -105,14 +104,11 @@ class TorrentManager:
                 WHERE media_id = :media_id
                 AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
                 AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-                AND timestamp + :cache_ttl >= :current_time
             """,
             {
                 "media_id": self.media_only_id,
                 "season": self.season,
                 "episode": self.episode,
-                "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
-                "current_time": time.time(),
             },
         )
 
