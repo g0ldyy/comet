@@ -509,6 +509,11 @@ async def stream(
         result_episode = episode if episode is not None else "n"
 
         torrents = torrent_manager.torrents
+        base_playback_host = (
+            settings.PUBLIC_BASE_URL
+            if settings.PUBLIC_BASE_URL
+            else f"{request.url.scheme}://{request.url.netloc}"
+        )
         for info_hash in torrent_manager.ranked_torrents:
             torrent = torrents[info_hash]
             rtn_data = torrent["parsed"]
@@ -556,7 +561,7 @@ async def stream(
                     the_stream["sources"] = torrent["sources"]
             else:
                 the_stream["url"] = (
-                    f"{request.url.scheme}://{request.url.netloc}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
+                    f"{base_playback_host}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
                 )
 
             if sort_mixed:

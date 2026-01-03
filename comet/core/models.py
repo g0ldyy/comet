@@ -116,6 +116,7 @@ class AppSettings(BaseSettings):
         "Direct torrent playback is disabled on this server."
     )
     TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.fast"
+    PUBLIC_BASE_URL: Optional[str] = None
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
     BACKGROUND_SCRAPER_CONCURRENT_WORKERS: Optional[int] = 1
@@ -176,6 +177,7 @@ class AppSettings(BaseSettings):
         "JACKETTIO_URL",
         "JACKETT_URL",
         "PROWLARR_URL",
+        "PUBLIC_BASE_URL",
     )
     def normalize_urls(cls, v):
         if isinstance(v, str):
