@@ -67,7 +67,7 @@ async def background_scrape(
 
     try:
         async with aiohttp.ClientSession() as session:
-            await torrent_manager.scrape_torrents(session)
+            await torrent_manager.scrape_torrents()
 
             if debrid_service != "torrent" and len(torrent_manager.torrents) > 0:
                 debrid_service_instance = DebridService(
@@ -413,7 +413,7 @@ async def stream(
         # Perform scraping if lock acquired and needed
         if needs_scraping and scrape_lock:
             try:
-                await torrent_manager.scrape_torrents(session)
+                await torrent_manager.scrape_torrents()
                 logger.log(
                     "SCRAPER",
                     f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",

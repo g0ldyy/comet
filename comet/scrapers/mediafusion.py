@@ -1,17 +1,14 @@
-import aiohttp
-
 from comet.core.logger import log_scraper_error
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.helpers.mediafusion import mediafusion_config
 from comet.scrapers.models import ScrapeRequest
-from comet.utils.network import fetch_with_proxy_fallback
 
 
 class MediaFusionScraper(BaseScraper):
     def __init__(
         self,
         manager,
-        session: aiohttp.ClientSession,
+        session,
         url: str,
         password: str | None = None,
     ):
@@ -23,11 +20,11 @@ class MediaFusionScraper(BaseScraper):
         try:
             headers = mediafusion_config.get_headers_for_password(self.password)
 
-            results = await fetch_with_proxy_fallback(
-                self.session,
+            async with self.session.get(
                 f"{self.url}/stream/{request.media_type}/{request.media_id}.json",
                 headers=headers,
-            )
+            ) as response:
+                results = await response.json()
 
             for torrent in results["streams"]:
                 title_full = torrent["description"]

@@ -6,7 +6,6 @@ import time
 from collections import defaultdict
 from urllib.parse import unquote
 
-import aiohttp
 import anyio
 import bencodepy
 import orjson
@@ -32,7 +31,7 @@ def extract_trackers_from_magnet(magnet_uri: str):
         return []
 
 
-async def download_torrent(session: aiohttp.ClientSession, url: str):
+async def download_torrent(session, url: str):
     try:
         async with session.get(
             url, allow_redirects=False, timeout=TORRENT_TIMEOUT
