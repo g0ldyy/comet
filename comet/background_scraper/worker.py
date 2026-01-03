@@ -384,7 +384,7 @@ class BackgroundScraperWorker:
                 context="background",
             )
 
-            await manager.scrape_torrents(self.current_session)
+            await manager.scrape_torrents()
             episode_torrents = len(manager.torrents)
             total_torrents += episode_torrents
 
