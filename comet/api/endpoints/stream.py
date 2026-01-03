@@ -197,27 +197,50 @@ async def stream(
             id, season if "kitsu" not in media_id else 1, episode
         )
 
-        # Quick check for cached torrents
-        cached_torrents_count = await database.fetch_val(
-            """
-                SELECT COUNT(*)
-                FROM torrents
-                WHERE media_id = :media_id
-                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
-                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-                AND timestamp + :cache_ttl >= :current_time
-            """,
-            {
-                "media_id": id,
-                "season": season,
-                "episode": episode,
-                "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
-                "current_time": time.time(),
-            },
-        )
+        # Quick check for "fresh" cached torrents to decide if we need to re-scrape.
+        # This does NOT filter what torrents are shown, it only determines if a new search is triggered.
+        # LIVE_TORRENT_CACHE_TTL controls when cache is considered "stale" and needs refreshing.
+        # If -1, cache is never considered stale (all cached torrents are "fresh").
+        if settings.LIVE_TORRENT_CACHE_TTL >= 0:
+            fresh_cached_count = await database.fetch_val(
+                """
+                    SELECT COUNT(*)
+                    FROM torrents
+                    WHERE media_id = :media_id
+                    AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                    AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
+                    AND timestamp + :cache_ttl >= :current_time
+                """,
+                {
+                    "media_id": id,
+                    "season": season,
+                    "episode": episode,
+                    "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
+                    "current_time": time.time(),
+                },
+            )
+        else:
+            # TTL=-1 means cache never expires, count all cached torrents as "fresh"
+            fresh_cached_count = await database.fetch_val(
+                """
+                    SELECT COUNT(*)
+                    FROM torrents
+                    WHERE media_id = :media_id
+                    AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                    AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
+                """,
+                {
+                    "media_id": id,
+                    "season": season,
+                    "episode": episode,
+                },
+            )
 
-        # If both metadata and torrents are cached, skip lock entirely
-        if cached_metadata is not None and cached_torrents_count > 0:
+        # Track if cache is stale (no fresh torrents) for background refresh decision
+        cache_is_stale = fresh_cached_count == 0
+
+        # If both metadata and fresh torrents are cached, skip lock entirely
+        if cached_metadata is not None and fresh_cached_count > 0:
             logger.log("SCRAPER", f"🚀 Fast path: using cached data for {media_id}")
             metadata, aliases = cached_metadata[0], cached_metadata[1]
             # Variables for fast path
@@ -363,22 +386,28 @@ async def stream(
                         ]
                     }
 
-        elif is_first:
-            logger.log(
-                "SCRAPER",
-                f"🔄 Starting background scrape + availability check for {log_title}",
-            )
+        elif is_first or cache_is_stale:
+            # Background scrape if first search OR if cache is stale (needs refresh)
+            if is_first:
+                logger.log(
+                    "SCRAPER",
+                    f"🔄 First search - starting background scrape for {log_title}",
+                )
+                cached_results.append(
+                    {
+                        "name": "[🔄] Comet",
+                        "description": "First search for this media - More results will be available in a few seconds...",
+                        "url": "https://comet.fast",
+                    }
+                )
+            else:
+                logger.log(
+                    "SCRAPER",
+                    f"🔄 Cache stale - starting background refresh for {log_title}",
+                )
 
             background_tasks.add_task(
                 background_scrape, torrent_manager, media_id, debrid_service
-            )
-
-            cached_results.append(
-                {
-                    "name": "[🔄] Comet",
-                    "description": "First search for this media - More results will be available in a few seconds...",
-                    "url": "https://comet.fast",
-                }
             )
 
         # Perform scraping if lock acquired and needed
