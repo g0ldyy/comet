@@ -537,48 +537,100 @@ async def _execute_sqlite_batched_upsert(rows: list[dict]):
     if not rows:
         return
 
+    # Fetch relevant existing records to compare against
+    media_ids = list({row["media_id"] for row in rows if row.get("media_id")})
+    if not media_ids:
+        async with database.transaction():
+            await _execute_standard_sqlite_insert(rows)
+        return
+
+    placeholders = ",".join(f":mid{i}" for i in range(len(media_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(media_ids)}
+
+    existing_rows = await database.fetch_all(
+        f"SELECT * FROM torrents WHERE media_id IN ({placeholders})", params
+    )
+
+    # Build lookup map: (media_id, info_hash, season, episode) -> row
+    existing_map = {}
+    for row in existing_rows:
+        key = (
+            row["media_id"],
+            row["info_hash"],
+            row["season"],
+            row["episode"],
+        )
+        existing_map[key] = row
+
+    # Filter in Python
+    to_insert = []
+    # Columns to check for changes (everything except timestamp and lock_key/update_interval)
+    check_cols = [
+        "file_index",
+        "title",
+        "seeders",
+        "size",
+        "tracker",
+        "sources",
+        "parsed",
+    ]
+
+    for row in rows:
+        key = (
+            row["media_id"],
+            row["info_hash"],
+            row["season"],
+            row["episode"],
+        )
+        existing = existing_map.get(key)
+
+        if not existing:
+            # New record
+            to_insert.append(row)
+            continue
+
+        # Check for data changes
+        changed = False
+        for col in check_cols:
+            # Simple equality check.
+            if row.get(col) != existing[col]:
+                changed = True
+                break
+
+        if changed:
+            to_insert.append(row)
+            continue
+
+        # Check TTL
+        existing_ts = existing["timestamp"]
+        if existing_ts < (row["timestamp"] - UPDATE_INTERVAL):
+            to_insert.append(row)
+
+    if to_insert:
+        await _execute_standard_sqlite_insert(to_insert)
+
+
+async def _execute_standard_sqlite_insert(rows: list[dict]):
     keys_to_ignore = {"lock_key", "update_interval"}
     columns = [k for k in rows[0].keys() if k not in keys_to_ignore]
-
     sanitized_rows = [{k: row[k] for k in columns} for row in rows]
 
-    placeholders = ", ".join(f":{col}" for col in columns)
-    col_names = ", ".join(columns)
+    query = f"""
+        INSERT OR REPLACE INTO torrents ({", ".join(columns)})
+        VALUES ({", ".join(f":{col}" for col in columns)})
+    """
 
-    async with database.transaction():
-        await database.execute("DROP TABLE IF EXISTS temp_batch_torrents")
-        await database.execute(
-            "CREATE TEMP TABLE temp_batch_torrents AS SELECT * FROM torrents WHERE 0"
-        )
-
-        await database.execute_many(
-            f"INSERT INTO temp_batch_torrents ({col_names}) VALUES ({placeholders})",
-            sanitized_rows,
-        )
-
-        check_cols = [c for c in columns if c != "timestamp"]
-        conditions = " AND ".join(
-            f"t.{col} IS temp_batch_torrents.{col}" for col in check_cols
-        )
-
-        # Remove records from the batch that:
-        # 1. Already exist in the DB (based on all non-timestamp fields)
-        # 2. AND are recent enough (timestampDiff < UPDATE_INTERVAL)
-        prune_query = f"""
-            DELETE FROM temp_batch_torrents
-            WHERE EXISTS (
-                SELECT 1 FROM torrents t
-                WHERE 
-                    {conditions} AND
-                    t.timestamp >= (temp_batch_torrents.timestamp - :update_interval)
-            )
-        """
-
-        await database.execute(prune_query, {"update_interval": UPDATE_INTERVAL})
-        await database.execute(
-            "INSERT OR REPLACE INTO torrents SELECT * FROM temp_batch_torrents"
-        )
-        await database.execute("DROP TABLE temp_batch_torrents")
+    # Retry logic for busy database
+    for attempt in range(5):
+        try:
+            async with database.transaction():
+                await database.execute_many(query, sanitized_rows)
+            return
+        except Exception as e:
+            if attempt < 4:
+                await asyncio.sleep(0.2 * (attempt + 1))
+                continue
+            raise e
 
 
 async def _execute_batched_upsert(query: str, rows):
