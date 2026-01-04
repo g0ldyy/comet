@@ -630,7 +630,7 @@ async def _execute_standard_sqlite_insert(rows: list[dict]):
             if attempt < 4:
                 await asyncio.sleep(0.2 * (attempt + 1))
                 continue
-            raise e
+            raise
 
 
 async def _execute_batched_upsert(query: str, rows):
