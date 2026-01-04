@@ -53,6 +53,5 @@ class MediaFusionScraper(BaseScraper):
                 )
         except Exception as e:
             log_scraper_error("MediaFusion", self.url, request.media_id, e)
-            pass
 
         return torrents
