@@ -1,17 +1,14 @@
-import aiohttp
-
 from comet.core.logger import log_scraper_error
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.helpers.aiostreams import aiostreams_config
 from comet.scrapers.models import ScrapeRequest
-from comet.utils.network import fetch_with_proxy_fallback
 
 
 class AiostreamsScraper(BaseScraper):
     def __init__(
         self,
         manager,
-        session: aiohttp.ClientSession,
+        session,
         url: str,
         credentials: str | None = None,
     ):
@@ -28,12 +25,12 @@ class AiostreamsScraper(BaseScraper):
                 "id": request.media_id,
             }
 
-            results = await fetch_with_proxy_fallback(
-                self.session,
+            async with self.session.get(
                 f"{self.url}/api/v1/search",
                 params=params,
                 headers=headers,
-            )
+            ) as response:
+                results = await response.json()
 
             for torrent in results["data"]["results"]:
                 tracker = "AIOStreams"

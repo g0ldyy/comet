@@ -1,8 +1,6 @@
 import asyncio
 from typing import List, Set
 
-import aiohttp
-
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -16,7 +14,7 @@ from comet.services.torrent_manager import (add_torrent_queue,
 
 
 class JackettScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession, url: str):
+    def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
     async def process_torrent(self, result: dict, media_id: str, season: int):
@@ -88,12 +86,12 @@ class JackettScraper(BaseScraper):
 
     async def fetch_jackett_results(self, indexer: str, query: str):
         try:
-            response = await self.session.get(
+            async with self.session.get(
                 f"{self.url}/api/v2.0/indexers/all/results?apikey={settings.JACKETT_API_KEY}&Query={query}&Tracker[]={indexer}",
                 timeout=INDEXER_TIMEOUT,
-            )
-            response = await response.json()
-            return response.get("Results", [])
+            ) as response:
+                data = await response.json()
+                return data.get("Results", [])
         except Exception as e:
             logger.warning(
                 f"Exception while fetching Jackett results for indexer {indexer}: {e}"

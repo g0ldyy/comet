@@ -209,7 +209,11 @@ def log_startup_info(settings):
         "COMET",
         f"Anime Mapping: source={settings.ANIME_MAPPING_SOURCE} - refresh_interval={settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
     )
-    logger.log("COMET", f"Bypass Proxy: {settings.BYPASS_PROXY_URL}")
+
+    logger.log(
+        "COMET",
+        f"Global Proxy: {settings.GLOBAL_PROXY_URL} - Ethos: {settings.PROXY_ETHOS}",
+    )
 
     jackett_info = ""
     if settings.is_any_context_enabled(settings.SCRAPE_JACKETT):
@@ -360,16 +364,6 @@ def log_startup_info(settings):
     logger.log(
         "COMET",
         f"TorBox Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORBOX)}{torbox_api_key}",
-    )
-
-    yggtorrent_info = (
-        f" - Username: {settings.YGGTORRENT_USERNAME} - Password: {settings.YGGTORRENT_PASSWORD} - Passkey: {settings.YGGTORRENT_PASSKEY}"
-        if settings.is_any_context_enabled(settings.SCRAPE_YGGTORRENT)
-        else ""
-    )
-    logger.log(
-        "COMET",
-        f"YGGTorrent Scraper: {settings.format_scraper_mode(settings.SCRAPE_YGGTORRENT)}{yggtorrent_info}",
     )
 
     debrid_stream_proxy_display = (

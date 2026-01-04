@@ -1,7 +1,5 @@
 import re
 
-import aiohttp
-
 from comet.core.logger import log_scraper_error
 from comet.core.models import settings
 from comet.scrapers.base import BaseScraper
@@ -16,7 +14,7 @@ DATA_PATTERN = re.compile(
 
 
 class DebridioScraper(BaseScraper):
-    def __init__(self, manager, session: aiohttp.ClientSession):
+    def __init__(self, manager, session):
         super().__init__(manager, session)
 
     async def scrape(self, request: ScrapeRequest):
@@ -31,10 +29,10 @@ class DebridioScraper(BaseScraper):
         b64_config = debridio_config.get_config()
 
         try:
-            results = await self.session.get(
+            async with self.session.get(
                 f"https://addon.debridio.com/{b64_config}/stream/{request.media_type}/{request.media_id}.json"
-            )
-            results = await results.json()
+            ) as response:
+                results = await response.json()
 
             for torrent in results["streams"]:
                 title_full = torrent["title"]
