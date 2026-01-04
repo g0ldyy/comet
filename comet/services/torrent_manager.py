@@ -626,7 +626,7 @@ async def _execute_standard_sqlite_insert(rows: list[dict]):
             async with database.transaction():
                 await database.execute_many(query, sanitized_rows)
             return
-        except Exception as e:
+        except Exception:
             if attempt < 4:
                 await asyncio.sleep(0.2 * (attempt + 1))
                 continue
@@ -643,11 +643,6 @@ async def _execute_batched_upsert(query: str, rows):
 
     ordered_rows = sorted(rows, key=lambda row: row.get("lock_key"))
 
-    sanitized_rows = [
-        {key: value for key, value in row.items() if key != "lock_key"}
-        for row in ordered_rows
-    ]
-
     attempts = (
         POSTGRES_LOCK_RETRY_ATTEMPTS + 1
         if settings.DATABASE_TYPE == "postgresql"
@@ -657,20 +652,32 @@ async def _execute_batched_upsert(query: str, rows):
     for attempt in range(attempts):
         try:
             async with database.transaction():
+                rows_to_insert = ordered_rows
+
                 if settings.DATABASE_TYPE == "postgresql":
-                    await database.execute(
-                        f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
-                    )
+                    locked_rows = []
                     for row in ordered_rows:
                         lock_key = row.get("lock_key")
                         if lock_key is None:
+                            locked_rows.append(row)
                             continue
-                        await database.execute(
-                            "SELECT pg_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
+
+                        acquired = await database.fetch_val(
+                            "SELECT pg_try_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
                             {"lock_key": lock_key},
                         )
+                        if acquired:
+                            locked_rows.append(row)
 
-                await database.execute_many(query, sanitized_rows)
+                    rows_to_insert = locked_rows
+
+                sanitized_rows = [
+                    {key: value for key, value in row.items() if key != "lock_key"}
+                    for row in rows_to_insert
+                ]
+
+                if sanitized_rows:
+                    await database.execute_many(query, sanitized_rows)
             return
         except Exception as exc:
             if (
