@@ -370,6 +370,11 @@ def log_startup_info(settings):
         f"TorBox Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORBOX)}{torbox_api_key}",
     )
 
+    logger.log(
+        "COMET",
+        f"TorrentsDB Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORRENTSDB)}",
+    )
+
     debrid_stream_proxy_display = (
         f" - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Inactivity Threshold: {settings.PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD}s - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}"
         if settings.PROXY_DEBRID_STREAM

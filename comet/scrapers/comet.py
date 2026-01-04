@@ -39,6 +39,5 @@ class CometScraper(BaseScraper):
                 )
         except Exception as e:
             log_scraper_error("Comet", self.url, request.media_id, e)
-            pass
 
         return torrents
