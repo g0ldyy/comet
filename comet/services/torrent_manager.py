@@ -701,7 +701,7 @@ def _get_torrent_upsert_query(conflict_key: str) -> str:
 
 UPDATE_INTERVAL = 31536000  # Default 1 year
 if settings.LIVE_TORRENT_CACHE_TTL >= 0:
-    UPDATE_INTERVAL = max(60, settings.LIVE_TORRENT_CACHE_TTL // 2)
+    UPDATE_INTERVAL = settings.LIVE_TORRENT_CACHE_TTL // 2
 
 
 async def _upsert_torrent_record(params: dict):
