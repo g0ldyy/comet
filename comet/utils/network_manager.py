@@ -1,10 +1,76 @@
+import os
+import socket
 from typing import Dict, Optional
+from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 from curl_cffi.requests import AsyncSession as CurlSession
 
 from comet.core.logger import logger
 from comet.core.models import settings
+
+
+def resolve_proxy_url(proxy_url: Optional[str]) -> Optional[str]:
+    """
+    Resolve proxy hostname to IP address.
+
+    This fixes an issue where curl_cffi/libcurl cannot resolve Docker service
+    names even though Python and the shell's curl can.
+    By resolving the hostname first via Python (which uses Docker's DNS),
+    we can pass an IP-based URL to curl_cffi.
+    """
+
+    if not proxy_url:
+        return proxy_url
+
+    try:
+        parsed = urlparse(proxy_url)
+        hostname = parsed.hostname
+
+        if not hostname:
+            return proxy_url
+
+        # Skip if already an IP address
+        try:
+            socket.inet_aton(hostname)
+            return proxy_url  # Already an IP
+        except socket.error:
+            pass  # Not an IP, continue with resolution
+
+        # Resolve hostname to IP
+        ip = socket.gethostbyname(hostname)
+
+        # Reconstruct netloc with IP instead of hostname
+        if parsed.port:
+            new_netloc = f"{ip}:{parsed.port}"
+        else:
+            new_netloc = ip
+
+        # Preserve auth if present
+        if parsed.username:
+            if parsed.password:
+                new_netloc = f"{parsed.username}:{parsed.password}@{new_netloc}"
+            else:
+                new_netloc = f"{parsed.username}@{new_netloc}"
+
+        resolved_url = urlunparse(
+            (
+                parsed.scheme,
+                new_netloc,
+                parsed.path,
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
+
+        return resolved_url
+    except socket.gaierror as e:
+        logger.warning(f"Failed to resolve proxy hostname in '{proxy_url}': {e}")
+        return proxy_url  # Return original, let curl try
+    except Exception as e:
+        logger.warning(f"Error resolving proxy URL '{proxy_url}': {e}")
+        return proxy_url
 
 
 class ResponseWrapper:
@@ -81,9 +147,10 @@ class _RequestContextManager:
     async def _attempt_request(self, use_proxy, proxy):
         if self.wrapper.impersonate:
             # Use curl_cffi
+            curl_proxy = self.wrapper._resolved_proxy_url if proxy else None
             session = await self.wrapper._get_curl_session()
             raw_response = await session.request(
-                self.method, self.url, proxy=proxy, **self.kwargs
+                self.method, self.url, proxy=curl_proxy, **self.kwargs
             )
             self.response = ResponseWrapper(raw_response, "curl")
             return self.response
@@ -130,12 +197,14 @@ class AsyncClientWrapper:
         # Determine proxy configuration
         self.proxy_url = proxy_url
         if not self.proxy_url:
-            # Try specific scraper proxy
-            scraper_proxy_key = (
-                f"{scraper_name.upper().replace('SCRAPER', '')}_PROXY_URL"
-            )
-            if settings.model_extra:
-                self.proxy_url = settings.model_extra.get(scraper_proxy_key.lower())
+            scraper_proxy_key = f"{scraper_name.upper()}_PROXY_URL"
+
+            self.proxy_url = settings.model_extra.get(scraper_proxy_key.lower())
+
+            if not self.proxy_url:
+                self.proxy_url = os.environ.get(scraper_proxy_key)
+                if not self.proxy_url:
+                    self.proxy_url = os.environ.get(scraper_proxy_key.lower())
 
         if not self.proxy_url:
             # Fallback to global proxy
@@ -144,6 +213,9 @@ class AsyncClientWrapper:
         self.proxy_ethos = settings.PROXY_ETHOS.lower()
         if not self.proxy_url:
             self.proxy_ethos = "never"  # No proxy to use
+
+        # Pre-resolve proxy hostname for curl_cffi
+        self._resolved_proxy_url = resolve_proxy_url(self.proxy_url)
 
         self._aiohttp_session: Optional[aiohttp.ClientSession] = None
         self._curl_session: Optional[CurlSession] = None
