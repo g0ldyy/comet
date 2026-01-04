@@ -401,6 +401,9 @@ class TorrentUpdateQueue:
                 "media_id": media_id,
             }
 
+            if settings.DATABASE_TYPE == "postgresql":
+                params["update_interval"] = UPDATE_INTERVAL
+
             params["lock_key"] = _compute_advisory_lock_key(
                 media_id,
                 file_info["info_hash"],
@@ -426,7 +429,6 @@ class TorrentUpdateQueue:
                 )
 
             await self._check_batch_size()
-
         except Exception as e:
             logger.warning(f"Error processing file info: {e}")
         finally:
@@ -479,7 +481,21 @@ POSTGRES_UPDATE_SET = """
         sources = EXCLUDED.sources,
         parsed = EXCLUDED.parsed,
         timestamp = EXCLUDED.timestamp
-    WHERE COALESCE(torrents.timestamp, 0) < EXCLUDED.timestamp
+    WHERE
+        (
+            torrents.media_id IS DISTINCT FROM EXCLUDED.media_id OR
+            torrents.file_index IS DISTINCT FROM EXCLUDED.file_index OR
+            torrents.title IS DISTINCT FROM EXCLUDED.title OR
+            torrents.seeders IS DISTINCT FROM EXCLUDED.seeders OR
+            torrents.size IS DISTINCT FROM EXCLUDED.size OR
+            torrents.tracker IS DISTINCT FROM EXCLUDED.tracker OR
+            torrents.sources IS DISTINCT FROM EXCLUDED.sources OR
+            torrents.parsed IS DISTINCT FROM EXCLUDED.parsed
+        )
+        OR
+        (
+            COALESCE(torrents.timestamp, 0) < (EXCLUDED.timestamp - :update_interval)
+        )
 """
 
 POSTGRES_LOCK_TIMEOUT = "750ms"
@@ -517,8 +533,112 @@ def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
+async def _execute_sqlite_batched_upsert(rows: list[dict]):
+    if not rows:
+        return
+
+    # Fetch relevant existing records to compare against
+    media_ids = list({row["media_id"] for row in rows if row.get("media_id")})
+    if not media_ids:
+        async with database.transaction():
+            await _execute_standard_sqlite_insert(rows)
+        return
+
+    placeholders = ",".join(f":mid{i}" for i in range(len(media_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(media_ids)}
+
+    existing_rows = await database.fetch_all(
+        f"SELECT * FROM torrents WHERE media_id IN ({placeholders})", params
+    )
+
+    # Build lookup map: (media_id, info_hash, season, episode) -> row
+    existing_map = {}
+    for row in existing_rows:
+        key = (
+            row["media_id"],
+            row["info_hash"],
+            row["season"],
+            row["episode"],
+        )
+        existing_map[key] = row
+
+    # Filter in Python
+    to_insert = []
+    # Columns to check for changes (everything except timestamp and lock_key/update_interval)
+    check_cols = [
+        "file_index",
+        "title",
+        "seeders",
+        "size",
+        "tracker",
+        "sources",
+        "parsed",
+    ]
+
+    for row in rows:
+        key = (
+            row["media_id"],
+            row["info_hash"],
+            row["season"],
+            row["episode"],
+        )
+        existing = existing_map.get(key)
+
+        if not existing:
+            # New record
+            to_insert.append(row)
+            continue
+
+        # Check for data changes
+        changed = False
+        for col in check_cols:
+            # Simple equality check.
+            if row.get(col) != existing[col]:
+                changed = True
+                break
+
+        if changed:
+            to_insert.append(row)
+            continue
+
+        # Check TTL
+        existing_ts = existing["timestamp"]
+        if existing_ts < (row["timestamp"] - UPDATE_INTERVAL):
+            to_insert.append(row)
+
+    if to_insert:
+        await _execute_standard_sqlite_insert(to_insert)
+
+
+async def _execute_standard_sqlite_insert(rows: list[dict]):
+    keys_to_ignore = {"lock_key", "update_interval"}
+    columns = [k for k in rows[0].keys() if k not in keys_to_ignore]
+    sanitized_rows = [{k: row[k] for k in columns} for row in rows]
+
+    query = f"""
+        INSERT OR REPLACE INTO torrents ({", ".join(columns)})
+        VALUES ({", ".join(f":{col}" for col in columns)})
+    """
+
+    # Retry logic for busy database
+    for attempt in range(5):
+        try:
+            async with database.transaction():
+                await database.execute_many(query, sanitized_rows)
+            return
+        except Exception as e:
+            if attempt < 4:
+                await asyncio.sleep(0.2 * (attempt + 1))
+                continue
+            raise
+
+
 async def _execute_batched_upsert(query: str, rows):
     if not rows:
+        return
+
+    if settings.DATABASE_TYPE == "sqlite":
+        await _execute_sqlite_batched_upsert(rows)
         return
 
     ordered_rows = sorted(rows, key=lambda row: row.get("lock_key"))
@@ -579,13 +699,21 @@ def _get_torrent_upsert_query(conflict_key: str) -> str:
     return TORRENT_INSERT_TEMPLATE
 
 
+UPDATE_INTERVAL = 31536000  # Default 1 year
+if settings.LIVE_TORRENT_CACHE_TTL >= 0:
+    UPDATE_INTERVAL = max(60, settings.LIVE_TORRENT_CACHE_TTL // 2)
+
+
 async def _upsert_torrent_record(params: dict):
+    if settings.DATABASE_TYPE == "sqlite":
+        await _execute_sqlite_batched_upsert([params])
+        return
+
     query = _get_torrent_upsert_query(
         _determine_conflict_key(params.get("season"), params.get("episode"))
     )
-    if settings.DATABASE_TYPE != "postgresql":
-        await database.execute(query, params)
-        return
+
+    params["update_interval"] = UPDATE_INTERVAL
 
     for attempt in range(POSTGRES_LOCK_RETRY_ATTEMPTS + 1):
         try:
