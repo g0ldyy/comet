@@ -5,6 +5,7 @@ import time
 
 from loguru import logger
 
+from comet.core.execution import max_workers
 from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
                                    get_level_info)
 
@@ -175,6 +176,11 @@ def log_startup_info(settings):
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
     logger.log("COMET", f"Gunicorn Preload App: {settings.GUNICORN_PRELOAD_APP}")
+
+    logger.log(
+        "COMET",
+        f"ProcessPoolExecutor: {max_workers} workers {'(auto)' if settings.EXECUTOR_MAX_WORKERS is None else ''}",
+    )
 
     if settings.PUBLIC_BASE_URL:
         logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
