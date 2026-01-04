@@ -65,9 +65,6 @@ class ScraperManager:
                 ):
                     continue
             else:
-                logger.debug(
-                    f"No {setting_key} found for {scraper_name_clean}, disabling"
-                )
                 continue
 
             if (
