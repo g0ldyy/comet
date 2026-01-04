@@ -2,6 +2,24 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.44.0](https://github.com/g0ldyy/comet/compare/v2.43.0...v2.44.0) (2026-01-04)
+
+
+### Features
+
+* add new scraper configurations and clarify the `PROXY_ETHOS` `on_failure` option in the sample environment file ([4a34aad](https://github.com/g0ldyy/comet/commit/4a34aad8b7dfc32b18b868f57cbd6b60460e36bb))
+* add TorrentsDB scraper and remove redundant `pass` statements in other scrapers ([f486247](https://github.com/g0ldyy/comet/commit/f4862470a50b4463f1d287bb48688c8a4ab3e343))
+* add TorrentsDB scraper and remove redundant `pass` statements in other scrapers ([c26140d](https://github.com/g0ldyy/comet/commit/c26140d6ce5ef0474ca2d1f616af138560f158ed))
+* enable dynamic proxy configuration by allowing extra Pydantic settings fields and setting the default proxy ethos to 'always' ([bbeafd7](https://github.com/g0ldyy/comet/commit/bbeafd7ac0e975f49bac68cbe0dd7b381b70d13e))
+* enhance network manager with proxy hostname resolution for curl_cffi ([65a7464](https://github.com/g0ldyy/comet/commit/65a7464acc1cbc84953aac19f99fc8024a984bb0))
+* refactor live torrent caching to differentiate between displaying existing results and triggering new scrapes, and update default cache TTLs ([7dde28d](https://github.com/g0ldyy/comet/commit/7dde28d88d409b1549a0dadd5cd4c2cc60bd3552))
+* refactor live torrent caching to differentiate between displaying existing results and triggering new scrapes, and update default cache TTLs ([7af6d09](https://github.com/g0ldyy/comet/commit/7af6d0980b2f22f9f9e0cf4edb5e236945bc36dd))
+
+
+### Bug Fixes
+
+* background scraper can't scrape tv shows ([620dca3](https://github.com/g0ldyy/comet/commit/620dca33c87511e7f8c4b43feaccf3ec47c94224))
+
 ## [2.43.0](https://github.com/g0ldyy/comet/compare/v2.42.0...v2.43.0) (2026-01-02)
 
 
