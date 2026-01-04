@@ -401,6 +401,9 @@ class TorrentUpdateQueue:
                 "media_id": media_id,
             }
 
+            if settings.DATABASE_TYPE == "postgresql":
+                params["update_interval"] = UPDATE_INTERVAL
+
             params["lock_key"] = _compute_advisory_lock_key(
                 media_id,
                 file_info["info_hash"],
@@ -426,7 +429,6 @@ class TorrentUpdateQueue:
                 )
 
             await self._check_batch_size()
-
         except Exception as e:
             logger.warning(f"Error processing file info: {e}")
         finally:
@@ -479,7 +481,21 @@ POSTGRES_UPDATE_SET = """
         sources = EXCLUDED.sources,
         parsed = EXCLUDED.parsed,
         timestamp = EXCLUDED.timestamp
-    WHERE COALESCE(torrents.timestamp, 0) < EXCLUDED.timestamp
+    WHERE
+        (
+            torrents.media_id IS DISTINCT FROM EXCLUDED.media_id OR
+            torrents.file_index IS DISTINCT FROM EXCLUDED.file_index OR
+            torrents.title IS DISTINCT FROM EXCLUDED.title OR
+            torrents.seeders IS DISTINCT FROM EXCLUDED.seeders OR
+            torrents.size IS DISTINCT FROM EXCLUDED.size OR
+            torrents.tracker IS DISTINCT FROM EXCLUDED.tracker OR
+            torrents.sources IS DISTINCT FROM EXCLUDED.sources OR
+            torrents.parsed IS DISTINCT FROM EXCLUDED.parsed
+        )
+        OR
+        (
+            COALESCE(torrents.timestamp, 0) < (EXCLUDED.timestamp - :update_interval)
+        )
 """
 
 POSTGRES_LOCK_TIMEOUT = "750ms"
@@ -517,8 +533,60 @@ def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
+async def _execute_sqlite_batched_upsert(rows: list[dict]):
+    if not rows:
+        return
+
+    keys_to_ignore = {"lock_key", "update_interval"}
+    columns = [k for k in rows[0].keys() if k not in keys_to_ignore]
+
+    sanitized_rows = [{k: row[k] for k in columns} for row in rows]
+
+    placeholders = ", ".join(f":{col}" for col in columns)
+    col_names = ", ".join(columns)
+
+    async with database.transaction():
+        await database.execute("DROP TABLE IF EXISTS temp_batch_torrents")
+        await database.execute(
+            "CREATE TEMP TABLE temp_batch_torrents AS SELECT * FROM torrents WHERE 0"
+        )
+
+        await database.execute_many(
+            f"INSERT INTO temp_batch_torrents ({col_names}) VALUES ({placeholders})",
+            sanitized_rows,
+        )
+
+        check_cols = [c for c in columns if c != "timestamp"]
+        conditions = " AND ".join(
+            f"t.{col} IS temp_batch_torrents.{col}" for col in check_cols
+        )
+
+        # Remove records from the batch that:
+        # 1. Already exist in the DB (based on all non-timestamp fields)
+        # 2. AND are recent enough (timestampDiff < UPDATE_INTERVAL)
+        prune_query = f"""
+            DELETE FROM temp_batch_torrents
+            WHERE EXISTS (
+                SELECT 1 FROM torrents t
+                WHERE 
+                    {conditions} AND
+                    t.timestamp >= (temp_batch_torrents.timestamp - :update_interval)
+            )
+        """
+
+        await database.execute(prune_query, {"update_interval": UPDATE_INTERVAL})
+        await database.execute(
+            "INSERT OR REPLACE INTO torrents SELECT * FROM temp_batch_torrents"
+        )
+        await database.execute("DROP TABLE temp_batch_torrents")
+
+
 async def _execute_batched_upsert(query: str, rows):
     if not rows:
+        return
+
+    if settings.DATABASE_TYPE == "sqlite":
+        await _execute_sqlite_batched_upsert(rows)
         return
 
     ordered_rows = sorted(rows, key=lambda row: row.get("lock_key"))
@@ -579,13 +647,21 @@ def _get_torrent_upsert_query(conflict_key: str) -> str:
     return TORRENT_INSERT_TEMPLATE
 
 
+UPDATE_INTERVAL = 31536000  # Default 1 year
+if settings.LIVE_TORRENT_CACHE_TTL >= 0:
+    UPDATE_INTERVAL = max(60, settings.LIVE_TORRENT_CACHE_TTL // 2)
+
+
 async def _upsert_torrent_record(params: dict):
+    if settings.DATABASE_TYPE == "sqlite":
+        await _execute_sqlite_batched_upsert([params])
+        return
+
     query = _get_torrent_upsert_query(
         _determine_conflict_key(params.get("season"), params.get("episode"))
     )
-    if settings.DATABASE_TYPE != "postgresql":
-        await database.execute(query, params)
-        return
+
+    params["update_interval"] = UPDATE_INTERVAL
 
     for attempt in range(POSTGRES_LOCK_RETRY_ATTEMPTS + 1):
         try:
