@@ -175,6 +175,10 @@ def log_startup_info(settings):
         f"Server started on http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT} - {settings.FASTAPI_WORKERS} workers",
     )
     logger.log("COMET", f"Gunicorn Preload App: {settings.GUNICORN_PRELOAD_APP}")
+
+    if settings.PUBLIC_BASE_URL:
+        logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
+
     logger.log(
         "COMET",
         f"Admin Dashboard Password: {settings.ADMIN_DASHBOARD_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
