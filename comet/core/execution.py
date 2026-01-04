@@ -13,6 +13,10 @@ except ValueError:
     _mp_context = multiprocessing.get_context("spawn")
 
 app_executor = None
+max_workers = settings.EXECUTOR_MAX_WORKERS
+if max_workers is None:
+    cpu_count = os.cpu_count() or 1
+    max_workers = min(cpu_count, 4)
 
 
 def worker_initializer():
@@ -21,12 +25,6 @@ def worker_initializer():
 
 def setup_executor():
     global app_executor
-
-    max_workers = settings.EXECUTOR_MAX_WORKERS
-
-    if max_workers is None:
-        cpu_count = os.cpu_count() or 1
-        max_workers = min(cpu_count, 4)
 
     app_executor = ProcessPoolExecutor(
         max_workers=max_workers, mp_context=_mp_context, initializer=worker_initializer
