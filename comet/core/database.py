@@ -377,6 +377,15 @@ async def setup_database():
             """
         )
 
+        # Optimization for concurrent DELETEs: info_hash + season
+        # Covers: DELETE FROM torrents WHERE (info_hash, season) IN (...)
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_info_hash_season 
+            ON torrents (info_hash, season)
+            """
+        )
+
         # =============================================================================
         # DEBRID_AVAILABILITY TABLE INDEXES
         # =============================================================================
