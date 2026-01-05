@@ -534,7 +534,6 @@ def _build_upsert_key(info_hash, season, episode, media_id):
 def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
     payload = f"{media_id}|{info_hash}|{season}|{episode}".encode("utf-8")
     digest = hashlib.sha1(payload).digest()
-    # Use signed=True to get a signed 64-bit int directly, which Postgres expects
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
@@ -676,7 +675,6 @@ async def _execute_batched_upsert(query: str, rows):
             ]
 
             if sanitized_rows:
-                # No retry loop needed - we only process rows we have locks for
                 await database.execute_many(query, sanitized_rows)
 
     finally:
