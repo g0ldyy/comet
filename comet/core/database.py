@@ -386,6 +386,15 @@ async def setup_database():
             """
         )
 
+        # Optimization for lookups by info_hash only
+        # Covers: SELECT sources, media_id FROM torrents WHERE info_hash = $1
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_info_hash 
+            ON torrents (info_hash)
+            """
+        )
+
         # =============================================================================
         # DEBRID_AVAILABILITY TABLE INDEXES
         # =============================================================================
@@ -689,7 +698,6 @@ async def _migrate_indexes():
             "torrents_episode_only_idx",
             "torrents_no_season_episode_idx",
             "idx_torrents_media_cache_lookup",
-            "idx_torrents_info_hash",
             "idx_torrents_tracker_analytics",
             "idx_torrents_size_filter",
             "idx_torrents_seeders_desc",
