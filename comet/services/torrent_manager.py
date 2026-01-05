@@ -670,8 +670,7 @@ async def _execute_batched_upsert(query: str, rows):
                 for row in rows_to_insert
             ]
 
-            if sanitized_rows:
-                await database.execute_many(query, sanitized_rows)
+            await database.execute_many(query, sanitized_rows)
 
     finally:
         # Always release all acquired session-level locks
