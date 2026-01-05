@@ -117,7 +117,7 @@ class AppSettings(BaseSettings):
     TORRENT_DISABLED_STREAM_DESCRIPTION: Optional[str] = (
         "Direct torrent playback is disabled on this server."
     )
-    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.fast"
+    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.looks.legal"
     PUBLIC_BASE_URL: Optional[str] = None
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
