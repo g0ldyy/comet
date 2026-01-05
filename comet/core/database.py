@@ -512,16 +512,6 @@ async def setup_database():
             """
         )
 
-        if settings.DATABASE_TYPE == "postgresql":
-            # Covering index for get_cached_torrents
-            await database.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_torrents_covering 
-                ON torrents (media_id, season, episode) 
-                INCLUDE (info_hash, file_index, title, seeders, size, tracker, sources, parsed, timestamp)
-                """
-            )
-
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
