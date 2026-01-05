@@ -131,6 +131,8 @@ class AppSettings(BaseSettings):
     TMDB_READ_ACCESS_TOKEN: Optional[str] = None
     GLOBAL_PROXY_URL: Optional[str] = None
     PROXY_ETHOS: Optional[str] = "always"
+    RATELIMIT_MAX_RETRIES: Optional[int] = 3
+    RATELIMIT_RETRY_BASE_DELAY: Optional[float] = 1.0
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):

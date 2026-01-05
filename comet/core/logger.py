@@ -224,6 +224,10 @@ def log_startup_info(settings):
         "COMET",
         f"Global Proxy: {settings.GLOBAL_PROXY_URL} - Ethos: {settings.PROXY_ETHOS}",
     )
+    logger.log(
+        "COMET",
+        f"Rate Limit Manager: Max Retries={settings.RATELIMIT_MAX_RETRIES} - Base Delay={settings.RATELIMIT_RETRY_BASE_DELAY}s",
+    )
 
     jackett_info = ""
     if settings.is_any_context_enabled(settings.SCRAPE_JACKETT):
