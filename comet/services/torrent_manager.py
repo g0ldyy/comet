@@ -642,46 +642,36 @@ async def _execute_batched_upsert(query: str, rows):
         return
 
     ordered_rows = sorted(rows, key=lambda row: row.get("lock_key") or 0)
-
-    acquired_locks = []
     rows_to_insert = []
 
     try:
-        # Non-blocking lock acquisition - skip rows we can't lock
-        for row in ordered_rows:
-            lock_key = row.get("lock_key")
-            if lock_key is None:
-                rows_to_insert.append(row)
-                continue
+        async with database.transaction():
+            for row in ordered_rows:
+                lock_key = row.get("lock_key")
+                if lock_key is None:
+                    rows_to_insert.append(row)
+                    continue
 
-            # Use session-level non-blocking lock (not transaction-level)
-            acquired = await database.fetch_val(
-                "SELECT pg_try_advisory_lock(CAST(:lock_key AS BIGINT))",
-                {"lock_key": lock_key},
-            )
-            if acquired:
-                acquired_locks.append(lock_key)
-                rows_to_insert.append(row)
-            # If not acquired, skip this row - another replica is handling it
-
-        if rows_to_insert:
-            sanitized_rows = [
-                {key: value for key, value in row.items() if key != "lock_key"}
-                for row in rows_to_insert
-            ]
-
-            await database.execute_many(query, sanitized_rows)
-
-    finally:
-        # Always release all acquired session-level locks
-        for lock_key in acquired_locks:
-            try:
-                await database.execute(
-                    "SELECT pg_advisory_unlock(CAST(:lock_key AS BIGINT))",
+                # Use transaction-level non-blocking lock
+                # This automatically releases at the end of the transaction
+                acquired = await database.fetch_val(
+                    "SELECT pg_try_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
                     {"lock_key": lock_key},
                 )
-            except Exception:
-                pass  # Best effort unlock
+                if acquired:
+                    rows_to_insert.append(row)
+                # If not acquired, skip this row - another replica is handling it
+
+            if rows_to_insert:
+                sanitized_rows = [
+                    {key: value for key, value in row.items() if key != "lock_key"}
+                    for row in rows_to_insert
+                ]
+
+                await database.execute_many(query, sanitized_rows)
+
+    except Exception as e:
+        logger.warning(f"Error executing batched upsert: {e}")
 
 
 def _get_torrent_upsert_query(conflict_key: str) -> str:
