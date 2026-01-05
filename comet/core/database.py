@@ -90,15 +90,6 @@ async def setup_database():
 
         await database.execute(
             """
-                CREATE TABLE IF NOT EXISTS ongoing_searches (
-                    media_id TEXT PRIMARY KEY, 
-                    timestamp INTEGER
-                )
-            """
-        )
-
-        await database.execute(
-            """
                 CREATE TABLE IF NOT EXISTS scrape_locks (
                     lock_key TEXT PRIMARY KEY,
                     instance_id TEXT,
@@ -521,6 +512,16 @@ async def setup_database():
             """
         )
 
+        if settings.DATABASE_TYPE == "postgresql":
+            # Covering index for get_cached_torrents
+            await database.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_torrents_covering 
+                ON torrents (media_id, season, episode) 
+                INCLUDE (info_hash, file_index, title, seeders, size, tracker, sources, parsed, timestamp)
+                """
+            )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -534,7 +535,6 @@ async def setup_database():
             await database.execute("PRAGMA secure_delete=OFF")
             await database.execute("PRAGMA auto_vacuum=OFF")
 
-        await database.execute("DELETE FROM ongoing_searches")
         await database.execute("DELETE FROM active_connections")
         await database.execute("DELETE FROM metrics_cache")
 
