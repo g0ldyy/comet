@@ -503,10 +503,6 @@ POSTGRES_UPDATE_SET = """
         )
 """
 
-POSTGRES_LOCK_TIMEOUT = "750ms"
-POSTGRES_LOCK_RETRY_ATTEMPTS = 1
-POSTGRES_RETRYABLE_SQLSTATES = {"55P03", "40P01"}
-
 POSTGRES_CONFLICT_TARGETS = {
     "series": "(media_id, info_hash, season, episode) WHERE season IS NOT NULL AND episode IS NOT NULL",
     "season_only": "(media_id, info_hash, season) WHERE season IS NOT NULL AND episode IS NULL",
@@ -713,14 +709,6 @@ async def _upsert_torrent_record(params: dict):
     params["update_interval"] = UPDATE_INTERVAL
 
     await database.execute(query, params)
-
-
-def _is_retryable_lock_error(exc: Exception) -> bool:
-    sqlstate = getattr(exc, "sqlstate", None)
-    if sqlstate in POSTGRES_RETRYABLE_SQLSTATES:
-        return True
-    message = str(exc).lower()
-    return "lock timeout" in message or "deadlock detected" in message
 
 
 torrent_update_queue = TorrentUpdateQueue()
