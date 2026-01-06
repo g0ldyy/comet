@@ -243,6 +243,11 @@ class AddTorrentQueue:
 add_torrent_queue = AddTorrentQueue()
 
 
+UPDATE_INTERVAL = (
+    settings.TORRENT_CACHE_TTL // 2 if settings.TORRENT_CACHE_TTL >= 0 else 31536000
+)
+
+
 class TorrentUpdateQueue:
     def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
         self.queue = asyncio.Queue()
@@ -401,6 +406,9 @@ class TorrentUpdateQueue:
                 "media_id": media_id,
             }
 
+            if settings.DATABASE_TYPE == "postgresql":
+                params["update_interval"] = UPDATE_INTERVAL
+
             params["lock_key"] = _compute_advisory_lock_key(
                 media_id,
                 file_info["info_hash"],
@@ -426,7 +434,6 @@ class TorrentUpdateQueue:
                 )
 
             await self._check_batch_size()
-
         except Exception as e:
             logger.warning(f"Error processing file info: {e}")
         finally:
@@ -479,12 +486,22 @@ POSTGRES_UPDATE_SET = """
         sources = EXCLUDED.sources,
         parsed = EXCLUDED.parsed,
         timestamp = EXCLUDED.timestamp
-    WHERE COALESCE(torrents.timestamp, 0) < EXCLUDED.timestamp
+    WHERE
+        (
+            torrents.media_id IS DISTINCT FROM EXCLUDED.media_id OR
+            torrents.file_index IS DISTINCT FROM EXCLUDED.file_index OR
+            torrents.title IS DISTINCT FROM EXCLUDED.title OR
+            torrents.seeders IS DISTINCT FROM EXCLUDED.seeders OR
+            torrents.size IS DISTINCT FROM EXCLUDED.size OR
+            torrents.tracker IS DISTINCT FROM EXCLUDED.tracker OR
+            torrents.sources IS DISTINCT FROM EXCLUDED.sources OR
+            torrents.parsed IS DISTINCT FROM EXCLUDED.parsed
+        )
+        OR
+        (
+            COALESCE(torrents.timestamp, 0) < (EXCLUDED.timestamp - :update_interval)
+        )
 """
-
-POSTGRES_LOCK_TIMEOUT = "750ms"
-POSTGRES_LOCK_RETRY_ATTEMPTS = 1
-POSTGRES_RETRYABLE_SQLSTATES = {"55P03", "40P01"}
 
 POSTGRES_CONFLICT_TARGETS = {
     "series": "(media_id, info_hash, season, episode) WHERE season IS NOT NULL AND episode IS NOT NULL",
@@ -513,103 +530,174 @@ def _build_upsert_key(info_hash, season, episode, media_id):
 def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
     payload = f"{media_id}|{info_hash}|{season}|{episode}".encode("utf-8")
     digest = hashlib.sha1(payload).digest()
-    # Use signed=True to get a signed 64-bit int directly, which Postgres expects
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+async def _execute_sqlite_batched_upsert(rows: list[dict]):
+    if not rows:
+        return
+
+    # Fetch relevant existing records to compare against
+    media_ids = list({row["media_id"] for row in rows if row.get("media_id")})
+    if not media_ids:
+        async with database.transaction():
+            await _execute_standard_sqlite_insert(rows)
+        return
+
+    placeholders = ",".join(f":mid{i}" for i in range(len(media_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(media_ids)}
+
+    existing_rows = await database.fetch_all(
+        f"SELECT * FROM torrents WHERE media_id IN ({placeholders})", params
+    )
+
+    # Build lookup map: (media_id, info_hash, season, episode) -> row
+    existing_map = {}
+    for row in existing_rows:
+        key = (
+            row["media_id"],
+            row["info_hash"],
+            row["season"],
+            row["episode"],
+        )
+        existing_map[key] = row
+
+    # Filter in Python
+    to_insert = []
+    # Columns to check for changes (everything except timestamp and lock_key/update_interval)
+    check_cols = [
+        "file_index",
+        "title",
+        "seeders",
+        "size",
+        "tracker",
+        "sources",
+        "parsed",
+    ]
+
+    for row in rows:
+        key = (
+            row["media_id"],
+            row["info_hash"],
+            row["season"],
+            row["episode"],
+        )
+        existing = existing_map.get(key)
+
+        if not existing:
+            # New record
+            to_insert.append(row)
+            continue
+
+        # Check for data changes
+        changed = False
+        for col in check_cols:
+            # Simple equality check.
+            if row.get(col) != existing[col]:
+                changed = True
+                break
+
+        if changed:
+            to_insert.append(row)
+            continue
+
+        # Check TTL
+        existing_ts = existing["timestamp"]
+        if existing_ts < (row["timestamp"] - UPDATE_INTERVAL):
+            to_insert.append(row)
+
+    if to_insert:
+        await _execute_standard_sqlite_insert(to_insert)
+
+
+async def _execute_standard_sqlite_insert(rows: list[dict]):
+    keys_to_ignore = {"lock_key", "update_interval"}
+    columns = [k for k in rows[0].keys() if k not in keys_to_ignore]
+    sanitized_rows = [{k: row[k] for k in columns} for row in rows]
+
+    query = f"""
+        INSERT OR REPLACE INTO torrents ({", ".join(columns)})
+        VALUES ({", ".join(f":{col}" for col in columns)})
+    """
+
+    # Retry logic for busy database
+    for attempt in range(5):
+        try:
+            async with database.transaction():
+                await database.execute_many(query, sanitized_rows)
+            return
+        except Exception:
+            if attempt < 4:
+                await asyncio.sleep(0.2 * (attempt + 1))
+                continue
+            raise
 
 
 async def _execute_batched_upsert(query: str, rows):
     if not rows:
         return
 
-    ordered_rows = sorted(rows, key=lambda row: row.get("lock_key"))
+    if settings.DATABASE_TYPE == "sqlite":
+        await _execute_sqlite_batched_upsert(rows)
+        return
 
-    sanitized_rows = [
-        {key: value for key, value in row.items() if key != "lock_key"}
-        for row in ordered_rows
-    ]
+    ordered_rows = sorted(rows, key=lambda row: row.get("lock_key") or 0)
+    rows_to_insert = []
 
-    attempts = (
-        POSTGRES_LOCK_RETRY_ATTEMPTS + 1
-        if settings.DATABASE_TYPE == "postgresql"
-        else 1
-    )
+    try:
+        async with database.transaction():
+            for row in ordered_rows:
+                lock_key = row.get("lock_key")
+                if lock_key is None:
+                    rows_to_insert.append(row)
+                    continue
 
-    for attempt in range(attempts):
-        try:
-            async with database.transaction():
-                if settings.DATABASE_TYPE == "postgresql":
-                    await database.execute(
-                        f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
-                    )
-                    for row in ordered_rows:
-                        lock_key = row.get("lock_key")
-                        if lock_key is None:
-                            continue
-                        await database.execute(
-                            "SELECT pg_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
-                            {"lock_key": lock_key},
-                        )
+                # Use transaction-level non-blocking lock
+                # This automatically releases at the end of the transaction
+                acquired = await database.fetch_val(
+                    "SELECT pg_try_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
+                    {"lock_key": lock_key},
+                )
+                if acquired:
+                    rows_to_insert.append(row)
+                # If not acquired, skip this row - another replica is handling it
+
+            if rows_to_insert:
+                sanitized_rows = [
+                    {key: value for key, value in row.items() if key != "lock_key"}
+                    for row in rows_to_insert
+                ]
 
                 await database.execute_many(query, sanitized_rows)
-            return
-        except Exception as exc:
-            if (
-                settings.DATABASE_TYPE != "postgresql"
-                or not _is_retryable_lock_error(exc)
-                or attempt == attempts - 1
-            ):
-                raise
-            await asyncio.sleep(0.2 * (attempt + 1))
+
+    except Exception as e:
+        logger.warning(f"Error executing batched upsert: {e}")
 
 
 def _get_torrent_upsert_query(conflict_key: str) -> str:
     if settings.DATABASE_TYPE == "sqlite":
         return SQLITE_UPSERT_QUERY
 
-    if settings.DATABASE_TYPE == "postgresql":
-        target = POSTGRES_CONFLICT_TARGETS[conflict_key]
-        if conflict_key not in _POSTGRES_UPSERT_CACHE:
-            _POSTGRES_UPSERT_CACHE[conflict_key] = (
-                TORRENT_INSERT_TEMPLATE
-                + f" ON CONFLICT {target} "
-                + POSTGRES_UPDATE_SET
-            )
-        return _POSTGRES_UPSERT_CACHE[conflict_key]
-
-    return TORRENT_INSERT_TEMPLATE
+    target = POSTGRES_CONFLICT_TARGETS[conflict_key]
+    if conflict_key not in _POSTGRES_UPSERT_CACHE:
+        _POSTGRES_UPSERT_CACHE[conflict_key] = (
+            TORRENT_INSERT_TEMPLATE + f" ON CONFLICT {target} " + POSTGRES_UPDATE_SET
+        )
+    return _POSTGRES_UPSERT_CACHE[conflict_key]
 
 
 async def _upsert_torrent_record(params: dict):
+    if settings.DATABASE_TYPE == "sqlite":
+        await _execute_sqlite_batched_upsert([params])
+        return
+
     query = _get_torrent_upsert_query(
         _determine_conflict_key(params.get("season"), params.get("episode"))
     )
-    if settings.DATABASE_TYPE != "postgresql":
-        await database.execute(query, params)
-        return
 
-    for attempt in range(POSTGRES_LOCK_RETRY_ATTEMPTS + 1):
-        try:
-            async with database.transaction():
-                await database.execute(
-                    f"SET LOCAL lock_timeout = '{POSTGRES_LOCK_TIMEOUT}'"
-                )
-                await database.execute(query, params)
-            return
-        except Exception as exc:  # pragma: no cover - driver specific
-            if (
-                not _is_retryable_lock_error(exc)
-                or attempt == POSTGRES_LOCK_RETRY_ATTEMPTS
-            ):
-                raise
-            await asyncio.sleep(0.2 * (attempt + 1))
+    params["update_interval"] = UPDATE_INTERVAL
 
-
-def _is_retryable_lock_error(exc: Exception) -> bool:
-    sqlstate = getattr(exc, "sqlstate", None)
-    if sqlstate in POSTGRES_RETRYABLE_SQLSTATES:
-        return True
-    message = str(exc).lower()
-    return "lock timeout" in message or "deadlock detected" in message
+    await database.execute(query, params)
 
 
 torrent_update_queue = TorrentUpdateQueue()

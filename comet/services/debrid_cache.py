@@ -5,6 +5,25 @@ import orjson
 from comet.core.models import database, settings
 from comet.utils.parsing import default_dump
 
+DEBRID_UPDATE_INTERVAL = (
+    settings.DEBRID_CACHE_TTL // 2 if settings.DEBRID_CACHE_TTL > 0 else 31536000
+)
+
+CONDITIONAL_UPDATE = """
+        DO UPDATE SET
+            title = EXCLUDED.title,
+            file_index = EXCLUDED.file_index,
+            size = EXCLUDED.size,
+            parsed = EXCLUDED.parsed,
+            timestamp = EXCLUDED.timestamp
+        WHERE
+            debrid_availability.title IS DISTINCT FROM EXCLUDED.title
+            OR debrid_availability.file_index IS DISTINCT FROM EXCLUDED.file_index
+            OR debrid_availability.size IS DISTINCT FROM EXCLUDED.size
+            OR debrid_availability.parsed IS DISTINCT FROM EXCLUDED.parsed
+            OR COALESCE(debrid_availability.timestamp, 0) < (EXCLUDED.timestamp - :update_interval)
+"""
+
 
 async def cache_availability(debrid_service: str, availability: list):
     current_time = time.time()
@@ -22,6 +41,7 @@ async def cache_availability(debrid_service: str, availability: list):
             if file["parsed"] is not None
             else None,
             "timestamp": current_time,
+            "update_interval": DEBRID_UPDATE_INTERVAL,
         }
         for file in availability
     ]
@@ -32,8 +52,11 @@ async def cache_availability(debrid_service: str, availability: list):
             INTO debrid_availability
             VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
         """
-        await database.execute_many(query, values)
-    elif settings.DATABASE_TYPE == "postgresql":
+        sqlite_values = [
+            {k: v for k, v in val.items() if k != "update_interval"} for val in values
+        ]
+        await database.execute_many(query, sqlite_values)
+    else:
         both_values = []
         season_only_values = []
         episode_only_values = []
@@ -49,73 +72,45 @@ async def cache_availability(debrid_service: str, availability: list):
             else:
                 no_season_episode_values.append(val)
 
-        # handle each case separately with appropriate ON CONFLICT clauses
         if both_values:
-            query = """
+            query = f"""
                 INSERT INTO debrid_availability
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                 ON CONFLICT (debrid_service, info_hash, season, episode) 
                 WHERE season IS NOT NULL AND episode IS NOT NULL
-                DO UPDATE SET
-                title = EXCLUDED.title,
-                file_index = EXCLUDED.file_index,
-                size = EXCLUDED.size,
-                parsed = EXCLUDED.parsed,
-                timestamp = EXCLUDED.timestamp
+                {CONDITIONAL_UPDATE}
             """
             await database.execute_many(query, both_values)
 
         if season_only_values:
-            query = """
+            query = f"""
                 INSERT INTO debrid_availability
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                 ON CONFLICT (debrid_service, info_hash, season) 
                 WHERE season IS NOT NULL AND episode IS NULL
-                DO UPDATE SET
-                title = EXCLUDED.title,
-                file_index = EXCLUDED.file_index,
-                size = EXCLUDED.size,
-                parsed = EXCLUDED.parsed,
-                timestamp = EXCLUDED.timestamp
+                {CONDITIONAL_UPDATE}
             """
             await database.execute_many(query, season_only_values)
 
         if episode_only_values:
-            query = """
+            query = f"""
                 INSERT INTO debrid_availability
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                 ON CONFLICT (debrid_service, info_hash, episode) 
                 WHERE season IS NULL AND episode IS NOT NULL
-                DO UPDATE SET
-                title = EXCLUDED.title,
-                file_index = EXCLUDED.file_index,
-                size = EXCLUDED.size,
-                parsed = EXCLUDED.parsed,
-                timestamp = EXCLUDED.timestamp
+                {CONDITIONAL_UPDATE}
             """
             await database.execute_many(query, episode_only_values)
 
         if no_season_episode_values:
-            query = """
+            query = f"""
                 INSERT INTO debrid_availability
                 VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
                 ON CONFLICT (debrid_service, info_hash) 
                 WHERE season IS NULL AND episode IS NULL
-                DO UPDATE SET
-                title = EXCLUDED.title,
-                file_index = EXCLUDED.file_index,
-                size = EXCLUDED.size,
-                parsed = EXCLUDED.parsed,
-                timestamp = EXCLUDED.timestamp
+                {CONDITIONAL_UPDATE}
             """
             await database.execute_many(query, no_season_episode_values)
-    else:
-        query = """
-            INSERT 
-            INTO debrid_availability
-            VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-        """
-        await database.execute_many(query, values)
 
 
 async def get_cached_availability(

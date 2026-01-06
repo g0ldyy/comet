@@ -5,6 +5,7 @@ import time
 
 from loguru import logger
 
+from comet.core.execution import max_workers
 from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
                                    get_level_info)
 
@@ -176,6 +177,11 @@ def log_startup_info(settings):
     )
     logger.log("COMET", f"Gunicorn Preload App: {settings.GUNICORN_PRELOAD_APP}")
 
+    logger.log(
+        "COMET",
+        f"ProcessPoolExecutor: {max_workers} workers {'(auto)' if settings.EXECUTOR_MAX_WORKERS is None else ''}",
+    )
+
     if settings.PUBLIC_BASE_URL:
         logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
 
@@ -217,6 +223,10 @@ def log_startup_info(settings):
     logger.log(
         "COMET",
         f"Global Proxy: {settings.GLOBAL_PROXY_URL} - Ethos: {settings.PROXY_ETHOS}",
+    )
+    logger.log(
+        "COMET",
+        f"Rate Limit Manager: Max Retries={settings.RATELIMIT_MAX_RETRIES} - Base Delay={settings.RATELIMIT_RETRY_BASE_DELAY}s",
     )
 
     jackett_info = ""
@@ -393,6 +403,7 @@ def log_startup_info(settings):
     )
 
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
+    logger.log("COMET", f"RTN Filter Debug: {bool(settings.RTN_FILTER_DEBUG)}")
     logger.log(
         "COMET", f"Digital Release Filter: {bool(settings.DIGITAL_RELEASE_FILTER)}"
     )

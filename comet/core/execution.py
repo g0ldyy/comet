@@ -4,6 +4,8 @@ import os
 import signal
 from concurrent.futures import ProcessPoolExecutor
 
+from comet.core.models import settings
+
 _mp_context = None
 try:
     _mp_context = multiprocessing.get_context("forkserver")
@@ -11,18 +13,18 @@ except ValueError:
     _mp_context = multiprocessing.get_context("spawn")
 
 app_executor = None
+max_workers = settings.EXECUTOR_MAX_WORKERS
+if max_workers is None:
+    cpu_count = os.cpu_count() or 1
+    max_workers = min(cpu_count, 4)
 
 
 def worker_initializer():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def setup_executor(max_workers: int | None = None):
+def setup_executor():
     global app_executor
-
-    if max_workers is None:
-        cpu_count = os.cpu_count() or 1
-        max_workers = min(cpu_count, 4)
 
     app_executor = ProcessPoolExecutor(
         max_workers=max_workers, mp_context=_mp_context, initializer=worker_initializer

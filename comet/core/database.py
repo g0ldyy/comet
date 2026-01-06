@@ -90,15 +90,6 @@ async def setup_database():
 
         await database.execute(
             """
-                CREATE TABLE IF NOT EXISTS ongoing_searches (
-                    media_id TEXT PRIMARY KEY, 
-                    timestamp INTEGER
-                )
-            """
-        )
-
-        await database.execute(
-            """
                 CREATE TABLE IF NOT EXISTS scrape_locks (
                     lock_key TEXT PRIMARY KEY,
                     instance_id TEXT,
@@ -386,6 +377,24 @@ async def setup_database():
             """
         )
 
+        # Optimization for concurrent DELETEs: info_hash + season
+        # Covers: DELETE FROM torrents WHERE (info_hash, season) IN (...)
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_info_hash_season 
+            ON torrents (info_hash, season)
+            """
+        )
+
+        # Optimization for lookups by info_hash only
+        # Covers: SELECT sources, media_id FROM torrents WHERE info_hash = $1
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_torrents_info_hash 
+            ON torrents (info_hash)
+            """
+        )
+
         # =============================================================================
         # DEBRID_AVAILABILITY TABLE INDEXES
         # =============================================================================
@@ -534,7 +543,6 @@ async def setup_database():
             await database.execute("PRAGMA secure_delete=OFF")
             await database.execute("PRAGMA auto_vacuum=OFF")
 
-        await database.execute("DELETE FROM ongoing_searches")
         await database.execute("DELETE FROM active_connections")
         await database.execute("DELETE FROM metrics_cache")
 
@@ -560,69 +568,86 @@ async def _run_startup_cleanup():
         logger.log("DATABASE", "Startup cleanup skipped (recent run)")
         return
 
-    lock_acquired = await _try_acquire_startup_cleanup_lock()
-    if not lock_acquired:
-        logger.log("DATABASE", "Startup cleanup already running elsewhere; skipping")
-        return
-
     try:
-        logger.log("DATABASE", "Running startup cleanup sweep")
+        async with database.transaction():
+            if settings.DATABASE_TYPE == "postgresql":
+                acquired = await database.fetch_val(
+                    "SELECT pg_try_advisory_xact_lock(:lock_id)",
+                    {"lock_id": STARTUP_CLEANUP_LOCK_ID},
+                    force_primary=True,
+                )
+                if not acquired:
+                    logger.log(
+                        "DATABASE",
+                        "Startup cleanup already running elsewhere; skipping",
+                    )
+                    return
 
-        await database.execute(
-            """
-            DELETE FROM first_searches 
-            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
-            """,
-            {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
-        )
+            logger.log("DATABASE", "Running startup cleanup sweep")
 
-        await database.execute(
-            """
-            DELETE FROM metadata_cache 
-            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
-            """,
-            {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
-        )
-
-        if settings.TORRENT_CACHE_TTL >= 0:
             await database.execute(
                 """
-                DELETE FROM torrents
+                DELETE FROM first_searches 
                 WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
                 """,
                 {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
             )
 
-        await database.execute(
-            """
-            DELETE FROM debrid_availability
-            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
-            """,
-            {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
-        )
+            await database.execute(
+                """
+                DELETE FROM metadata_cache 
+                WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
+                """,
+                {
+                    "cache_ttl": settings.METADATA_CACHE_TTL,
+                    "current_time": current_time,
+                },
+            )
 
-        await database.execute(
-            """
-            DELETE FROM digital_release_cache
-            WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
-            """,
-            {"cache_ttl": settings.METADATA_CACHE_TTL, "current_time": current_time},
-        )
+            if settings.TORRENT_CACHE_TTL >= 0:
+                await database.execute(
+                    """
+                    DELETE FROM torrents
+                    WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
+                    """,
+                    {
+                        "cache_ttl": settings.TORRENT_CACHE_TTL,
+                        "current_time": current_time,
+                    },
+                )
 
-        await database.execute("DELETE FROM download_links_cache")
+            await database.execute(
+                """
+                DELETE FROM debrid_availability
+                WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
+                """,
+                {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
+            )
 
-        await database.execute(
-            """
-            INSERT INTO db_maintenance (id, last_startup_cleanup)
-            VALUES (1, :timestamp)
-            ON CONFLICT (id) DO UPDATE SET last_startup_cleanup = :timestamp
-            """,
-            {"timestamp": current_time},
-            force_primary=True,
-        )
-    finally:
-        if lock_acquired:
-            await _release_startup_cleanup_lock()
+            await database.execute(
+                """
+                DELETE FROM digital_release_cache
+                WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
+                """,
+                {
+                    "cache_ttl": settings.METADATA_CACHE_TTL,
+                    "current_time": current_time,
+                },
+            )
+
+            await database.execute("DELETE FROM download_links_cache")
+
+            await database.execute(
+                """
+                INSERT INTO db_maintenance (id, last_startup_cleanup)
+                VALUES (1, :timestamp)
+                ON CONFLICT (id) DO UPDATE SET last_startup_cleanup = :timestamp
+                """,
+                {"timestamp": current_time},
+                force_primary=True,
+            )
+    except Exception as e:
+        logger.error(f"Error executing startup cleanup: {e}")
 
 
 async def _should_run_startup_cleanup(current_time: float, interval: int) -> bool:
@@ -635,29 +660,6 @@ async def _should_run_startup_cleanup(current_time: float, interval: int) -> boo
 
     last_run = float(row["last_startup_cleanup"])
     return (current_time - last_run) >= interval
-
-
-async def _try_acquire_startup_cleanup_lock() -> bool:
-    if settings.DATABASE_TYPE != "postgresql":
-        return True
-
-    result = await database.fetch_val(
-        "SELECT pg_try_advisory_lock(:lock_id)",
-        {"lock_id": STARTUP_CLEANUP_LOCK_ID},
-        force_primary=True,
-    )
-    return bool(result)
-
-
-async def _release_startup_cleanup_lock():
-    if settings.DATABASE_TYPE != "postgresql":
-        return
-
-    await database.fetch_val(
-        "SELECT pg_advisory_unlock(:lock_id)",
-        {"lock_id": STARTUP_CLEANUP_LOCK_ID},
-        force_primary=True,
-    )
 
 
 async def cleanup_expired_locks():
@@ -696,7 +698,6 @@ async def _migrate_indexes():
             "torrents_episode_only_idx",
             "torrents_no_season_episode_idx",
             "idx_torrents_media_cache_lookup",
-            "idx_torrents_info_hash",
             "idx_torrents_tracker_analytics",
             "idx_torrents_size_filter",
             "idx_torrents_seeders_desc",

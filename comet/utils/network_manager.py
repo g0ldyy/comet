@@ -1,3 +1,4 @@
+import asyncio
 import os
 import socket
 from typing import Dict, Optional
@@ -145,24 +146,58 @@ class _RequestContextManager:
             raise e
 
     async def _attempt_request(self, use_proxy, proxy):
-        if self.wrapper.impersonate:
-            # Use curl_cffi
-            curl_proxy = self.wrapper._resolved_proxy_url if proxy else None
-            session = await self.wrapper._get_curl_session()
-            raw_response = await session.request(
-                self.method, self.url, proxy=curl_proxy, **self.kwargs
-            )
-            self.response = ResponseWrapper(raw_response, "curl")
-            return self.response
-        else:
-            # Use aiohttp
-            session = await self.wrapper._get_aiohttp_session()
-            self.aiohttp_cm = session.request(
-                self.method, self.url, proxy=proxy, **self.kwargs
-            )
-            raw_response = await self.aiohttp_cm.__aenter__()
-            self.response = ResponseWrapper(raw_response, "aiohttp")
-            return self.response
+        max_retries = max(0, settings.RATELIMIT_MAX_RETRIES)
+        base_delay = settings.RATELIMIT_RETRY_BASE_DELAY
+        for attempt in range(max_retries + 1):
+            if self.wrapper.impersonate:
+                # Use curl_cffi
+                curl_proxy = self.wrapper._resolved_proxy_url if proxy else None
+                session = await self.wrapper._get_curl_session()
+                raw_response = await session.request(
+                    self.method, self.url, proxy=curl_proxy, **self.kwargs
+                )
+                self.response = ResponseWrapper(raw_response, "curl")
+            else:
+                # Use aiohttp
+                session = await self.wrapper._get_aiohttp_session()
+                self.aiohttp_cm = session.request(
+                    self.method, self.url, proxy=proxy, **self.kwargs
+                )
+                raw_response = await self.aiohttp_cm.__aenter__()
+                self.response = ResponseWrapper(raw_response, "aiohttp")
+
+            if self.response.status != 429:
+                return self.response
+
+            # Handle 429 Too Many Requests
+            if attempt < max_retries:
+                retry_after = self.response.headers.get("Retry-After")
+                try:
+                    delay = float(retry_after) if retry_after else None
+                except (ValueError, TypeError):
+                    delay = None
+
+                if delay is None:
+                    delay = base_delay * (2**attempt)
+
+                # Enforce a minimum delay if the server indicates 0 or very small retry-after
+                delay = max(delay, base_delay)
+
+                logger.warning(
+                    f"[{self.wrapper.scraper_name}] Received 429 Too Many Requests. Retrying in {delay}s... (Attempt {attempt + 1}/{max_retries})"
+                )
+
+                # Cleanup aiohttp context manager for the failed attempt
+                if not self.wrapper.impersonate and self.aiohttp_cm:
+                    await self.aiohttp_cm.__aexit__(None, None, None)
+                    self.aiohttp_cm = None
+
+                await asyncio.sleep(delay)
+            else:
+                logger.error(
+                    f"[{self.wrapper.scraper_name}] Max retries ({max_retries}) exceeded for 429 Too Many Requests."
+                )
+                return self.response
 
     async def __aexit__(self, exc_type, exc, tb):
         if self.aiohttp_cm:

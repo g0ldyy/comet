@@ -55,15 +55,30 @@ class BitmagnetScraper(BaseScraper):
                 continue
         return torrents
 
-    async def scrape_bitmagnet_page(self, query, offset, limit):
+    async def scrape_bitmagnet_page(
+        self, imdb_id, scrape_type, offset, limit, season=None, episode=None
+    ):
         try:
-            params = {"t": "search", "q": query, "offset": offset, "limit": limit}
+            params = {
+                "t": scrape_type,
+                "imdbid": imdb_id,
+                "offset": offset,
+                "limit": limit,
+            }
+            if season is not None:
+                params["season"] = season
+            if episode is not None:
+                params["ep"] = episode
             async with self.session.get(
                 f"{self.url}/torznab/api", params=params
             ) as response:
                 data_text = await response.text()
+                if not data_text.strip():
+                    return []
                 root = ET.fromstring(data_text)
                 return self.parse_bitmagnet_items(root)
+        except ET.ParseError:
+            return []
         except Exception as e:
             logger.warning(f"Error scraping BitMagnet page offset={offset}: {e}")
             return []
@@ -71,7 +86,10 @@ class BitmagnetScraper(BaseScraper):
     async def scrape(self, request: ScrapeRequest):
         torrents = []
         limit = 100
-        query = request.title
+        imdb_id = request.media_only_id
+        scrape_type = "movie" if request.media_type == "movie" else "tvsearch"
+        season = request.season
+        episode = request.episode
 
         batch_size = settings.BITMAGNET_MAX_CONCURRENT_PAGES
         offset = 0
@@ -85,7 +103,11 @@ class BitmagnetScraper(BaseScraper):
                 current_offset = offset + (i * limit)
                 if current_offset >= settings.BITMAGNET_MAX_OFFSET:
                     break
-                tasks.append(self.scrape_bitmagnet_page(query, current_offset, limit))
+                tasks.append(
+                    self.scrape_bitmagnet_page(
+                        imdb_id, scrape_type, current_offset, limit, season, episode
+                    )
+                )
 
             if not tasks:
                 break

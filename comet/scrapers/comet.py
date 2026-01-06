@@ -17,7 +17,11 @@ class CometScraper(BaseScraper):
 
             for torrent in results["streams"]:
                 title_full = torrent["description"]
-                title = title_full.split("\n")[0].split("📄 ")[1]
+
+                try:
+                    title = title_full.split("\n")[0].split("📄 ")[1]
+                except Exception:
+                    continue
 
                 seeders = (
                     int(title_full.split("👤 ")[1].split(" ")[0])

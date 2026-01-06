@@ -28,6 +28,7 @@ class AppSettings(BaseSettings):
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
     GUNICORN_PRELOAD_APP: Optional[bool] = True
+    EXECUTOR_MAX_WORKERS: Optional[int] = None
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
@@ -116,7 +117,7 @@ class AppSettings(BaseSettings):
     TORRENT_DISABLED_STREAM_DESCRIPTION: Optional[str] = (
         "Direct torrent playback is disabled on this server."
     )
-    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.fast"
+    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.looks.legal"
     PUBLIC_BASE_URL: Optional[str] = None
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
@@ -130,6 +131,9 @@ class AppSettings(BaseSettings):
     TMDB_READ_ACCESS_TOKEN: Optional[str] = None
     GLOBAL_PROXY_URL: Optional[str] = None
     PROXY_ETHOS: Optional[str] = "always"
+    RATELIMIT_MAX_RETRIES: Optional[int] = 3
+    RATELIMIT_RETRY_BASE_DELAY: Optional[float] = 1.0
+    RTN_FILTER_DEBUG: Optional[bool] = False
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
