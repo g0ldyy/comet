@@ -195,7 +195,7 @@ def log_startup_info(settings):
         replicas = f" - Read Replicas: {settings.DATABASE_READ_REPLICA_URLS}"
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{replicas}",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{replicas}",
     )
 
     # SQLite concurrency warnings
@@ -266,6 +266,9 @@ def log_startup_info(settings):
     )
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
+    logger.log("COMET", f"Catalog Timeout: {settings.CATALOG_TIMEOUT}s")
+    logger.log("COMET", f"Scrape Lock TTL: {settings.SCRAPE_LOCK_TTL}s")
+    logger.log("COMET", f"Scrape Wait Timeout: {settings.SCRAPE_WAIT_TIMEOUT}s")
     logger.log(
         "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
     )
@@ -281,13 +284,23 @@ def log_startup_info(settings):
     )
 
     nyaa_anime_only = (
-        f" - Anime Only: {bool(settings.NYAA_ANIME_ONLY)}"
+        f" - Anime Only: {bool(settings.NYAA_ANIME_ONLY)} - Concurrent Pages: {settings.NYAA_MAX_CONCURRENT_PAGES}"
         if settings.is_any_context_enabled(settings.SCRAPE_NYAA)
         else ""
     )
     logger.log(
         "COMET",
         f"Nyaa Scraper: {settings.format_scraper_mode(settings.SCRAPE_NYAA)}{nyaa_anime_only}",
+    )
+
+    animetosho_anime_only = (
+        f" - Anime Only: {bool(settings.ANIMETOSHO_ANIME_ONLY)} - Concurrent Pages: {settings.ANIMETOSHO_MAX_CONCURRENT_PAGES}"
+        if settings.is_any_context_enabled(settings.SCRAPE_ANIMETOSHO)
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"AnimeTosho Scraper: {settings.format_scraper_mode(settings.SCRAPE_ANIMETOSHO)}{animetosho_anime_only}",
     )
 
     zilean_url = (
@@ -310,14 +323,14 @@ def log_startup_info(settings):
         f"StremThru Scraper: {settings.format_scraper_mode(settings.SCRAPE_STREMTHRU)}{stremthru_scrape_url}",
     )
 
-    bitmagnet_url = (
-        f" - {settings.BITMAGNET_URL}"
+    bitmagnet_info = (
+        f" - {settings.BITMAGNET_URL} - Concurrent Pages: {settings.BITMAGNET_MAX_CONCURRENT_PAGES} - Max Offset: {settings.BITMAGNET_MAX_OFFSET}"
         if settings.is_any_context_enabled(settings.SCRAPE_BITMAGNET)
         else ""
     )
     logger.log(
         "COMET",
-        f"Bitmagnet Scraper: {settings.format_scraper_mode(settings.SCRAPE_BITMAGNET)}{bitmagnet_url}",
+        f"Bitmagnet Scraper: {settings.format_scraper_mode(settings.SCRAPE_BITMAGNET)}{bitmagnet_info}",
     )
 
     torrentio_url = (
@@ -397,9 +410,14 @@ def log_startup_info(settings):
 
     logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
 
+    disabled_streams_info = (
+        f" - Name: {settings.TORRENT_DISABLED_STREAM_NAME} - URL: {settings.TORRENT_DISABLED_STREAM_URL} - Description: {settings.TORRENT_DISABLED_STREAM_DESCRIPTION}"
+        if settings.DISABLE_TORRENT_STREAMS
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Disable Torrent Streams: {bool(settings.DISABLE_TORRENT_STREAMS)}",
+        f"Disable Torrent Streams: {bool(settings.DISABLE_TORRENT_STREAMS)}{disabled_streams_info}",
     )
 
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")

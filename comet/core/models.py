@@ -74,6 +74,9 @@ class AppSettings(BaseSettings):
     SCRAPE_NYAA: Union[bool, str] = False
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
+    SCRAPE_ANIMETOSHO: Union[bool, str] = False
+    ANIMETOSHO_ANIME_ONLY: Optional[bool] = True
+    ANIMETOSHO_MAX_CONCURRENT_PAGES: Optional[int] = 10
     SCRAPE_ZILEAN: Union[bool, str] = False
     ZILEAN_URL: Union[str, List[str]] = "https://zileanfortheweebs.midnightignite.me"
     SCRAPE_STREMTHRU: Union[bool, str] = False

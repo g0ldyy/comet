@@ -11,7 +11,7 @@ class BitmagnetScraper(BaseScraper):
     def __init__(self, manager, session, url: str):
         super().__init__(manager, session, url)
 
-    def parse_bitmagnet_items(self, root):
+    def parse_items(self, root):
         torrents = []
         for item in root.findall(".//item"):
             try:
@@ -49,13 +49,12 @@ class BitmagnetScraper(BaseScraper):
                         "sources": [],
                     }
                 )
-
             except Exception as e:
                 logger.warning(f"Error parsing torrent item from BitMagnet: {e}")
                 continue
         return torrents
 
-    async def scrape_bitmagnet_page(
+    async def scrape_page(
         self, imdb_id, scrape_type, offset, limit, season=None, episode=None
     ):
         try:
@@ -76,7 +75,7 @@ class BitmagnetScraper(BaseScraper):
                 if not data_text.strip():
                     return []
                 root = ET.fromstring(data_text)
-                return self.parse_bitmagnet_items(root)
+                return self.parse_items(root)
         except ET.ParseError:
             return []
         except Exception as e:
@@ -104,7 +103,7 @@ class BitmagnetScraper(BaseScraper):
                 if current_offset >= settings.BITMAGNET_MAX_OFFSET:
                     break
                 tasks.append(
-                    self.scrape_bitmagnet_page(
+                    self.scrape_page(
                         imdb_id, scrape_type, current_offset, limit, season, episode
                     )
                 )
