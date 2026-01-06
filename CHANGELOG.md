@@ -2,6 +2,13 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.46.0](https://github.com/g0ldyy/comet/compare/v2.45.0...v2.46.0) (2026-01-06)
+
+
+### Features
+
+* add AnimeTosho scraper ([1b87b1e](https://github.com/g0ldyy/comet/commit/1b87b1e5017d06f59c63990d0ccb1c714a8494b5))
+
 ## [2.45.0](https://github.com/g0ldyy/comet/compare/v2.44.0...v2.45.0) (2026-01-06)
 
 
