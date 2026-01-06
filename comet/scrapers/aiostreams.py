@@ -37,10 +37,14 @@ class AiostreamsScraper(BaseScraper):
                 if "indexer" in torrent:
                     tracker += f"|{torrent['indexer']}"
 
+                infoHash = torrent["infoHash"]
+                if infoHash is None:
+                    continue
+
                 torrents.append(
                     {
                         "title": torrent["filename"],
-                        "infoHash": torrent["infoHash"],
+                        "infoHash": infoHash,
                         "fileIndex": torrent.get("fileIdx", None),
                         "seeders": torrent.get("seeders", None),
                         "size": torrent["size"],
