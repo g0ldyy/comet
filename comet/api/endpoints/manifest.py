@@ -36,8 +36,8 @@ async def manifest(request: Request, b64config: str = None):
             }
         ],
         "types": ["movie", "series", "anime", "other"],
-        "logo": "https://i.ibb.co/LVGNJ0s/icon.jpg",
-        "background": "https://i.ibb.co/spMks15Y/background.jpg",
+        "logo": "https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/icon.png",
+        "background": "https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/background.png",
         "behaviorHints": {"configurable": True, "configurationRequired": False},
     }
 
