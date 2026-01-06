@@ -159,9 +159,8 @@ async def stream(
 
     if settings.DISABLE_TORRENT_STREAMS and config["debridService"] == "torrent":
         placeholder_stream = {
-            "name": settings.TORRENT_DISABLED_STREAM_NAME or "[INFO] Comet",
-            "description": settings.TORRENT_DISABLED_STREAM_DESCRIPTION
-            or "Direct torrent playback is disabled on this server.",
+            "name": settings.TORRENT_DISABLED_STREAM_NAME,
+            "description": settings.TORRENT_DISABLED_STREAM_DESCRIPTION,
         }
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
