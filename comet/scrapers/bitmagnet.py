@@ -65,9 +65,9 @@ class BitmagnetScraper(BaseScraper):
                 "offset": offset,
                 "limit": limit,
             }
-            if season:
+            if season is not None:
                 params["season"] = season
-            if episode:
+            if episode is not None:
                 params["ep"] = episode
             async with self.session.get(
                 f"{self.url}/torznab/api", params=params
