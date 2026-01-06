@@ -21,7 +21,6 @@ class AnimeToshoScraper(BaseScraper):
                 size = None
                 info_hash = None
                 seeders = None
-
                 magnet = None
 
                 for attr in item.findall(
