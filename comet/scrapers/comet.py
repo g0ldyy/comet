@@ -22,7 +22,7 @@ class CometScraper(BaseScraper):
 
                 try:
                     title = title_full.split("\n")[0].split("📄 ")[1]
-                except:
+                except Exception:
                     continue
                 seeders = (
                     int(title_full.split("👤 ")[1].split(" ")[0])
