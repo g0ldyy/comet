@@ -2,6 +2,41 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.45.0](https://github.com/g0ldyy/comet/compare/v2.44.0...v2.45.0) (2026-01-06)
+
+
+### Features
+
+* add `RTN_FILTER_DEBUG` setting to enable verbose logging for torrent filtering rejections ([b9cc11d](https://github.com/g0ldyy/comet/commit/b9cc11d109a68bac31732ed1ec7f253ae4ba1463))
+* add `RTN_FILTER_DEBUG` setting to enable verbose logging for torrent filtering rejections ([ddaafa2](https://github.com/g0ldyy/comet/commit/ddaafa22ca7b73bc62994da33f23bb0560488c3b))
+* allow configuration of ProcessPoolExecutor max workers with auto-detection and logging ([c6c5c42](https://github.com/g0ldyy/comet/commit/c6c5c42b974d6fe50ab3fd196d524345015d5dee))
+* allow configuration of ProcessPoolExecutor max workers with auto-detection and logging ([7e98d1f](https://github.com/g0ldyy/comet/commit/7e98d1f067b864261c40a871bdc6f98f38c7e0d5))
+* introduce `update_interval` for torrent upsert logic and implement batched upsert for SQLite ([6b83124](https://github.com/g0ldyy/comet/commit/6b831243ca289b7ae9323018161e4fb9a092396c))
+* introduce configurable exponential backoff for 429 rate limit errors ([b65c285](https://github.com/g0ldyy/comet/commit/b65c2857f9894a57939ee6a86833317ea730e983))
+* optimize PostgreSQL database operations by adding a covering index, enhancing debrid cache upserts with conditional updates, and refactoring torrent manager's advisory locking ([3911533](https://github.com/g0ldyy/comet/commit/39115334d81de44c4cb351b05f2fa86f0bab286e))
+* switch from session-level to transaction-level PostgreSQL advisory locks for database cleanup and batched upserts ([04dfd38](https://github.com/g0ldyy/comet/commit/04dfd38c8f892af72d33641ab3b8af900e68b3e3))
+* update BitMagnet scraper to use IMDb ID and media type for queries ([3ef2d34](https://github.com/g0ldyy/comet/commit/3ef2d3454bbd456da43ff29c21e125e2e51a1f27))
+* update BitMagnet scraper to use IMDb ID and media type for queries ([f53c53b](https://github.com/g0ldyy/comet/commit/f53c53ba1726e2f88f747b0395aee9d462130811))
+
+
+### Bug Fixes
+
+* add error handling for torrent title extraction and unreleased content in comet scraper ([7db932f](https://github.com/g0ldyy/comet/commit/7db932ff66c86c3fd30502f5bdadb2a703b88bf7))
+* correctly handle `None` values for season and episode parameters in API requests for bitmagnet ([9b91793](https://github.com/g0ldyy/comet/commit/9b9179371daf0e91f345b328dfda309941f68724))
+* preserve original traceback when re-raising exceptions ([b1cf30b](https://github.com/g0ldyy/comet/commit/b1cf30b4e82f51ec6695e10efde4589979220f09))
+* remove 60-second minimum for live torrent cache update interval calculation ([0b27e3c](https://github.com/g0ldyy/comet/commit/0b27e3cb4d43f26d45840a4aa5efa84ada7d113c))
+* remove early exit when torrent content is not digitally released ([9137096](https://github.com/g0ldyy/comet/commit/913709628874699eb6664c5a4e5005a8cf98396e))
+
+
+### Performance Improvements
+
+* add `idx_torrents_info_hash` for improved lookup performance ([b669b37](https://github.com/g0ldyy/comet/commit/b669b379c07ba28c8ea8abdff058b77786e1b350))
+* add index on torrents (info_hash, season) to optimize concurrent DELETE operations ([980fe19](https://github.com/g0ldyy/comet/commit/980fe194f63003bc464fe5ac0919f804d3171698))
+* remove conditional check for empty `sanitized_rows` before `execute_many` database call ([f1d3ea3](https://github.com/g0ldyy/comet/commit/f1d3ea3bdbee02a06785e9ae60f2bfd64d6f06e7))
+* remove PostgreSQL covering index `idx_torrents_covering` for torrents table ([4f0be0a](https://github.com/g0ldyy/comet/commit/4f0be0a786681cfac1f8e43d98c538abdf762cb9))
+* use non-blocking advisory locks and conditionally insert rows based on lock acquisition ([fb47fa5](https://github.com/g0ldyy/comet/commit/fb47fa51f862ee68b483d250555346455e8d3f56))
+* use non-blocking advisory locks and conditionally insert rows based on lock acquisition ([60ff4be](https://github.com/g0ldyy/comet/commit/60ff4be61c84fabfce1d664ed464a42f3006e6eb))
+
 ## [2.44.0](https://github.com/g0ldyy/comet/compare/v2.43.0...v2.44.0) (2026-01-04)
 
 
