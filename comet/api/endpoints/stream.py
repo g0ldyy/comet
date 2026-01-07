@@ -152,7 +152,7 @@ async def stream(
                 {
                     "name": "[❌] Comet",
                     "description": f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️",
-                    "url": "https://comet.looks.legal",
+                    "url": "https://comet.feels.legal",
                 }
             ]
         }
@@ -186,7 +186,7 @@ async def stream(
                         {
                             "name": "[🚫] Comet",
                             "description": "Content not digitally released yet.",
-                            "url": "https://comet.looks.legal",
+                            "url": "https://comet.feels.legal",
                         }
                     ]
                 }
@@ -290,7 +290,7 @@ async def stream(
                     {
                         "name": "[⚠️] Comet",
                         "description": "Unable to get metadata.",
-                        "url": "https://comet.looks.legal",
+                        "url": "https://comet.feels.legal",
                     }
                 ]
             }
@@ -381,7 +381,7 @@ async def stream(
                             {
                                 "name": "[🔄] Comet",
                                 "description": "Scraping in progress by another instance, please try again in a few seconds...",
-                                "url": "https://comet.looks.legal",
+                                "url": "https://comet.feels.legal",
                             }
                         ]
                     }
@@ -397,7 +397,7 @@ async def stream(
                     {
                         "name": "[🔄] Comet",
                         "description": "First search for this media - More results will be available in a few seconds...",
-                        "url": "https://comet.looks.legal",
+                        "url": "https://comet.feels.legal",
                     }
                 )
             else:
@@ -459,7 +459,7 @@ async def stream(
                         {
                             "name": "[❌] Comet",
                             "description": e.display_message,
-                            "url": "https://comet.looks.legal",
+                            "url": "https://comet.feels.legal",
                         }
                     ]
                 }
@@ -501,7 +501,7 @@ async def stream(
                 {
                     "name": "[⚠️] Comet",
                     "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
-                    "url": "https://comet.looks.legal",
+                    "url": "https://comet.feels.legal",
                 }
             )
 

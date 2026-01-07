@@ -70,7 +70,7 @@ async def chilllink_streams(
                 {
                     "id": "comet.fast",
                     "title": "You need to configure a debrid service to use Comet in Chillio.",
-                    "url": "https://comet.looks.legal",
+                    "url": "https://comet.feels.legal",
                     "metadata": [],
                 }
             ]
