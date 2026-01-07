@@ -336,12 +336,28 @@ async def setup_database():
 
         await database.execute(
             """
-                CREATE TABLE IF NOT EXISTS anime_mapping_cache (
-                    kitsu_id INTEGER PRIMARY KEY,
-                    imdb_id TEXT,
-                    is_anime BOOLEAN,
-                    updated_at INTEGER
+                CREATE TABLE IF NOT EXISTS anime_entries (
+                    id INTEGER PRIMARY KEY,
+                    data TEXT
                 )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS anime_ids (
+                    provider TEXT,
+                    provider_id TEXT,
+                    entry_id INTEGER,
+                    PRIMARY KEY (provider, provider_id)
+                )
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_anime_ids_entry_id
+            ON anime_ids (entry_id)
             """
         )
 
@@ -518,13 +534,7 @@ async def setup_database():
 
         await database.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_anime_mapping_imdb
-            ON anime_mapping_cache (imdb_id)
-            """
-        )
 
-        await database.execute(
-            """
             CREATE INDEX IF NOT EXISTS idx_digital_release_timestamp
             ON digital_release_cache (timestamp)
             """
@@ -650,7 +660,7 @@ async def _run_startup_cleanup():
         logger.error(f"Error executing startup cleanup: {e}")
 
 
-async def _should_run_startup_cleanup(current_time: float, interval: int) -> bool:
+async def _should_run_startup_cleanup(current_time: float, interval: int):
     row = await database.fetch_one(
         "SELECT last_startup_cleanup FROM db_maintenance WHERE id = 1",
         force_primary=True,

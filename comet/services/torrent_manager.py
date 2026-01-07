@@ -513,7 +513,7 @@ POSTGRES_CONFLICT_TARGETS = {
 _POSTGRES_UPSERT_CACHE: dict[str, str] = {}
 
 
-def _determine_conflict_key(season, episode) -> str:
+def _determine_conflict_key(season, episode):
     if season is not None and episode is not None:
         return "series"
     if season is not None:
@@ -527,7 +527,7 @@ def _build_upsert_key(info_hash, season, episode, media_id):
     return (media_id, info_hash, season, episode)
 
 
-def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
+def _compute_advisory_lock_key(media_id, info_hash, season, episode):
     payload = f"{media_id}|{info_hash}|{season}|{episode}".encode("utf-8")
     digest = hashlib.sha1(payload).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
@@ -674,7 +674,7 @@ async def _execute_batched_upsert(query: str, rows):
         logger.warning(f"Error executing batched upsert: {e}")
 
 
-def _get_torrent_upsert_query(conflict_key: str) -> str:
+def _get_torrent_upsert_query(conflict_key: str):
     if settings.DATABASE_TYPE == "sqlite":
         return SQLITE_UPSERT_QUERY
 

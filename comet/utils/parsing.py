@@ -59,20 +59,20 @@ def parse_optional_int(value: str | None):
 
 
 def parse_media_id(media_type: str, media_id: str):
-    if "kitsu" in media_id:
-        info = media_id.split(":")
-
-        if len(info) > 2:
-            return info[1], 1, parse_optional_int(info[2])
-        else:
-            return info[1], 1, None
-
+    if media_id.startswith("kitsu:"):
+        _, _, rest = media_id.partition(":")
+        kitsu_id, _, episode_str = rest.partition(":")
+        return kitsu_id, 1, parse_optional_int(episode_str) if episode_str else None
     if media_type == "series":
-        info = media_id.split(":")
-        series_id = info[0]
-        season = parse_optional_int(info[1]) if len(info) > 1 else None
-        episode = parse_optional_int(info[2]) if len(info) > 2 else None
-        return series_id, season, episode
+        series_id, sep1, rest1 = media_id.partition(":")
+        if not sep1:
+            return series_id, None, None
+        season_str, sep2, episode_str = rest1.partition(":")
+        return (
+            series_id,
+            parse_optional_int(season_str),
+            parse_optional_int(episode_str) if sep2 else None,
+        )
 
     return media_id, None, None
 

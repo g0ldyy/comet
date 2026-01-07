@@ -332,6 +332,7 @@ async def stream(
             episode,
             aliases,
             settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
+            is_kitsu=media_id.startswith("kitsu:"),
         )
 
         await torrent_manager.get_cached_torrents()

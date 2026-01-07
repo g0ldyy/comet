@@ -1,31 +1,25 @@
 import aiohttp
 
-from comet.core.logger import logger
-
 
 async def get_trakt_aliases(
     session: aiohttp.ClientSession, media_type: str, media_id: str
 ):
-    aliases = set()
     try:
-        response = await session.get(
+        async with session.get(
             f"https://api.trakt.tv/{'movies' if media_type == 'movie' else 'shows'}/{media_id}/aliases"
-        )
-        data = await response.json()
+        ) as response:
+            data = await response.json()
 
-        for aliase in data:
-            aliases.add(aliase["title"])
+        seen = {}
+        for alias_entry in data:
+            title = alias_entry.get("title")
+            if title and title not in seen:
+                seen[title] = None
 
-        total_aliases = len(aliases)
-        if total_aliases > 0:
-            logger.log(
-                "SCRAPER",
-                f"📜 Found {total_aliases} Trakt title aliases for {media_id}",
-            )
-            return {"ez": list(aliases)}
+        if seen:
+            aliases_list = list(seen.keys())
+            return {"ez": aliases_list}
     except Exception:
         pass
-
-    logger.log("SCRAPER", f"📜 No Trakt title aliases found for {media_id}")
 
     return {}

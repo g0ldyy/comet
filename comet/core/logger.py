@@ -8,6 +8,7 @@ from loguru import logger
 from comet.core.execution import max_workers
 from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
                                    get_level_info)
+from comet.utils.parsing import associate_urls_credentials
 
 logging.getLogger("demagnetize").setLevel(
     logging.CRITICAL
@@ -157,8 +158,6 @@ def log_scraper_error(
 
 
 def log_startup_info(settings):
-    from comet.utils.parsing import associate_urls_credentials
-
     def get_urls_with_passwords(urls, passwords):
         url_credentials_pairs = associate_urls_credentials(urls, passwords)
 
@@ -217,7 +216,7 @@ def log_startup_info(settings):
 
     logger.log(
         "COMET",
-        f"Anime Mapping: source={settings.ANIME_MAPPING_SOURCE} - refresh_interval={settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
+        f"Anime Mapping Refresh Interval: {settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
     )
 
     logger.log(

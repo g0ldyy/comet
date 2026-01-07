@@ -15,6 +15,9 @@ class DigitalReleaseFilter:
         season: int = None,
         episode: int = None,
     ):
+        if not media_id.startswith("tt"):
+            return True
+
         try:
             cached_date = await database.fetch_val(
                 """
@@ -36,12 +39,8 @@ class DigitalReleaseFilter:
 
             tmdb = TMDBApi(session)
 
-            if media_id.startswith("tt"):
-                imdb_id = media_id.split(":")[0]
-                tmdb_id = await tmdb.get_tmdb_id_from_imdb(imdb_id)
-            else:
-                # Other formats (e.g. kitsu) are not supported
-                return True
+            imdb_id = media_id.partition(":")[0]
+            tmdb_id = await tmdb.get_tmdb_id_from_imdb(imdb_id)
 
             if not tmdb_id:
                 logger.warning(
