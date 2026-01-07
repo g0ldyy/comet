@@ -24,18 +24,16 @@ class TMDBApi:
 
                 data = await response.json()
 
-                release_dates = []
-                for result in data.get("results", []):
-                    for release in result.get("release_dates", []):
-                        if release.get("type") in [4, 5]:  # Digital or Physical
-                            date_str = release.get("release_date", "").split("T")[0]
-                            if date_str:
-                                release_dates.append(date_str)
+            release_dates = []
+            for result in data.get("results", []):
+                for release in result.get("release_dates", []):
+                    # Type 4 = Digital, Type 5 = Physical
+                    if release.get("type") in (4, 5):
+                        date_str = release.get("release_date", "").split("T")[0]
+                        if date_str:
+                            release_dates.append(date_str)
 
-                if release_dates:
-                    return min(release_dates)
-
-                return None
+            return min(release_dates) if release_dates else None
         except Exception as e:
             logger.error(f"TMDB: Error getting movie release date for {tmdb_id}: {e}")
             return None
@@ -68,12 +66,15 @@ class TMDBApi:
 
                 data = await response.json()
 
-                if data.get("movie_results"):
-                    return str(data["movie_results"][0]["id"])
-                if data.get("tv_results"):
-                    return str(data["tv_results"][0]["id"])
+            movie_results = data.get("movie_results")
+            if movie_results:
+                return str(movie_results[0]["id"])
 
-                return None
+            tv_results = data.get("tv_results")
+            if tv_results:
+                return str(tv_results[0]["id"])
+
+            return None
         except Exception as e:
             logger.error(f"TMDB: Error converting IMDB ID {imdb_id}: {e}")
             return None

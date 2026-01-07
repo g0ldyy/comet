@@ -11,7 +11,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 
 
-def resolve_proxy_url(proxy_url: Optional[str]) -> Optional[str]:
+def resolve_proxy_url(proxy_url: Optional[str]):
     """
     Resolve proxy hostname to IP address.
 
@@ -255,14 +255,14 @@ class AsyncClientWrapper:
         self._aiohttp_session: Optional[aiohttp.ClientSession] = None
         self._curl_session: Optional[CurlSession] = None
 
-    async def _get_aiohttp_session(self) -> aiohttp.ClientSession:
+    async def _get_aiohttp_session(self):
         if not self._aiohttp_session or self._aiohttp_session.closed:
             self._aiohttp_session = aiohttp.ClientSession(
                 headers=self.headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
             )
         return self._aiohttp_session
 
-    async def _get_curl_session(self) -> CurlSession:
+    async def _get_curl_session(self):
         if not self._curl_session:
             self._curl_session = CurlSession(
                 headers=self.headers,
@@ -277,13 +277,13 @@ class AsyncClientWrapper:
         if self._curl_session:
             await self._curl_session.close()
 
-    def request(self, method: str, url: str, **kwargs) -> _RequestContextManager:
+    def request(self, method: str, url: str, **kwargs):
         return _RequestContextManager(self, method, url, **kwargs)
 
-    def get(self, url: str, **kwargs) -> _RequestContextManager:
+    def get(self, url: str, **kwargs):
         return self.request("GET", url, **kwargs)
 
-    def post(self, url: str, **kwargs) -> _RequestContextManager:
+    def post(self, url: str, **kwargs):
         return self.request("POST", url, **kwargs)
 
 
@@ -301,7 +301,7 @@ class NetworkManager:
         scraper_name: str,
         impersonate: Optional[str] = None,
         headers: Optional[dict] = None,
-    ) -> AsyncClientWrapper:
+    ):
         # Unique key for client configuration
         key = f"{scraper_name}|{impersonate}"
 

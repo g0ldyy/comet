@@ -1,6 +1,8 @@
 import asyncio
+import ctypes
+import gc
+import sys
 import time
-from collections.abc import Mapping
 
 import aiohttp
 import orjson
@@ -8,82 +10,129 @@ import orjson
 from comet.core.logger import logger
 from comet.core.models import database, settings
 
+_PROVIDER_URL_PATTERNS = (
+    ("anilist.co/anime/", "anilist"),
+    ("myanimelist.net/anime/", "myanimelist"),
+    ("kitsu.app/anime/", "kitsu"),
+    ("kitsu.io/anime/", "kitsu"),
+    ("anidb.net/anime/", "anidb"),
+    ("anime-planet.com/anime/", "anime-planet"),
+    ("anisearch.com/anime/", "anisearch"),
+    ("livechart.me/anime/", "livechart"),
+    ("animecountdown.com/", "animecountdown"),
+    ("simkl.com/anime/", "simkl"),
+)
+
+_FRIBB_PROVIDER_ORDER = (
+    ("anilist", "anilist_id"),
+    ("myanimelist", "mal_id"),
+    ("kitsu", "kitsu_id"),
+    ("anidb", "anidb_id"),
+    ("anime-planet", "anime-planet_id"),
+    ("anisearch", "anisearch_id"),
+    ("livechart", "livechart_id"),
+    ("animecountdown", "animecountdown_id"),
+    ("simkl", "simkl_id"),
+)
+
+_DB_CHUNK_SIZE = 1000
+
 
 class AnimeMapper:
     def __init__(self):
-        self.kitsu_to_imdb = {}
-        self.imdb_to_kitsu = {}
-        self.anime_imdb_ids = set()
         self.loaded = False
         self._refresh_lock = asyncio.Lock()
-        self._background_task = None
+
+        self.anime_imdb_ids = set()
+        self._aod_url = "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json"
+        self._fribb_url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
 
     async def load_anime_mapping(self, session: aiohttp.ClientSession | None = None):
         if self.loaded:
+            return True
+
+        count = await database.fetch_val("SELECT COUNT(*) FROM anime_entries")
+        if count and count > 0:
+            await self._load_provider_ids()
+
+            if await self._is_cache_stale():
+                asyncio.create_task(self._refresh_from_remote(background=True))
+
+            self.loaded = True
             logger.log(
-                "COMET",
-                "Anime mapping already loaded in this process; skipping reload",
+                "COMET", f"✅ Anime mapping loaded from database: {count} entries"
             )
             return True
 
-        source = (settings.ANIME_MAPPING_SOURCE or "remote").lower()
-
-        if source == "database":
-            loaded = await self._load_from_database()
-            if loaded:
-                if await self._is_cache_stale():
-                    asyncio.create_task(self._refresh_from_remote(background=True))
-                self._ensure_periodic_refresh()
-                return True
-
         return await self._refresh_from_remote(session)
 
-    def get_imdb_from_kitsu(self, kitsu_id: int):
-        return self.kitsu_to_imdb.get(kitsu_id)
-
-    def get_kitsu_from_imdb(self, imdb_id: str):
-        return self.imdb_to_kitsu.get(imdb_id)
-
-    def is_anime(self, imdb_id: str):
-        return imdb_id in self.anime_imdb_ids
-
     def is_anime_content(self, media_id: str, media_only_id: str):
-        if "kitsu" in media_id:
-            return True
-
         if not self.loaded:
             return True
 
-        return self.is_anime(media_only_id)
+        provider, provider_id = self._parse_media_id(media_id)
+
+        if provider == "kitsu":
+            return True
+
+        if provider == "imdb":
+            return provider_id in self.anime_imdb_ids
+
+        return media_only_id in self.anime_imdb_ids
+
+    async def _get_entry_data(self, media_id: str):
+        provider, provider_id = self._parse_media_id(media_id)
+        if provider is None:
+            return None
+
+        row = await database.fetch_one(
+            """
+            SELECT e.data 
+            FROM anime_entries e
+            INNER JOIN anime_ids i ON e.id = i.entry_id
+            WHERE i.provider = :provider AND i.provider_id = :provider_id
+            LIMIT 1
+            """,
+            {"provider": provider, "provider_id": provider_id},
+        )
+        if not row:
+            return None
+
+        return orjson.loads(row["data"])
+
+    async def get_aliases(self, media_id: str):
+        if not self.loaded:
+            return {}
+
+        data = await self._get_entry_data(media_id)
+        if not data:
+            return {}
+
+        title = data.get("title")
+        synonyms = data.get("synonyms")
+
+        if not title and not synonyms:
+            return {}
+
+        if title and synonyms:
+            return {"ez": [title, *synonyms]}
+        elif title:
+            return {"ez": [title]}
+        else:
+            return {"ez": list(synonyms)}
 
     def is_loaded(self):
         return self.loaded
 
-    async def _load_from_database(self):
-        try:
-            rows = await database.fetch_all(
-                "SELECT kitsu_id, imdb_id FROM anime_mapping_cache",
-            )
-
-            if not rows:
-                logger.log(
-                    "DATABASE",
-                    "Anime mapping cache empty; falling back to remote source",
-                )
-                return False
-
-            self._populate_from_rows(rows)
-            logger.log(
-                "COMET",
-                f"✅ Anime mapping loaded from database: {len(rows)} cached entries",
-            )
-            return True
-        except Exception as exc:
-            logger.error(f"Failed to load anime mapping from database: {exc}")
-            return False
+    @staticmethod
+    def _parse_media_id(media_id: str):
+        provider, sep, provider_id = media_id.partition(":")
+        if not sep:
+            return None, None
+        return provider, provider_id
 
     async def _is_cache_stale(self):
-        interval = settings.ANIME_MAPPING_REFRESH_INTERVAL or 0
+        interval = settings.ANIME_MAPPING_REFRESH_INTERVAL
         if interval <= 0:
             return False
 
@@ -98,18 +147,23 @@ class AnimeMapper:
         if last_refresh is None:
             return True
 
-        last_refresh = float(last_refresh)
-        return (time.time() - last_refresh) >= interval
+        return (time.time() - float(last_refresh)) >= interval
 
-    def _ensure_periodic_refresh(self):
-        interval = settings.ANIME_MAPPING_REFRESH_INTERVAL or 0
-        if interval <= 0:
-            return
+    async def _load_provider_ids(self):
+        try:
+            query = "SELECT provider_id FROM anime_ids WHERE provider = 'imdb'"
+            rows = await database.fetch_all(query)
 
-        if self._background_task and not self._background_task.done():
-            return
+            self.anime_imdb_ids = {
+                row[0] if isinstance(row, tuple) else row["provider_id"] for row in rows
+            }
 
-        self._background_task = asyncio.create_task(self._refresh_loop(interval))
+            logger.log(
+                "DATABASE",
+                f"Loaded {len(self.anime_imdb_ids)} anime IMDb IDs into memory",
+            )
+        except Exception as e:
+            logger.error(f"Failed to load anime provider IDs: {e}")
 
     async def _refresh_from_remote(
         self,
@@ -118,7 +172,7 @@ class AnimeMapper:
         background: bool = False,
     ):
         async with self._refresh_lock:
-            if self.loaded and background:
+            if self.loaded and not background:
                 return True
 
             own_session = False
@@ -127,27 +181,58 @@ class AnimeMapper:
                 session = aiohttp.ClientSession()
 
             try:
-                url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
-                response = await session.get(url)
-
-                if response.status != 200:
-                    logger.error(
-                        f"Failed to load anime mapping: HTTP {response.status}"
-                    )
-                    return False
-
-                text = await response.text()
-                data = orjson.loads(text)
-
-                self._populate_from_rows(data)
                 logger.log(
                     "COMET",
-                    f"✅ Anime mapping loaded: {len(self.kitsu_to_imdb)} Kitsu entries, {len(self.imdb_to_kitsu)} with IMDB IDs",
+                    "Downloading anime mapping (Source 1/2: Anime Offline Database)...",
+                )
+                async with session.get(self._aod_url) as response_aod:
+                    if response_aod.status != 200:
+                        logger.error(f"Failed to load AOD: HTTP {response_aod.status}")
+                        return False
+                    data_aod = orjson.loads(await response_aod.read())
+
+                logger.log(
+                    "COMET",
+                    "Downloading anime mapping (Source 2/2: Fribb Anime List)...",
+                )
+                async with session.get(self._fribb_url) as response_fribb:
+                    if response_fribb.status != 200:
+                        logger.error(
+                            f"Failed to load Fribb List: HTTP {response_fribb.status}"
+                        )
+                        return False
+                    data_fribb = orjson.loads(await response_fribb.read())
+
+                anime_list = data_aod.get("data", [])
+                total_entries, total_fribb = await self._persist_mapping(
+                    anime_list, data_fribb
                 )
 
-                if settings.ANIME_MAPPING_SOURCE == "database":
-                    await self._persist_mapping(data)
-                    self._ensure_periodic_refresh()
+                del data_aod
+                del data_fribb
+                del anime_list
+                gc.collect()
+
+                if sys.platform == "linux":
+                    try:
+                        ctypes.CDLL("libc.so.6").malloc_trim(0)
+                    except Exception:
+                        pass
+                elif sys.platform == "win32":
+                    try:
+                        ctypes.windll.psapi.EmptyWorkingSet(
+                            ctypes.windll.kernel32.GetCurrentProcess()
+                        )
+                    except Exception:
+                        pass
+
+                await self._load_provider_ids()
+
+                self.loaded = True
+                logger.log(
+                    "COMET",
+                    f"✅ Anime mapping loaded: {total_entries} entries",
+                )
 
                 return True
             except Exception as exc:
@@ -158,54 +243,116 @@ class AnimeMapper:
                 if own_session and session:
                     await session.close()
 
-    def _populate_from_rows(self, rows):
-        self.kitsu_to_imdb.clear()
-        self.imdb_to_kitsu.clear()
-        self.anime_imdb_ids.clear()
-
-        for entry in rows:
-            kitsu_id = self._entry_value(entry, "kitsu_id")
-            imdb_id = self._entry_value(entry, "imdb_id")
-
-            if kitsu_id and imdb_id:
-                self.kitsu_to_imdb[kitsu_id] = imdb_id
-                self.imdb_to_kitsu[imdb_id] = kitsu_id
-                self.anime_imdb_ids.add(imdb_id)
-
-        self.loaded = True
-
-    async def _persist_mapping(self, rows):
+    async def _persist_mapping(self, anime_list: list, fribb_list: list):
         timestamp = time.time()
-        params = []
-        for entry in rows:
-            kitsu_id = self._entry_value(entry, "kitsu_id")
-            if not kitsu_id:
-                continue
 
-            params.append(
-                {
-                    "kitsu_id": kitsu_id,
-                    "imdb_id": self._entry_value(entry, "imdb_id"),
-                    "is_anime": True,
-                    "updated_at": timestamp,
-                }
-            )
+        entries_batch = []
+        ids_batch = []
+        lookup_map = {}
+        total_entries = 0
+        total_fribb = 0
 
-        insert_query = (
-            "INSERT INTO anime_mapping_cache (kitsu_id, imdb_id, is_anime, updated_at) "
-            "VALUES (:kitsu_id, :imdb_id, :is_anime, :updated_at)"
-        )
-
-        chunk_size = 500
+        entries_query = "INSERT INTO anime_entries (id, data) VALUES (:id, :data)"
+        ids_query = """
+            INSERT INTO anime_ids (provider, provider_id, entry_id) 
+            VALUES (:provider, :provider_id, :entry_id)
+            ON CONFLICT (provider, provider_id) DO NOTHING
+        """
 
         try:
             async with database.transaction():
-                await database.execute("DELETE FROM anime_mapping_cache")
-                for idx in range(0, len(params), chunk_size):
-                    await database.execute_many(
-                        insert_query,
-                        params[idx : idx + chunk_size],
+                await database.execute("DELETE FROM anime_entries")
+                await database.execute("DELETE FROM anime_ids")
+
+                for idx, entry in enumerate(anime_list):
+                    entry_id = idx + 1
+                    entries_batch.append(
+                        {"id": entry_id, "data": orjson.dumps(entry).decode("utf-8")}
                     )
+
+                    sources = entry.get("sources")
+                    if sources:
+                        for source in sources:
+                            for url_part, provider in _PROVIDER_URL_PATTERNS:
+                                if url_part in source:
+                                    try:
+                                        if "id=" in source:
+                                            provider_id = source.split("id=", 1)[
+                                                1
+                                            ].split("&", 1)[0]
+                                        else:
+                                            provider_id = source.rstrip("/").rsplit(
+                                                "/", 1
+                                            )[-1]
+
+                                        ids_batch.append(
+                                            {
+                                                "provider": provider,
+                                                "provider_id": provider_id,
+                                                "entry_id": entry_id,
+                                            }
+                                        )
+                                        lookup_map[f"{provider}:{provider_id}"] = (
+                                            entry_id
+                                        )
+                                    except (IndexError, ValueError):
+                                        pass
+                                    break
+
+                    if len(entries_batch) >= _DB_CHUNK_SIZE:
+                        await database.execute_many(entries_query, entries_batch)
+                        total_entries += len(entries_batch)
+                        entries_batch.clear()
+
+                    if len(ids_batch) >= _DB_CHUNK_SIZE:
+                        await database.execute_many(ids_query, ids_batch)
+                        ids_batch.clear()
+
+                if entries_batch:
+                    await database.execute_many(entries_query, entries_batch)
+                    total_entries += len(entries_batch)
+                    entries_batch.clear()
+
+                if ids_batch:
+                    await database.execute_many(ids_query, ids_batch)
+                    ids_batch.clear()
+
+                del entries_batch
+                del ids_batch
+
+                fribb_batch = []
+                for entry in fribb_list:
+                    imdb_id = entry.get("imdb_id")
+                    if not imdb_id:
+                        continue
+
+                    for provider, key in _FRIBB_PROVIDER_ORDER:
+                        val = entry.get(key)
+                        if val:
+                            found_entry_id = lookup_map.get(f"{provider}:{val}")
+                            if found_entry_id is not None:
+                                fribb_batch.append(
+                                    {
+                                        "provider": "imdb",
+                                        "provider_id": imdb_id,
+                                        "entry_id": found_entry_id,
+                                    }
+                                )
+                                break
+
+                    if len(fribb_batch) >= _DB_CHUNK_SIZE:
+                        await database.execute_many(ids_query, fribb_batch)
+                        total_fribb += len(fribb_batch)
+                        fribb_batch.clear()
+
+                if fribb_batch:
+                    await database.execute_many(ids_query, fribb_batch)
+                    total_fribb += len(fribb_batch)
+                    fribb_batch.clear()
+
+                del fribb_batch
+                del lookup_map
+
                 await database.execute(
                     """
                     INSERT INTO anime_mapping_state (id, refreshed_at)
@@ -214,38 +361,17 @@ class AnimeMapper:
                     """,
                     {"timestamp": timestamp},
                 )
+
             logger.log(
                 "DATABASE",
-                f"Anime mapping cache updated ({len(params)} rows)",
+                f"Anime mapping updated: {total_entries} entries, {total_fribb} IMDb mappings added",
             )
+
+            return total_entries, total_fribb
+
         except Exception as exc:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
 
-    @staticmethod
-    def _entry_value(entry, key):
-        if isinstance(entry, Mapping):
-            return entry.get(key)
-        return entry[key]
-
-    async def _refresh_loop(self, interval: int):
-        while True:
-            try:
-                await asyncio.sleep(interval)
-                await self._refresh_from_remote(background=True)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.warning(
-                    f"Anime mapping refresh loop encountered an error: {exc}"
-                )
-
-    async def stop(self):
-        if self._background_task:
-            self._background_task.cancel()
-            try:
-                await self._background_task
-            except asyncio.CancelledError:
-                pass
 
 
 anime_mapper = AnimeMapper()
