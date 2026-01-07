@@ -42,6 +42,7 @@ class AnimeMapper:
     def __init__(self):
         self.loaded = False
         self._refresh_lock = asyncio.Lock()
+        self._refresh_task = None
 
         self.anime_imdb_ids = set()
         self._aod_url = "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json"
@@ -56,7 +57,9 @@ class AnimeMapper:
             await self._load_provider_ids()
 
             if await self._is_cache_stale():
-                asyncio.create_task(self._refresh_from_remote(background=True))
+                self._refresh_task = asyncio.create_task(
+                    self._refresh_from_remote(background=True)
+                )
 
             self.loaded = True
             logger.log(
@@ -371,7 +374,7 @@ class AnimeMapper:
 
         except Exception as exc:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
-
+            return 0, 0
 
 
 anime_mapper = AnimeMapper()

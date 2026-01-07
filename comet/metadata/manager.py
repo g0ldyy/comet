@@ -183,7 +183,7 @@ class MetadataScraper:
                 aliases = await anime_mapper.get_aliases(full_media_id)
                 logger.log(
                     "SCRAPER",
-                    f"📜 Found {len(aliases['ez'])} Anime title aliases for {media_id}",
+                    f"📜 Found {len(aliases.get('ez', []))} Anime title aliases for {media_id}",
                 )
                 if aliases:
                     return aliases

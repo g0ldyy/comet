@@ -27,15 +27,15 @@ async def get_kitsu_metadata(session: aiohttp.ClientSession, id: str):
         if end_date and len(end_date) >= 4:
             year_end = int(end_date[:4])
 
-        if year is None:
-            created_at = attributes.get("createdAt")
-            if created_at and len(created_at) >= 4:
-                year = int(created_at[:4])
+        # if year is None:
+        #     created_at = attributes.get("createdAt")
+        #     if created_at and len(created_at) >= 4:
+        #         year = int(created_at[:4])
 
-        if year_end is None:
-            updated_at = attributes.get("updatedAt")
-            if updated_at and len(updated_at) >= 4:
-                year_end = int(updated_at[:4])
+        # if year_end is None:
+        #     updated_at = attributes.get("updatedAt")
+        #     if updated_at and len(updated_at) >= 4:
+        #         year_end = int(updated_at[:4])
 
         return title, year, year_end
     except Exception as e:

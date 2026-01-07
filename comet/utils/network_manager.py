@@ -266,7 +266,7 @@ class AsyncClientWrapper:
         if not self._curl_session:
             self._curl_session = CurlSession(
                 headers=self.headers,
-                impersonate=self.impersonate or "chrome",
+                impersonate=self.impersonate,
                 timeout=self.timeout,
             )
         return self._curl_session
