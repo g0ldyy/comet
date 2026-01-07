@@ -125,48 +125,53 @@ async def add_torrent(
     parsed: ParsedData,
 ):
     try:
-        parsed_season = parsed.seasons[0] if parsed.seasons else search_season
-        parsed_episode = parsed.episodes[0] if parsed.episodes else None
+        seasons_to_process = parsed.seasons if parsed.seasons else [search_season]
+        parsed_episodes = parsed.episodes if parsed.episodes else [None]
 
-        if parsed_episode is not None:
-            await database.execute(
-                """
-                DELETE FROM torrents
-                WHERE info_hash = :info_hash
-                AND season = :season 
-                AND episode IS NULL
-                """,
+        episode_to_insert = parsed_episodes[0] if len(parsed_episodes) == 1 else None
+
+        for season in seasons_to_process:
+            # Only delete season-only entry if we are inserting a SINGLE specific episode.
+            if episode_to_insert is not None:
+                await database.execute(
+                    """
+                    DELETE FROM torrents
+                    WHERE info_hash = :info_hash
+                    AND season = :season 
+                    AND episode IS NULL
+                    """,
+                    {
+                        "info_hash": info_hash,
+                        "season": season,
+                    },
+                )
+                logger.log(
+                    "SCRAPER",
+                    f"Deleted season-only entry for S{season:02d} of {info_hash} in favor of specific episode",
+                )
+
+            await _upsert_torrent_record(
                 {
+                    "media_id": media_id,
                     "info_hash": info_hash,
-                    "season": parsed_season,
-                },
+                    "file_index": file_index,
+                    "season": season,
+                    "episode": episode_to_insert,
+                    "title": title,
+                    "seeders": seeders,
+                    "size": size,
+                    "tracker": tracker,
+                    "sources": orjson.dumps(sources).decode("utf-8"),
+                    "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
+                    "timestamp": time.time(),
+                }
             )
-            logger.log(
-                "SCRAPER",
-                f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
-            )
-
-        await _upsert_torrent_record(
-            {
-                "media_id": media_id,
-                "info_hash": info_hash,
-                "file_index": file_index,
-                "season": parsed_season,
-                "episode": parsed_episode,
-                "title": title,
-                "seeders": seeders,
-                "size": size,
-                "tracker": tracker,
-                "sources": orjson.dumps(sources).decode("utf-8"),
-                "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-                "timestamp": time.time(),
-            }
-        )
 
         additional = ""
-        if parsed_season:
-            additional += f" - S{parsed_season:02d}"
-            additional += f"E{parsed_episode:02d}" if parsed_episode else ""
+        if seasons_to_process:
+            additional += f" - S{seasons_to_process[0]:02d}"
+            if parsed_episodes and parsed_episodes[0] is not None:
+                additional += f"E{parsed_episodes[0]:02d}"
 
         logger.log("SCRAPER", f"Added torrent for {media_id} - {title}{additional}")
     except Exception as e:
