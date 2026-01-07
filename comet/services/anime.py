@@ -160,11 +160,6 @@ class AnimeMapper:
             self.anime_imdb_ids = {
                 row[0] if isinstance(row, tuple) else row["provider_id"] for row in rows
             }
-
-            logger.log(
-                "DATABASE",
-                f"Loaded {len(self.anime_imdb_ids)} anime IMDb IDs into memory",
-            )
         except Exception as e:
             logger.error(f"Failed to load anime provider IDs: {e}")
 
@@ -365,13 +360,7 @@ class AnimeMapper:
                     {"timestamp": timestamp},
                 )
 
-            logger.log(
-                "DATABASE",
-                f"Anime mapping updated: {total_entries} entries, {total_fribb} IMDb mappings added",
-            )
-
             return total_entries, total_fribb
-
         except Exception as exc:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
             return 0, 0
