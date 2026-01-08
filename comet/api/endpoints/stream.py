@@ -157,7 +157,8 @@ async def stream(
             ]
         }
 
-    if settings.DISABLE_TORRENT_STREAMS and config["debridService"] == "torrent":
+    is_torrent = config["debridService"] == "torrent"
+    if settings.DISABLE_TORRENT_STREAMS and is_torrent:
         placeholder_stream = {
             "name": settings.TORRENT_DISABLED_STREAM_NAME,
             "description": settings.TORRENT_DISABLED_STREAM_DESCRIPTION,
@@ -343,7 +344,7 @@ async def stream(
         is_first = await is_first_search(media_id)
         has_cached_results = len(torrent_manager.torrents) > 0
 
-        sort_mixed = config["sortCachedUncachedTogether"]
+        sort_mixed = is_torrent or config["sortCachedUncachedTogether"]
         cached_results = []
         non_cached_results = []
 
@@ -520,7 +521,7 @@ async def stream(
 
             debrid_emoji = (
                 "🧲"
-                if debrid_service == "torrent"
+                if is_torrent
                 else ("⚡" if torrent["cached"] else "⬇️")
             )
 
@@ -549,7 +550,7 @@ async def stream(
                     formatted_components, torrent["cached"]
                 )
 
-            if debrid_service == "torrent":
+            if is_torrent:
                 the_stream["infoHash"] = info_hash
 
                 if torrent["fileIndex"] is not None:
