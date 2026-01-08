@@ -130,6 +130,24 @@ class AnimeMapper:
         else:
             return {"ez": list(synonyms)}
 
+    async def get_imdb_from_kitsu(self, kitsu_id: str | int):
+        if not self.loaded:
+            return None
+
+        val = await database.fetch_val(
+            """
+            SELECT i2.provider_id
+            FROM anime_ids i1
+            JOIN anime_ids i2 ON i1.entry_id = i2.entry_id
+            WHERE i1.provider = 'kitsu' AND i1.provider_id = :kitsu_id
+            AND i2.provider = 'imdb'
+            LIMIT 1
+            """,
+            {"kitsu_id": str(kitsu_id)},
+        )
+
+        return val
+
     def is_loaded(self):
         return self.loaded
 
