@@ -214,9 +214,14 @@ def log_startup_info(settings):
                 "Use PostgreSQL for reliable background scraping."
             )
 
+    anime_mapping_refresh = (
+        f" - Refresh Interval: {settings.ANIME_MAPPING_REFRESH_INTERVAL}s"
+        if settings.ANIME_MAPPING_ENABLED
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Anime Mapping Refresh Interval: {settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
+        f"Anime Mapping: {settings.ANIME_MAPPING_ENABLED}{anime_mapping_refresh}",
     )
 
     logger.log(

@@ -49,6 +49,9 @@ class AnimeMapper:
         self._fribb_url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
 
     async def load_anime_mapping(self, session: aiohttp.ClientSession | None = None):
+        if not settings.ANIME_MAPPING_ENABLED:
+            return True
+
         if self.loaded:
             return True
 
@@ -70,7 +73,10 @@ class AnimeMapper:
         return await self._refresh_from_remote(session)
 
     def is_anime_content(self, media_id: str, media_only_id: str):
-        if not self.loaded:
+        if not settings.ANIME_MAPPING_ENABLED:
+            return False
+
+        if not self.loaded:  # to prevent blocking anime-only scrapers
             return True
 
         provider, provider_id = self._parse_media_id(media_id)

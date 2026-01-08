@@ -128,6 +128,7 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
     BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
     BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
+    ANIME_MAPPING_ENABLED: Optional[bool] = True
     ANIME_MAPPING_REFRESH_INTERVAL: Optional[int] = 432000
     DIGITAL_RELEASE_FILTER: Optional[bool] = False
     TMDB_READ_ACCESS_TOKEN: Optional[str] = None

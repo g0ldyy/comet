@@ -519,11 +519,7 @@ async def stream(
             torrent = torrents[info_hash]
             rtn_data = torrent["parsed"]
 
-            debrid_emoji = (
-                "🧲"
-                if is_torrent
-                else ("⚡" if torrent["cached"] else "⬇️")
-            )
+            debrid_emoji = "🧲" if is_torrent else ("⚡" if torrent["cached"] else "⬇️")
 
             torrent_title = torrent["title"]
             formatted_components = get_formatted_components(
