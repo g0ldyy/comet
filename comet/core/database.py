@@ -356,8 +356,8 @@ async def setup_database():
 
         await database.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_anime_ids_entry_id
-            ON anime_ids (entry_id)
+            CREATE INDEX IF NOT EXISTS idx_anime_ids_entry_provider
+            ON anime_ids (entry_id, provider, provider_id)
             """
         )
 
@@ -421,6 +421,24 @@ async def setup_database():
             """
             CREATE INDEX IF NOT EXISTS idx_debrid_lookup 
             ON debrid_availability (debrid_service, info_hash, timestamp)
+            """
+        )
+
+        # Index for torrent mode: queries without debrid_service filter
+        # Covers: get_cached_availability when debrid_service == "torrent"
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_info_hash 
+            ON debrid_availability (info_hash)
+            """
+        )
+
+        # Composite index for full filter path with season/episode
+        # Covers: get_cached_availability with season/episode filters
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_hash_season_episode 
+            ON debrid_availability (info_hash, season, episode, timestamp)
             """
         )
 
@@ -731,6 +749,7 @@ async def _migrate_indexes():
             "torrents_seeders_idx",
             "idx_first_searches_cleanup",
             "idx_metadata_title_search",
+            "idx_anime_ids_entry_id",
         ]
 
         dropped_count = 0
