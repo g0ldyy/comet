@@ -35,7 +35,7 @@ _FRIBB_PROVIDER_ORDER = (
     ("simkl", "simkl_id"),
 )
 
-_DB_CHUNK_SIZE = 1000
+_DB_CHUNK_SIZE = 10000
 
 
 class AnimeMapper:
