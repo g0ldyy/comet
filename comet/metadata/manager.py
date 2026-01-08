@@ -41,8 +41,25 @@ class MetadataScraper:
             else _CACHE_INSERT_POSTGRESQL
         )
 
-    async def fetch_metadata_and_aliases(self, media_type: str, media_id: str):
-        id, season, episode = parse_media_id(media_type, media_id)
+    async def get_from_cache_by_media_id(
+        self, media_id: str, id: str, season: int | None, episode: int | None
+    ):
+        provider = self._extract_provider(media_id)
+        cache_id = f"{provider}:{id}" if provider else id
+        cache_season = 1 if provider == "kitsu" else season
+
+        return await self.get_cached(cache_id, cache_season, episode)
+
+    async def fetch_metadata_and_aliases(
+        self,
+        media_type: str,
+        media_id: str,
+        id: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+    ):
+        if id is None:
+            id, season, episode = parse_media_id(media_type, media_id)
 
         provider = self._extract_provider(media_id)
         cache_id = f"{provider}:{id}" if provider else id
@@ -144,12 +161,14 @@ class MetadataScraper:
         title: str,
         year: int,
         year_end: int = None,
+        id: str | None = None,
     ):
         """
         Fetch only aliases for media when we already have the metadata from another source.
         This method will cache the provided metadata along with the scraped aliases.
         """
-        id, _, _ = parse_media_id(media_type, media_id)
+        if id is None:
+            id, _, _ = parse_media_id(media_type, media_id)
 
         provider = self._extract_provider(media_id)
         cache_id = f"{provider}:{id}" if provider else id

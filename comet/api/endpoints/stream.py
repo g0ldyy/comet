@@ -193,8 +193,8 @@ async def stream(
                 }
 
         # Check if metadata is already cached
-        cached_metadata = await metadata_scraper.get_cached(
-            id, season if "kitsu" not in media_id else 1, episode
+        cached_metadata = await metadata_scraper.get_from_cache_by_media_id(
+            media_id, id, season, episode
         )
 
         # Quick check for "fresh" cached torrents to decide if we need to re-scrape.
@@ -240,7 +240,7 @@ async def stream(
         cache_is_stale = fresh_cached_count == 0
 
         # If both metadata and fresh torrents are cached, skip lock entirely
-        if cached_metadata is not None and fresh_cached_count > 0:
+        if cached_metadata is not None and not cache_is_stale:
             logger.log("SCRAPER", f"🚀 Fast path: using cached data for {media_id}")
             metadata, aliases = cached_metadata[0], cached_metadata[1]
             # Variables for fast path
@@ -265,14 +265,14 @@ async def stream(
                 waited_for_other_scrape = True
 
                 # After waiting, re-check cached metadata
-                cached_metadata = await metadata_scraper.get_cached(
-                    id, season if "kitsu" not in media_id else 1, episode
+                cached_metadata = await metadata_scraper.get_from_cache_by_media_id(
+                    media_id, id, season, episode
                 )
 
             if lock_acquired:
                 # We have the lock, scrape metadata normally
                 metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                    media_type, media_id
+                    media_type, media_id, id, season, episode
                 )
             elif cached_metadata is not None:
                 # Use cached metadata after waiting
@@ -280,7 +280,7 @@ async def stream(
             else:
                 # No cached metadata available, fallback to scraping
                 metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                    media_type, media_id
+                    media_type, media_id, id, season, episode
                 )
         if metadata is None:
             if lock_acquired and scrape_lock:
@@ -308,7 +308,6 @@ async def stream(
 
         logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
 
-        id, season, episode = parse_media_id(media_type, media_id)
         media_only_id = id
 
         debrid_service = config["debridService"]
