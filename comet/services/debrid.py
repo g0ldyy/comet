@@ -54,6 +54,8 @@ class DebridService:
                 continue
 
             info_hash = file["info_hash"]
+            if info_hash not in torrents:
+                continue
             torrents[info_hash]["cached"] = True
 
             debrid_parsed = file["parsed"]
