@@ -70,7 +70,7 @@ class AppSettings(BaseSettings):
     CATALOG_TIMEOUT: Optional[int] = 30
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Union[bool, str] = False
-    COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
+    COMET_URL: Union[str, List[str]] = "https://comet.feels.legal"
     SCRAPE_NYAA: Union[bool, str] = False
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
