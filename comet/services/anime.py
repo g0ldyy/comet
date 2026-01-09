@@ -45,7 +45,7 @@ class AnimeMapper:
         self._refresh_task = None
 
         self.anime_imdb_ids = set()
-        self._kitsu_episode_cache = {}
+        self._kitsu_mapping_cache = {}
 
         self._aod_url = "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json"
         self._fribb_url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
@@ -61,13 +61,13 @@ class AnimeMapper:
         count = await database.fetch_val("SELECT COUNT(*) FROM anime_entries")
         if count and count > 0:
             await self._load_provider_ids()
-            await self._load_kitsu_episode_cache()
+            await self._load_kitsu_mapping_cache()
 
             kitsu_count = await database.fetch_val(
                 "SELECT COUNT(*) FROM kitsu_imdb_mapping"
             )
             needs_kitsu_refresh = (
-                kitsu_count == 0 or len(self._kitsu_episode_cache) == 0
+                kitsu_count == 0 or len(self._kitsu_mapping_cache) == 0
             )
 
             if await self._is_cache_stale() or needs_kitsu_refresh:
@@ -78,7 +78,7 @@ class AnimeMapper:
             self.loaded = True
             logger.log(
                 "COMET",
-                f"✅ Anime mapping loaded from database: {count} entries, {len(self._kitsu_episode_cache)} Kitsu episode offsets",
+                f"✅ Anime mapping loaded from database: {count} entries, {len(self._kitsu_mapping_cache)} Kitsu-IMDB mappings",
             )
             return True
 
@@ -164,7 +164,7 @@ class AnimeMapper:
         if not self.loaded:
             return None
 
-        return self._kitsu_episode_cache.get(str(kitsu_id))
+        return self._kitsu_mapping_cache.get(str(kitsu_id))
 
     def is_loaded(self):
         return self.loaded
@@ -205,7 +205,7 @@ class AnimeMapper:
         except Exception as e:
             logger.error(f"Failed to load anime provider IDs: {e}")
 
-    async def _load_kitsu_episode_cache(self):
+    async def _load_kitsu_mapping_cache(self):
         try:
             rows = await database.fetch_all(
                 """
@@ -216,17 +216,17 @@ class AnimeMapper:
                 """
             )
 
-            self._kitsu_episode_cache.clear()
+            self._kitsu_mapping_cache.clear()
             for row in rows:
                 kitsu_id = row["kitsu_id"]
 
-                self._kitsu_episode_cache[str(kitsu_id)] = {
+                self._kitsu_mapping_cache[str(kitsu_id)] = {
                     "imdb_id": row["imdb_id"],
                     "from_season": row["from_season"],
                     "from_episode": row["from_episode"],
                 }
         except Exception as e:
-            logger.warning(f"Failed to load Kitsu episode cache: {e}")
+            logger.warning(f"Failed to load Kitsu-IMDB mapping cache: {e}")
 
     async def _refresh_from_remote(
         self,
@@ -268,7 +268,7 @@ class AnimeMapper:
 
                 logger.log(
                     "COMET",
-                    "Downloading anime mapping (Source 3/3: Kitsu-IMDB Episode Offsets)...",
+                    "Downloading anime mapping (Source 3/3: Kitsu-IMDB Mapping)...",
                 )
                 async with session.get(self._kitsu_imdb_url) as response_kitsu:
                     if response_kitsu.status != 200:
@@ -279,9 +279,7 @@ class AnimeMapper:
                     data_kitsu_imdb = orjson.loads(await response_kitsu.read())
 
                 anime_list = data_aod.get("data", [])
-                total_entries, total_fribb = await self._persist_mapping(
-                    anime_list, data_fribb
-                )
+                total_entries = await self._persist_mapping(anime_list, data_fribb)
 
                 await self._persist_kitsu_imdb_mapping(data_kitsu_imdb)
 
@@ -305,12 +303,12 @@ class AnimeMapper:
                         pass
 
                 await self._load_provider_ids()
-                await self._load_kitsu_episode_cache()
+                await self._load_kitsu_mapping_cache()
 
                 self.loaded = True
                 logger.log(
                     "COMET",
-                    f"✅ Anime mapping loaded: {total_entries} entries, {len(self._kitsu_episode_cache)} Kitsu episode offsets cached",
+                    f"✅ Anime mapping loaded: {total_entries} entries, {len(self._kitsu_mapping_cache)} Kitsu-IMDB mappings cached",
                 )
 
                 return True
@@ -329,7 +327,6 @@ class AnimeMapper:
         ids_batch = []
         lookup_map = {}
         total_entries = 0
-        total_fribb = 0
 
         entries_query = "INSERT INTO anime_entries (id, data) VALUES (:id, :data)"
         ids_query = """
@@ -421,12 +418,10 @@ class AnimeMapper:
 
                     if len(fribb_batch) >= _DB_CHUNK_SIZE:
                         await database.execute_many(ids_query, fribb_batch)
-                        total_fribb += len(fribb_batch)
                         fribb_batch.clear()
 
                 if fribb_batch:
                     await database.execute_many(ids_query, fribb_batch)
-                    total_fribb += len(fribb_batch)
                     fribb_batch.clear()
 
                 del fribb_batch
@@ -441,10 +436,10 @@ class AnimeMapper:
                     {"timestamp": timestamp},
                 )
 
-            return total_entries, total_fribb
+            return total_entries
         except Exception as exc:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
-            return 0, 0
+            return 0
 
     async def _persist_kitsu_imdb_mapping(self, kitsu_imdb_data: dict):
         total_count = 0

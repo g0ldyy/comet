@@ -329,10 +329,13 @@ async def stream(
                 from_episode = kitsu_mapping.get("from_episode")
                 from_season = kitsu_mapping.get("from_season")
                 if from_episode:
-                    search_episode = from_episode + episode - 1
-                if from_season:
+                    new_episode = from_episode + episode - 1
+                    if new_episode != episode:
+                        search_episode = new_episode
+
+                if from_season and from_season != season:
                     search_season = from_season
-                if from_episode or from_season:
+                if search_season != season or search_episode != episode:
                     logger.log(
                         "SCRAPER",
                         f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
