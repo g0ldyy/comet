@@ -2,6 +2,35 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.47.0](https://github.com/g0ldyy/comet/compare/v2.46.0...v2.47.0) (2026-01-09)
+
+
+### Features
+
+* add background and icon image assets ([d9dceab](https://github.com/g0ldyy/comet/commit/d9dceabcb071abaaa525e5a0dfae3c9ffd2a1ab2))
+* anime mapping disabler ([1c0bf9b](https://github.com/g0ldyy/comet/commit/1c0bf9bcc4f8e90a5433bf18e8fabd37b309f9ef))
+* enhance database indexing and improve torrent processing efficiency ([add3813](https://github.com/g0ldyy/comet/commit/add3813663a6d65c5d893f33161852cb1ba817ad))
+* fix a few useless things ([1f29c4c](https://github.com/g0ldyy/comet/commit/1f29c4ca1ba074f35760ce7549098b68e6b7d778))
+* fix aiostreams null infoHash ([880927c](https://github.com/g0ldyy/comet/commit/880927c9186d1bb38a6103e5c8c52bfcef41a69a))
+* fix slow anime mapper loading ([67f7740](https://github.com/g0ldyy/comet/commit/67f774029d0394f53d3999943bbd04e184605065))
+* implement HTTP caching mechanism ([35eab54](https://github.com/g0ldyy/comet/commit/35eab54a7caa68f152583014680e7605619f36d4))
+* implement smart file selection algorithm and refine torrent record management for multi-episode content ([479b5ae](https://github.com/g0ldyy/comet/commit/479b5ae8ff2bc800b9ed8dff0f418189391e1342))
+* kitsu offsets ([4af9add](https://github.com/g0ldyy/comet/commit/4af9addd7b05f69a16df317b1e5fbe2aa3e62d2b))
+* log http cache environment variables on startup ([f6751e5](https://github.com/g0ldyy/comet/commit/f6751e529c2ceec3685514f35c2c73c63b143cc7))
+* remove verbose logging from anime service ([8cd1e0b](https://github.com/g0ldyy/comet/commit/8cd1e0bce6795e6b6f1987355a49d38a183677ac))
+* super mega powerful ultra anime mapper ([7035b24](https://github.com/g0ldyy/comet/commit/7035b24b3ca9cf7d5d190080b03e425f003849ec))
+
+
+### Bug Fixes
+
+* add check for existing info_hash in torrents before processing ([06bbe9b](https://github.com/g0ldyy/comet/commit/06bbe9bbd84cd4f632f3115500a4219864414b54))
+* CachedJSONResponse overwrites body after init ([72bb885](https://github.com/g0ldyy/comet/commit/72bb8859a70152e1f4aea3188354d2e8ef66b8cc))
+* ETag caching broken by random manifest ID ([e74c29f](https://github.com/g0ldyy/comet/commit/e74c29fdd187a2dc8de257d70c09e30924ea70bf))
+* fix wrong ranking order in p2p mode ([d4d7e60](https://github.com/g0ldyy/comet/commit/d4d7e6091c3af431c3e5cbb9ec9bc48218b252d4))
+* little opti ([c7214f2](https://github.com/g0ldyy/comet/commit/c7214f213de8e96ecd06b5a32aa39bad5e23c466))
+* remove fake config from comet scraper ([b5856b6](https://github.com/g0ldyy/comet/commit/b5856b6554f04d4d9fc4cb0bc5f9d6da93dd9c36))
+* update asset URLs from ibb.co to GitHub raw content ([77c9f04](https://github.com/g0ldyy/comet/commit/77c9f043c32a59eeee53ae123323ce1afb3eed75))
+
 ## [2.46.0](https://github.com/g0ldyy/comet/compare/v2.45.0...v2.46.0) (2026-01-06)
 
 
