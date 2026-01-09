@@ -435,6 +435,16 @@ def log_startup_info(settings):
     )
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
+    http_cache_info = (
+        f" - Public Streams TTL: {settings.HTTP_CACHE_PUBLIC_STREAMS_TTL}s - Private Streams TTL: {settings.HTTP_CACHE_PRIVATE_STREAMS_TTL}s - Stale While Revalidate: {settings.HTTP_CACHE_STALE_WHILE_REVALIDATE}s"
+        if settings.HTTP_CACHE_ENABLED
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"HTTP Cache: {bool(settings.HTTP_CACHE_ENABLED)}{http_cache_info}",
+    )
+
     background_scraper_display = (
         f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN}"
         if settings.BACKGROUND_SCRAPER_ENABLED
