@@ -16,12 +16,47 @@ from comet.services.anime import anime_mapper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
 from comet.services.orchestration import TorrentManager
+from comet.utils.cache import (CachedJSONResponse, CachePolicies,
+                               check_etag_match, generate_etag,
+                               not_modified_response)
 from comet.utils.formatting import (format_chilllink, format_title,
                                     get_formatted_components)
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
 
 streams = APIRouter()
+
+
+def _build_stream_response(
+    request: Request,
+    content: dict,
+    is_public: bool = False,
+    vary_headers: list = None,
+):
+    if not settings.HTTP_CACHE_ENABLED:
+        return content
+
+    etag = generate_etag(content)
+
+    if check_etag_match(request, etag):
+        return not_modified_response(etag)
+
+    if is_public:
+        cache_policy = CachePolicies.public_torrents()
+        vary = ["Accept", "Accept-Encoding"]
+    else:
+        cache_policy = CachePolicies.private_streams()
+        vary = ["Accept", "Accept-Encoding", "Authorization"]
+
+    if vary_headers:
+        vary.extend(vary_headers)
+
+    return CachedJSONResponse(
+        content=content,
+        cache_control=cache_policy,
+        etag=etag,
+        vary=list(set(vary)),
+    )
 
 
 async def is_first_search(media_id: str):
@@ -138,17 +173,23 @@ async def stream(
     b64config: str = None,
     chilllink: bool = False,
 ):
+    is_public_request = b64config is None
+
     if media_type not in ["movie", "series"]:
-        return {"streams": []}
+        return _build_stream_response(
+            request, {"streams": []}, is_public=is_public_request
+        )
 
     if "tmdb:" in media_id:
-        return {"streams": []}
+        return _build_stream_response(
+            request, {"streams": []}, is_public=is_public_request
+        )
 
     media_id = media_id.replace("imdb_id:", "")
 
     config = config_check(b64config)
     if not config:
-        return {
+        error_response = {
             "streams": [
                 {
                     "name": "[❌] Comet",
@@ -157,6 +198,7 @@ async def stream(
                 }
             ]
         }
+        return error_response
 
     is_torrent = config["debridService"] == "torrent"
     if settings.DISABLE_TORRENT_STREAMS and is_torrent:
@@ -167,7 +209,9 @@ async def stream(
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
 
-        return {"streams": [placeholder_stream]}
+        return _build_stream_response(
+            request, {"streams": [placeholder_stream]}, is_public=is_public_request
+        )
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -183,15 +227,19 @@ async def stream(
 
             if not is_released:
                 logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
-                return {
-                    "streams": [
-                        {
-                            "name": "[🚫] Comet",
-                            "description": "Content not digitally released yet.",
-                            "url": "https://comet.feels.legal",
-                        }
-                    ]
-                }
+                return _build_stream_response(
+                    request,
+                    {
+                        "streams": [
+                            {
+                                "name": "[🚫] Comet",
+                                "description": "Content not digitally released yet.",
+                                "url": "https://comet.feels.legal",
+                            }
+                        ]
+                    },
+                    is_public=is_public_request,
+                )
 
         # Check if metadata is already cached
         cached_metadata = await metadata_scraper.get_from_cache_by_media_id(
@@ -593,6 +641,14 @@ async def stream(
                 non_cached_results.append(the_stream)
 
         if sort_mixed:
-            return {"streams": cached_results}
+            return _build_stream_response(
+                request,
+                {"streams": cached_results},
+                is_public=is_public_request,
+            )
 
-        return {"streams": cached_results + non_cached_results}
+        return _build_stream_response(
+            request,
+            {"streams": cached_results + non_cached_results},
+            is_public=is_public_request,
+        )

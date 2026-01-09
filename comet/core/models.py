@@ -70,7 +70,7 @@ class AppSettings(BaseSettings):
     CATALOG_TIMEOUT: Optional[int] = 30
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Union[bool, str] = False
-    COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
+    COMET_URL: Union[str, List[str]] = "https://comet.feels.legal"
     SCRAPE_NYAA: Union[bool, str] = False
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
@@ -137,6 +137,10 @@ class AppSettings(BaseSettings):
     RATELIMIT_MAX_RETRIES: Optional[int] = 3
     RATELIMIT_RETRY_BASE_DELAY: Optional[float] = 1.0
     RTN_FILTER_DEBUG: Optional[bool] = False
+    HTTP_CACHE_ENABLED: Optional[bool] = False
+    HTTP_CACHE_PUBLIC_STREAMS_TTL: Optional[int] = 300
+    HTTP_CACHE_PRIVATE_STREAMS_TTL: Optional[int] = 60
+    HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):

@@ -6,6 +6,9 @@ from fastapi import APIRouter, Request
 from comet.core.config_validation import config_check
 from comet.core.models import settings
 from comet.debrid.manager import get_debrid_extension
+from comet.utils.cache import (CachedJSONResponse, CachePolicies,
+                               check_etag_match, generate_etag,
+                               not_modified_response)
 
 router = APIRouter()
 
@@ -53,5 +56,19 @@ async def manifest(request: Request, b64config: str = None):
     base_manifest["name"] = (
         f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension != 'TORRENT' else ''}"
     )
+
+    if settings.HTTP_CACHE_ENABLED:
+        base_manifest_etag_data = base_manifest.copy()
+        base_manifest_etag_data.pop("id", None)
+        etag = generate_etag(base_manifest_etag_data)
+        if check_etag_match(request, etag):
+            return not_modified_response(etag)
+
+        return CachedJSONResponse(
+            content=base_manifest,
+            cache_control=CachePolicies.manifest(),
+            etag=etag,
+            vary=["Accept", "Accept-Encoding"],
+        )
 
     return base_manifest
