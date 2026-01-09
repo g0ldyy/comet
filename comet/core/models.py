@@ -70,7 +70,7 @@ class AppSettings(BaseSettings):
     CATALOG_TIMEOUT: Optional[int] = 30
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Union[bool, str] = False
-    COMET_URL: Union[str, List[str]] = "https://comet.elfhosted.com"
+    COMET_URL: Union[str, List[str]] = "https://comet.feels.legal"
     SCRAPE_NYAA: Union[bool, str] = False
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
@@ -120,7 +120,7 @@ class AppSettings(BaseSettings):
     TORRENT_DISABLED_STREAM_DESCRIPTION: Optional[str] = (
         "Direct torrent playback is disabled on this server."
     )
-    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.looks.legal"
+    TORRENT_DISABLED_STREAM_URL: Optional[str] = "https://comet.feels.legal"
     PUBLIC_BASE_URL: Optional[str] = None
     REMOVE_ADULT_CONTENT: Optional[bool] = False
     BACKGROUND_SCRAPER_ENABLED: Optional[bool] = False
@@ -128,8 +128,8 @@ class AppSettings(BaseSettings):
     BACKGROUND_SCRAPER_INTERVAL: Optional[int] = 3600
     BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN: Optional[int] = 100
     BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN: Optional[int] = 100
-    ANIME_MAPPING_SOURCE: Optional[str] = "database"
-    ANIME_MAPPING_REFRESH_INTERVAL: Optional[int] = 86400
+    ANIME_MAPPING_ENABLED: Optional[bool] = True
+    ANIME_MAPPING_REFRESH_INTERVAL: Optional[int] = 432000
     DIGITAL_RELEASE_FILTER: Optional[bool] = False
     TMDB_READ_ACCESS_TOKEN: Optional[str] = None
     GLOBAL_PROXY_URL: Optional[str] = None
@@ -137,21 +137,16 @@ class AppSettings(BaseSettings):
     RATELIMIT_MAX_RETRIES: Optional[int] = 3
     RATELIMIT_RETRY_BASE_DELAY: Optional[float] = 1.0
     RTN_FILTER_DEBUG: Optional[bool] = False
+    HTTP_CACHE_ENABLED: Optional[bool] = False
+    HTTP_CACHE_PUBLIC_STREAMS_TTL: Optional[int] = 300
+    HTTP_CACHE_PRIVATE_STREAMS_TTL: Optional[int] = 60
+    HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
         if v is not None and v.lower() == "none":
             return None
         return v
-
-    @field_validator("ANIME_MAPPING_SOURCE")
-    def normalize_anime_mapping_source(cls, v):
-        if not v:
-            return "remote"
-        normalized = v.strip().lower()
-        if normalized not in {"remote", "database"}:
-            raise ValueError("ANIME_MAPPING_SOURCE must be 'remote' or 'database'")
-        return normalized
 
     @field_validator("DATABASE_TYPE", mode="before")
     def normalize_database_type(cls, v):
@@ -760,7 +755,7 @@ web_config = {
 }
 
 
-def _build_database_instance(raw_url: str) -> Database:
+def _build_database_instance(raw_url: str):
     driver = "sqlite" if settings.DATABASE_TYPE == "sqlite" else "postgresql+asyncpg"
     prefix = "/" if settings.DATABASE_TYPE == "sqlite" else ""
     return Database(f"{driver}://{prefix}{raw_url}")

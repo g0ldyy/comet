@@ -328,7 +328,7 @@ class BackgroundScraperWorker:
 
     async def _scrape_movie(self, media_id: str, title: str, year: int):
         metadata, aliases = await self.metadata_scraper.fetch_aliases_with_metadata(
-            "movie", media_id, title, year
+            "movie", media_id, title, year, id=media_id
         )
 
         manager = TorrentManager(
@@ -359,7 +359,7 @@ class BackgroundScraperWorker:
         series_media_id = f"{media_id}:1:1"
 
         metadata, aliases = await self.metadata_scraper.fetch_aliases_with_metadata(
-            "series", series_media_id, title, year, year_end
+            "series", series_media_id, title, year, year_end, id=media_id
         )
 
         for episode in episodes:

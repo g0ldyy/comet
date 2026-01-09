@@ -16,7 +16,7 @@ class StremthruScraper(BaseScraper):
         try:
             media_id = request.media_only_id
             if "kitsu" in request.media_id:
-                imdb_id = anime_mapper.get_imdb_from_kitsu(int(media_id))
+                imdb_id = await anime_mapper.get_imdb_from_kitsu(int(media_id))
                 if imdb_id:
                     media_id = imdb_id
 

@@ -12,15 +12,51 @@ from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
+from comet.services.anime import anime_mapper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
 from comet.services.orchestration import TorrentManager
+from comet.utils.cache import (CachedJSONResponse, CachePolicies,
+                               check_etag_match, generate_etag,
+                               not_modified_response)
 from comet.utils.formatting import (format_chilllink, format_title,
                                     get_formatted_components)
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
 
 streams = APIRouter()
+
+
+def _build_stream_response(
+    request: Request,
+    content: dict,
+    is_public: bool = False,
+    vary_headers: list = None,
+):
+    if not settings.HTTP_CACHE_ENABLED:
+        return content
+
+    etag = generate_etag(content)
+
+    if check_etag_match(request, etag):
+        return not_modified_response(etag)
+
+    if is_public:
+        cache_policy = CachePolicies.public_torrents()
+        vary = ["Accept", "Accept-Encoding"]
+    else:
+        cache_policy = CachePolicies.private_streams()
+        vary = ["Accept", "Accept-Encoding", "Authorization"]
+
+    if vary_headers:
+        vary.extend(vary_headers)
+
+    return CachedJSONResponse(
+        content=content,
+        cache_control=cache_policy,
+        etag=etag,
+        vary=list(set(vary)),
+    )
 
 
 async def is_first_search(media_id: str):
@@ -137,27 +173,35 @@ async def stream(
     b64config: str = None,
     chilllink: bool = False,
 ):
+    is_public_request = b64config is None
+
     if media_type not in ["movie", "series"]:
-        return {"streams": []}
+        return _build_stream_response(
+            request, {"streams": []}, is_public=is_public_request
+        )
 
     if "tmdb:" in media_id:
-        return {"streams": []}
+        return _build_stream_response(
+            request, {"streams": []}, is_public=is_public_request
+        )
 
     media_id = media_id.replace("imdb_id:", "")
 
     config = config_check(b64config)
     if not config:
-        return {
+        error_response = {
             "streams": [
                 {
                     "name": "[❌] Comet",
                     "description": f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️",
-                    "url": "https://comet.looks.legal",
+                    "url": "https://comet.feels.legal",
                 }
             ]
         }
+        return error_response
 
-    if settings.DISABLE_TORRENT_STREAMS and config["debridService"] == "torrent":
+    is_torrent = config["debridService"] == "torrent"
+    if settings.DISABLE_TORRENT_STREAMS and is_torrent:
         placeholder_stream = {
             "name": settings.TORRENT_DISABLED_STREAM_NAME,
             "description": settings.TORRENT_DISABLED_STREAM_DESCRIPTION,
@@ -165,7 +209,9 @@ async def stream(
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
 
-        return {"streams": [placeholder_stream]}
+        return _build_stream_response(
+            request, {"streams": [placeholder_stream]}, is_public=is_public_request
+        )
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -181,19 +227,23 @@ async def stream(
 
             if not is_released:
                 logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
-                return {
-                    "streams": [
-                        {
-                            "name": "[🚫] Comet",
-                            "description": "Content not digitally released yet.",
-                            "url": "https://comet.looks.legal",
-                        }
-                    ]
-                }
+                return _build_stream_response(
+                    request,
+                    {
+                        "streams": [
+                            {
+                                "name": "[🚫] Comet",
+                                "description": "Content not digitally released yet.",
+                                "url": "https://comet.feels.legal",
+                            }
+                        ]
+                    },
+                    is_public=is_public_request,
+                )
 
         # Check if metadata is already cached
-        cached_metadata = await metadata_scraper.get_cached(
-            id, season if "kitsu" not in media_id else 1, episode
+        cached_metadata = await metadata_scraper.get_from_cache_by_media_id(
+            media_id, id, season, episode
         )
 
         # Quick check for "fresh" cached torrents to decide if we need to re-scrape.
@@ -239,7 +289,7 @@ async def stream(
         cache_is_stale = fresh_cached_count == 0
 
         # If both metadata and fresh torrents are cached, skip lock entirely
-        if cached_metadata is not None and fresh_cached_count > 0:
+        if cached_metadata is not None and not cache_is_stale:
             logger.log("SCRAPER", f"🚀 Fast path: using cached data for {media_id}")
             metadata, aliases = cached_metadata[0], cached_metadata[1]
             # Variables for fast path
@@ -264,14 +314,14 @@ async def stream(
                 waited_for_other_scrape = True
 
                 # After waiting, re-check cached metadata
-                cached_metadata = await metadata_scraper.get_cached(
-                    id, season if "kitsu" not in media_id else 1, episode
+                cached_metadata = await metadata_scraper.get_from_cache_by_media_id(
+                    media_id, id, season, episode
                 )
 
             if lock_acquired:
                 # We have the lock, scrape metadata normally
                 metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                    media_type, media_id
+                    media_type, media_id, id, season, episode
                 )
             elif cached_metadata is not None:
                 # Use cached metadata after waiting
@@ -279,7 +329,7 @@ async def stream(
             else:
                 # No cached metadata available, fallback to scraping
                 metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                    media_type, media_id
+                    media_type, media_id, id, season, episode
                 )
         if metadata is None:
             if lock_acquired and scrape_lock:
@@ -290,7 +340,7 @@ async def stream(
                     {
                         "name": "[⚠️] Comet",
                         "description": "Unable to get metadata.",
-                        "url": "https://comet.looks.legal",
+                        "url": "https://comet.feels.legal",
                     }
                 ]
             }
@@ -307,7 +357,6 @@ async def stream(
 
         logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
 
-        id, season, episode = parse_media_id(media_type, media_id)
         media_only_id = id
 
         debrid_service = config["debridService"]
@@ -317,6 +366,28 @@ async def stream(
             config["debridApiKey"],
             get_client_ip(request),
         )
+
+        is_kitsu = media_id.startswith("kitsu:")
+        search_episode = episode
+        search_season = season
+
+        if is_kitsu and episode is not None:
+            kitsu_mapping = anime_mapper.get_kitsu_episode_mapping(id)
+            if kitsu_mapping:
+                from_episode = kitsu_mapping.get("from_episode")
+                from_season = kitsu_mapping.get("from_season")
+                if from_episode:
+                    new_episode = from_episode + episode - 1
+                    if new_episode != episode:
+                        search_episode = new_episode
+
+                if from_season and from_season != season:
+                    search_season = from_season
+                if search_season != season or search_episode != episode:
+                    logger.log(
+                        "SCRAPER",
+                        f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
+                    )
 
         torrent_manager = TorrentManager(
             debrid_service,
@@ -332,6 +403,9 @@ async def stream(
             episode,
             aliases,
             settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
+            is_kitsu=is_kitsu,
+            search_episode=search_episode,
+            search_season=search_season,
         )
 
         await torrent_manager.get_cached_torrents()
@@ -342,7 +416,7 @@ async def stream(
         is_first = await is_first_search(media_id)
         has_cached_results = len(torrent_manager.torrents) > 0
 
-        sort_mixed = config["sortCachedUncachedTogether"]
+        sort_mixed = is_torrent or config["sortCachedUncachedTogether"]
         cached_results = []
         non_cached_results = []
 
@@ -380,7 +454,7 @@ async def stream(
                             {
                                 "name": "[🔄] Comet",
                                 "description": "Scraping in progress by another instance, please try again in a few seconds...",
-                                "url": "https://comet.looks.legal",
+                                "url": "https://comet.feels.legal",
                             }
                         ]
                     }
@@ -396,7 +470,7 @@ async def stream(
                     {
                         "name": "[🔄] Comet",
                         "description": "First search for this media - More results will be available in a few seconds...",
-                        "url": "https://comet.looks.legal",
+                        "url": "https://comet.feels.legal",
                     }
                 )
             else:
@@ -458,7 +532,7 @@ async def stream(
                         {
                             "name": "[❌] Comet",
                             "description": e.display_message,
-                            "url": "https://comet.looks.legal",
+                            "url": "https://comet.feels.legal",
                         }
                     ]
                 }
@@ -500,7 +574,7 @@ async def stream(
                 {
                     "name": "[⚠️] Comet",
                     "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
-                    "url": "https://comet.looks.legal",
+                    "url": "https://comet.feels.legal",
                 }
             )
 
@@ -517,11 +591,7 @@ async def stream(
             torrent = torrents[info_hash]
             rtn_data = torrent["parsed"]
 
-            debrid_emoji = (
-                "🧲"
-                if debrid_service == "torrent"
-                else ("⚡" if torrent["cached"] else "⬇️")
-            )
+            debrid_emoji = "🧲" if is_torrent else ("⚡" if torrent["cached"] else "⬇️")
 
             torrent_title = torrent["title"]
             formatted_components = get_formatted_components(
@@ -548,7 +618,7 @@ async def stream(
                     formatted_components, torrent["cached"]
                 )
 
-            if debrid_service == "torrent":
+            if is_torrent:
                 the_stream["infoHash"] = info_hash
 
                 if torrent["fileIndex"] is not None:
@@ -571,6 +641,14 @@ async def stream(
                 non_cached_results.append(the_stream)
 
         if sort_mixed:
-            return {"streams": cached_results}
+            return _build_stream_response(
+                request,
+                {"streams": cached_results},
+                is_public=is_public_request,
+            )
 
-        return {"streams": cached_results + non_cached_results}
+        return _build_stream_response(
+            request,
+            {"streams": cached_results + non_cached_results},
+            is_public=is_public_request,
+        )

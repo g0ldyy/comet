@@ -26,11 +26,11 @@ class ReplicaAwareDatabase:
         )
 
     @property
-    def has_replicas(self) -> bool:
+    def has_replicas(self):
         return bool(self._active_replicas)
 
     @property
-    def is_connected(self) -> bool:
+    def is_connected(self):
         return self._primary.is_connected
 
     async def connect(self):
@@ -86,7 +86,7 @@ class ReplicaAwareDatabase:
     ):
         return await self._run_read("fetch_val", force_primary, query, values, column)
 
-    def _should_use_primary(self, explicit_force: bool) -> bool:
+    def _should_use_primary(self, explicit_force: bool):
         if explicit_force or self._force_primary_context.get():
             return True
 
@@ -98,7 +98,7 @@ class ReplicaAwareDatabase:
 
         return False
 
-    def _next_replica(self) -> Database:
+    def _next_replica(self):
         replica = self._active_replicas[
             self._replica_index % len(self._active_replicas)
         ]

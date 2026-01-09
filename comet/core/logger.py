@@ -8,6 +8,7 @@ from loguru import logger
 from comet.core.execution import max_workers
 from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
                                    get_level_info)
+from comet.utils.parsing import associate_urls_credentials
 
 logging.getLogger("demagnetize").setLevel(
     logging.CRITICAL
@@ -157,8 +158,6 @@ def log_scraper_error(
 
 
 def log_startup_info(settings):
-    from comet.utils.parsing import associate_urls_credentials
-
     def get_urls_with_passwords(urls, passwords):
         url_credentials_pairs = associate_urls_credentials(urls, passwords)
 
@@ -215,9 +214,14 @@ def log_startup_info(settings):
                 "Use PostgreSQL for reliable background scraping."
             )
 
+    anime_mapping_refresh = (
+        f" - Refresh Interval: {settings.ANIME_MAPPING_REFRESH_INTERVAL}s"
+        if settings.ANIME_MAPPING_ENABLED
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Anime Mapping: source={settings.ANIME_MAPPING_SOURCE} - refresh_interval={settings.ANIME_MAPPING_REFRESH_INTERVAL}s",
+        f"Anime Mapping: {settings.ANIME_MAPPING_ENABLED}{anime_mapping_refresh}",
     )
 
     logger.log(
@@ -430,6 +434,16 @@ def log_startup_info(settings):
         f"TMDB Read Access Token: {settings.TMDB_READ_ACCESS_TOKEN if settings.TMDB_READ_ACCESS_TOKEN else 'Shared'}",
     )
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
+
+    http_cache_info = (
+        f" - Public Streams TTL: {settings.HTTP_CACHE_PUBLIC_STREAMS_TTL}s - Private Streams TTL: {settings.HTTP_CACHE_PRIVATE_STREAMS_TTL}s - Stale While Revalidate: {settings.HTTP_CACHE_STALE_WHILE_REVALIDATE}s"
+        if settings.HTTP_CACHE_ENABLED
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"HTTP Cache: {bool(settings.HTTP_CACHE_ENABLED)}{http_cache_info}",
+    )
 
     background_scraper_display = (
         f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN}"

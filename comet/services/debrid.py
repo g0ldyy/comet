@@ -54,6 +54,8 @@ class DebridService:
                 continue
 
             info_hash = file["info_hash"]
+            if info_hash not in torrents:
+                continue
             torrents[info_hash]["cached"] = True
 
             debrid_parsed = file["parsed"]
@@ -80,7 +82,7 @@ class DebridService:
         for hash in info_hashes:
             torrents[hash]["cached"] = False
 
-        if self.debrid_service == "torrent" or len(torrents) == 0:
+        if len(torrents) == 0:
             return
 
         rows = await get_cached_availability(
@@ -91,13 +93,24 @@ class DebridService:
             info_hash = row["info_hash"]
             torrents[info_hash]["cached"] = True
 
-            if row["parsed"] is not None:
-                torrents[info_hash]["parsed"] = ParsedData(
-                    **orjson.loads(row["parsed"])
-                )
             if row["file_index"] is not None:
-                torrents[info_hash]["fileIndex"] = row["file_index"]
-            if row["title"] is not None:
-                torrents[info_hash]["title"] = row["title"]
+                try:
+                    torrents[info_hash]["fileIndex"] = int(row["file_index"])
+                except ValueError:
+                    pass
+
             if row["size"] is not None:
                 torrents[info_hash]["size"] = row["size"]
+
+            # Only update title/parsed if the cached file has resolution info
+            # Otherwise keep the original torrent info which may have better quality data
+            # E.g. torrent "[Group] Show S01 1080p" vs file "Show - 02.mkv"
+            if row["parsed"] is not None:
+                cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
+                if (
+                    cached_parsed.resolution != "unknown"
+                    or torrents[info_hash]["parsed"].resolution == "unknown"
+                ):
+                    torrents[info_hash]["parsed"] = cached_parsed
+                    if row["title"] is not None:
+                        torrents[info_hash]["title"] = row["title"]

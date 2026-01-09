@@ -11,7 +11,8 @@ from comet.core.models import database, settings
 from comet.debrid.manager import get_debrid
 from comet.metadata.manager import MetadataScraper
 from comet.services.streaming.manager import custom_handle_stream_request
-from comet.utils.network import NO_CACHE_HEADERS, get_client_ip
+from comet.utils.cache import NO_CACHE_HEADERS
+from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_optional_int
 
 router = APIRouter()

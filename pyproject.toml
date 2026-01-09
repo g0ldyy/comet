@@ -25,4 +25,5 @@ dependencies = [
     "python-multipart",
     "rank-torrent-name",
     "uvicorn",
+    "xxhash",
 ]

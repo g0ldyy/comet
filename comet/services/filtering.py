@@ -1,4 +1,4 @@
-from RTN import parse, title_match
+from RTN import normalize_title, parse, title_match
 
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -13,12 +13,22 @@ else:
         pass
 
 
+def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
+    return any(alias in text_normalized for alias in ez_aliases_normalized)
+
+
 def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content):
     results = []
 
+    ez_aliases = aliases.get("ez", [])
+    if ez_aliases:
+        ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
+
     for torrent in torrents:
         torrent_title = torrent["title"]
-        if "sample" in torrent_title.lower() or torrent_title == "":
+        torrent_title_lower = torrent_title.lower()
+
+        if "sample" in torrent_title_lower or torrent_title == "":
             _log_exclusion(f"🚫 Rejected (Sample/Empty) | {torrent_title}")
             continue
 
@@ -28,13 +38,19 @@ def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content
             _log_exclusion(f"🔞 Rejected (Adult) | {torrent_title}")
             continue
 
-        if not parsed.parsed_title or not title_match(
-            title, parsed.parsed_title, aliases=aliases
-        ):
-            _log_exclusion(
-                f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
-            )
+        if not parsed.parsed_title:
+            _log_exclusion(f"❌ Rejected (No Parsed Title) | {torrent_title}")
             continue
+
+        alias_matched = ez_aliases and quick_alias_match(
+            normalize_title(torrent_title), ez_aliases_normalized
+        )
+        if not alias_matched:
+            if not title_match(title, parsed.parsed_title, aliases=aliases):
+                _log_exclusion(
+                    f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
+                )
+                continue
 
         if year and parsed.year:
             if year_end is not None:

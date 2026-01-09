@@ -2,13 +2,14 @@ import asyncio
 from urllib.parse import quote, unquote
 
 import aiohttp
-from RTN import parse, title_match
+from RTN import normalize_title, parse, title_match
 
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.exceptions import DebridAuthError
 from comet.services.debrid_cache import cache_availability
+from comet.services.filtering import quick_alias_match
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.parsing import is_video
 
@@ -217,6 +218,18 @@ class StremThru:
         sources: list = None,
         aliases: dict = None,
     ):
+        """
+        Smart file selection algorithm with scoring system.
+
+        Priority order (highest to lowest):
+        1. Exact season + episode match with single episode file (+1000)
+        2. Exact season + episode match with multi-episode file (+500)
+        3. Episode match without season info (+200)
+        4. Exact filename match with requested torrent_name (+100)
+        5. Title alias match (+50)
+        6. Index match from original selection (+25)
+        7. Fallback: largest video file (+file_size as tiebreaker)
+        """
         try:
             magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name)}"
 
@@ -236,81 +249,169 @@ class StremThru:
             name = unquote(name)
             torrent_name = unquote(torrent_name)
 
-            name_parsed = parse(name)
-            target_file = None
+            ez_aliases = aliases.get("ez", [])
+            if ez_aliases:
+                ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
 
             debrid_files = magnet["data"]["files"]
-            debrid_files_parsed = []
-            files = []
+
+            # Filter to video files only, excluding samples
+            video_files = []
+            filenames_to_parse = []
             for file in debrid_files:
                 filename = file["name"]
+                filename_lower = filename.lower()
 
-                if "sample" in filename.lower():
+                if "sample" in filename_lower:
                     continue
-
                 if not is_video(filename):
                     continue
 
-                filename_parsed = parse(filename)
+                video_files.append(file)
+                filenames_to_parse.append(filename)
 
-                file_season = (
-                    filename_parsed.seasons[0] if filename_parsed.seasons else None
-                )
-                file_episode = (
-                    filename_parsed.episodes[0] if filename_parsed.episodes else None
-                )
-                file_index = file["index"] if file["index"] != -1 else None
-                file_size = file["size"] if file["size"] != -1 else None
+            if not video_files:
+                logger.warning(f"No video files found in torrent {hash}")
+                return
 
-                file = {
-                    "index": file_index,
-                    "title": filename,
-                    "size": file_size,
-                    "season": file_season,
-                    "episode": file_episode,
-                    "link": file.get("link", None),
-                }
+            loop = asyncio.get_running_loop()
+            parsed_results = await loop.run_in_executor(
+                get_executor(), batch_parse, filenames_to_parse
+            )
 
-                debrid_files_parsed.append(file)
+            scored_files = []
 
-                if not filename_parsed.parsed_title or not title_match(
-                    name_parsed.parsed_title,
-                    filename_parsed.parsed_title,
-                    aliases=aliases,
-                ):
+            for file, filename, parsed in zip(
+                video_files, filenames_to_parse, parsed_results
+            ):
+                file_index = file["index"] if file.get("index", -1) != -1 else None
+                file_size = file["size"] if file.get("size", -1) != -1 else 0
+                file_link = file.get("link")
+
+                if not file_link:
                     continue
 
-                file["info_hash"] = hash
-                file["parsed"] = filename_parsed
-                files.append(file)
+                file_season = parsed.seasons[0] if parsed.seasons else None
+                file_episode = parsed.episodes[0] if parsed.episodes else None
 
-            for file in debrid_files_parsed:
-                if file["title"] == torrent_name:
-                    target_file = file
-                    break
+                # Calculate score
+                score = 0
+                match_reason = []
 
-                if season == file["season"] and episode == file["episode"]:
-                    target_file = file
-                    break
+                # Season + Episode matching (highest priority)
+                if season is not None and episode is not None:
+                    season_matches = (not parsed.seasons) or (season in parsed.seasons)
+                    episode_matches = parsed.episodes and episode in parsed.episodes
 
-            if not target_file:
-                for file in files:
-                    if str(file["index"]) == index:
-                        target_file = file
-                        break
+                    if season_matches and episode_matches:
+                        if len(parsed.episodes) == 1:
+                            score += 1000  # Perfect single episode match
+                            match_reason.append("exact_episode")
+                        else:
+                            score += 500  # Multi-episode file containing our episode
+                            match_reason.append("multi_episode")
+                    elif episode_matches:
+                        score += 200  # Episode matches but season doesn't
+                        match_reason.append("episode_only")
 
-            if len(files) > 0:
-                asyncio.create_task(cache_availability(self.real_debrid_name, files))
+                # Exact filename match
+                if filename == torrent_name:
+                    score += 100
+                    match_reason.append("exact_name")
 
-            if not target_file and len(debrid_files) > 0:
-                files_with_link = [
-                    file for file in debrid_files if file.get("link", None)
-                ]
-                if len(files_with_link) > 0:
-                    target_file = max(files_with_link, key=lambda x: x["size"])
+                # Title/alias matching
+                if parsed.parsed_title:
+                    # Quick alias match first
+                    if ez_aliases and quick_alias_match(
+                        normalize_title(filename), ez_aliases_normalized
+                    ):
+                        score += 50
+                        match_reason.append("alias")
+                    elif title_match(name, parsed.parsed_title, aliases=aliases):
+                        score += 50
+                        match_reason.append("title")
 
-            if not target_file:
+                # Index match from original selection
+                if file_index is not None and str(file_index) == str(index):
+                    score += 25
+                    match_reason.append("index")
+
+                # Use file size as tiebreaker (larger files preferred)
+                # Normalize to 0-10 range to not overwhelm other scores
+                size_score = min(
+                    file_size / (10 * 1024 * 1024 * 1024), 10
+                )  # Cap at 10GB
+                score += size_score
+
+                enriched_file = {
+                    "index": file_index,
+                    "title": filename,
+                    "size": file_size if file_size > 0 else None,
+                    "season": file_season,
+                    "episode": file_episode,
+                    "link": file_link,
+                    "parsed": parsed,
+                    "score": score,
+                    "match_reason": match_reason,
+                }
+
+                scored_files.append(enriched_file)
+
+            if not scored_files:
+                logger.log(
+                    "PLAYBACK",
+                    f"No valid video files with links found in torrent {hash}",
+                )
                 return
+
+            # Sort by score descending
+            scored_files.sort(key=lambda x: x["score"], reverse=True)
+
+            # Select best file
+            target_file = scored_files[0]
+
+            logger.log(
+                "PLAYBACK",
+                f"File selection for {hash}: selected '{target_file['title']}' "
+                f"(score={target_file['score']:.1f}, reasons={target_file['match_reason']}) "
+                f"from {len(scored_files)} candidates",
+            )
+
+            all_files_for_cache = []
+
+            for f in scored_files:
+                if f["season"] is not None or f["episode"] is not None:
+                    all_files_for_cache.append(
+                        {
+                            "info_hash": hash,
+                            "index": f["index"],
+                            "title": f["title"],
+                            "size": f["size"],
+                            "season": f["season"] or season,
+                            "episode": f["episode"],
+                            "parsed": f["parsed"],
+                        }
+                    )
+
+            # Also ensure the selected file is cached with the REQUESTED season/episode
+            # This handles cases where filename doesn't contain S/E info but user requested it
+            if season is not None or episode is not None:
+                all_files_for_cache.append(
+                    {
+                        "info_hash": hash,
+                        "index": target_file["index"],
+                        "title": target_file["title"],
+                        "size": target_file["size"],
+                        "season": season,
+                        "episode": episode,
+                        "parsed": target_file["parsed"],
+                    }
+                )
+
+            if all_files_for_cache:
+                asyncio.create_task(
+                    cache_availability(self.real_debrid_name, all_files_for_cache)
+                )
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",

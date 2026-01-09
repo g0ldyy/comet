@@ -10,7 +10,7 @@ from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.services.streaming.wrapper import monitored_handle_stream_request
-from comet.utils.network import NO_CACHE_HEADERS
+from comet.utils.cache import NO_CACHE_HEADERS
 
 
 async def on_stream_end(connection_id: str, ip: str):

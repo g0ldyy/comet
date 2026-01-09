@@ -3,12 +3,14 @@ import base64
 import hashlib
 import re
 import time
+from asyncio import QueueEmpty
 from collections import defaultdict
 from urllib.parse import unquote
 
 import anyio
 import bencodepy
 import orjson
+import xxhash
 from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
 from torf import Magnet
@@ -125,48 +127,34 @@ async def add_torrent(
     parsed: ParsedData,
 ):
     try:
-        parsed_season = parsed.seasons[0] if parsed.seasons else search_season
-        parsed_episode = parsed.episodes[0] if parsed.episodes else None
+        seasons_to_process = parsed.seasons if parsed.seasons else [search_season]
+        parsed_episodes = parsed.episodes if parsed.episodes else [None]
 
-        if parsed_episode is not None:
-            await database.execute(
-                """
-                DELETE FROM torrents
-                WHERE info_hash = :info_hash
-                AND season = :season 
-                AND episode IS NULL
-                """,
+        episode_to_insert = parsed_episodes[0] if len(parsed_episodes) == 1 else None
+
+        for season in seasons_to_process:
+            await _upsert_torrent_record(
                 {
+                    "media_id": media_id,
                     "info_hash": info_hash,
-                    "season": parsed_season,
-                },
+                    "file_index": file_index,
+                    "season": season,
+                    "episode": episode_to_insert,
+                    "title": title,
+                    "seeders": seeders,
+                    "size": size,
+                    "tracker": tracker,
+                    "sources": orjson.dumps(sources).decode("utf-8"),
+                    "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
+                    "timestamp": time.time(),
+                }
             )
-            logger.log(
-                "SCRAPER",
-                f"Deleted season-only entry for S{parsed_season:02d} of {info_hash}",
-            )
-
-        await _upsert_torrent_record(
-            {
-                "media_id": media_id,
-                "info_hash": info_hash,
-                "file_index": file_index,
-                "season": parsed_season,
-                "episode": parsed_episode,
-                "title": title,
-                "seeders": seeders,
-                "size": size,
-                "tracker": tracker,
-                "sources": orjson.dumps(sources).decode("utf-8"),
-                "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-                "timestamp": time.time(),
-            }
-        )
 
         additional = ""
-        if parsed_season:
-            additional += f" - S{parsed_season:02d}"
-            additional += f"E{parsed_episode:02d}" if parsed_episode else ""
+        if seasons_to_process:
+            additional += f" - S{seasons_to_process[0]:02d}"
+            if parsed_episodes and parsed_episodes[0] is not None:
+                additional += f"E{parsed_episodes[0]:02d}"
 
         logger.log("SCRAPER", f"Added torrent for {media_id} - {title}{additional}")
     except Exception as e:
@@ -249,151 +237,164 @@ UPDATE_INTERVAL = (
 
 
 class TorrentUpdateQueue:
+    __slots__ = (
+        "queue",
+        "batch_size",
+        "flush_interval",
+        "is_running",
+        "_lock",
+        "_event",
+        "upserts",
+        "_is_postgresql",
+        "_grouped_upserts",
+    )
+
     def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
         self.queue = asyncio.Queue()
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.is_running = False
-        self.batches = {"to_delete": set(), "upserts": {}}
+        self._lock = asyncio.Lock()
+        self._event = asyncio.Event()
+        self.upserts = {}
+        self._is_postgresql = settings.DATABASE_TYPE == "postgresql"
+        self._grouped_upserts = defaultdict(list)
 
     async def add_torrent_info(self, file_info: dict, media_id: str = None):
         await self.queue.put((file_info, media_id))
+        self._event.set()
+
         if not self.is_running:
-            self.is_running = True
-            asyncio.create_task(self._process_queue())
+            async with self._lock:
+                if not self.is_running:
+                    self.is_running = True
+                    asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
         last_flush_time = time.time()
 
-        while self.is_running:
-            try:
-                while not self.queue.empty():
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(
+                        self._event.wait(), timeout=self.flush_interval
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+                self._event.clear()
+
+                batch_time = time.time()
+                items_processed = 0
+                while True:
                     try:
                         file_info, media_id = self.queue.get_nowait()
-                        await self._process_file_info(file_info, media_id)
-                    except asyncio.QueueEmpty:
+                        self._process_file_info(file_info, media_id, batch_time)
+                        self.queue.task_done()
+                        items_processed += 1
+
+                        if len(self.upserts) >= self.batch_size:
+                            await self._flush_batch()
+                            last_flush_time = time.time()
+                            batch_time = last_flush_time
+                    except QueueEmpty:
                         break
 
                 current_time = time.time()
 
-                if (
+                if self.upserts and (
                     current_time - last_flush_time >= self.flush_interval
-                    or self.queue.empty()
-                ) and any(len(batch) > 0 for batch in self.batches.values()):
+                ):
                     await self._flush_batch()
                     last_flush_time = current_time
 
-                if self.queue.empty() and not any(
-                    len(batch) > 0 for batch in self.batches.values()
-                ):
-                    self.is_running = False
+                if self.queue.empty() and not self.upserts:
                     break
 
-                await asyncio.sleep(0.1)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.warning(f"Error in _process_queue: {e}")
-                self._reset_batches()
-
-        if any(len(batch) > 0 for batch in self.batches.values()):
-            await self._flush_batch()
-
-        self.is_running = False
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"Error in _process_queue: {e}")
+        finally:
+            if self.upserts:
+                await self._flush_batch()
+            if self.is_running:
+                async with self._lock:
+                    self.is_running = False
 
     async def stop(self):
         self.is_running = False
+        self._event.set()
 
-        # Process remaining items in queue
-        while not self.queue.empty():
+        shutdown_time = time.time()
+        while True:
             try:
                 file_info, media_id = self.queue.get_nowait()
-                await self._process_file_info(file_info, media_id)
+                self._process_file_info(file_info, media_id, shutdown_time)
+            except QueueEmpty:
+                break
             except Exception as e:
                 logger.warning(
                     f"Error processing remaining queue items during shutdown: {e}"
                 )
                 break
 
-        # Flush any remaining batches
-        if any(len(batch) > 0 for batch in self.batches.values()):
+        if self.upserts:
             await self._flush_batch()
 
-    def _reset_batches(self):
-        for key, batch in self.batches.items():
-            if len(batch) > 0:
-                logger.warning(
-                    f"Ignoring {len(batch)} items in problematic '{key}' batch"
-                )
-                batch.clear()
-
     async def _flush_batch(self):
+        if not self.upserts:
+            return
+
+        upserts_to_flush = self.upserts
+        self.upserts = {}
+
         try:
-            if self.batches["to_delete"]:
-                delete_items = list(self.batches["to_delete"])
-                sub_batch_size = 100
-                for i in range(0, len(delete_items), sub_batch_size):
-                    try:
-                        sub_batch = delete_items[i : i + sub_batch_size]
+            grouped = self._grouped_upserts
+            for params in upserts_to_flush.values():
+                key = _determine_conflict_key(params["season"], params["episode"])
+                grouped[key].append(params)
 
-                        placeholders = []
-                        params = {}
-                        for idx, item in enumerate(sub_batch):
-                            info_hash, season = item
-                            key_suffix = f"_{idx}"
-                            placeholders.append(
-                                f"(CAST(:info_hash{key_suffix} AS TEXT), CAST(:season{key_suffix} AS INTEGER))"
-                            )
-                            params[f"info_hash{key_suffix}"] = info_hash
-                            params[f"season{key_suffix}"] = season
+            for key, rows in grouped.items():
+                query = _get_torrent_upsert_query(key)
+                try:
+                    await _execute_batched_upsert(query, rows)
+                except Exception as e:
+                    logger.warning(f"Error processing upsert batch: {e}")
 
-                        async with database.transaction():
-                            delete_query = f"""
-                                DELETE FROM torrents
-                                WHERE (info_hash, season) IN (
-                                    {",".join(placeholders)}
-                                )
-                                AND episode IS NULL
-                            """
-                            await database.execute(delete_query, params)
-                    except Exception as e:
-                        logger.warning(f"Error processing delete batch: {e}")
-
-                self.batches["to_delete"].clear()
-
-            if self.batches["upserts"]:
-                grouped: dict[str, list[dict]] = defaultdict(list)
-                for params in self.batches["upserts"].values():
-                    key = _determine_conflict_key(params["season"], params["episode"])
-                    grouped[key].append(params)
-
-                for key, rows in grouped.items():
-                    query = _get_torrent_upsert_query(key)
-                    try:
-                        await _execute_batched_upsert(query, rows)
-                    except Exception as e:
-                        logger.warning(f"Error processing upsert batch: {e}")
-
-                total_upserts = len(self.batches["upserts"])
-                if total_upserts > 0:
-                    logger.log(
-                        "SCRAPER",
-                        f"Upserted {total_upserts} torrents in batch",
-                    )
-                self.batches["upserts"].clear()
-
+            total_upserts = len(upserts_to_flush)
+            if total_upserts > 0:
+                logger.log(
+                    "SCRAPER",
+                    f"Upserted {total_upserts} torrents in batch",
+                )
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
-            self._reset_batches()
+        finally:
+            grouped.clear()
 
-    async def _process_file_info(self, file_info: dict, media_id: str = None):
+    def _process_file_info(
+        self, file_info: dict, media_id: str = None, current_time: float = None
+    ):
         try:
+            info_hash = file_info["info_hash"]
+            season = file_info["season"]
+            episode = file_info["episode"]
+
+            if current_time is None:
+                current_time = time.time()
+
+            upsert_key = (media_id, info_hash, season, episode)
+
+            existing = self.upserts.get(upsert_key)
+            if existing and existing["timestamp"] >= current_time:
+                return
+
             params = {
-                "info_hash": file_info["info_hash"],
+                "info_hash": info_hash,
                 "file_index": file_info["index"],
-                "season": file_info["season"],
-                "episode": file_info["episode"],
+                "season": season,
+                "episode": episode,
                 "title": file_info["title"],
                 "seeders": file_info["seeders"],
                 "size": file_info["size"],
@@ -402,46 +403,21 @@ class TorrentUpdateQueue:
                 "parsed": orjson.dumps(
                     file_info["parsed"], default=default_dump
                 ).decode("utf-8"),
-                "timestamp": time.time(),
+                "timestamp": current_time,
                 "media_id": media_id,
             }
 
-            if settings.DATABASE_TYPE == "postgresql":
+            if self._is_postgresql:
                 params["update_interval"] = UPDATE_INTERVAL
 
             params["lock_key"] = _compute_advisory_lock_key(
-                media_id,
-                file_info["info_hash"],
-                file_info["season"],
-                file_info["episode"],
+                media_id, info_hash, season, episode
             )
 
-            upsert_key = _build_upsert_key(
-                file_info["info_hash"],
-                file_info["season"],
-                file_info["episode"],
-                media_id,
-            )
+            self.upserts[upsert_key] = params
 
-            # In-memory deduplication: keep the freshest timestamp
-            existing = self.batches["upserts"].get(upsert_key)
-            if not existing or params["timestamp"] > existing["timestamp"]:
-                self.batches["upserts"][upsert_key] = params
-
-            if file_info["episode"] is not None:
-                self.batches["to_delete"].add(
-                    (file_info["info_hash"], file_info["season"])
-                )
-
-            await self._check_batch_size()
         except Exception as e:
             logger.warning(f"Error processing file info: {e}")
-        finally:
-            self.queue.task_done()
-
-    async def _check_batch_size(self):
-        if any(len(batch) >= self.batch_size for batch in self.batches.values()):
-            await self._flush_batch()
 
 
 TORRENT_INSERT_TEMPLATE = """
@@ -513,97 +489,70 @@ POSTGRES_CONFLICT_TARGETS = {
 _POSTGRES_UPSERT_CACHE: dict[str, str] = {}
 
 
-def _determine_conflict_key(season, episode) -> str:
-    if season is not None and episode is not None:
-        return "series"
+def _determine_conflict_key(season, episode):
     if season is not None:
-        return "season_only"
-    if episode is not None:
-        return "episode_only"
-    return "none"
+        return "series" if episode is not None else "season_only"
+    return "episode_only" if episode is not None else "none"
 
 
-def _build_upsert_key(info_hash, season, episode, media_id):
-    return (media_id, info_hash, season, episode)
+def _compute_advisory_lock_key(media_id, info_hash, season, episode):
+    payload = f"{media_id}|{info_hash}|{season}|{episode}"
+    return xxhash.xxh64_intdigest(payload, seed=0) - (1 << 63)
 
 
-def _compute_advisory_lock_key(media_id, info_hash, season, episode) -> int:
-    payload = f"{media_id}|{info_hash}|{season}|{episode}".encode("utf-8")
-    digest = hashlib.sha1(payload).digest()
-    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+_SQLITE_CHECK_COLS = frozenset(
+    ["file_index", "title", "seeders", "size", "tracker", "sources", "parsed"]
+)
 
 
 async def _execute_sqlite_batched_upsert(rows: list[dict]):
     if not rows:
         return
 
-    # Fetch relevant existing records to compare against
-    media_ids = list({row["media_id"] for row in rows if row.get("media_id")})
-    if not media_ids:
-        async with database.transaction():
-            await _execute_standard_sqlite_insert(rows)
+    info_hashes = {row["info_hash"] for row in rows}
+
+    if not info_hashes:
+        await _execute_standard_sqlite_insert(rows)
         return
 
-    placeholders = ",".join(f":mid{i}" for i in range(len(media_ids)))
-    params = {f"mid{i}": mid for i, mid in enumerate(media_ids)}
+    info_hashes_list = list(info_hashes)
+    chunk_size = 900
+    existing_rows = []
 
-    existing_rows = await database.fetch_all(
-        f"SELECT * FROM torrents WHERE media_id IN ({placeholders})", params
-    )
+    for i in range(0, len(info_hashes_list), chunk_size):
+        chunk = info_hashes_list[i : i + chunk_size]
+        placeholders = ",".join(f":ih{j}" for j in range(len(chunk)))
+        params = {f"ih{j}": ih for j, ih in enumerate(chunk)}
 
-    # Build lookup map: (media_id, info_hash, season, episode) -> row
-    existing_map = {}
-    for row in existing_rows:
-        key = (
-            row["media_id"],
-            row["info_hash"],
-            row["season"],
-            row["episode"],
+        chunk_rows = await database.fetch_all(
+            f"SELECT media_id, info_hash, season, episode, file_index, title, seeders, size, tracker, sources, parsed, timestamp FROM torrents WHERE info_hash IN ({placeholders})",
+            params,
         )
-        existing_map[key] = row
+        existing_rows.extend(chunk_rows)
 
-    # Filter in Python
+    existing_map = {
+        (row["media_id"], row["info_hash"], row["season"], row["episode"]): row
+        for row in existing_rows
+    }
+
+    if not existing_map:
+        await _execute_standard_sqlite_insert(rows)
+        return
+
     to_insert = []
-    # Columns to check for changes (everything except timestamp and lock_key/update_interval)
-    check_cols = [
-        "file_index",
-        "title",
-        "seeders",
-        "size",
-        "tracker",
-        "sources",
-        "parsed",
-    ]
-
     for row in rows:
-        key = (
-            row["media_id"],
-            row["info_hash"],
-            row["season"],
-            row["episode"],
-        )
+        key = (row["media_id"], row["info_hash"], row["season"], row["episode"])
         existing = existing_map.get(key)
 
         if not existing:
-            # New record
             to_insert.append(row)
             continue
 
-        # Check for data changes
-        changed = False
-        for col in check_cols:
-            # Simple equality check.
-            if row.get(col) != existing[col]:
-                changed = True
-                break
-
-        if changed:
+        if any(row.get(col) != existing[col] for col in _SQLITE_CHECK_COLS):
             to_insert.append(row)
             continue
 
-        # Check TTL
-        existing_ts = existing["timestamp"]
-        if existing_ts < (row["timestamp"] - UPDATE_INTERVAL):
+        if existing["timestamp"] < (row["timestamp"] - UPDATE_INTERVAL):
             to_insert.append(row)
 
     if to_insert:
@@ -620,7 +569,6 @@ async def _execute_standard_sqlite_insert(rows: list[dict]):
         VALUES ({", ".join(f":{col}" for col in columns)})
     """
 
-    # Retry logic for busy database
     for attempt in range(5):
         try:
             async with database.transaction():
@@ -652,15 +600,12 @@ async def _execute_batched_upsert(query: str, rows):
                     rows_to_insert.append(row)
                     continue
 
-                # Use transaction-level non-blocking lock
-                # This automatically releases at the end of the transaction
                 acquired = await database.fetch_val(
                     "SELECT pg_try_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
                     {"lock_key": lock_key},
                 )
                 if acquired:
                     rows_to_insert.append(row)
-                # If not acquired, skip this row - another replica is handling it
 
             if rows_to_insert:
                 sanitized_rows = [
@@ -674,7 +619,7 @@ async def _execute_batched_upsert(query: str, rows):
         logger.warning(f"Error executing batched upsert: {e}")
 
 
-def _get_torrent_upsert_query(conflict_key: str) -> str:
+def _get_torrent_upsert_query(conflict_key: str):
     if settings.DATABASE_TYPE == "sqlite":
         return SQLITE_UPSERT_QUERY
 
