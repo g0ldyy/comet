@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 import orjson
 from fastapi import Request, Response
-from fastapi.responses import JSONResponse
 
 from comet.core.models import settings
 
@@ -116,7 +115,7 @@ def check_etag_match(request: Request, etag: str):
     return False
 
 
-class CachedJSONResponse(JSONResponse):
+class CachedJSONResponse(Response):
     def __init__(
         self,
         content: Any,
@@ -127,18 +126,17 @@ class CachedJSONResponse(JSONResponse):
         **kwargs,
     ):
         body = orjson.dumps(content)
-
-        super().__init__(content=content, status_code=status_code, **kwargs)
-
-        self.body = body
+        super().__init__(
+            content=body,
+            status_code=status_code,
+            media_type="application/json",
+            **kwargs,
+        )
 
         if cache_control:
             self.headers["Cache-Control"] = cache_control.build()
 
-        if etag:
-            self.headers["ETag"] = etag
-        else:
-            self.headers["ETag"] = generate_etag(body)
+        self.headers["ETag"] = etag or generate_etag(body)
 
         if vary:
             self.headers["Vary"] = ", ".join(vary)
