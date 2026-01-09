@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
 from comet.core.models import settings, web_config
+from comet.utils.cache import CachePolicies
 
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
@@ -20,7 +21,7 @@ templates = Jinja2Templates("comet/templates")
     description="Renders the configuration page with existing configuration.",
 )
 async def configure(request: Request):
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "index.html",
         {
             "request": request,
@@ -32,3 +33,9 @@ async def configure(request: Request):
             "disableTorrentStreams": settings.DISABLE_TORRENT_STREAMS,
         },
     )
+
+    if settings.HTTP_CACHE_ENABLED:
+        response.headers["Cache-Control"] = CachePolicies.configure_page().build()
+        response.headers["Vary"] = "Accept, Accept-Encoding"
+
+    return response
