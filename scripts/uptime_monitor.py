@@ -66,7 +66,7 @@ async def check_instance(session: aiohttp.ClientSession, url: str) -> InstanceSt
 
     if manifest_ok:
         try:
-            async with session.get(f"{url}/e30=/stream/movie/{IMDB_ID}.json") as resp:
+            async with session.get(f"{url}/stream/movie/{IMDB_ID}.json") as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     streams = data.get("streams", [])

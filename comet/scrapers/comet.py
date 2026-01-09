@@ -11,7 +11,7 @@ class CometScraper(BaseScraper):
         torrents = []
         try:
             async with self.session.get(
-                f"{self.url}/e30=/stream/{request.media_type}/{request.media_id}.json",
+                f"{self.url}/stream/{request.media_type}/{request.media_id}.json",
             ) as response:
                 results = await response.json()
 
