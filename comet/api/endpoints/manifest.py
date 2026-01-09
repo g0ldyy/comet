@@ -58,7 +58,9 @@ async def manifest(request: Request, b64config: str = None):
     )
 
     if settings.HTTP_CACHE_ENABLED:
-        etag = generate_etag(base_manifest)
+        base_manifest_etag_data = base_manifest.copy()
+        base_manifest_etag_data.pop("id", None)
+        etag = generate_etag(base_manifest_etag_data)
         if check_etag_match(request, etag):
             return not_modified_response(etag)
 
