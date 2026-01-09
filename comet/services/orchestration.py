@@ -28,8 +28,10 @@ class TorrentManager:
         episode: int,
         aliases: dict,
         remove_adult_content: bool,
-        is_kitsu: bool = False,  # Kitsu treats each season as separate anime
-        context: str = "live",  # "live" or "background"
+        is_kitsu: bool = False,
+        context: str = "live",
+        search_episode: int | None = None,
+        search_season: int | None = None,
     ):
         self.debrid_service = debrid_service
         self.debrid_api_key = debrid_api_key
@@ -42,6 +44,8 @@ class TorrentManager:
         self.year_end = year_end
         self.season = season
         self.episode = episode
+        self.search_episode = search_episode if search_episode is not None else episode
+        self.search_season = search_season if search_season is not None else season
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
         self.is_kitsu = is_kitsu
@@ -64,8 +68,8 @@ class TorrentManager:
             title=self.title,
             year=self.year,
             year_end=self.year_end,
-            season=self.season,
-            episode=self.episode,
+            season=self.search_season,
+            episode=self.search_episode,
             context=self.context,
         )
 
@@ -81,7 +85,7 @@ class TorrentManager:
             )
 
             if self.is_kitsu:
-                if episode is not None and episode != self.episode:
+                if episode is not None and episode != self.search_episode:
                     continue
             else:
                 if (season is not None and season != self.season) or (
@@ -111,7 +115,7 @@ class TorrentManager:
                 """,
                 {
                     "media_id": self.media_only_id,
-                    "episode": self.episode,
+                    "episode": self.search_episode,
                 },
             )
         else:
@@ -136,7 +140,8 @@ class TorrentManager:
             parsed_data = ParsedData(**orjson.loads(row["parsed"]))
 
             if row["episode"] is None and parsed_data.episodes:
-                if self.episode not in parsed_data.episodes:
+                target_episode = self.search_episode if self.is_kitsu else self.episode
+                if target_episode not in parsed_data.episodes:
                     continue
 
             info_hash = row["info_hash"]

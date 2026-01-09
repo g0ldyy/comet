@@ -372,6 +372,18 @@ async def setup_database():
 
         await database.execute(
             """
+                CREATE TABLE IF NOT EXISTS kitsu_imdb_mapping (
+                    kitsu_id TEXT PRIMARY KEY,
+                    imdb_id TEXT,
+                    title TEXT,
+                    from_season INTEGER,
+                    from_episode INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
                 CREATE TABLE IF NOT EXISTS digital_release_cache (
                     media_id TEXT PRIMARY KEY,
                     release_date BIGINT,
