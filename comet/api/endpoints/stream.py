@@ -12,6 +12,7 @@ from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
+from comet.services.anime import anime_mapper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
 from comet.services.orchestration import TorrentManager
@@ -318,6 +319,25 @@ async def stream(
             get_client_ip(request),
         )
 
+        is_kitsu = media_id.startswith("kitsu:")
+        search_episode = episode
+        search_season = season
+
+        if is_kitsu and episode is not None:
+            kitsu_mapping = anime_mapper.get_kitsu_episode_mapping(id)
+            if kitsu_mapping:
+                from_episode = kitsu_mapping.get("from_episode")
+                from_season = kitsu_mapping.get("from_season")
+                if from_episode:
+                    search_episode = from_episode + episode - 1
+                if from_season:
+                    search_season = from_season
+                if from_episode or from_season:
+                    logger.log(
+                        "SCRAPER",
+                        f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
+                    )
+
         torrent_manager = TorrentManager(
             debrid_service,
             config["debridApiKey"],
@@ -332,7 +352,9 @@ async def stream(
             episode,
             aliases,
             settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
-            is_kitsu=media_id.startswith("kitsu:"),
+            is_kitsu=is_kitsu,
+            search_episode=search_episode,
+            search_season=search_season,
         )
 
         await torrent_manager.get_cached_torrents()
