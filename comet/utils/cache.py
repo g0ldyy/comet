@@ -204,6 +204,20 @@ class CachePolicies:
         return CacheControl().public().max_age(300).s_maxage(3600)
 
     @staticmethod
+    def empty_results():
+        """
+        For empty/temporary responses (no torrents found, processing, errors).
+        Short public cache to prevent spam while allowing quick retries.
+        """
+        return (
+            CacheControl()
+            .public()
+            .max_age(15)  # Browser cache 15 seconds
+            .s_maxage(30)  # CDN cache 30 seconds
+            .stale_if_error(60)  # Serve stale on error for 1 minute
+        )
+
+    @staticmethod
     def no_cache():
         """
         For responses that should never be cached.
