@@ -141,6 +141,8 @@ class AppSettings(BaseSettings):
     HTTP_CACHE_PUBLIC_STREAMS_TTL: Optional[int] = 300
     HTTP_CACHE_PRIVATE_STREAMS_TTL: Optional[int] = 60
     HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
+    HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400
+    HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):

@@ -187,21 +187,23 @@ class CachePolicies:
     def manifest():
         """
         For manifest.json responses.
-        Very short cache as it can change based on config.
+        Long cache as manifest rarely changes.
         """
-        return CacheControl().private().max_age(60).must_revalidate()
+        ttl = settings.HTTP_CACHE_MANIFEST_TTL
+        swr = settings.HTTP_CACHE_STALE_WHILE_REVALIDATE
+
+        return CacheControl().public().max_age(ttl).stale_while_revalidate(swr)
 
     @staticmethod
     def configure_page():
         """
         For the /configure page.
-        Cacheable if no custom HTML, otherwise private.
+        Long cache as the page is mostly static.
         """
+        ttl = settings.HTTP_CACHE_CONFIGURE_TTL
+        swr = settings.HTTP_CACHE_STALE_WHILE_REVALIDATE
 
-        if settings.CUSTOM_HEADER_HTML:
-            return CacheControl().private().max_age(300)
-
-        return CacheControl().public().max_age(300).s_maxage(3600)
+        return CacheControl().public().max_age(ttl).stale_while_revalidate(swr)
 
     @staticmethod
     def empty_results():

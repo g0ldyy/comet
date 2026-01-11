@@ -20,12 +20,23 @@ Cache the configuration page.
 *   **Action**: Eligible for Cache
 *   **Edge TTL**: Use cache-control header if present (first option)
 *   **Browser TTL**: Respect origin
+*   **Serve stale content while revalidating**: On
 
-## 3. Tiered Cache
+## 3. Manifest (Cache Rule)
+Cache the add-on manifest.
+
+*   **Rule Name**: Manifest
+*   **Expression**: `(http.request.uri.path contains "/manifest.json")`
+*   **Action**: Eligible for Cache
+*   **Edge TTL**: Use cache-control header if present (first option)
+*   **Browser TTL**: Respect origin
+*   **Serve stale content while revalidating**: On
+
+## 4. Tiered Cache
 Enable **Tiered Cache** in **Caching > Tiered Cache**.
 This minimizes requests to your origin by checking other Cloudflare datacenters first.
 
-## 4. Network Optimizations
+## 5. Network Optimizations
 In **Speed > Protocol**:
 
 *   **HTTP/3 (QUIC)**: On (faster connections, especially on mobile)
