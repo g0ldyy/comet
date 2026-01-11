@@ -33,8 +33,9 @@ _CACHE_INSERT_POSTGRESQL = """
 
 
 class MetadataScraper:
-    def __init__(self, session: aiohttp.ClientSession):
+    def __init__(self, session: aiohttp.ClientSession, config: dict = None):
         self.session = session
+        self.config = config or {}
         self._cache_insert_query = (
             _CACHE_INSERT_SQLITE
             if settings.DATABASE_TYPE == "sqlite"
@@ -45,7 +46,11 @@ class MetadataScraper:
         self, media_id: str, id: str, season: int | None, episode: int | None
     ):
         provider = self._extract_provider(media_id)
-        cache_id = f"{provider}:{id}" if provider else id
+        # For custom providers, use the full ID with prefix as cache_id
+        if provider and provider.startswith("custom:"):
+            cache_id = id  # id already contains prefix like "kbx3585128"
+        else:
+            cache_id = f"{provider}:{id}" if provider else id
         cache_season = 1 if provider == "kitsu" else season
 
         return await self.get_cached(cache_id, cache_season, episode)
@@ -62,7 +67,11 @@ class MetadataScraper:
             id, season, episode = parse_media_id(media_type, media_id)
 
         provider = self._extract_provider(media_id)
-        cache_id = f"{provider}:{id}" if provider else id
+        # For custom providers, use the full ID with prefix as cache_id
+        if provider and provider.startswith("custom:"):
+            cache_id = id  # id already contains prefix like "kbx3585128"
+        else:
+            cache_id = f"{provider}:{id}" if provider else id
         cache_season = 1 if provider == "kitsu" else season
 
         get_cached = await self.get_cached(cache_id, cache_season, episode)
@@ -70,11 +79,16 @@ class MetadataScraper:
             return get_cached[0], get_cached[1]
 
         is_kitsu = provider == "kitsu"
+        is_custom = provider and provider.startswith("custom:")
 
         metadata_task = asyncio.create_task(
-            self.get_metadata(id, season, episode, is_kitsu)
+            self.get_metadata(id, season, episode, is_kitsu, provider)
         )
-        aliases_task = asyncio.create_task(self.get_aliases(media_type, id, provider))
+        # Skip aliases for custom providers
+        if is_custom:
+            aliases_task = asyncio.create_task(asyncio.sleep(0, result={}))
+        else:
+            aliases_task = asyncio.create_task(self.get_aliases(media_type, id, provider))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
 
         if metadata is not None:
@@ -82,10 +96,21 @@ class MetadataScraper:
 
         return metadata, aliases
 
-    @staticmethod
-    def _extract_provider(media_id: str):
+    def _extract_provider(self, media_id: str):
         if media_id.startswith("tt"):
             return "imdb"
+        
+        # Check custom metadata providers FIRST (before partition)
+        metadata_providers = self.config.get("metadataProviders", [])
+        for provider in metadata_providers:
+            prefix = provider.get("prefix", "")
+            if prefix and media_id.startswith(prefix):
+                # Extract just the numeric part after prefix
+                # e.g. "kbx3585128:1:8" -> check if starts with "kbx"
+                after_prefix = media_id[len(prefix):]
+                # Verify the character after prefix is a digit (not another letter)
+                if after_prefix and (after_prefix[0].isdigit() or after_prefix[0] == ':'):
+                    return f"custom:{prefix}"
 
         first_part, sep, _ = media_id.partition(":")
 
@@ -146,7 +171,98 @@ class MetadataScraper:
             "episode": episode,
         }
 
-    async def get_metadata(self, id: str, season: int, episode: int, is_kitsu: bool):
+    async def get_metadata(self, id: str, season: int, episode: int, is_kitsu: bool, provider: str = None):
+        # Handle custom metadata providers
+        if provider and provider.startswith("custom:"):
+            # Extract the prefix from provider string (format: "custom:prefix")
+            prefix = provider.split(":", 1)[1]
+            
+            logger.log("SCRAPER", f"🔍 Custom provider detected: prefix={prefix}, id={id}, season={season}, episode={episode}")
+            
+            # Find the provider configuration
+            metadata_providers = self.config.get("metadataProviders", [])
+            provider_config = None
+            for p in metadata_providers:
+                if p.get("prefix") == prefix:
+                    provider_config = p
+                    break
+            
+            if provider_config:
+                logger.log("SCRAPER", f"✅ Found provider config: {provider_config}")
+                # Build the full media_id for the meta endpoint
+                media_id = id  # id already contains the full ID like "kbx3585128"
+                if season is not None and episode is not None:
+                    media_id = f"{id}:{season}:{episode}"
+                elif season is not None:
+                    media_id = f"{id}:{season}"
+                
+                # Determine media type based on season/episode
+                media_type = "series" if season is not None else "movie"
+                
+                # Fetch metadata from custom provider
+                provider_url = provider_config.get("url", "").rstrip("/")
+                meta_url = f"{provider_url}/meta/{media_type}/{media_id}.json"
+                
+                logger.log("SCRAPER", f"📡 Fetching metadata from: {meta_url}")
+                
+                try:
+                    from comet.core.constants import CATALOG_TIMEOUT
+                    async with self.session.get(meta_url, timeout=CATALOG_TIMEOUT) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            meta = data.get("meta", {})
+                            
+                            # Extract metadata from the response
+                            title = meta.get("name") or meta.get("title") or id
+                            
+                            # Try to parse year from releaseInfo
+                            year = None
+                            year_end = None
+                            release_info = meta.get("releaseInfo") or meta.get("year")
+                            if release_info:
+                                if isinstance(release_info, str):
+                                    # Handle formats like "2025", "2016–2025"
+                                    if "–" in release_info or "-" in release_info:
+                                        parts = release_info.replace("–", "-").split("-")
+                                        try:
+                                            year = int(parts[0].strip())
+                                            if len(parts) > 1 and parts[1].strip():
+                                                year_end = int(parts[1].strip())
+                                        except ValueError:
+                                            pass
+                                    else:
+                                        try:
+                                            year = int(release_info[:4])
+                                        except ValueError:
+                                            pass
+                                elif isinstance(release_info, int):
+                                    year = release_info
+                            
+                            logger.log("SCRAPER", f"✅ Successfully fetched metadata: title={title}, year={year}")
+                            return {
+                                "title": title,
+                                "year": year,
+                                "year_end": year_end,
+                                "season": season,
+                                "episode": episode,
+                            }
+                        else:
+                            logger.warning(f"Custom provider returned status {response.status} for {meta_url}")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch metadata from custom provider {prefix}: {e}")
+            
+            # Fallback to placeholder if provider not found or request failed
+            logger.warning(f"Using fallback placeholder metadata for {id}")
+            return {
+                "title": id,
+                "year": None,
+                "year_end": None,
+                "season": season,
+                "episode": episode,
+            }
+        
+        logger.log("SCRAPER", f"🔍 Standard provider: provider={provider}, id={id}, is_kitsu={is_kitsu}")
+        
         if is_kitsu:
             raw_metadata = await get_kitsu_metadata(self.session, id)
             return self.normalize_metadata(raw_metadata, 1, episode)

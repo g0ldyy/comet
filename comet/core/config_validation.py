@@ -1,4 +1,5 @@
 import base64
+from urllib.parse import urlparse
 
 import orjson
 
@@ -42,6 +43,56 @@ def config_check(b64config: str):
 
         validated_config["rtnSettings"] = rtn_settings
         validated_config["rtnRanking"] = rtn_ranking_default
+
+        # Validate metadata providers
+        if "metadataProviders" in validated_config and validated_config["metadataProviders"]:
+            providers = validated_config["metadataProviders"]
+            seen_prefixes = set()
+            valid_providers = []
+            
+            for provider in providers:
+                # Validate required fields
+                if not isinstance(provider, dict):
+                    continue
+                if "name" not in provider or "prefix" not in provider or "url" not in provider:
+                    continue
+                
+                name = str(provider["name"]).strip()
+                prefix = str(provider["prefix"]).strip()
+                url = str(provider["url"]).strip()
+                
+                # Skip empty fields
+                if not name or not prefix or not url:
+                    continue
+                
+                # Check for unique prefixes
+                if prefix in seen_prefixes:
+                    continue
+                seen_prefixes.add(prefix)
+                
+                # Validate URL format
+                try:
+                    parsed = urlparse(url)
+                    if not parsed.scheme or not parsed.netloc:
+                        continue
+                    # Only allow http and https
+                    if parsed.scheme not in ["http", "https"]:
+                        continue
+                except Exception:
+                    continue
+                
+                # Strip trailing slashes from URL
+                url = url.rstrip("/")
+                
+                valid_providers.append({
+                    "name": name,
+                    "prefix": prefix,
+                    "url": url
+                })
+            
+            validated_config["metadataProviders"] = valid_providers
+        else:
+            validated_config["metadataProviders"] = []
 
         if (
             settings.PROXY_DEBRID_STREAM

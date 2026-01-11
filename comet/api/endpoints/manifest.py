@@ -52,6 +52,28 @@ async def manifest(request: Request, b64config: str = None):
         )
         return base_manifest
 
+    # Collect custom prefixes from metadata providers
+    custom_prefixes = []
+    if "metadataProviders" in config and config["metadataProviders"]:
+        custom_prefixes = [p["prefix"] for p in config["metadataProviders"] if "prefix" in p]
+
+    # Update resources with custom prefixes
+    base_manifest["resources"] = [
+        {
+            "name": "stream",
+            "types": ["movie", "series"],
+            "idPrefixes": ["tt", "kitsu"] + custom_prefixes,
+        }
+    ]
+
+    # Add meta resource if custom providers exist
+    if custom_prefixes:
+        base_manifest["resources"].append({
+            "name": "meta",
+            "types": ["movie", "series"],
+            "idPrefixes": custom_prefixes,
+        })
+
     debrid_extension = get_debrid_extension(config["debridService"])
     base_manifest["name"] = (
         f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension != 'TORRENT' else ''}"
