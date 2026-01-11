@@ -215,7 +215,7 @@ async def stream(
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
-        metadata_scraper = MetadataScraper(session)
+        metadata_scraper = MetadataScraper(session, config)
 
         id, season, episode = parse_media_id(media_type, media_id)
 

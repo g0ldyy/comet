@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from comet.api.endpoints import (admin, base, chilllink, config, manifest,
-                                 playback)
+                                 meta, playback)
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
 from comet.core.database import (cleanup_expired_locks,
@@ -161,3 +161,4 @@ app.include_router(admin.router)
 app.include_router(playback.router)
 app.include_router(streams_router.streams)
 app.include_router(chilllink.router)
+app.include_router(meta.router)

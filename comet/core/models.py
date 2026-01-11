@@ -682,6 +682,12 @@ rtn_settings_default_dumped = rtn_settings_default.model_dump()
 rtn_ranking_default = DefaultRanking()
 
 
+class MetadataProvider(BaseModel):
+    name: str
+    prefix: str
+    url: str
+
+
 class ConfigModel(BaseModel):
     cachedOnly: Optional[bool] = False
     sortCachedUncachedTogether: Optional[bool] = False
@@ -695,6 +701,7 @@ class ConfigModel(BaseModel):
     languages: Optional[dict] = rtn_settings_default_dumped["languages"]
     resolutions: Optional[dict] = rtn_settings_default_dumped["resolutions"]
     options: Optional[dict] = rtn_settings_default_dumped["options"]
+    metadataProviders: Optional[List[MetadataProvider]] = []
     rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
     rtnRanking: Optional[DefaultRanking] = rtn_ranking_default
 
