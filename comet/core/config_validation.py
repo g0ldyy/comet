@@ -59,3 +59,58 @@ def config_check(b64config: str):
         return validated_config
     except Exception:
         return default_config  # if it doesn't pass, return default config
+
+
+def is_default_config(config: dict) -> bool:
+    if config is None:
+        return True
+
+    ignored_fields = {
+        "debridApiKey",
+        "debridStreamProxyPassword",
+        "rtnSettings",
+        "rtnRanking",
+        "debridService",
+    }
+
+    if config.get("debridService") != "torrent":
+        return False
+
+    for field, default_value in default_config.items():
+        if field in ignored_fields:
+            continue
+
+        config_value = config.get(field)
+
+        if field == "resolutions":
+            if isinstance(config_value, dict):
+                for res, enabled in config_value.items():
+                    if enabled is False:
+                        return False
+            continue
+
+        if field == "languages":
+            config_lang = config_value or {}
+            default_lang = default_value or {}
+            if config_lang.get("exclude", []) != default_lang.get("exclude", []):
+                return False
+            if config_lang.get("preferred", []) != default_lang.get("preferred", []):
+                return False
+            continue
+
+        if field == "options":
+            config_opts = config_value or {}
+            default_opts = default_value or {}
+            for key in [
+                "remove_ranks_under",
+                "allow_english_in_languages",
+                "remove_unknown_languages",
+            ]:
+                if config_opts.get(key) != default_opts.get(key):
+                    return False
+            continue
+
+        if config_value != default_value:
+            return False
+
+    return True

@@ -1,5 +1,3 @@
-import random
-import string
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request
@@ -28,7 +26,7 @@ async def chilllink_manifest(request: Request, b64config: str = None):
     config = config_check(b64config)
 
     manifest = {
-        "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",
+        "id": settings.ADDON_ID,
         "version": "2.0.0",
         "description": "Chillio's fastest debrid search add-on.",
         "supported_endpoints": {"feeds": None, "streams": "/streams"},

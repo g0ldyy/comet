@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html class="sl-theme-dark">
   <head>
     <meta charset="UTF-8" />
@@ -44,9 +44,19 @@
           #25292c 0%,
           #0c0d13 100%
         );
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif,
-          "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          "Noto Sans",
+          "Liberation Sans",
+          Arial,
+          sans-serif,
+          "Apple Color Emoji",
+          "Segoe UI Emoji",
+          "Segoe UI Symbol",
           "Noto Color Emoji";
         font-size: 1rem;
         font-weight: 400;
@@ -308,7 +318,8 @@
         border-radius: 50%;
         filter: drop-shadow(0 0 6px currentColor);
         transform: translate3d(104em, 0, 0);
-        animation: fall var(--fall-duration) var(--fall-delay) linear infinite,
+        animation:
+          fall var(--fall-duration) var(--fall-delay) linear infinite,
           tail-fade var(--tail-fade-duration) var(--fall-delay) ease-out
             infinite;
       }
@@ -780,7 +791,7 @@
             star.style.setProperty("--top-offset", `${randomTopOffset}vh`);
             star.style.setProperty(
               "--star-tail-length",
-              `${randomTailLength}em`
+              `${randomTailLength}em`,
             );
             star.style.setProperty("--fall-duration", `${randomFallDuration}s`);
             star.style.setProperty("--fall-delay", "0s");
@@ -956,9 +967,21 @@
                   <h3><sl-icon name="download"></sl-icon> Torrents Analysis</h3>
                   <div class="metric-content">
                     <div class="metric-subsection">
-                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <h4 style="margin: 0;">Top Trackers</h4>
-                        <sl-select id="tracker-limit" size="small" value="5" style="width: 110px;">
+                      <div
+                        style="
+                          display: flex;
+                          justify-content: space-between;
+                          align-items: center;
+                          margin-bottom: 12px;
+                        "
+                      >
+                        <h4 style="margin: 0">Top Trackers</h4>
+                        <sl-select
+                          id="tracker-limit"
+                          size="small"
+                          value="5"
+                          style="width: 110px"
+                        >
                           <sl-option value="5">Top 5</sl-option>
                           <sl-option value="10">Top 10</sl-option>
                           <sl-option value="20">Top 20</sl-option>
@@ -1133,7 +1156,7 @@
 
         // Logs refresh based on selected interval
         const interval = parseInt(
-          document.getElementById("refresh-interval").value
+          document.getElementById("refresh-interval").value,
         );
         logsInterval = setInterval(loadLogs, interval);
       }
@@ -1151,7 +1174,7 @@
         if (document.getElementById("auto-refresh").checked) {
           clearInterval(logsInterval);
           const interval = parseInt(
-            document.getElementById("refresh-interval").value
+            document.getElementById("refresh-interval").value,
           );
           logsInterval = setInterval(loadLogs, interval);
         }
@@ -1189,7 +1212,7 @@
           connections.length > 0
             ? Math.round(
                 connections.reduce((sum, c) => sum + c.duration, 0) /
-                  connections.length
+                  connections.length,
               )
             : 0;
 
@@ -1239,7 +1262,7 @@
                                     <td>
                                         <span class="connection-id">${conn.id.substring(
                                           0,
-                                          8
+                                          8,
                                         )}...</span>
                                     </td>
                                     <td>
@@ -1247,14 +1270,14 @@
                                     </td>
                                     <td>
                                         <span title="${escapeHtml(
-                                          conn.content
+                                          conn.content,
                                         )}">${
-                                  conn.content.length > 25
-                                    ? escapeHtml(
-                                        conn.content.substring(0, 25)
-                                      ) + "..."
-                                    : escapeHtml(conn.content)
-                                }</span>
+                                          conn.content.length > 25
+                                            ? escapeHtml(
+                                                conn.content.substring(0, 25),
+                                              ) + "..."
+                                            : escapeHtml(conn.content)
+                                        }</span>
                                     </td>
                                     <td>
                                         <span style="font-size: 0.875rem; color: #9ca3af;">${
@@ -1263,7 +1286,7 @@
                                     </td>
                                     <td>
                                         <span class="duration-tag">${Math.round(
-                                          conn.duration
+                                          conn.duration,
                                         )}s</span>
                                     </td>
                                     <td>
@@ -1284,7 +1307,7 @@
                                         }</span>
                                     </td>
                                 </tr>
-                            `
+                            `,
                               )
                               .join("")}
                         </tbody>
@@ -1297,7 +1320,7 @@
       async function loadLogs() {
         try {
           const response = await fetch(
-            `/admin/api/logs?since=${lastLogTimestamp}`
+            `/admin/api/logs?since=${lastLogTimestamp}`,
           );
           const data = await response.json();
 
@@ -1341,7 +1364,7 @@
           } ${log.level}</span> <span class="log-module">${log.module}.${
             log.function
           }</span> - <span class="log-message">${escapeHtml(
-            log.message
+            log.message,
           )}</span>`;
 
           container.appendChild(logEntry);
@@ -1388,7 +1411,7 @@
         const hideApiLogs = document.getElementById("hide-api-logs").checked;
         const container = document.getElementById("logs-container");
         const apiLogEntries = container.querySelectorAll(
-          '[data-api-log="true"]'
+          '[data-api-log="true"]',
         );
 
         apiLogEntries.forEach((entry) => {
@@ -1434,7 +1457,7 @@
         const trackerContainer = document.getElementById("tracker-stats");
         const limitSelect = document.getElementById("tracker-limit");
         const limit = limitSelect ? limitSelect.value : "5";
-        
+
         let displayTrackers = torrentsData.by_tracker;
         if (limit !== "all") {
           displayTrackers = displayTrackers.slice(0, parseInt(limit));
@@ -1449,7 +1472,7 @@
               (tracker) => `
             <div class="tracker-item">
               <div class="tracker-name">${escapeHtml(
-                tracker.tracker || "Unknown"
+                tracker.tracker || "Unknown",
               )}</div>
               <div class="tracker-stats">
                 <span class="tracker-count">${tracker.count.toLocaleString()} torrents</span>
@@ -1461,7 +1484,7 @@
                 } avg size</span>
               </div>
             </div>
-          `
+          `,
             )
             .join("");
         }
@@ -1552,7 +1575,7 @@
 
       function showMetricsError() {
         const sections = document.querySelectorAll(
-          ".metric-section .loading-state"
+          ".metric-section .loading-state",
         );
         sections.forEach((section) => {
           section.innerHTML =
@@ -1576,7 +1599,7 @@
               (service) => `
                 <div class="debrid-service-item">
                   <div class="debrid-service-name">${escapeHtml(
-                    service.service
+                    service.service,
                   )}</div>
                   <div class="debrid-service-stats">
                     <span class="service-count">${service.count.toLocaleString()} files</span>
@@ -1588,7 +1611,7 @@
                     }</span>
                   </div>
                 </div>
-              `
+              `,
             )
             .join("");
         }
