@@ -42,6 +42,9 @@ class AppSettings(BaseSettings):
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 604800  # 7 days
+    LIVE_TORRENT_CACHE_TTL_RECENT_RELEASE: Optional[int] = None  # TTL for recently released content (None = disabled, uses LIVE_TORRENT_CACHE_TTL)
+    RECENT_RELEASE_DAYS: Optional[int] = None  # Days to consider content "recently released" (None = disabled)
+    LIVE_TORRENT_CACHE_TTL_NO_DEBRID: Optional[int] = None  # TTL fallback when no torrents are cached on debrid (None = disabled)
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
     METRICS_CACHE_TTL: Optional[int] = 60  # 1 minute
     DEBRID_CACHE_CHECK_RATIO: Optional[float] = 0.0  # 0.0 to 1.0

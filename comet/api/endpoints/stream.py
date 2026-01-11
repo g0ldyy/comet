@@ -246,6 +246,36 @@ async def stream(
             media_id, id, season, episode
         )
 
+        # Check release date to determine effective TTL for cache staleness
+        # Recent releases get shorter TTL to allow more frequent refreshes
+        release_date = await database.fetch_val(
+            """
+            SELECT release_date FROM digital_release_cache 
+            WHERE media_id = :media_id
+            """,
+            {"media_id": media_id},
+        )
+
+        # Calculate effective cache TTL based on release date
+        used_release_date = False
+        if (
+            release_date is not None
+            and settings.RECENT_RELEASE_DAYS is not None
+            and settings.RECENT_RELEASE_DAYS > 0
+            and settings.LIVE_TORRENT_CACHE_TTL_RECENT_RELEASE is not None
+            and settings.LIVE_TORRENT_CACHE_TTL_RECENT_RELEASE > 0
+        ):
+            days_since_release = (time.time() - release_date) / 86400
+            if days_since_release <= settings.RECENT_RELEASE_DAYS:
+                effective_cache_ttl = settings.LIVE_TORRENT_CACHE_TTL_RECENT_RELEASE
+                used_release_date = True
+            else:
+                effective_cache_ttl = settings.LIVE_TORRENT_CACHE_TTL
+                used_release_date = True
+        else:
+            effective_cache_ttl = settings.LIVE_TORRENT_CACHE_TTL
+            used_release_date = False
+
         # Quick check for "fresh" cached torrents to decide if we need to re-scrape.
         # This does NOT filter what torrents are shown, it only determines if a new search is triggered.
         # LIVE_TORRENT_CACHE_TTL controls when cache is considered "stale" and needs refreshing.
@@ -264,7 +294,7 @@ async def stream(
                     "media_id": id,
                     "season": season,
                     "episode": episode,
-                    "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL,
+                    "cache_ttl": effective_cache_ttl,
                     "current_time": time.time(),
                 },
             )
@@ -506,6 +536,84 @@ async def stream(
             1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
         )
         total_count = len(torrent_manager.torrents)
+
+        # Fallback: If release date was not available and no torrents are cached on debrid,
+        # re-evaluate cache staleness with shorter TTL
+        if (
+            not used_release_date
+            and cached_count == 0
+            and has_cached_results
+            and settings.LIVE_TORRENT_CACHE_TTL >= 0
+            and settings.LIVE_TORRENT_CACHE_TTL_NO_DEBRID is not None
+            and settings.LIVE_TORRENT_CACHE_TTL_NO_DEBRID > 0
+        ):
+            # Re-check with shorter TTL for no-debrid case
+            fresh_cached_count_no_debrid = await database.fetch_val(
+                """
+                    SELECT COUNT(*)
+                    FROM torrents
+                    WHERE media_id = :media_id
+                    AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                    AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
+                    AND timestamp + :cache_ttl >= :current_time
+                """,
+                {
+                    "media_id": id,
+                    "season": season,
+                    "episode": episode,
+                    "cache_ttl": settings.LIVE_TORRENT_CACHE_TTL_NO_DEBRID,
+                    "current_time": time.time(),
+                },
+            )
+            if fresh_cached_count_no_debrid == 0:
+                cache_is_stale = True
+                # If no torrents are cached on debrid, do live scrape (user has 0 results)
+                # Only if we haven't already scraped in this request
+                if cached_count == 0 and not needs_scraping and not lock_acquired:
+                    # Acquire lock for live scraping
+                    scrape_lock = DistributedLock(media_id)
+                    lock_acquired = await scrape_lock.acquire()
+                    
+                    if lock_acquired:
+                        logger.log(
+                            "SCRAPER",
+                            f"🔄 Cache stale (no debrid-cached torrents) - starting live scrape for {media_id}",
+                        )
+                        needs_scraping = True
+                        # Perform live scraping
+                        try:
+                            await torrent_manager.scrape_torrents()
+                            logger.log(
+                                "SCRAPER",
+                                f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",
+                            )
+                            # Re-check debrid availability after scraping
+                            await debrid_service_instance.check_existing_availability(
+                                torrent_manager.torrents, season, episode
+                            )
+                            cached_count = sum(
+                                1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
+                            )
+                            total_count = len(torrent_manager.torrents)
+                        finally:
+                            await scrape_lock.release()
+                            lock_acquired = False
+                    else:
+                        # Another instance is scraping, wait for it
+                        logger.log(
+                            "SCRAPER",
+                            f"🔄 Another instance is scraping {media_id}, waiting for results...",
+                        )
+                        await wait_for_scrape_completion(media_id)
+                        # Re-check cache after waiting
+                        await torrent_manager.get_cached_torrents()
+                        await debrid_service_instance.check_existing_availability(
+                            torrent_manager.torrents, season, episode
+                        )
+                        cached_count = sum(
+                            1 for torrent in torrent_manager.torrents.values() if torrent["cached"]
+                        )
+                        total_count = len(torrent_manager.torrents)
 
         if (
             (
