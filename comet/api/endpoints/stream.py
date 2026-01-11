@@ -5,7 +5,7 @@ from urllib.parse import quote
 import aiohttp
 from fastapi import APIRouter, BackgroundTasks, Request
 
-from comet.core.config_validation import config_check, is_default_config
+from comet.core.config_validation import config_check
 from comet.core.logger import logger
 from comet.core.models import database, settings, trackers
 from comet.debrid.exceptions import DebridAuthError
@@ -30,7 +30,6 @@ streams = APIRouter()
 def _build_stream_response(
     request: Request,
     content: dict,
-    is_public: bool = False,
     is_empty: bool = False,
     vary_headers: list = None,
 ):
@@ -45,12 +44,9 @@ def _build_stream_response(
     if is_empty:
         cache_policy = CachePolicies.empty_results()
         vary = ["Accept", "Accept-Encoding"]
-    elif is_public:
-        cache_policy = CachePolicies.public_torrents()
-        vary = ["Accept", "Accept-Encoding"]
     else:
-        cache_policy = CachePolicies.private_streams()
-        vary = ["Accept", "Accept-Encoding", "Authorization"]
+        cache_policy = CachePolicies.streams()
+        vary = ["Accept", "Accept-Encoding"]
 
     if vary_headers:
         vary.extend(vary_headers)
@@ -177,17 +173,11 @@ async def stream(
     b64config: str = None,
     chilllink: bool = False,
 ):
-    is_public_request = b64config is None
-
     if media_type not in ["movie", "series"]:
-        return _build_stream_response(
-            request, {"streams": []}, is_public=True, is_empty=True
-        )
+        return _build_stream_response(request, {"streams": []}, is_empty=True)
 
     if "tmdb:" in media_id:
-        return _build_stream_response(
-            request, {"streams": []}, is_public=True, is_empty=True
-        )
+        return _build_stream_response(request, {"streams": []}, is_empty=True)
 
     media_id = media_id.replace("imdb_id:", "")
 
@@ -202,12 +192,7 @@ async def stream(
                 }
             ]
         }
-        return _build_stream_response(
-            request, error_response, is_public=True, is_empty=True
-        )
-
-    if is_default_config(config):
-        is_public_request = True
+        return _build_stream_response(request, error_response, is_empty=True)
 
     is_torrent = config["debridService"] == "torrent"
     if settings.DISABLE_TORRENT_STREAMS and is_torrent:
@@ -218,9 +203,7 @@ async def stream(
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
 
-        return _build_stream_response(
-            request, {"streams": [placeholder_stream]}, is_public=is_public_request
-        )
+        return _build_stream_response(request, {"streams": [placeholder_stream]})
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -247,7 +230,6 @@ async def stream(
                             }
                         ]
                     },
-                    is_public=True,
                     is_empty=True,
                 )
 
@@ -356,7 +338,6 @@ async def stream(
                         }
                     ]
                 },
-                is_public=True,
                 is_empty=True,
             )
 
@@ -475,7 +456,6 @@ async def stream(
                                 }
                             ]
                         },
-                        is_public=True,
                         is_empty=True,
                     )
 
@@ -558,7 +538,6 @@ async def stream(
                             }
                         ]
                     },
-                    is_public=False,
                     is_empty=True,
                 )
 
@@ -675,6 +654,5 @@ async def stream(
         return _build_stream_response(
             request,
             {"streams": final_streams},
-            is_public=is_public_request or not has_results,
             is_empty=not has_results,
         )

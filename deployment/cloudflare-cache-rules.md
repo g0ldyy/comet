@@ -3,7 +3,7 @@
 To optimize performance, configure Cloudflare to offload traffic from your server. We use **Cache Rules** to cache responses while respecting the application's cache headers.
 
 ## 1. Streams (Cache Rule)
-Cache all stream results (public and private). Comet controls the TTL via headers.
+Cache all stream results. Comet controls the TTL via headers.
 
 *   **Rule Name**: Streams
 *   **Expression**: `(http.request.uri.path contains "/stream/")`

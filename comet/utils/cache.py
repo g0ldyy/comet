@@ -154,13 +154,13 @@ def not_modified_response(etag: str):
 
 class CachePolicies:
     @staticmethod
-    def public_torrents():
+    def streams():
         """
-        For public torrent lists (without user config).
+        For all stream results.
         Cache for a short time at CDN, revalidate often.
         """
 
-        ttl = settings.HTTP_CACHE_PUBLIC_STREAMS_TTL
+        ttl = settings.HTTP_CACHE_STREAMS_TTL
         swr = settings.HTTP_CACHE_STALE_WHILE_REVALIDATE
 
         return (
@@ -171,17 +171,6 @@ class CachePolicies:
             .stale_while_revalidate(swr)
             .stale_if_error(300)
         )
-
-    @staticmethod
-    def private_streams():
-        """
-        For user-specific stream results (with b64config).
-        Private cache only, short TTL.
-        """
-
-        ttl = settings.HTTP_CACHE_PRIVATE_STREAMS_TTL
-
-        return CacheControl().private().max_age(ttl).must_revalidate()
 
     @staticmethod
     def manifest():

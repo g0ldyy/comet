@@ -436,7 +436,7 @@ def log_startup_info(settings):
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
     http_cache_info = (
-        f" - Public Streams TTL: {settings.HTTP_CACHE_PUBLIC_STREAMS_TTL}s - Private Streams TTL: {settings.HTTP_CACHE_PRIVATE_STREAMS_TTL}s - Manifest TTL: {settings.HTTP_CACHE_MANIFEST_TTL}s - Configure TTL: {settings.HTTP_CACHE_CONFIGURE_TTL}s - SWR: {settings.HTTP_CACHE_STALE_WHILE_REVALIDATE}s"
+        f" - Streams TTL: {settings.HTTP_CACHE_STREAMS_TTL}s - Manifest TTL: {settings.HTTP_CACHE_MANIFEST_TTL}s - Configure TTL: {settings.HTTP_CACHE_CONFIGURE_TTL}s - SWR: {settings.HTTP_CACHE_STALE_WHILE_REVALIDATE}s"
         if settings.HTTP_CACHE_ENABLED
         else ""
     )

@@ -138,8 +138,7 @@ class AppSettings(BaseSettings):
     RATELIMIT_RETRY_BASE_DELAY: Optional[float] = 1.0
     RTN_FILTER_DEBUG: Optional[bool] = False
     HTTP_CACHE_ENABLED: Optional[bool] = False
-    HTTP_CACHE_PUBLIC_STREAMS_TTL: Optional[int] = 300
-    HTTP_CACHE_PRIVATE_STREAMS_TTL: Optional[int] = 60
+    HTTP_CACHE_STREAMS_TTL: Optional[int] = 300
     HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
     HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400
     HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
