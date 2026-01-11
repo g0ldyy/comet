@@ -17,12 +17,27 @@ def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
     return any(alias in text_normalized for alias in ez_aliases_normalized)
 
 
-def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content):
+def filter_worker(
+    torrents, title, year, year_end, media_type, aliases, remove_adult_content
+):
     results = []
 
     ez_aliases = aliases.get("ez", [])
     if ez_aliases:
         ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
+
+    min_year = 0
+    max_year = float("inf")
+
+    if year:
+        if year_end:
+            min_year = year
+            max_year = year_end
+        elif media_type == "series":
+            min_year = year - 1
+        else:
+            min_year = year - 1
+            max_year = year + 1
 
     for torrent in torrents:
         torrent_title = torrent["title"]
@@ -53,18 +68,18 @@ def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content
                 continue
 
         if year and parsed.year:
-            if year_end is not None:
-                if not (year <= parsed.year <= year_end):
-                    _log_exclusion(
-                        f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: {year}-{year_end}"
-                    )
-                    continue
-            else:
-                if year < (parsed.year - 1) or year > (parsed.year + 1):
-                    _log_exclusion(
-                        f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: ~{year}"
-                    )
-                    continue
+            if not (min_year <= parsed.year <= max_year):
+                if year_end:
+                    expected = f"{year}-{year_end}"
+                elif media_type == "series":
+                    expected = f">{year}"
+                else:
+                    expected = f"~{year}"
+
+                _log_exclusion(
+                    f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: {expected}"
+                )
+                continue
 
         torrent["parsed"] = parsed
         results.append(torrent)

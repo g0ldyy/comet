@@ -30,7 +30,7 @@ streams = APIRouter()
 def _build_stream_response(
     request: Request,
     content: dict,
-    is_public: bool = False,
+    is_empty: bool = False,
     vary_headers: list = None,
 ):
     if not settings.HTTP_CACHE_ENABLED:
@@ -41,12 +41,12 @@ def _build_stream_response(
     if check_etag_match(request, etag):
         return not_modified_response(etag)
 
-    if is_public:
-        cache_policy = CachePolicies.public_torrents()
+    if is_empty:
+        cache_policy = CachePolicies.empty_results()
         vary = ["Accept", "Accept-Encoding"]
     else:
-        cache_policy = CachePolicies.private_streams()
-        vary = ["Accept", "Accept-Encoding", "Authorization"]
+        cache_policy = CachePolicies.streams()
+        vary = ["Accept", "Accept-Encoding"]
 
     if vary_headers:
         vary.extend(vary_headers)
@@ -173,17 +173,11 @@ async def stream(
     b64config: str = None,
     chilllink: bool = False,
 ):
-    is_public_request = b64config is None
-
     if media_type not in ["movie", "series"]:
-        return _build_stream_response(
-            request, {"streams": []}, is_public=is_public_request
-        )
+        return _build_stream_response(request, {"streams": []}, is_empty=True)
 
     if "tmdb:" in media_id:
-        return _build_stream_response(
-            request, {"streams": []}, is_public=is_public_request
-        )
+        return _build_stream_response(request, {"streams": []}, is_empty=True)
 
     media_id = media_id.replace("imdb_id:", "")
 
@@ -198,7 +192,7 @@ async def stream(
                 }
             ]
         }
-        return error_response
+        return _build_stream_response(request, error_response, is_empty=True)
 
     is_torrent = config["debridService"] == "torrent"
     if settings.DISABLE_TORRENT_STREAMS and is_torrent:
@@ -209,9 +203,7 @@ async def stream(
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
 
-        return _build_stream_response(
-            request, {"streams": [placeholder_stream]}, is_public=is_public_request
-        )
+        return _build_stream_response(request, {"streams": [placeholder_stream]})
 
     connector = aiohttp.TCPConnector(limit=0)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -238,7 +230,7 @@ async def stream(
                             }
                         ]
                     },
-                    is_public=is_public_request,
+                    is_empty=True,
                 )
 
         # Check if metadata is already cached
@@ -335,15 +327,19 @@ async def stream(
             if lock_acquired and scrape_lock:
                 await scrape_lock.release()
             logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
-            return {
-                "streams": [
-                    {
-                        "name": "[⚠️] Comet",
-                        "description": "Unable to get metadata.",
-                        "url": "https://comet.feels.legal",
-                    }
-                ]
-            }
+            return _build_stream_response(
+                request,
+                {
+                    "streams": [
+                        {
+                            "name": "[⚠️] Comet",
+                            "description": "Unable to get metadata.",
+                            "url": "https://comet.feels.legal",
+                        }
+                    ]
+                },
+                is_empty=True,
+            )
 
         title = metadata["title"]
         year = metadata["year"]
@@ -449,15 +445,19 @@ async def stream(
                 )
 
                 if len(torrent_manager.torrents) == 0:
-                    return {
-                        "streams": [
-                            {
-                                "name": "[🔄] Comet",
-                                "description": "Scraping in progress by another instance, please try again in a few seconds...",
-                                "url": "https://comet.feels.legal",
-                            }
-                        ]
-                    }
+                    return _build_stream_response(
+                        request,
+                        {
+                            "streams": [
+                                {
+                                    "name": "[🔄] Comet",
+                                    "description": "Scraping in progress by another instance, please try again in a few seconds...",
+                                    "url": "https://comet.feels.legal",
+                                }
+                            ]
+                        },
+                        is_empty=True,
+                    )
 
         elif is_first or cache_is_stale:
             # Background scrape if first search OR if cache is stale (needs refresh)
@@ -527,15 +527,19 @@ async def stream(
                     episode,
                 )
             except DebridAuthError as e:
-                return {
-                    "streams": [
-                        {
-                            "name": "[❌] Comet",
-                            "description": e.display_message,
-                            "url": "https://comet.feels.legal",
-                        }
-                    ]
-                }
+                return _build_stream_response(
+                    request,
+                    {
+                        "streams": [
+                            {
+                                "name": "[❌] Comet",
+                                "description": e.display_message,
+                                "url": "https://comet.feels.legal",
+                            }
+                        ]
+                    },
+                    is_empty=True,
+                )
 
         if debrid_service != "torrent":
             cached_count = sum(
@@ -641,14 +645,14 @@ async def stream(
                 non_cached_results.append(the_stream)
 
         if sort_mixed:
-            return _build_stream_response(
-                request,
-                {"streams": cached_results},
-                is_public=is_public_request,
-            )
+            final_streams = cached_results
+        else:
+            final_streams = cached_results + non_cached_results
+
+        has_results = len(final_streams) > 0
 
         return _build_stream_response(
             request,
-            {"streams": cached_results + non_cached_results},
-            is_public=is_public_request,
+            {"streams": final_streams},
+            is_empty=not has_results,
         )

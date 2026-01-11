@@ -154,13 +154,13 @@ def not_modified_response(etag: str):
 
 class CachePolicies:
     @staticmethod
-    def public_torrents():
+    def streams():
         """
-        For public torrent lists (without user config).
+        For all stream results.
         Cache for a short time at CDN, revalidate often.
         """
 
-        ttl = settings.HTTP_CACHE_PUBLIC_STREAMS_TTL
+        ttl = settings.HTTP_CACHE_STREAMS_TTL
         swr = settings.HTTP_CACHE_STALE_WHILE_REVALIDATE
 
         return (
@@ -173,35 +173,40 @@ class CachePolicies:
         )
 
     @staticmethod
-    def private_streams():
-        """
-        For user-specific stream results (with b64config).
-        Private cache only, short TTL.
-        """
-
-        ttl = settings.HTTP_CACHE_PRIVATE_STREAMS_TTL
-
-        return CacheControl().private().max_age(ttl).must_revalidate()
-
-    @staticmethod
     def manifest():
         """
         For manifest.json responses.
-        Very short cache as it can change based on config.
+        Long cache as manifest rarely changes.
         """
-        return CacheControl().private().max_age(60).must_revalidate()
+        ttl = settings.HTTP_CACHE_MANIFEST_TTL
+        swr = settings.HTTP_CACHE_STALE_WHILE_REVALIDATE
+
+        return CacheControl().public().max_age(ttl).stale_while_revalidate(swr)
 
     @staticmethod
     def configure_page():
         """
         For the /configure page.
-        Cacheable if no custom HTML, otherwise private.
+        Long cache as the page is mostly static.
         """
+        ttl = settings.HTTP_CACHE_CONFIGURE_TTL
+        swr = settings.HTTP_CACHE_STALE_WHILE_REVALIDATE
 
-        if settings.CUSTOM_HEADER_HTML:
-            return CacheControl().private().max_age(300)
+        return CacheControl().public().max_age(ttl).stale_while_revalidate(swr)
 
-        return CacheControl().public().max_age(300).s_maxage(3600)
+    @staticmethod
+    def empty_results():
+        """
+        For empty/temporary responses (no torrents found, processing, errors).
+        Short public cache to prevent spam while allowing quick retries.
+        """
+        return (
+            CacheControl()
+            .public()
+            .max_age(15)  # Browser cache 15 seconds
+            .s_maxage(30)  # CDN cache 30 seconds
+            .stale_if_error(60)  # Serve stale on error for 1 minute
+        )
 
     @staticmethod
     def no_cache():

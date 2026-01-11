@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html class="sl-theme-dark">
   <head>
     <meta charset="UTF-8" />
@@ -44,9 +44,19 @@
           #25292c 0%,
           #0c0d13 100%
         );
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif,
-          "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          "Noto Sans",
+          "Liberation Sans",
+          Arial,
+          sans-serif,
+          "Apple Color Emoji",
+          "Segoe UI Emoji",
+          "Segoe UI Symbol",
           "Noto Color Emoji";
         font-size: 1rem;
         font-weight: 400;
@@ -125,7 +135,8 @@
         border-radius: 50%;
         filter: drop-shadow(0 0 6px currentColor);
         transform: translate3d(104em, 0, 0);
-        animation: fall var(--fall-duration) var(--fall-delay) linear infinite,
+        animation:
+          fall var(--fall-duration) var(--fall-delay) linear infinite,
           tail-fade var(--tail-fade-duration) var(--fall-delay) ease-out
             infinite;
       }
@@ -235,7 +246,7 @@
             star.style.setProperty("--top-offset", `${randomTopOffset}vh`);
             star.style.setProperty(
               "--star-tail-length",
-              `${randomTailLength}em`
+              `${randomTailLength}em`,
             );
             star.style.setProperty("--fall-duration", `${randomFallDuration}s`);
             star.style.setProperty("--fall-delay", "0s");

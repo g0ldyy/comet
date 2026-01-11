@@ -1,6 +1,3 @@
-import random
-import string
-
 from fastapi import APIRouter, Request
 
 from comet.core.config_validation import config_check
@@ -27,7 +24,7 @@ router = APIRouter()
 )
 async def manifest(request: Request, b64config: str = None):
     base_manifest = {
-        "id": f"{settings.ADDON_ID}.{''.join(random.choice(string.ascii_letters) for _ in range(4))}",
+        "id": settings.ADDON_ID,
         "description": "Stremio's fastest torrent/debrid search add-on.",
         "version": "2.0.0",
         "catalogs": [],
@@ -58,9 +55,7 @@ async def manifest(request: Request, b64config: str = None):
     )
 
     if settings.HTTP_CACHE_ENABLED:
-        base_manifest_etag_data = base_manifest.copy()
-        base_manifest_etag_data.pop("id", None)
-        etag = generate_etag(base_manifest_etag_data)
+        etag = generate_etag(base_manifest)
         if check_etag_match(request, etag):
             return not_modified_response(etag)
 
