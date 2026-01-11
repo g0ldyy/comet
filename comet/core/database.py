@@ -405,15 +405,6 @@ async def setup_database():
             """
         )
 
-        # Optimization for concurrent DELETEs: info_hash + season
-        # Covers: DELETE FROM torrents WHERE (info_hash, season) IN (...)
-        await database.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_torrents_info_hash_season 
-            ON torrents (info_hash, season)
-            """
-        )
-
         # Optimization for lookups by info_hash only
         # Covers: SELECT sources, media_id FROM torrents WHERE info_hash = $1
         await database.execute(
@@ -727,7 +718,7 @@ async def cleanup_expired_sessions():
         except Exception as e:
             logger.log("SESSION", f"❌ Error during periodic session cleanup: {e}")
 
-        await asyncio.sleep(5)  # Clean up every 5 seconds
+        await asyncio.sleep(60)  # Clean up every 60 seconds
 
 
 async def _migrate_indexes():
@@ -762,6 +753,7 @@ async def _migrate_indexes():
             "idx_first_searches_cleanup",
             "idx_metadata_title_search",
             "idx_anime_ids_entry_id",
+            "idx_torrents_info_hash_season",
         ]
 
         dropped_count = 0
