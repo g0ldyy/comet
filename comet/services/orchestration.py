@@ -227,6 +227,7 @@ class TorrentManager:
                 self.year_end,
                 self.aliases,
                 self.remove_adult_content,
+                self.media_type,
             )
             for i in range(0, len(new_torrents), chunk_size)
         ]

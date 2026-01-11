@@ -17,7 +17,7 @@ def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
     return any(alias in text_normalized for alias in ez_aliases_normalized)
 
 
-def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content):
+def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content, media_type=None):
     results = []
 
     ez_aliases = aliases.get("ez", [])
@@ -52,7 +52,11 @@ def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content
                 )
                 continue
 
-        if year and parsed.year:
+        # Skip year check for TV series when year_end is None (ongoing series)
+        # For TV series, title and season/episode matching is more important than year
+        skip_year_check = media_type == "series" and year_end is None
+        
+        if year and parsed.year and not skip_year_check:
             if year_end is not None:
                 if not (year <= parsed.year <= year_end):
                     _log_exclusion(
@@ -60,6 +64,7 @@ def filter_worker(torrents, title, year, year_end, aliases, remove_adult_content
                     )
                     continue
             else:
+                # For movies or series with year_end, use strict tolerance
                 if year < (parsed.year - 1) or year > (parsed.year + 1):
                     _log_exclusion(
                         f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: ~{year}"
