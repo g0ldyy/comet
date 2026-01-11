@@ -225,6 +225,7 @@ class TorrentManager:
                 self.title,
                 self.year,
                 self.year_end,
+                self.media_type,
                 self.aliases,
                 self.remove_adult_content,
             )
