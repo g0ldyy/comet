@@ -28,7 +28,7 @@ class AppSettings(BaseSettings):
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
     GUNICORN_PRELOAD_APP: Optional[bool] = True
-    EXECUTOR_MAX_WORKERS: Optional[int] = None
+    EXECUTOR_MAX_WORKERS: Optional[int] = 1
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
@@ -142,6 +142,12 @@ class AppSettings(BaseSettings):
     HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
     HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400
     HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
+
+    @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
+    def normalize_executor_workers(cls, v):
+        if v is None or v == "" or str(v).lower() == "none":
+            return 1
+        return v
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):

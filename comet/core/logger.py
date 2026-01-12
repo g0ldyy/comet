@@ -178,7 +178,7 @@ def log_startup_info(settings):
 
     logger.log(
         "COMET",
-        f"ProcessPoolExecutor: {max_workers} workers {'(auto)' if settings.EXECUTOR_MAX_WORKERS is None else ''}",
+        f"ProcessPoolExecutor: {max_workers} workers",
     )
 
     if settings.PUBLIC_BASE_URL:
