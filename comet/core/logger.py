@@ -459,3 +459,8 @@ def log_startup_info(settings):
         "COMET",
         f"Background Scraper: {bool(settings.BACKGROUND_SCRAPER_ENABLED)}{background_scraper_display}",
     )
+
+    logger.log(
+        "COMET",
+        f"Generic Trackers: {bool(settings.DOWNLOAD_GENERIC_TRACKERS)}",
+    )

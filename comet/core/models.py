@@ -143,6 +143,7 @@ class AppSettings(BaseSettings):
     HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
     HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400
     HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
+    DOWNLOAD_GENERIC_TRACKERS: Optional[bool] = False
 
     @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
     def normalize_executor_workers(cls, v):
@@ -789,34 +790,3 @@ database = ReplicaAwareDatabase(
     force_ipv4=settings.DATABASE_FORCE_IPV4_RESOLUTION
     and settings.DATABASE_TYPE == "postgresql",
 )
-
-trackers = [
-    "udp://tracker-udp.gbitt.info:80/announce",
-    "udp://tracker.0x7c0.com:6969/announce",
-    "udp://opentracker.io:6969/announce",
-    "udp://leet-tracker.moe:1337/announce",
-    "udp://tracker.torrent.eu.org:451/announce",
-    "udp://tracker.tiny-vps.com:6969/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://tracker.pomf.se:80/announce",
-    "udp://9.rarbg.me:2710/announce",
-    "http://tracker.gbitt.info:80/announce",
-    "udp://tracker.bittor.pw:1337/announce",
-    "udp://open.free-tracker.ga:6969/announce",
-    "udp://open.stealth.si:80/announce",
-    "udp://retracker01-msk-virt.corbina.net:80/announce",
-    "udp://tracker.openbittorrent.com:80/announce",
-    "udp://tracker.opentrackr.org:1337/announce",
-    "udp://isk.richardsw.club:6969/announce",
-    "https://tracker.gbitt.info:443/announce",
-    "udp://tracker.coppersurfer.tk:6969/announce",
-    "udp://oh.fuuuuuck.com:6969/announce",
-    "udp://ipv4.tracker.harry.lu:80/announce",
-    "udp://open.demonii.com:1337/announce",
-    "https://tracker.tamersunion.org:443/announce",
-    "https://tracker.renfei.net:443/announce",
-    "udp://open.tracker.cl:1337/announce",
-    "udp://tracker.internetwarriors.net:1337/announce",
-    "udp://exodus.desync.com:6969/announce",
-    "udp://tracker.dump.cl:6969/announce",
-]

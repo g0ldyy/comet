@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
-from comet.core.models import database, settings, trackers
+from comet.core.models import database, settings
 from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.filter import release_filter
@@ -16,6 +16,7 @@ from comet.services.anime import anime_mapper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
 from comet.services.orchestration import TorrentManager
+from comet.services.trackers import trackers
 from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
                                not_modified_response)

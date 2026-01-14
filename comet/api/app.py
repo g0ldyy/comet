@@ -51,7 +51,9 @@ async def lifespan(app: FastAPI):
 
     await setup_database()
     setup_executor()
-    await download_best_trackers()
+
+    if settings.DOWNLOAD_GENERIC_TRACKERS:
+        await download_best_trackers()
 
     # Load anime ID mapping for enhanced metadata and anime detection
     async with aiohttp.ClientSession() as session:

@@ -1,7 +1,8 @@
 import aiohttp
 
 from comet.core.logger import logger
-from comet.core.models import trackers
+
+trackers = []
 
 
 async def download_best_trackers():
@@ -12,7 +13,10 @@ async def download_best_trackers():
             )
             response = await response.text()
 
-            other_trackers = [tracker for tracker in response.split("\n") if tracker]
-            trackers.extend(other_trackers)
+            trackers.extend([tracker for tracker in response.split("\n") if tracker])
+            logger.log(
+                "COMET",
+                f"Generic Trackers: downloaded {len(trackers)} trackers",
+            )
     except Exception as e:
         logger.warning(f"Failed to download best trackers: {e}")
