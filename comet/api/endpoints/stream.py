@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
-from comet.core.models import database, settings, trackers
+from comet.core.models import database, settings
 from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.filter import release_filter
@@ -16,6 +16,7 @@ from comet.services.anime import anime_mapper
 from comet.services.debrid import DebridService
 from comet.services.lock import DistributedLock, is_scrape_in_progress
 from comet.services.orchestration import TorrentManager
+from comet.services.trackers import trackers
 from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
                                not_modified_response)
@@ -628,10 +629,9 @@ async def stream(
                 if torrent["fileIndex"] is not None:
                     the_stream["fileIdx"] = torrent["fileIndex"]
 
-                if not torrent["sources"]:
-                    the_stream["sources"] = trackers
-                else:
-                    the_stream["sources"] = torrent["sources"]
+                sources = torrent["sources"] or trackers
+                if sources:
+                    the_stream["sources"] = sources
             else:
                 the_stream["url"] = (
                     f"{base_playback_host}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"

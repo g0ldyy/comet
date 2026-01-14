@@ -28,7 +28,7 @@ class AppSettings(BaseSettings):
     FASTAPI_WORKERS: Optional[int] = 1
     USE_GUNICORN: Optional[bool] = True
     GUNICORN_PRELOAD_APP: Optional[bool] = True
-    EXECUTOR_MAX_WORKERS: Optional[int] = None
+    EXECUTOR_MAX_WORKERS: Optional[int] = 1
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
@@ -39,6 +39,7 @@ class AppSettings(BaseSettings):
     DATABASE_BATCH_SIZE: Optional[int] = 20000
     DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
     DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
+    DATABASE_FORCE_IPV4_RESOLUTION: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 604800  # 7 days
@@ -142,6 +143,13 @@ class AppSettings(BaseSettings):
     HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
     HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400
     HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
+    DOWNLOAD_GENERIC_TRACKERS: Optional[bool] = False
+
+    @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
+    def normalize_executor_workers(cls, v):
+        if v is None or v == "" or str(v).lower() == "none":
+            return 1
+        return v
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
@@ -777,36 +785,8 @@ elif settings.DATABASE_TYPE == "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
     logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
 
 database = ReplicaAwareDatabase(
-    _build_database_instance(database_url), replicas=replica_instances
+    _build_database_instance(database_url),
+    replicas=replica_instances,
+    force_ipv4=settings.DATABASE_FORCE_IPV4_RESOLUTION
+    and settings.DATABASE_TYPE == "postgresql",
 )
-
-trackers = [
-    "udp://tracker-udp.gbitt.info:80/announce",
-    "udp://tracker.0x7c0.com:6969/announce",
-    "udp://opentracker.io:6969/announce",
-    "udp://leet-tracker.moe:1337/announce",
-    "udp://tracker.torrent.eu.org:451/announce",
-    "udp://tracker.tiny-vps.com:6969/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://tracker.pomf.se:80/announce",
-    "udp://9.rarbg.me:2710/announce",
-    "http://tracker.gbitt.info:80/announce",
-    "udp://tracker.bittor.pw:1337/announce",
-    "udp://open.free-tracker.ga:6969/announce",
-    "udp://open.stealth.si:80/announce",
-    "udp://retracker01-msk-virt.corbina.net:80/announce",
-    "udp://tracker.openbittorrent.com:80/announce",
-    "udp://tracker.opentrackr.org:1337/announce",
-    "udp://isk.richardsw.club:6969/announce",
-    "https://tracker.gbitt.info:443/announce",
-    "udp://tracker.coppersurfer.tk:6969/announce",
-    "udp://oh.fuuuuuck.com:6969/announce",
-    "udp://ipv4.tracker.harry.lu:80/announce",
-    "udp://open.demonii.com:1337/announce",
-    "https://tracker.tamersunion.org:443/announce",
-    "https://tracker.renfei.net:443/announce",
-    "udp://open.tracker.cl:1337/announce",
-    "udp://tracker.internetwarriors.net:1337/announce",
-    "udp://exodus.desync.com:6969/announce",
-    "udp://tracker.dump.cl:6969/announce",
-]

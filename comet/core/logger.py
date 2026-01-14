@@ -178,7 +178,7 @@ def log_startup_info(settings):
 
     logger.log(
         "COMET",
-        f"ProcessPoolExecutor: {max_workers} workers {'(auto)' if settings.EXECUTOR_MAX_WORKERS is None else ''}",
+        f"ProcessPoolExecutor: {max_workers} workers",
     )
 
     if settings.PUBLIC_BASE_URL:
@@ -192,9 +192,14 @@ def log_startup_info(settings):
     replicas = ""
     if settings.DATABASE_TYPE != "sqlite":
         replicas = f" - Read Replicas: {settings.DATABASE_READ_REPLICA_URLS}"
+    force_ipv4_info = (
+        f" - Force IPv4: {settings.DATABASE_FORCE_IPV4_RESOLUTION}"
+        if settings.DATABASE_TYPE != "sqlite"
+        else ""
+    )
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{replicas}",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{force_ipv4_info}{replicas}",
     )
 
     # SQLite concurrency warnings
@@ -453,4 +458,9 @@ def log_startup_info(settings):
     logger.log(
         "COMET",
         f"Background Scraper: {bool(settings.BACKGROUND_SCRAPER_ENABLED)}{background_scraper_display}",
+    )
+
+    logger.log(
+        "COMET",
+        f"Generic Trackers: {bool(settings.DOWNLOAD_GENERIC_TRACKERS)}",
     )

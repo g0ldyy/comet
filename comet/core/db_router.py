@@ -1,9 +1,11 @@
 import asyncio
 import contextvars
+import socket
 from contextlib import contextmanager
 from typing import List, Optional, Sequence
 
 from databases import Database
+from sqlalchemy.engine.url import make_url
 
 from comet.core.logger import logger
 
@@ -12,10 +14,14 @@ class ReplicaAwareDatabase:
     """Routes read queries to replicas while keeping writes on the primary."""
 
     def __init__(
-        self, primary: Database, replicas: Optional[Sequence[Database]] = None
+        self,
+        primary: Database,
+        replicas: Optional[Sequence[Database]] = None,
+        force_ipv4: bool = False,
     ):
         self._primary = primary
         self._configured_replicas = list(replicas or [])
+        self._force_ipv4 = force_ipv4
         self._active_replicas: List[Database] = []
         self._replica_index = 0
         self._transaction_depth = contextvars.ContextVar(
@@ -34,6 +40,14 @@ class ReplicaAwareDatabase:
         return self._primary.is_connected
 
     async def connect(self):
+        # Handle IP resolution override
+        if self._force_ipv4:
+            self._primary = await self._resolve_and_recreate(self._primary)
+            self._configured_replicas = [
+                await self._resolve_and_recreate(replica)
+                for replica in self._configured_replicas
+            ]
+
         await self._primary.connect()
 
         healthy_replicas: List[Database] = []
@@ -134,6 +148,40 @@ class ReplicaAwareDatabase:
             yield self
         finally:
             self._force_primary_context.reset(token)
+
+    async def _resolve_and_recreate(self, db_instance: Database) -> Database:
+        """
+        Resolves the hostname of the given Database instance to an IP address.
+        If resolution succeeds and changes the host, returns a NEW Database instance.
+        Otherwise, returns the original instance.
+        """
+        try:
+            original_url_str = str(db_instance.url)
+            url_obj = make_url(original_url_str)
+
+            if not url_obj.host:
+                return db_instance
+
+            # Resolve
+            logger.log("DATABASE", f"Resolving hostname for DB: {url_obj.host}")
+            resolved_ip = socket.gethostbyname(url_obj.host)
+
+            if resolved_ip == url_obj.host:
+                return db_instance  # No change
+
+            logger.log(
+                "DATABASE", f"Resolved {url_obj.host} -> {resolved_ip} (forcing IPv4)"
+            )
+            # Reconstruct URL with IP
+            url_obj = url_obj.set(host=resolved_ip)
+            new_url_str = url_obj.render_as_string(hide_password=False)
+
+            return Database(new_url_str)
+        except Exception as e:
+            logger.warning(
+                f"Failed to resolve hostname for {db_instance.url}: {e}. Keeping original."
+            )
+            return db_instance
 
     def __getattr__(self, item):
         return getattr(self._primary, item)
