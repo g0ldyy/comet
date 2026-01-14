@@ -14,9 +14,9 @@ except ValueError:
 
 app_executor = None
 max_workers = settings.EXECUTOR_MAX_WORKERS
-if max_workers is None:
-    cpu_count = os.cpu_count() or 1
-    max_workers = min(cpu_count, 4)
+# if max_workers is None:
+#     cpu_count = os.cpu_count() or 1
+#     max_workers = min(cpu_count, 4)
 
 
 def worker_initializer():
