@@ -171,36 +171,37 @@ class _ReplicaAwareTransaction:
             if self._token is not None:
                 self._router._transaction_depth.reset(self._token)
 
-    async def _resolve_and_recreate(self, db_instance: Database) -> Database:
-        """
-        Resolves the hostname of the given Database instance to an IP address.
-        If resolution succeeds and changes the host, returns a NEW Database instance.
-        Otherwise, returns the original instance.
-        """
-        try:
-            original_url_str = str(db_instance.url)
-            url_obj = make_url(original_url_str)
 
-            if not url_obj.host:
-                return db_instance
+async def _resolve_and_recreate(self, db_instance: Database) -> Database:
+    """
+    Resolves the hostname of the given Database instance to an IP address.
+    If resolution succeeds and changes the host, returns a NEW Database instance.
+    Otherwise, returns the original instance.
+    """
+    try:
+        original_url_str = str(db_instance.url)
+        url_obj = make_url(original_url_str)
 
-            # Resolve
-            logger.log("DATABASE", f"Resolving hostname for DB: {url_obj.host}")
-            resolved_ip = socket.gethostbyname(url_obj.host)
-
-            if resolved_ip == url_obj.host:
-                return db_instance  # No change
-
-            logger.log(
-                "DATABASE", f"Resolved {url_obj.host} -> {resolved_ip} (forcing IPv4)"
-            )
-            # Reconstruct URL with IP
-            url_obj = url_obj.set(host=resolved_ip)
-            new_url_str = url_obj.render_as_string(hide_password=False)
-
-            return Database(new_url_str)
-        except Exception as e:
-            logger.warning(
-                f"Failed to resolve hostname for {db_instance.url}: {e}. Keeping original."
-            )
+        if not url_obj.host:
             return db_instance
+
+        # Resolve
+        logger.log("DATABASE", f"Resolving hostname for DB: {url_obj.host}")
+        resolved_ip = socket.gethostbyname(url_obj.host)
+
+        if resolved_ip == url_obj.host:
+            return db_instance  # No change
+
+        logger.log(
+            "DATABASE", f"Resolved {url_obj.host} -> {resolved_ip} (forcing IPv4)"
+        )
+        # Reconstruct URL with IP
+        url_obj = url_obj.set(host=resolved_ip)
+        new_url_str = url_obj.render_as_string(hide_password=False)
+
+        return Database(new_url_str)
+    except Exception as e:
+        logger.warning(
+            f"Failed to resolve hostname for {db_instance.url}: {e}. Keeping original."
+        )
+        return db_instance
