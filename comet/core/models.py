@@ -1,4 +1,5 @@
 import random
+import socket
 import string
 from typing import List, Optional, Union
 
@@ -11,6 +12,7 @@ from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
                         ExtrasRankModel, HdrRankModel, LanguagesConfig,
                         OptionsConfig, QualityRankModel, ResolutionConfig,
                         RipsRankModel)
+from sqlalchemy.engine.url import make_url
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
@@ -39,6 +41,7 @@ class AppSettings(BaseSettings):
     DATABASE_BATCH_SIZE: Optional[int] = 20000
     DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
     DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
+    DATABASE_FORCE_IPV4_RESOLUTION: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 604800  # 7 days
@@ -765,7 +768,23 @@ web_config = {
 def _build_database_instance(raw_url: str):
     driver = "sqlite" if settings.DATABASE_TYPE == "sqlite" else "postgresql+asyncpg"
     prefix = "/" if settings.DATABASE_TYPE == "sqlite" else ""
-    return Database(f"{driver}://{prefix}{raw_url}")
+    full_url = f"{driver}://{prefix}{raw_url}"
+
+    if (
+        settings.DATABASE_TYPE == "postgresql"
+        and settings.DATABASE_FORCE_IPV4_RESOLUTION
+    ):
+        try:
+            url_obj = make_url(full_url)
+            if url_obj.host:
+                resolved_ip = socket.gethostbyname(url_obj.host)
+                url_obj = url_obj.set(host=resolved_ip)
+                full_url = url_obj.render_as_string(hide_password=False)
+                logger.log("COMET", f"Database: Resolved hostname to {resolved_ip}")
+        except Exception as e:
+            logger.warning(f"Failed to resolve DB hostname: {e}")
+
+    return Database(full_url)
 
 
 database_url = (

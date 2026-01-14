@@ -1,6 +1,5 @@
 import atexit
 import multiprocessing
-import os
 import signal
 from concurrent.futures import ProcessPoolExecutor
 

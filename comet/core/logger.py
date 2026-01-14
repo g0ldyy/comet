@@ -194,7 +194,7 @@ def log_startup_info(settings):
         replicas = f" - Read Replicas: {settings.DATABASE_READ_REPLICA_URLS}"
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{replicas}",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s - Force IPv4: {settings.DATABASE_FORCE_IPV4_RESOLUTION}{replicas}",
     )
 
     # SQLite concurrency warnings
