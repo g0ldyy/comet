@@ -629,10 +629,9 @@ async def stream(
                 if torrent["fileIndex"] is not None:
                     the_stream["fileIdx"] = torrent["fileIndex"]
 
-                if not torrent["sources"]:
-                    the_stream["sources"] = trackers
-                else:
-                    the_stream["sources"] = torrent["sources"]
+                sources = torrent["sources"] or trackers
+                if sources:
+                    the_stream["sources"] = sources
             else:
                 the_stream["url"] = (
                     f"{base_playback_host}/{b64config}/playback/{info_hash}/{torrent['fileIndex'] if torrent['cached'] and torrent['fileIndex'] is not None else 'n'}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
