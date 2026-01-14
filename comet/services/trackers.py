@@ -13,6 +13,7 @@ async def download_best_trackers():
             )
             response = await response.text()
 
+            trackers.clear()
             trackers.extend([tracker for tracker in response.split("\n") if tracker])
             logger.log(
                 "COMET",
