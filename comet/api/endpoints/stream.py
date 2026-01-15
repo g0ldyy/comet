@@ -153,6 +153,11 @@ async def get_and_cache_multi_service_availability(
     service_cache_status = defaultdict(dict)
     errors = {}
 
+    unique_services = {}
+    for entry in debrid_entries:
+        if entry["service"] not in unique_services:
+            unique_services[entry["service"]] = entry
+
     async def check_service(entry):
         service = entry["service"]
         api_key = entry["apiKey"]
@@ -174,9 +179,10 @@ async def get_and_cache_multi_service_availability(
         except Exception as e:
             return service, None, e
 
-    if debrid_entries:
+    if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in debrid_entries], return_exceptions=True
+            *[check_service(e) for e in unique_services.values()],
+            return_exceptions=True,
         )
 
         for result in results:
