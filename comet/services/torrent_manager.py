@@ -18,7 +18,7 @@ from torf import Magnet
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import database, settings
-from comet.utils.parsing import default_dump, is_video
+from comet.utils.parsing import default_dump, ensure_multi_language, is_video
 
 TRACKER_PATTERN = re.compile(r"[&?]tr=([^&]+)")
 INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
@@ -202,6 +202,7 @@ class AddTorrentQueue:
                             metadata = extract_torrent_metadata(content)
                             for file in metadata["files"]:
                                 parsed = parse(file["name"])
+                                ensure_multi_language(parsed)
 
                                 await add_torrent(
                                     metadata["info_hash"],

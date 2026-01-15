@@ -6,6 +6,7 @@ from RTN import ParsedData
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.services.debrid_cache import (cache_availability,
                                          get_cached_availability)
+from comet.utils.parsing import ensure_multi_language
 
 
 class DebridService:
@@ -112,6 +113,8 @@ class DebridService:
             # E.g. torrent "[Group] Show S01 1080p" vs file "Show - 02.mkv"
             if row["parsed"] is not None:
                 cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
+                ensure_multi_language(cached_parsed)
+
                 if (
                     cached_parsed.resolution != "unknown"
                     or torrents[info_hash]["parsed"].resolution == "unknown"
