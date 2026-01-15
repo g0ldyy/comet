@@ -40,7 +40,7 @@ def extract_torrent_data(html_content: str):
         try:
             size_bytes = size_to_bytes(size_str.replace("iB", "B"))
         except Exception:
-            size_bytes = 0
+            size_bytes = None
 
         torrents.append(
             {

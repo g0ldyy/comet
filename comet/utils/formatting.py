@@ -3,7 +3,7 @@ from RTN import ParsedData
 
 def format_bytes(bytes_value):
     if bytes_value is None:
-        return "0 B"
+        return None
 
     bytes_value = float(bytes_value)
 
@@ -217,7 +217,7 @@ def get_formatted_components(
     if (has_all or "seeders" in result_format) and seeders is not None:
         components["seeders"] = f"👤 {seeders}"
 
-    if has_all or "size" in result_format:
+    if (has_all or "size" in result_format) and size is not None:
         components["size"] = f"💾 {format_bytes(size)}"
 
     if has_all or "tracker" in result_format:

@@ -1,17 +1,10 @@
-import re
-
 from comet.core.logger import log_scraper_error
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
-from comet.utils.formatting import size_to_bytes
 
 
 class PeerflixScraper(BaseScraper):
-    impersonate = "chrome"
     BASE_URL = "https://peerflix.mov"
-
-    def __init__(self, manager, session):
-        super().__init__(manager, session)
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
@@ -21,41 +14,22 @@ class PeerflixScraper(BaseScraper):
             ) as response:
                 results = await response.json()
 
-            if not results or "streams" not in results:
-                return []
-
-            for torrent in results["streams"]:
-                title_full = torrent["title"]
-                title = title_full.split("\n")[0]
-
-                seeders = None
-                size = 0
-                tracker = None
-
-                if "👤" in title_full:
-                    matchSeeders = re.search(r"👤\s*(\d+)", title_full)
-                    if matchSeeders:
-                        seeders = int(matchSeeders.group(1))
-
-                if "💾" in title_full:
-                    matchSize = re.search(r"💾\s*([\d.]+\s*[KMGT]B)", title_full)
-                    if matchSize:
-                        size = size_to_bytes(matchSize.group(1))
-
-                if "🌐" in title_full:
-                    matchTracker = re.search(r"🌐\s*([^\n\r]+)", title_full)
-                    if matchTracker:
-                        tracker = matchTracker.group(1).strip()
+            for stream in results["streams"]:
+                description = stream["description"]
+                parts = description.split("🌐")
+                tracker = parts[1] if len(parts) > 1 else None
 
                 torrents.append(
                     {
-                        "title": title,
-                        "infoHash": torrent["infoHash"].lower(),
-                        "fileIndex": torrent.get("fileIdx", None),
-                        "seeders": seeders,
-                        "size": size,
-                        "tracker": f"Peerflix|{tracker}",
-                        "sources": torrent.get("sources", []),
+                        "title": description.split("\n")[0],
+                        "infoHash": stream["infoHash"].lower(),
+                        "fileIndex": stream["fileIdx"],
+                        "seeders": stream.get("seed"),
+                        "size": stream.get("sizebytes"),
+                        "tracker": f"Peerflix|{tracker}"
+                        if tracker and tracker != "Peerflix"
+                        else "Peerflix",
+                        "sources": stream["sources"],
                     }
                 )
         except Exception as e:
