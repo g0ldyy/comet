@@ -1,6 +1,24 @@
 from RTN import ParsedData
 
 
+def ensure_multi_language(parsed: ParsedData):
+    languages = parsed.languages
+
+    if not (len(languages) > 1 or parsed.dubbed):
+        return
+
+    if languages and languages[0] == "multi":
+        return
+
+    try:
+        languages.remove("multi")
+    except ValueError:
+        pass
+
+    languages.insert(0, "multi")
+    parsed.languages = languages
+
+
 def is_video(title: str):
     video_extensions = (
         ".3g2",
