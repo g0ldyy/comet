@@ -2,6 +2,35 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.48.0](https://github.com/g0ldyy/comet/compare/v2.47.0...v2.48.0) (2026-01-15)
+
+
+### Features
+
+* add DATABASE_FORCE_IPV4_RESOLUTION setting and update logging ([4b6c51a](https://github.com/g0ldyy/comet/commit/4b6c51af39e1b88c25771fe1b9fc2f4363c441f5))
+* add hostname resolution method to ReplicaAwareDatabase ([81842ba](https://github.com/g0ldyy/comet/commit/81842bacf8d5ac4f1be1cffac46c79155e3075a8))
+* add manifest and configure page caching settings ([6b9dbcd](https://github.com/g0ldyy/comet/commit/6b9dbcdab3672f7890c98895ca50e6bbdfe74832))
+* add manifest and configure page caching settings ([60c90bc](https://github.com/g0ldyy/comet/commit/60c90bc2e842808c7fbf91d861bcf1a5916fc054))
+* add support for downloading generic trackers at startup ([4e701d8](https://github.com/g0ldyy/comet/commit/4e701d89c8eba70fb9998e9bba932aefc9d677db))
+* enhance caching policies and improve manifest handling ([463ab41](https://github.com/g0ldyy/comet/commit/463ab4154c9a1c39428c1acdbcb9b8bba04aa68a))
+* enhance caching policies and improve manifest handling ([23ab2f4](https://github.com/g0ldyy/comet/commit/23ab2f44b187f72048376bd3637395d781344276))
+* enhance language settings and parsing functionality ([430b630](https://github.com/g0ldyy/comet/commit/430b6308a11744cf81e41b6093facbcadacd31e1))
+* implement IPv4 hostname resolution in ReplicaAwareDatabase ([ddde28f](https://github.com/g0ldyy/comet/commit/ddde28f8a51fa682d9051460c2cd8e15856309b3))
+* pin python version ([566b28d](https://github.com/g0ldyy/comet/commit/566b28d13fbfc51031e3f93e83acc65c4774797f))
+* remove unused index ([52609ad](https://github.com/g0ldyy/comet/commit/52609addaf54c0d6fa6c576cdc191f1a1ffc4a8e))
+* update resolution options ([212d874](https://github.com/g0ldyy/comet/commit/212d8744c177ecd7cbfd636c3f8eecf25eb10cfb))
+* update resolution options ([53961ef](https://github.com/g0ldyy/comet/commit/53961ef442ec689ca4bc2aa51efbba3b1323c547))
+
+
+### Bug Fixes
+
+* clear trackers list before downloading new data ([d396007](https://github.com/g0ldyy/comet/commit/d396007a1954f7f25506f7585a51b8fa1484c408))
+* correct formatting in README.md ([8ff725d](https://github.com/g0ldyy/comet/commit/8ff725dc63740c330bd1fd0228d5bffac331f1b1))
+* correct typo in DATABASE_FORCE_IPV4_RESOLUTION comment in .env-sample ([f80430d](https://github.com/g0ldyy/comet/commit/f80430d706c208cc2c2fd25b6ad47918a7014a37))
+* handle 404 response in Peerflix scraper ([7fa0c2b](https://github.com/g0ldyy/comet/commit/7fa0c2bb4b690a860f6195d47dc1ad2572e6cecc))
+* preserve quality and languages from original parsed data in DebridService ([3f93efb](https://github.com/g0ldyy/comet/commit/3f93efb19b504a30cb78b0f23f74b003fef00756))
+* set default max executor workers to 1 ([e683637](https://github.com/g0ldyy/comet/commit/e6836374eccf51feb7ea2ee3e1f6e06f8bc1f013))
+
 ## [2.47.0](https://github.com/g0ldyy/comet/compare/v2.46.0...v2.47.0) (2026-01-09)
 
 
