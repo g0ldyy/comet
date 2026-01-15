@@ -142,14 +142,28 @@ async def configure(
         configure_session
     ):
         return _render_configure_login(request, next_url=_next_url(request))
+    
+    html_keys = [
+        "CUSTOM_LOGO_URL",
+        "CUSTOM_ADDON_NAME",
+        "CUSTOM_DISCORD_URL",
+        "CUSTOM_HEADER_HTML",
+    ]
+
+    def normalize(v):
+        if v is None:
+            return ""
+        if isinstance(v, str) and v.strip().lower() in ("none", "null"):
+            return ""
+        return v
+
+    html_context = {k: normalize(getattr(settings, k)) for k in html_keys}
 
     response = templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML
-            if settings.CUSTOM_HEADER_HTML
-            else "",
+            **html_context,
             "webConfig": web_config,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
             "disableTorrentStreams": settings.DISABLE_TORRENT_STREAMS,
