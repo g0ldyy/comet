@@ -1,4 +1,3 @@
-import asyncio
 import time
 from urllib.parse import quote
 
@@ -14,7 +13,7 @@ from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
 from comet.services.anime import anime_mapper
 from comet.services.debrid import DebridService
-from comet.services.lock import DistributedLock, is_scrape_in_progress
+from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 from comet.services.trackers import trackers
 from comet.utils.cache import (CachedJSONResponse, CachePolicies,
@@ -130,28 +129,6 @@ async def background_scrape(
         logger.log("SCRAPER", f"❌ Background scrape + availability check failed: {e}")
     finally:
         await scrape_lock.release()
-
-
-async def wait_for_scrape_completion(media_id: str, context: str = ""):
-    check_interval = 1
-    waited_time = 0
-
-    while waited_time < settings.SCRAPE_WAIT_TIMEOUT:
-        await asyncio.sleep(check_interval)
-        waited_time += check_interval
-
-        if not await is_scrape_in_progress(media_id):
-            logger.log(
-                "SCRAPER",
-                f"✅ Other instance completed scraping for {context or media_id} after {waited_time}s",
-            )
-            return True
-
-    logger.log(
-        "SCRAPER",
-        f"⏰ Timeout waiting for other instance to complete scraping {context or media_id} after {settings.SCRAPE_WAIT_TIMEOUT}s",
-    )
-    return False
 
 
 @streams.get(
@@ -280,50 +257,22 @@ async def stream(
 
         # Track if cache is stale (no fresh torrents) for background refresh decision
         cache_is_stale = fresh_cached_count == 0
+        needs_scraping = False
 
         # If both metadata and fresh torrents are cached, skip lock entirely
         if cached_metadata is not None and not cache_is_stale:
             logger.log("SCRAPER", f"🚀 Fast path: using cached data for {media_id}")
             metadata, aliases = cached_metadata[0], cached_metadata[1]
-            # Variables for fast path
             lock_acquired = False
-            waited_for_other_scrape = False
             scrape_lock = None
-            needs_scraping = False
         else:
             # Something is missing, acquire lock for scraping
             scrape_lock = DistributedLock(media_id)
             lock_acquired = await scrape_lock.acquire()
-            waited_for_other_scrape = False
-            needs_scraping = False
 
-            if not lock_acquired:
-                # Another instance has the lock, wait for completion
-                logger.log(
-                    "SCRAPER",
-                    f"🔄 Another instance is scraping {media_id}, waiting for results...",
-                )
-                await wait_for_scrape_completion(media_id)
-                waited_for_other_scrape = True
-
-                # After waiting, re-check cached metadata
-                cached_metadata = await metadata_scraper.get_from_cache_by_media_id(
-                    media_id, id, season, episode
-                )
-
-            if lock_acquired:
-                # We have the lock, scrape metadata normally
-                metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                    media_type, media_id, id, season, episode
-                )
-            elif cached_metadata is not None:
-                # Use cached metadata after waiting
-                metadata, aliases = cached_metadata[0], cached_metadata[1]
-            else:
-                # No cached metadata available, fallback to scraping
-                metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                    media_type, media_id, id, season, episode
-                )
+            metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+                media_type, media_id, id, season, episode
+            )
         if metadata is None:
             if lock_acquired and scrape_lock:
                 await scrape_lock.release()
@@ -417,48 +366,29 @@ async def stream(
         cached_results = []
         non_cached_results = []
 
-        # If we waited for another scrape to complete, check cache again
-        if not has_cached_results and waited_for_other_scrape:
-            await torrent_manager.get_cached_torrents()
-            has_cached_results = len(torrent_manager.torrents) > 0
-            logger.log(
-                "SCRAPER",
-                f"📦 Re-checked cache after waiting: {len(torrent_manager.torrents)} torrents",
-            )
-
         if not has_cached_results:
             if lock_acquired and scrape_lock:
                 logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
                 needs_scraping = True
             else:
-                # Another process is scraping, wait and check cache periodically
+                # Another process has the lock, return immediately with "try again" message
                 logger.log(
                     "SCRAPER",
-                    f"🔄 Another instance is scraping {log_title}, waiting for results...",
+                    f"🔄 Another instance is scraping {log_title}, returning early",
                 )
-
-                await wait_for_scrape_completion(media_id, log_title)
-
-                await torrent_manager.get_cached_torrents()
-                logger.log(
-                    "SCRAPER",
-                    f"📦 Found cached torrents after waiting: {len(torrent_manager.torrents)}",
+                return _build_stream_response(
+                    request,
+                    {
+                        "streams": [
+                            {
+                                "name": "[🔄] Comet",
+                                "description": "Scraping in progress, please try again in a few seconds...",
+                                "url": "https://comet.feels.legal",
+                            }
+                        ]
+                    },
+                    is_empty=True,
                 )
-
-                if len(torrent_manager.torrents) == 0:
-                    return _build_stream_response(
-                        request,
-                        {
-                            "streams": [
-                                {
-                                    "name": "[🔄] Comet",
-                                    "description": "Scraping in progress by another instance, please try again in a few seconds...",
-                                    "url": "https://comet.feels.legal",
-                                }
-                            ]
-                        },
-                        is_empty=True,
-                    )
 
         elif is_first or cache_is_stale:
             # Background scrape if first search OR if cache is stale (needs refresh)
