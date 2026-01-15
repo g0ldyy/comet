@@ -264,7 +264,6 @@ class CometSettingsModel(SettingsModel):
     model_config = SettingsConfigDict()
 
     resolutions: ResolutionConfig = ResolutionConfig(
-        r4k=True,
         r2160p=True,
         r576p=True,
         r480p=True,
