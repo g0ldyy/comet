@@ -60,11 +60,16 @@ class DebridService:
 
             debrid_parsed = file["parsed"]
             if debrid_parsed is not None:
+                original_parsed = torrents[info_hash]["parsed"]
+                # Preserve quality from original if debrid parsed doesn't have it
                 if (
                     debrid_parsed.quality is None
-                    and torrents[info_hash]["parsed"].quality is not None
+                    and original_parsed.quality is not None
                 ):
-                    debrid_parsed.quality = torrents[info_hash]["parsed"].quality
+                    debrid_parsed.quality = original_parsed.quality
+                # Preserve languages from original if debrid parsed doesn't have them
+                if not debrid_parsed.languages and original_parsed.languages:
+                    debrid_parsed.languages = original_parsed.languages
                 torrents[info_hash]["parsed"] = debrid_parsed
             if file["index"] is not None:
                 torrents[info_hash]["fileIndex"] = file["index"]
@@ -111,6 +116,10 @@ class DebridService:
                     cached_parsed.resolution != "unknown"
                     or torrents[info_hash]["parsed"].resolution == "unknown"
                 ):
+                    original_parsed = torrents[info_hash]["parsed"]
+                    # Preserve languages from original if cached parsed doesn't have them
+                    if not cached_parsed.languages and original_parsed.languages:
+                        cached_parsed.languages = original_parsed.languages
                     torrents[info_hash]["parsed"] = cached_parsed
                     if row["title"] is not None:
                         torrents[info_hash]["title"] = row["title"]
