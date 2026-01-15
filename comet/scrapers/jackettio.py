@@ -29,8 +29,8 @@ class JackettioScraper(BaseScraper):
 
                 match = data_pattern.search(title_full)
 
-                size = size_to_bytes(match.group(1)) if match else 0
-                seeders = int(match.group(2)) if match else 0
+                size = size_to_bytes(match.group(1)) if match else None
+                seeders = int(match.group(2)) if match else None
                 tracker = match.group(3) if match else "Jackettio"
 
                 torrents.append(

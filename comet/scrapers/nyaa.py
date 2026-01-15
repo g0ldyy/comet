@@ -17,6 +17,8 @@ SEEDERS_PATTERN = re.compile(
 TITLE_PATTERN = re.compile(r'href="/view/\d+" title="([^"]+)"')
 INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
 
+NYAA_BASE_URL = "https://nyaa.si"
+
 
 def extract_torrent_data(html_content: str):
     torrents = []
@@ -38,7 +40,7 @@ def extract_torrent_data(html_content: str):
         try:
             size_bytes = size_to_bytes(size_str.replace("iB", "B"))
         except Exception:
-            size_bytes = 0
+            size_bytes = None
 
         torrents.append(
             {
@@ -59,7 +61,7 @@ async def scrape_nyaa_page(
     session, semaphore: asyncio.Semaphore, query: str, page: int
 ):
     async with semaphore:
-        url = f"https://nyaa.si/?q={query}"
+        url = f"{NYAA_BASE_URL}/?q={query}"
         if page > 1:
             url += f"&p={page}"
 
@@ -80,7 +82,7 @@ async def get_all_nyaa_pages(session, query: str):
     max_concurrent = settings.NYAA_MAX_CONCURRENT_PAGES
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    first_page_url = f"https://nyaa.si/?q={query}"
+    first_page_url = f"{NYAA_BASE_URL}/?q={query}"
 
     async with session.get(first_page_url) as response:
         if response.status_code != 200:
@@ -128,6 +130,6 @@ class NyaaScraper(BaseScraper):
             torrents.extend(all_torrents)
 
         except Exception as e:
-            log_scraper_error("Nyaa", "https://nyaa.si", request.media_id, e)
+            log_scraper_error("Nyaa", NYAA_BASE_URL, request.media_id, e)
 
         return torrents

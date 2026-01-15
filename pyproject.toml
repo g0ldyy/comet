@@ -27,3 +27,6 @@ dependencies = [
     "uvicorn",
     "xxhash",
 ]
+
+[tool.uv.sources]
+rank-torrent-name = { git = "https://github.com/dreulavelle/rank-torrent-name" }

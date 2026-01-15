@@ -10,6 +10,7 @@ from comet.scrapers.manager import scraper_manager
 from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
+from comet.utils.parsing import ensure_multi_language
 
 
 class TorrentManager:
@@ -138,6 +139,7 @@ class TorrentManager:
 
         for row in rows:
             parsed_data = ParsedData(**orjson.loads(row["parsed"]))
+            ensure_multi_language(parsed_data)
 
             if row["episode"] is None and parsed_data.episodes:
                 target_episode = self.search_episode if self.is_kitsu else self.episode

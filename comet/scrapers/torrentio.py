@@ -38,7 +38,9 @@ class TorrentioScraper(BaseScraper):
                 match = DATA_PATTERN.search(title_full)
 
                 seeders = int(match.group(1)) if match and match.group(1) else None
-                size = size_to_bytes(match.group(2)) if match and match.group(2) else 0
+                size = (
+                    size_to_bytes(match.group(2)) if match and match.group(2) else None
+                )
                 tracker = (
                     match.group(3) if match and match.group(3) else "KnightCrawler"
                 )

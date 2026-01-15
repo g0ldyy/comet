@@ -42,7 +42,7 @@ class DebridioScraper(BaseScraper):
 
                 size_str = match.group(1) if match else None
                 size = (
-                    0
+                    None
                     if not size_str or "Unknown" in size_str or "-" in size_str
                     else size_to_bytes(size_str.replace(",", ""))
                 )
