@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Query, Request
 from comet.api.endpoints.stream import stream as get_streams
 from comet.core.config_validation import config_check
 from comet.core.models import settings
-from comet.debrid.manager import get_debrid_extension
+from comet.debrid.manager import build_addon_name
 
 router = APIRouter()
 
@@ -30,12 +30,8 @@ async def chilllink_manifest(request: Request, b64config: str = None):
         "version": "2.0.0",
         "description": "Chillio's fastest debrid search add-on.",
         "supported_endpoints": {"feeds": None, "streams": "/streams"},
+        "name": build_addon_name(settings.ADDON_NAME, config),
     }
-
-    debrid_extension = get_debrid_extension(config["debridService"])
-    manifest["name"] = (
-        f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension != 'TORRENT' else ''}"
-    )
 
     return manifest
 
@@ -62,7 +58,9 @@ async def chilllink_streams(
     b64config: Optional[str] = None,
 ):
     config = config_check(b64config)
-    if config["debridService"] == "torrent":
+    debrid_entries = config.get("_debridEntries", [])
+
+    if not debrid_entries:
         return {
             "sources": [
                 {

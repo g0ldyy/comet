@@ -16,9 +16,6 @@ from comet.utils.parsing import ensure_multi_language
 class TorrentManager:
     def __init__(
         self,
-        debrid_service: str,
-        debrid_api_key: str,
-        ip: str,
         media_type: str,
         media_full_id: str,
         media_only_id: str,
@@ -34,9 +31,6 @@ class TorrentManager:
         search_episode: int | None = None,
         search_season: int | None = None,
     ):
-        self.debrid_service = debrid_service
-        self.debrid_api_key = debrid_api_key
-        self.ip = ip
         self.media_type = media_type
         self.media_id = media_full_id
         self.media_only_id = media_only_id
@@ -243,7 +237,6 @@ class TorrentManager:
         rtn_ranking: DefaultRanking,
         max_results_per_resolution: int,
         max_size: int,
-        cached_only: int,
         remove_trash: int,
     ):
         loop = asyncio.get_running_loop()
@@ -251,11 +244,9 @@ class TorrentManager:
             get_executor(),
             rank_worker,
             self.torrents,
-            self.debrid_service,
             rtn_settings,
             rtn_ranking,
             max_results_per_resolution,
             max_size,
-            cached_only,
             remove_trash,
         )

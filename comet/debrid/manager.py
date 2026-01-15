@@ -21,6 +21,23 @@ def get_debrid_extension(debrid_service: str):
     return debrid_services[debrid_service]["extension"]
 
 
+def build_addon_name(base_name: str, config: dict) -> str:
+    extensions = []
+    debrid_entries = config.get("_debridEntries", [])
+    enable_torrent = config.get("_enableTorrent", False)
+
+    for entry in debrid_entries:
+        ext = get_debrid_extension(entry["service"])
+        if ext and ext not in extensions:
+            extensions.append(ext)
+
+    if enable_torrent and debrid_entries:
+        extensions.append("TORRENT")
+
+    extension_str = "+".join(extensions) if extensions else ""
+    return f"{base_name}{(' | ' + extension_str) if extension_str else ''}"
+
+
 def build_stremthru_token(debrid_service: str, debrid_api_key: str):
     return f"{debrid_service}:{debrid_api_key}"
 

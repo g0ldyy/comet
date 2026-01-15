@@ -332,9 +332,6 @@ class BackgroundScraperWorker:
         )
 
         manager = TorrentManager(
-            debrid_service="torrent",
-            debrid_api_key="",
-            ip="127.0.0.1",
             media_type="movie",
             media_full_id=media_id,
             media_only_id=media_id,
@@ -368,9 +365,6 @@ class BackgroundScraperWorker:
             episode_media_id = f"{media_id}:{season}:{episode_number}"
 
             manager = TorrentManager(
-                debrid_service="torrent",
-                debrid_api_key="",
-                ip="127.0.0.1",
                 media_type="series",
                 media_full_id=episode_media_id,
                 media_only_id=media_id,

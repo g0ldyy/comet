@@ -696,6 +696,30 @@ rtn_settings_default_dumped = rtn_settings_default.model_dump()
 rtn_ranking_default = DefaultRanking()
 
 
+VALID_DEBRID_SERVICES = [
+    "realdebrid",
+    "alldebrid",
+    "premiumize",
+    "torbox",
+    "debrider",
+    "easydebrid",
+    "debridlink",
+    "offcloud",
+    "pikpak",
+]
+
+
+class DebridServiceEntry(BaseModel):
+    service: str
+    apiKey: str = ""
+
+    @field_validator("service")
+    def check_service(cls, v):
+        if v not in VALID_DEBRID_SERVICES:
+            raise ValueError(f"Invalid debrid service: {v}")
+        return v
+
+
 class ConfigModel(BaseModel):
     cachedOnly: Optional[bool] = False
     sortCachedUncachedTogether: Optional[bool] = False
@@ -703,8 +727,16 @@ class ConfigModel(BaseModel):
     resultFormat: Optional[List[str]] = ["all"]
     maxResultsPerResolution: Optional[int] = 0
     maxSize: Optional[float] = 0
+
+    # Legacy single-service fields
     debridService: Optional[str] = "torrent"
     debridApiKey: Optional[str] = ""
+
+    # Multi-Debrid fields
+    debridServices: Optional[List[DebridServiceEntry]] = []
+    enableTorrent: Optional[bool] = False
+    deduplicateStreams: Optional[bool] = False
+
     debridStreamProxyPassword: Optional[str] = ""
     languages: Optional[dict] = rtn_settings_default_dumped["languages"]
     resolutions: Optional[dict] = rtn_settings_default_dumped["resolutions"]
@@ -732,19 +764,19 @@ class ConfigModel(BaseModel):
 
     @field_validator("debridService")
     def check_debrid_service(cls, v):
-        if v not in [
-            "realdebrid",
-            "alldebrid",
-            "premiumize",
-            "torbox",
-            "debrider",
-            "easydebrid",
-            "debridlink",
-            "offcloud",
-            "pikpak",
-            "torrent",
-        ]:
+        if v not in VALID_DEBRID_SERVICES + ["torrent"]:
             raise ValueError("Invalid debridService")
+        return v
+
+    @field_validator("debridServices", mode="before")
+    def validate_debrid_services(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [
+                DebridServiceEntry(**entry) if isinstance(entry, dict) else entry
+                for entry in v
+            ]
         return v
 
 
