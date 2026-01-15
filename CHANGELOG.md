@@ -2,6 +2,16 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.49.0](https://github.com/g0ldyy/comet/compare/v2.48.0...v2.49.0) (2026-01-15)
+
+
+### Features
+
+* enhance error handling in multi-debrid service availability checks ([b1d621a](https://github.com/g0ldyy/comet/commit/b1d621ae18b8104d5bdf3f11445afe7bba9d352e))
+* implement multi-debrid service support and enhance configuration ([6cadc4d](https://github.com/g0ldyy/comet/commit/6cadc4d57595632162118553c7952fc20c367dd6))
+* implement multi-debrid service support and enhance configuration ([f6abcf5](https://github.com/g0ldyy/comet/commit/f6abcf5e4c38339f14c3cc462782b010bfc90aae))
+* optimize service availability checks by filtering unique services ([9296da1](https://github.com/g0ldyy/comet/commit/9296da1aa22d13503747ad93578fc428505e4fe3))
+
 ## [2.48.0](https://github.com/g0ldyy/comet/compare/v2.47.0...v2.48.0) (2026-01-15)
 
 
