@@ -12,6 +12,8 @@ class PeerflixScraper(BaseScraper):
             async with self.session.get(
                 f"{self.BASE_URL}/stream/{request.media_type}/{request.media_id}.json",
             ) as response:
+                if response.status == 404:
+                    return []
                 results = await response.json()
 
             for stream in results["streams"]:
