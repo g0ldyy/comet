@@ -407,14 +407,9 @@ def log_startup_info(settings):
         f"TorrentsDB Scraper: {settings.format_scraper_mode(settings.SCRAPE_TORRENTSDB)}",
     )
 
-    peerflix_url = (
-        f" - {settings.PEERFLIX_URL}"
-        if settings.is_any_context_enabled(settings.SCRAPE_PEERFLIX)
-        else ""
-    )
     logger.log(
         "COMET",
-        f"Peerflix Scraper: {settings.format_scraper_mode(settings.SCRAPE_PEERFLIX)}{peerflix_url}",
+        f"Peerflix Scraper: {settings.format_scraper_mode(settings.SCRAPE_PEERFLIX)}",
     )
 
     debrid_stream_proxy_display = (

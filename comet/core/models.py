@@ -107,7 +107,6 @@ class AppSettings(BaseSettings):
     TORBOX_API_KEY: Optional[str] = None
     SCRAPE_TORRENTSDB: Union[bool, str] = False
     SCRAPE_PEERFLIX: Union[bool, str] = False
-    PEERFLIX_URL: Union[str, List[str]] = "https://addon.peerflix.mov"
     CUSTOM_HEADER_HTML: Optional[str] = None
     PROXY_DEBRID_STREAM: Optional[bool] = False
     PROXY_DEBRID_STREAM_PASSWORD: Optional[str] = "".join(

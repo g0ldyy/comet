@@ -5,17 +5,19 @@ from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.utils.formatting import size_to_bytes
 
+
 class PeerflixScraper(BaseScraper):
     impersonate = "chrome"
+    BASE_URL = "https://peerflix.mov"
 
-    def __init__(self, manager, session, url: str):
-        super().__init__(manager, session, url)
+    def __init__(self, manager, session):
+        super().__init__(manager, session)
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
         try:
             async with self.session.get(
-                f"{self.url}/stream/{request.media_type}/{request.media_id}.json",
+                f"{self.BASE_URL}/stream/{request.media_type}/{request.media_id}.json",
             ) as response:
                 results = await response.json()
 
@@ -44,7 +46,7 @@ class PeerflixScraper(BaseScraper):
                     matchTracker = re.search(r"🌐\s*([^\n\r]+)", title_full)
                     if matchTracker:
                         tracker = matchTracker.group(1).strip()
-                        
+
                 torrents.append(
                     {
                         "title": title,
@@ -57,6 +59,6 @@ class PeerflixScraper(BaseScraper):
                     }
                 )
         except Exception as e:
-            log_scraper_error("Peerflix", self.url, request.media_id, e)
+            log_scraper_error("Peerflix", self.BASE_URL, request.media_id, e)
 
         return torrents
