@@ -60,21 +60,21 @@ class StremThru:
 
             if "data" not in user:
                 raise DebridAuthError(
-                    self.name,
-                    f"{self.name}: Invalid API key.\nPlease check your configuration.",
+                    self.real_debrid_name,
+                    f"{self.real_debrid_name}: Invalid API key.\nPlease check your configuration.",
                 )
 
             if user["data"]["subscription_status"] != "premium":
                 raise DebridAuthError(
-                    self.name,
-                    f"{self.name}: No active subscription.\nPlease renew your debrid account.",
+                    self.real_debrid_name,
+                    f"{self.real_debrid_name}: No active subscription.\nPlease renew your debrid account.",
                 )
         except DebridAuthError:
             raise
         except Exception as e:
             raise DebridAuthError(
-                self.name,
-                f"{self.name}: Failed to check account status.\n{e}",
+                self.real_debrid_name,
+                f"{self.real_debrid_name}: Failed to check account status.\n{e}",
             )
 
     async def get_instant(self, magnets: list):

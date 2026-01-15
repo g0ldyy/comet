@@ -18,8 +18,24 @@ from comet.utils.parsing import parse_optional_int
 router = APIRouter()
 
 
+def _get_debrid_credentials(config: dict, service_index: int = None):
+    debrid_entries = config.get("_debridEntries", [])
+
+    if debrid_entries and service_index is not None:
+        if 0 <= service_index < len(debrid_entries):
+            entry = debrid_entries[service_index]
+            return entry["service"], entry["apiKey"]
+
+    if debrid_entries:
+        entry = debrid_entries[0]
+        return entry["service"], entry["apiKey"]
+
+    # Legacy single-service format
+    return config.get("debridService", "torrent"), config.get("debridApiKey", "")
+
+
 @router.get(
-    "/{b64config}/playback/{hash}/{index}/{season}/{episode}/{torrent_name:path}",
+    "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}/{torrent_name:path}",
     tags=["Stremio"],
     summary="Playback Proxy",
     description="Proxies the playback request to the Debrid service or returns a cached link.",
@@ -28,6 +44,7 @@ async def playback(
     request: Request,
     b64config: str,
     hash: str,
+    service_index: str,
     index: str,
     season: str,
     episode: str,
@@ -36,8 +53,13 @@ async def playback(
 ):
     config = config_check(b64config)
 
+    parsed_service_index = parse_optional_int(service_index)
     season = parse_optional_int(season)
     episode = parse_optional_int(episode)
+
+    debrid_service, debrid_api_key = _get_debrid_credentials(
+        config, parsed_service_index
+    )
 
     async with aiohttp.ClientSession() as session:
         cached_link = await database.fetch_one(
@@ -51,7 +73,7 @@ async def playback(
             AND timestamp + 3600 >= :current_time
             """,
             {
-                "debrid_key": config["debridApiKey"],
+                "debrid_key": debrid_api_key,
                 "info_hash": hash,
                 "season": season,
                 "episode": episode,
@@ -115,8 +137,8 @@ async def playback(
                 session,
                 None,
                 None,
-                config["debridService"],
-                config["debridApiKey"],
+                debrid_service,
+                debrid_api_key,
                 ip if not should_proxy else "",
             )
             download_url = await debrid.generate_download_link(
@@ -135,7 +157,7 @@ async def playback(
                     {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
                 """,
                 {
-                    "debrid_key": config["debridApiKey"],
+                    "debrid_key": debrid_api_key,
                     "info_hash": hash,
                     "season": season,
                     "episode": episode,
@@ -154,3 +176,34 @@ async def playback(
             )
 
         return RedirectResponse(download_url, status_code=302)
+
+
+# Legacy route
+@router.get(
+    "/{b64config}/playback/{hash}/{index}/{season}/{episode}/{torrent_name:path}",
+    tags=["Stremio"],
+    summary="Playback Proxy (Legacy)",
+    description="Legacy playback route for backward compatibility.",
+)
+async def playback_legacy(
+    request: Request,
+    b64config: str,
+    hash: str,
+    index: str,
+    season: str,
+    episode: str,
+    torrent_name: str,
+    name_query: str = Query(None, alias="name"),
+):
+    # Call the new playback with service_index="n" (will use first service)
+    return await playback(
+        request=request,
+        b64config=b64config,
+        hash=hash,
+        service_index="n",
+        index=index,
+        season=season,
+        episode=episode,
+        torrent_name=torrent_name,
+        name_query=name_query,
+    )
