@@ -151,24 +151,28 @@ async def get_and_cache_multi_service_availability(
     ip: str,
 ):
     service_cache_status = defaultdict(dict)
+    errors = {}
 
     async def check_service(entry):
         service = entry["service"]
         api_key = entry["apiKey"]
 
-        service_torrents = {k: {**v, "cached": False} for k, v in torrents.items()}
+        try:
+            service_torrents = {k: {**v, "cached": False} for k, v in torrents.items()}
 
-        debrid_instance = DebridService(service, api_key, ip)
-        await debrid_instance.get_and_cache_availability(
-            session,
-            service_torrents,
-            media_id,
-            media_only_id,
-            season,
-            episode,
-        )
+            debrid_instance = DebridService(service, api_key, ip)
+            await debrid_instance.get_and_cache_availability(
+                session,
+                service_torrents,
+                media_id,
+                media_only_id,
+                season,
+                episode,
+            )
 
-        return service, {h: t["cached"] for h, t in service_torrents.items()}
+            return service, {h: t["cached"] for h, t in service_torrents.items()}, None
+        except Exception as e:
+            return service, None, e
 
     if debrid_entries:
         results = await asyncio.gather(
@@ -176,16 +180,21 @@ async def get_and_cache_multi_service_availability(
         )
 
         for result in results:
-            if isinstance(result, Exception):
-                if isinstance(result, DebridAuthError):
-                    raise result
-                logger.log("DEBRID", f"❌ Error getting availability: {result}")
+            service, cache_map, error = result
+            if error:
+                if isinstance(error, DebridAuthError):
+                    errors[service] = error
+                else:
+                    logger.log(
+                        "DEBRID",
+                        f"❌ Error checking availability on {service}: {error}",
+                    )
                 continue
-            service, cache_map = result
+
             for info_hash, is_cached in cache_map.items():
                 service_cache_status[info_hash][service] = is_cached
 
-    return service_cache_status
+    return service_cache_status, errors
 
 
 @streams.get(
@@ -437,36 +446,34 @@ async def stream(
             )
         )
 
+        debrid_errors = {}
         if needs_debrid_check:
             services_str = "+".join([e["service"] for e in debrid_entries])
             logger.log(
                 "SCRAPER",
                 f"🔄 Checking availability on debrid services: {services_str}",
             )
-            try:
-                service_cache_status = await get_and_cache_multi_service_availability(
-                    session,
-                    debrid_entries,
-                    torrent_manager.torrents,
-                    media_id,
-                    media_only_id,
-                    season,
-                    episode,
-                    ip,
-                )
-            except DebridAuthError as e:
-                return _build_stream_response(
-                    request,
+            (
+                service_cache_status,
+                debrid_errors,
+            ) = await get_and_cache_multi_service_availability(
+                session,
+                debrid_entries,
+                torrent_manager.torrents,
+                media_id,
+                media_only_id,
+                season,
+                episode,
+                ip,
+            )
+
+            for service, error in debrid_errors.items():
+                cached_results.append(
                     {
-                        "streams": [
-                            {
-                                "name": "[❌] Comet",
-                                "description": e.display_message,
-                                "url": "https://comet.feels.legal",
-                            }
-                        ]
-                    },
-                    is_empty=True,
+                        "name": f"[❌] {service}",
+                        "description": error.display_message,
+                        "url": "https://comet.feels.legal",
+                    }
                 )
 
         if debrid_entries:
@@ -538,6 +545,10 @@ async def stream(
 
             for entry_index, entry in enumerate(debrid_entries):
                 service = entry["service"]
+
+                if service in debrid_errors:
+                    continue
+
                 is_cached = service_cache_status.get(info_hash, {}).get(service, False)
 
                 if config["cachedOnly"] and not is_cached:
