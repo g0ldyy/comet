@@ -773,6 +773,7 @@
             "la": "💃🏻",  // Latino
           };
           let defaultResultFormat = [];
+          const ALL_RESOLUTIONS = ["r4k", "r2160p", "r1440p", "r1080p", "r720p", "r576p", "r480p", "r360p", "r240p", "unknown"];
 
           document.addEventListener("DOMContentLoaded", async () => {
             await Promise.allSettled([
@@ -789,7 +790,7 @@
 
 
           const resolutionsSelect = document.getElementById("resolutions");
-          resolutionsSelect.value = ["r4k", "r2160p", "r1440p", "r1080p", "r720p", "r576p", "r480p", "r360p", "r240p", "unknown"];
+          resolutionsSelect.value = ALL_RESOLUTIONS;
 
           populateSelect("resultFormat", webConfig.resultFormat);
           defaultResultFormat = webConfig.resultFormat;
@@ -898,7 +899,7 @@
             const languages_excluded = Array.from(document.getElementById("languages_excluded").selectedOptions).map(option => option.value);
             const languages_preferred = Array.from(document.getElementById("languages_preferred").selectedOptions).map(option => option.value);
             const selectedResolutions = Array.from(document.getElementById("resolutions").selectedOptions).map(option => option.value);
-            const allResolutions = ["r4k", "r2160p", "r1440p", "r1080p", "r720p", "r576p", "r480p", "r360p", "r240p", "unknown"];
+            const allResolutions = ALL_RESOLUTIONS;
             const resolutions = allResolutions.reduce((obj, res) => {
               // Only include resolutions that are NOT selected (disabled) as false
               if (!selectedResolutions.includes(res)) {
@@ -1130,7 +1131,7 @@
                 document.getElementById("languages_preferred").value = settings.languages.preferred;
             }
             if (settings.resolutions) {
-              const allResolutions = ["r4k", "r2160p", "r1440p", "r1080p", "r720p", "r576p", "r480p", "r360p", "r240p", "unknown"];
+              const allResolutions = ALL_RESOLUTIONS;
               const enabledResolutions = allResolutions.filter(res => settings.resolutions[res] !== false);
               document.getElementById("resolutions").value = enabledResolutions;
             }
