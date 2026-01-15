@@ -11,6 +11,8 @@ METADATA_PATTERN = re.compile(
 
 
 class TorrentsDBScraper(BaseScraper):
+    BASE_URL = "https://torrentsdb.com"
+
     def __init__(self, manager, session):
         super().__init__(manager, session)
 
@@ -18,7 +20,7 @@ class TorrentsDBScraper(BaseScraper):
         torrents = []
         try:
             async with self.session.get(
-                f"https://torrentsdb.com/stream/{request.media_type}/{request.media_id}.json",
+                f"{self.BASE_URL}/stream/{request.media_type}/{request.media_id}.json",
             ) as response:
                 results = await response.json()
 
@@ -32,7 +34,9 @@ class TorrentsDBScraper(BaseScraper):
                 match = METADATA_PATTERN.search(metadata_line)
 
                 seeders = int(match.group(1)) if match and match.group(1) else None
-                size = size_to_bytes(match.group(2)) if match and match.group(2) else 0
+                size = (
+                    size_to_bytes(match.group(2)) if match and match.group(2) else None
+                )
                 tracker = match.group(3) if match and match.group(3) else None
 
                 torrents.append(
@@ -47,8 +51,6 @@ class TorrentsDBScraper(BaseScraper):
                     }
                 )
         except Exception as e:
-            log_scraper_error(
-                "TorrentsDB", "https://torrentsdb.com", request.media_id, e
-            )
+            log_scraper_error("TorrentsDB", self.BASE_URL, request.media_id, e)
 
         return torrents

@@ -5,7 +5,7 @@
 - The first Stremio addon to Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
-- Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet and TorrentsDB
+- Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB and Peerflix
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
@@ -82,8 +82,8 @@ Comet is a community-driven project, and your support helps it grow! 🚀
 
 - ❤️ **Donate** via [GitHub Sponsors](https://github.com/sponsors/g0ldyy) or [Ko-fi](https://ko-fi.com/g0ldyy) to support development
 - ⭐ **Star the repository** here on GitHub
-- ⭐ **Star the addon** on [stremio-addons.net](https://stremio-addons.net/addons/comet)  
-- 🐛 **Contribute** by reporting issues, suggesting features, or submitting PRs 
+- ⭐ **Star the addon** on [stremio-addons.net](https://stremio-addons.net/addons/comet)
+- 🐛 **Contribute** by reporting issues, suggesting features, or submitting PRs
 
 ## Web UI Showcase
 <img src="https://i.imgur.com/7xY5AEi.png" />

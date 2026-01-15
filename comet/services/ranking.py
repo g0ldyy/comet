@@ -16,8 +16,10 @@ def rank_worker(
         if cached_only and debrid_service != "torrent" and not torrent["cached"]:
             continue
 
-        if max_size != 0 and torrent["size"] > max_size:
-            continue
+        if max_size != 0:
+            torrent_size = torrent["size"]
+            if torrent_size is not None and torrent_size > max_size:
+                continue
 
         parsed = torrent["parsed"]
         raw_title = torrent["title"]
