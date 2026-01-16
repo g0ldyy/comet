@@ -2,6 +2,14 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.50.0](https://github.com/g0ldyy/comet/compare/v2.49.0...v2.50.0) (2026-01-16)
+
+
+### Features
+
+* improve error handling in torrent title parsing ([85fc456](https://github.com/g0ldyy/comet/commit/85fc4566c845ea0bd2f4e52fa9ebe3d5cad3d963))
+* improve error handling in torrent title parsing ([42a93d4](https://github.com/g0ldyy/comet/commit/42a93d4c22df5926f448ff9eadea5b828a2a1418))
+
 ## [2.49.0](https://github.com/g0ldyy/comet/compare/v2.48.0...v2.49.0) (2026-01-15)
 
 
