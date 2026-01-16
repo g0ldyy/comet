@@ -1,3 +1,4 @@
+from pydantic import ValidationError
 from RTN import normalize_title, parse, title_match
 
 from comet.core.logger import logger
@@ -48,7 +49,13 @@ def filter_worker(
             _log_exclusion(f"🚫 Rejected (Sample/Empty) | {torrent_title}")
             continue
 
-        parsed = parse(torrent_title)
+        # temp fix while waiting for RTN to fix their parsing
+        try:
+            parsed = parse(torrent_title)
+        except ValidationError:
+            _log_exclusion(f"❌ Rejected (Parse Error) | {torrent_title}")
+            continue
+
         ensure_multi_language(parsed)
 
         if remove_adult_content and parsed.adult:
