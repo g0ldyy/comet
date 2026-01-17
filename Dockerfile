@@ -11,6 +11,7 @@ ARG DATABASE_PATH
 
 COPY pyproject.toml .
 
+ENV UV_HTTP_TIMEOUT=300
 RUN uv sync
 
 COPY . .
