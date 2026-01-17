@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - development
+      - feat/cometnet
   workflow_dispatch:
 
 jobs:
@@ -52,6 +53,8 @@ jobs:
           echo "tags=ghcr.io/g0ldyy/comet:latest,docker.io/g0ldyy/comet:latest" >> $GITHUB_OUTPUT
         elif [ "${{ steps.branch-name.outputs.branch }}" = "development" ]; then
           echo "tags=ghcr.io/g0ldyy/comet:dev,docker.io/g0ldyy/comet:dev" >> $GITHUB_OUTPUT
+        elif [ "${{ steps.branch-name.outputs.branch }}" = "feat/cometnet" ]; then
+          echo "tags=ghcr.io/g0ldyy/comet:beta,docker.io/g0ldyy/comet:beta" >> $GITHUB_OUTPUT
         else
           echo "tags=ghcr.io/g0ldyy/comet:${{ steps.branch-name.outputs.branch }},docker.io/g0ldyy/comet:${{ steps.branch-name.outputs.branch }}" >> $GITHUB_OUTPUT
         fi
