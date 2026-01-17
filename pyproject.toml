@@ -26,6 +26,11 @@ dependencies = [
     "rank-torrent-name",
     "uvicorn",
     "xxhash",
+    "cryptography",
+    "websockets",
+    "msgpack",
+    "miniupnpc",
+    "cachetools",
 ]
 
 [tool.uv.sources]

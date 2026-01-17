@@ -1,0 +1,726 @@
+"""
+CometNet Transport Module
+
+Manages WebSocket connections for peer-to-peer communication.
+Handles both server-side (incoming) and client-side (outgoing) connections.
+"""
+
+import asyncio
+import random
+import secrets
+import time
+from dataclasses import dataclass, field
+from typing import Awaitable, Callable, Dict, List, Optional, Set
+from urllib.parse import urlparse
+
+import websockets
+from websockets.client import WebSocketClientProtocol
+from websockets.exceptions import ConnectionClosed
+
+from comet.cometnet.crypto import NodeIdentity
+from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
+                                     PingMessage, PongMessage, parse_message)
+from comet.core.logger import logger
+from comet.core.models import settings
+
+
+@dataclass
+class PeerConnection:
+    """Represents an active connection to a peer."""
+
+    node_id: str
+    address: str  # WebSocket URL
+    websocket: WebSocketClientProtocol
+    public_key: str = ""
+    connected_at: float = field(default_factory=time.time)
+    last_activity: float = field(default_factory=time.time)
+    is_outbound: bool = True  # True if we initiated the connection
+    listen_port: int = 0  # Port where this peer accepts connections
+    pending_pings: Dict[str, float] = field(default_factory=dict)  # nonce -> sent_time
+    latency_ms: float = 0.0
+
+    def update_activity(self) -> None:
+        """Update the last activity timestamp."""
+        self.last_activity = time.time()
+
+    async def send(self, message: AnyMessage) -> bool:
+        """Send a message to this peer. Returns True on success."""
+        try:
+            await self.websocket.send(message.to_bytes())
+            self.update_activity()
+            return True
+        except ConnectionClosed:
+            return False
+        except Exception as e:
+            logger.warning(f"Error sending message to {self.node_id[:16]}: {e}")
+            return False
+
+    async def close(self) -> None:
+        """Close the connection."""
+        try:
+            await self.websocket.close()
+        except Exception:
+            pass
+
+
+MessageHandler = Callable[[str, AnyMessage], Awaitable[None]]
+
+
+class ConnectionManager:
+    """
+    Manages all WebSocket connections to peers.
+
+    Responsibilities:
+    - Track active connections
+    - Handle connection lifecycle (connect, disconnect)
+    - Route incoming messages to handlers
+    - Periodic ping/pong for health checks
+    """
+
+    # Security limits
+    def __init__(
+        self,
+        identity: NodeIdentity,
+        listen_port: int = 8765,
+        max_peers: int = 50,
+        advertise_url: Optional[str] = None,
+        keystore=None,  # Optional PublicKeyStore for storing peer keys
+    ):
+        self.identity = identity
+        self.listen_port = listen_port
+        self.max_peers = max_peers
+        self.advertise_url = advertise_url
+        self._keystore = keystore
+
+        # Security limits from settings
+        self.max_message_size = settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE
+        self.max_connections_per_ip = settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP
+
+        # Active connections by node_id
+        self._connections: Dict[str, PeerConnection] = {}
+
+        # Track connections per IP to prevent abuse
+        self._connections_per_ip: Dict[str, int] = {}
+
+        # Lock for connection operations to prevent race conditions
+        self._connection_lock = asyncio.Lock()
+
+        # Addresses we're currently trying to connect to (to prevent duplicates)
+        self._connecting: Set[str] = set()
+
+        # Message handlers by message type
+        self._handlers: Dict[MessageType, MessageHandler] = {}
+
+        # Server task
+        self._server = None
+        self._server_task: Optional[asyncio.Task] = None
+
+        # Background tasks
+        self._tasks: Set[asyncio.Task] = set()
+
+        # Running flag
+        self._running = False
+
+        # Callback when a peer connects (for Discovery notification)
+        self._on_peer_connected: Optional[Callable[[str, str], Awaitable[None]]] = None
+
+    def set_on_peer_connected(
+        self, callback: Callable[[str, str], Awaitable[None]]
+    ) -> None:
+        """Set callback to be called when a peer connects. Args: (node_id, address)"""
+        self._on_peer_connected = callback
+
+    @property
+    def connected_peer_count(self) -> int:
+        """Return the number of connected peers."""
+        return len(self._connections)
+
+    @property
+    def connected_node_ids(self) -> list[str]:
+        """Return list of connected node IDs."""
+        return list(self._connections.keys())
+
+    def get_peer_address(self, node_id: str) -> Optional[str]:
+        """Get the address (IP:port) of a connected peer."""
+        conn = self._connections.get(node_id)
+        if not conn:
+            return None
+
+        # If we have a listen port (from handshake), prefer it over the socket port
+        # This ensures PEX shares the correct connectable address
+        if conn.listen_port > 0:
+            try:
+                scheme = "wss" if conn.address.startswith("wss://") else "ws"
+                clean = conn.address.replace(f"{scheme}://", "")
+                host = clean.split(":")[0]
+                return f"{scheme}://{host}:{conn.listen_port}"
+            except Exception:
+                pass
+
+        return conn.address
+
+    def register_handler(self, msg_type: MessageType, handler: MessageHandler) -> None:
+        """Register a handler for a specific message type."""
+        self._handlers[msg_type] = handler
+
+    async def start(self) -> None:
+        """Start the connection manager and WebSocket server."""
+        if self._running:
+            return
+
+        self._running = True
+
+        # Start WebSocket server
+        try:
+            self._server = await websockets.serve(
+                self._handle_ws_connection,
+                "0.0.0.0",
+                self.listen_port,
+                ping_interval=None,
+                ping_timeout=None,
+                max_size=self.max_message_size,
+            )
+            logger.log(
+                "COMETNET",
+                f"WebSocket server listening on port {self.listen_port}",
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to start WebSocket server on port {self.listen_port}: {e}"
+            )
+            # Continue anyway - we can still make outbound connections
+
+        # Start ping task
+        ping_task = asyncio.create_task(self._ping_loop())
+        self._tasks.add(ping_task)
+
+        logger.log(
+            "COMETNET",
+            "Transport layer started",
+        )
+
+    async def _handle_ws_connection(self, websocket, path: str = "") -> None:
+        """Handle incoming WebSocket connection from the server."""
+        address = f"ws://{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        node_id = await self.handle_incoming_connection(websocket, address)
+
+        if node_id:
+            # Notify Discovery of the new connection
+            if self._on_peer_connected:
+                corrected_address = self.get_peer_address(node_id) or address
+                await self._on_peer_connected(node_id, corrected_address)
+
+            # Keep connection alive until it's closed
+            try:
+                await websocket.wait_closed()
+            except Exception:
+                pass
+
+    async def stop(self) -> None:
+        """Stop the connection manager and close all connections."""
+        self._running = False
+
+        # Stop WebSocket server
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+
+        # Cancel background tasks
+        for task in self._tasks:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._tasks.clear()
+
+        # Close all connections
+        for conn in list(self._connections.values()):
+            await conn.close()
+        self._connections.clear()
+
+        logger.log("COMETNET", "Transport layer stopped")
+
+    async def connect_to_peer(self, address: str) -> Optional[str]:
+        """
+        Connect to a peer at the given address.
+
+        Returns the peer's node_id on success, None on failure.
+        """
+        if not self._running:
+            return None
+
+        # Check if we're already connected or connecting
+        if address in self._connecting:
+            return None
+
+        # Use lock to prevent race condition on peer limit check
+        async with self._connection_lock:
+            # Check peer limit
+            if len(self._connections) >= self.max_peers:
+                logger.debug(f"Cannot connect to {address}: max peers reached")
+                return None
+
+            self._connecting.add(address)
+
+        try:
+            # Connect with timeout
+            websocket = await asyncio.wait_for(
+                websockets.connect(
+                    address,
+                    ping_interval=None,
+                    ping_timeout=None,
+                    max_size=self.max_message_size,
+                ),
+                timeout=5.0,
+            )
+
+            # Perform handshake
+            node_id = await self._perform_handshake(
+                websocket, address, is_outbound=True
+            )
+
+            if node_id:
+                logger.log(
+                    "COMETNET", f"Connected to peer {node_id[:16]}... at {address}"
+                )
+                return node_id
+            else:
+                await websocket.close()
+                return None
+
+        except asyncio.TimeoutError:
+            logger.debug(f"Connection to {address} timed out")
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to connect to {address}: {e}")
+            return None
+        finally:
+            self._connecting.discard(address)
+
+    def _extract_ip_from_address(self, address: str) -> str:
+        """Extract the IP/hostname from a WebSocket address."""
+        try:
+            # Handle ws:// or wss:// URLs
+            if address.startswith(("ws://", "wss://")):
+                parsed = urlparse(address)
+                return parsed.hostname or "unknown"
+            # Handle raw IP:port or just IP
+            return address.split(":")[0]
+        except Exception:
+            return "unknown"
+
+    async def handle_incoming_connection(
+        self, websocket: WebSocketClientProtocol, address: str
+    ) -> Optional[str]:
+        """
+        Handle an incoming WebSocket connection (called from FastAPI).
+
+        Returns the peer's node_id on success, None on failure.
+        """
+        if not self._running:
+            await websocket.close()
+            return None
+
+        # Extract IP
+        ip = self._extract_ip_from_address(address)
+
+        # Use lock to prevent race condition on connection limits
+        async with self._connection_lock:
+            # Check per-IP connection limit (prevent Sybil-like attacks)
+            current_ip_connections = self._connections_per_ip.get(ip, 0)
+            if current_ip_connections >= self.max_connections_per_ip:
+                logger.debug(
+                    f"Rejecting connection from {address}: too many connections from IP {ip}"
+                )
+                await websocket.close()
+                return None
+
+            # Check peer limit
+            if len(self._connections) >= self.max_peers:
+                logger.debug(f"Rejecting connection from {address}: max peers reached")
+                await websocket.close()
+                return None
+
+            # Pre-increment IP counter to reserve slot (will decrement if handshake fails)
+            self._connections_per_ip[ip] = current_ip_connections + 1
+
+        # Perform handshake (we wait for their handshake first)
+        node_id = await self._perform_handshake(websocket, address, is_outbound=False)
+
+        if node_id:
+            logger.log("COMETNET", f"Accepted connection from peer {node_id[:16]}...")
+            return node_id
+        else:
+            # Handshake failed, decrement IP counter
+            async with self._connection_lock:
+                self._connections_per_ip[ip] = max(
+                    0, self._connections_per_ip.get(ip, 1) - 1
+                )
+                if self._connections_per_ip.get(ip, 0) == 0:
+                    self._connections_per_ip.pop(ip, None)
+            await websocket.close()
+            return None
+
+    async def _perform_handshake(
+        self, websocket: WebSocketClientProtocol, address: str, is_outbound: bool
+    ) -> Optional[str]:
+        """
+        Perform the handshake protocol with a peer.
+
+        Returns the peer's node_id on success, None on failure.
+        """
+        try:
+            if is_outbound:
+                # We initiated, so we send our handshake first
+                handshake = HandshakeMessage(
+                    sender_id=self.identity.node_id,
+                    public_key=self.identity.public_key_hex,
+                    listen_port=self.listen_port,
+                    public_url=self.advertise_url,
+                )
+                handshake.signature = await self.identity.sign_hex_async(
+                    handshake.to_signable_bytes()
+                )
+
+                await websocket.send(handshake.to_bytes())
+
+                # Wait for their handshake
+                response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+                peer_handshake = parse_message(response)
+            else:
+                # They initiated, so we wait for their handshake first
+                response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+                peer_handshake = parse_message(response)
+
+                if not isinstance(peer_handshake, HandshakeMessage):
+                    return None
+
+                # Send our handshake
+                handshake = HandshakeMessage(
+                    sender_id=self.identity.node_id,
+                    public_key=self.identity.public_key_hex,
+                    listen_port=self.listen_port,
+                    public_url=self.advertise_url,
+                )
+                handshake.signature = await self.identity.sign_hex_async(
+                    handshake.to_signable_bytes()
+                )
+
+                await websocket.send(handshake.to_bytes())
+
+            # Validate peer handshake
+            if not isinstance(peer_handshake, HandshakeMessage):
+                logger.debug(f"Invalid handshake from {address}")
+                return None
+
+            # Verify signature
+            if not await NodeIdentity.verify_hex_async(
+                peer_handshake.to_signable_bytes(),
+                peer_handshake.signature,
+                peer_handshake.public_key,
+            ):
+                logger.warning(f"Invalid signature in handshake from {address}")
+                return None
+
+            # Verify node ID matches public key
+            expected_node_id = NodeIdentity.node_id_from_public_key(
+                peer_handshake.public_key
+            )
+            if peer_handshake.sender_id != expected_node_id:
+                logger.warning(f"Node ID mismatch in handshake from {address}")
+                return None
+
+            # Check if already connected to this node
+            if peer_handshake.sender_id in self._connections:
+                logger.debug(f"Already connected to {peer_handshake.sender_id[:16]}")
+                return None
+
+            # Don't connect to ourselves
+            if peer_handshake.sender_id == self.identity.node_id:
+                logger.debug("Rejecting connection to self")
+                return None
+
+            # Determine effective address
+            effective_address = address
+            if peer_handshake.public_url:
+                effective_address = peer_handshake.public_url
+
+            # Create connection record
+            conn = PeerConnection(
+                node_id=peer_handshake.sender_id,
+                address=effective_address,
+                websocket=websocket,
+                public_key=peer_handshake.public_key,
+                is_outbound=is_outbound,
+                listen_port=peer_handshake.listen_port,
+            )
+            self._connections[peer_handshake.sender_id] = conn
+
+            # Store verified public key in keystore
+            if self._keystore:
+                self._keystore.store_key(
+                    node_id=peer_handshake.sender_id,
+                    public_key_hex=peer_handshake.public_key,
+                    verified=True,
+                )
+
+            # Start message receiver task
+            task = asyncio.create_task(self._receive_loop(conn))
+            self._tasks.add(task)
+
+            return peer_handshake.sender_id
+
+        except asyncio.TimeoutError:
+            logger.debug(f"Handshake timeout with {address}")
+            return None
+        except Exception as e:
+            logger.debug(f"Handshake error with {address}: {e}")
+            return None
+
+    async def _receive_loop(self, conn: PeerConnection) -> None:
+        """Receive loop for a single connection."""
+        try:
+            while self._running:
+                try:
+                    raw_message = await conn.websocket.recv()
+                    conn.update_activity()
+
+                    message = parse_message(raw_message)
+                    if message is None:
+                        logger.debug(f"Invalid message from {conn.node_id[:16]}")
+                        continue
+
+                    # Handle ping/pong internally
+                    if isinstance(message, PingMessage):
+                        await self._handle_ping(conn, message)
+                    elif isinstance(message, PongMessage):
+                        self._handle_pong(conn, message)
+                    else:
+                        # Route to registered handler
+                        handler = self._handlers.get(message.type)
+                        if handler:
+                            try:
+                                await handler(conn.node_id, message)
+                            except Exception as e:
+                                logger.warning(f"Handler error for {message.type}: {e}")
+
+                except ConnectionClosed:
+                    break
+
+        except Exception as e:
+            logger.debug(f"Receive loop error for {conn.node_id[:16]}: {e}")
+        finally:
+            # Clean up connection
+            if conn.node_id in self._connections:
+                # Decrement IP connection counter
+                ip = self._extract_ip_from_address(conn.address)
+                if ip in self._connections_per_ip:
+                    self._connections_per_ip[ip] = max(
+                        0, self._connections_per_ip[ip] - 1
+                    )
+                    if self._connections_per_ip[ip] == 0:
+                        del self._connections_per_ip[ip]
+                del self._connections[conn.node_id]
+            logger.log("COMETNET", f"Disconnected from peer {conn.node_id[:16]}...")
+
+    async def _handle_ping(self, conn: PeerConnection, ping: PingMessage) -> None:
+        """Respond to a ping with a pong."""
+        pong = PongMessage(
+            sender_id=self.identity.node_id,
+            nonce=ping.nonce,
+        )
+        pong.signature = await self.identity.sign_hex_async(pong.to_signable_bytes())
+        await conn.send(pong)
+
+    def _handle_pong(self, conn: PeerConnection, pong: PongMessage) -> None:
+        """Handle a pong response."""
+        if pong.nonce in conn.pending_pings:
+            sent_time = conn.pending_pings.pop(pong.nonce)
+            conn.latency_ms = (time.time() - sent_time) * 1000
+
+    async def _ping_loop(self) -> None:
+        """Periodically ping all peers to check health (parallelized)."""
+        while self._running:
+            try:
+                await asyncio.sleep(settings.COMETNET_TRANSPORT_PING_INTERVAL)
+
+                # Collect stale connections and pings to send
+                stale_nodes: List[str] = []
+                ping_tasks: List[asyncio.Task] = []
+
+                for conn in list(self._connections.values()):
+                    # Check for stale connection
+                    if (
+                        time.time() - conn.last_activity
+                        > settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT
+                    ):
+                        logger.debug(f"Closing stale connection to {conn.node_id[:16]}")
+                        stale_nodes.append(conn.node_id)
+                        continue
+
+                    # Prepare ping
+                    nonce = secrets.token_hex(8)
+                    ping = PingMessage(
+                        sender_id=self.identity.node_id,
+                        nonce=nonce,
+                    )
+                    ping.signature = await self.identity.sign_hex_async(
+                        ping.to_signable_bytes()
+                    )
+                    conn.pending_pings[nonce] = time.time()
+                    ping_tasks.append(conn.send(ping))
+
+                # Disconnect stale connections
+                if stale_nodes:
+                    await asyncio.gather(
+                        *(self.disconnect_peer(nid) for nid in stale_nodes),
+                        return_exceptions=True,
+                    )
+
+                # Send all pings
+                if ping_tasks:
+                    await asyncio.gather(*ping_tasks, return_exceptions=True)
+
+                # Eclipse Attack auto-remediation
+                await self._remediate_eclipse_attack()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Ping loop error: {e}")
+
+    async def disconnect_peer(self, node_id: str) -> None:
+        """Disconnect from a specific peer."""
+        if node_id in self._connections:
+            await self._connections[node_id].close()
+            del self._connections[node_id]
+
+    async def _remediate_eclipse_attack(self) -> None:
+        """
+        Detect and remediate potential Eclipse attacks.
+
+        If IP diversity is too low (many peers from same IPs), disconnect
+        some peers from overrepresented IPs to make room for diverse connections.
+        """
+        # Only check if we have enough peers to evaluate
+        if len(self._connections) < 5:
+            return
+
+        # Calculate IP distribution
+        ip_counts: Dict[str, List[str]] = {}  # ip -> list of node_ids
+        for node_id, conn in self._connections.items():
+            ip = self._extract_ip_from_address(conn.address)
+            if ip != "unknown":
+                if ip not in ip_counts:
+                    ip_counts[ip] = []
+                ip_counts[ip].append(node_id)
+
+        if not ip_counts:
+            return
+
+        # Calculate diversity (unique IPs / total connections)
+        unique_ips = len(ip_counts)
+        total_peers = len(self._connections)
+        diversity = unique_ips / total_peers
+
+        # Threshold for action: if diversity < 0.4 (e.g., 5 connections from 2 IPs)
+        if diversity >= 0.4:
+            return
+
+        # Find overrepresented IPs (more than 2 connections from same IP)
+        peers_to_disconnect = []
+        for ip, node_ids in ip_counts.items():
+            if len(node_ids) > 2:
+                # Keep only 2 connections per IP, disconnect the rest (prefer newer ones)
+                # Sort by connected_at and keep oldest 2
+                sorted_peers = sorted(
+                    node_ids, key=lambda nid: self._connections[nid].connected_at
+                )
+                peers_to_disconnect.extend(sorted_peers[2:])
+
+        if peers_to_disconnect:
+            logger.warning(
+                f"Eclipse attack remediation: Disconnecting {len(peers_to_disconnect)} peers "
+                f"from overrepresented IPs (diversity was {diversity:.2f})"
+            )
+            for node_id in peers_to_disconnect:
+                await self.disconnect_peer(node_id)
+
+    async def broadcast(
+        self, message: AnyMessage, exclude: Optional[Set[str]] = None
+    ) -> int:
+        """
+        Broadcast a message to all connected peers.
+
+        Returns the number of peers the message was sent to.
+        """
+        exclude = exclude or set()
+
+        # Filter targets first
+        targets = [
+            conn
+            for node_id, conn in self._connections.items()
+            if node_id not in exclude
+        ]
+
+        if not targets:
+            return 0
+
+        # Send to all targets in parallel
+        results = await asyncio.gather(
+            *(conn.send(message) for conn in targets), return_exceptions=True
+        )
+
+        # Count successful sends
+        sent_count = sum(1 for r in results if r is True)
+
+        return sent_count
+
+    async def send_to_peer(self, node_id: str, message: AnyMessage) -> bool:
+        """Send a message to a specific peer."""
+        if node_id in self._connections:
+            return await self._connections[node_id].send(message)
+        return False
+
+    def get_random_peers(
+        self, count: int, exclude: Optional[Set[str]] = None
+    ) -> list[str]:
+        """Get a random sample of connected peer node IDs."""
+        exclude = exclude or set()
+        available = [nid for nid in self._connections.keys() if nid not in exclude]
+        return random.sample(available, min(count, len(available)))
+
+    def get_peer_addresses(self) -> Dict[str, str]:
+        """Get a mapping of node_id to address for all connected peers."""
+        return {nid: conn.address for nid, conn in self._connections.items()}
+
+    def get_connection_stats(self) -> Dict:
+        """Get statistics about connections including security metrics."""
+        # Calculate IP diversity for Eclipse attack detection
+        unique_ips = set()
+        for conn in self._connections.values():
+            ip = self._extract_ip_from_address(conn.address)
+            if ip != "unknown":
+                unique_ips.add(ip)
+
+        ip_diversity = (
+            len(unique_ips) / len(self._connections) if self._connections else 1.0
+        )
+
+        return {
+            "connected_peers": len(self._connections),
+            "outbound": sum(1 for c in self._connections.values() if c.is_outbound),
+            "inbound": sum(1 for c in self._connections.values() if not c.is_outbound),
+            "unique_ips": len(unique_ips),
+            "ip_diversity": round(
+                ip_diversity, 2
+            ),  # 1.0 = all unique, lower = potential eclipse
+            "connections_per_ip": dict(self._connections_per_ip),
+            "avg_latency_ms": (
+                sum(c.latency_ms for c in self._connections.values())
+                / len(self._connections)
+                if self._connections
+                else 0
+            ),
+        }

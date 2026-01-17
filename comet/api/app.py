@@ -9,10 +9,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from comet.api.endpoints import (admin, base, chilllink, config, manifest,
-                                 playback)
+from comet.api.endpoints import (admin, base, chilllink, cometnet, cometnet_ui,
+                                 config, manifest, playback)
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
+from comet.cometnet.manager import init_cometnet_service
+from comet.cometnet.protocol import TorrentMetadata
+from comet.cometnet.relay import init_relay, stop_relay
 from comet.core.database import (cleanup_expired_locks,
                                  cleanup_expired_sessions, setup_database,
                                  teardown_database)
@@ -72,6 +75,56 @@ async def lifespan(app: FastAPI):
     if settings.BACKGROUND_SCRAPER_ENABLED:
         background_scraper_task = asyncio.create_task(background_scraper.start())
 
+    # Initialize CometNet
+    cometnet_service = None
+    cometnet_relay = None
+
+    if settings.COMETNET_RELAY_URL:
+        cometnet_relay = await init_relay(
+            settings.COMETNET_RELAY_URL, api_key=settings.COMETNET_API_KEY
+        )
+
+    elif settings.COMETNET_ENABLED:
+        if settings.FASTAPI_WORKERS > 1:
+            logger.warning(
+                f"⚠️  CometNet with {settings.FASTAPI_WORKERS} workers may cause port conflicts. "
+                "Consider using COMETNET_RELAY_URL for multi-worker deployments."
+            )
+
+        cometnet_service = init_cometnet_service(
+            enabled=True,
+            listen_port=settings.COMETNET_LISTEN_PORT,
+            bootstrap_nodes=settings.COMETNET_BOOTSTRAP_NODES,
+            manual_peers=settings.COMETNET_MANUAL_PEERS,
+            max_peers=settings.COMETNET_MAX_PEERS,
+            min_peers=settings.COMETNET_MIN_PEERS,
+        )
+
+        # Set callback to save torrents received from the network
+        async def save_torrent_from_network(metadata):
+            """Save a torrent received from the CometNet P2P network."""
+
+            if isinstance(metadata, TorrentMetadata):
+                await torrent_update_queue.add_torrent_info(
+                    {
+                        "info_hash": metadata.info_hash,
+                        "index": metadata.file_index or 0,
+                        "season": metadata.season,
+                        "episode": metadata.episode,
+                        "title": metadata.title,
+                        "seeders": metadata.seeders or 0,
+                        "size": metadata.size,
+                        "tracker": metadata.tracker,
+                        "sources": metadata.sources or [],
+                        "parsed": metadata.parsed or {"raw_title": metadata.title},
+                    },
+                    media_id=metadata.imdb_id,
+                    from_cometnet=True,
+                )
+
+        cometnet_service.set_save_torrent_callback(save_torrent_from_network)
+        await cometnet_service.start()
+
     # Start indexer manager
     indexer_manager_task = asyncio.create_task(indexer_manager.run())
 
@@ -105,6 +158,12 @@ async def lifespan(app: FastAPI):
 
         if settings.PROXY_DEBRID_STREAM:
             await bandwidth_monitor.shutdown()
+
+        if cometnet_service:
+            await cometnet_service.stop()
+
+        if cometnet_relay:
+            await stop_relay()
 
         await add_torrent_queue.stop()
         await torrent_update_queue.stop()
@@ -163,3 +222,5 @@ app.include_router(admin.router)
 app.include_router(playback.router)
 app.include_router(streams_router.streams)
 app.include_router(chilllink.router)
+app.include_router(cometnet.router)
+app.include_router(cometnet_ui.router)

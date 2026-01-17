@@ -5,7 +5,6 @@ import time
 
 from loguru import logger
 
-from comet.core.execution import max_workers
 from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
                                    get_level_info)
 from comet.utils.parsing import associate_urls_credentials
@@ -145,6 +144,31 @@ logger.add(
 )
 
 
+def censor(text: str):
+    if not text:
+        return ""
+    if len(text) <= 4:
+        return "*" * len(text)
+    half = len(text) // 2
+    return text[:half] + "*" * (len(text) - half)
+
+
+def censor_url(url: str):
+    if not url:
+        return url
+    if "://" in url:
+        try:
+            scheme, rest = url.split("://", 1)
+            if "@" in rest:
+                auth, host = rest.split("@", 1)
+                if ":" in auth:
+                    user, password = auth.split(":", 1)
+                    return f"{scheme}://{user}:{censor(password)}@{host}"
+        except Exception:
+            pass
+    return url
+
+
 def log_scraper_error(
     scraper_name: str, scraper_url: str, media_id: str, error: Exception
 ):
@@ -153,18 +177,20 @@ def log_scraper_error(
         api_password_missing = " or your API password could be wrong"
 
     logger.warning(
-        f"Exception while getting torrents for {media_id} with {scraper_name} ({scraper_url}), you are most likely being ratelimited{api_password_missing}: {error}"
+        f"Exception while getting torrents for {media_id} with {scraper_name} ({censor_url(scraper_url)}), you are most likely being ratelimited{api_password_missing}: {error}"
     )
 
 
 def log_startup_info(settings):
+    from comet.core.execution import max_workers
+
     def get_urls_with_passwords(urls, passwords):
         url_credentials_pairs = associate_urls_credentials(urls, passwords)
 
         result = []
         for url, password in url_credentials_pairs:
             if password:
-                result.append(f"{url}|{password}")
+                result.append(f"{url}|{censor(password)}")
             else:
                 result.append(url)
 
@@ -184,9 +210,13 @@ def log_startup_info(settings):
     if settings.PUBLIC_BASE_URL:
         logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
 
+    admin_password = settings.ADMIN_DASHBOARD_PASSWORD
+    if "ADMIN_DASHBOARD_PASSWORD" in settings.model_fields_set:
+        admin_password = censor(admin_password)
+
     logger.log(
         "COMET",
-        f"Admin Dashboard Password: {settings.ADMIN_DASHBOARD_PASSWORD} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
+        f"Admin Dashboard Password: {admin_password} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
 
     replicas = ""
@@ -199,10 +229,9 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else settings.DATABASE_URL} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{force_ipv4_info}{replicas}",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else censor_url(settings.DATABASE_URL)} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{force_ipv4_info}{replicas}",
     )
 
-    # SQLite concurrency warnings
     if settings.DATABASE_TYPE == "sqlite":
         logger.warning(
             "⚠️  SQLite has poor concurrency support and is NOT recommended for production. "
@@ -231,7 +260,7 @@ def log_startup_info(settings):
 
     logger.log(
         "COMET",
-        f"Global Proxy: {settings.GLOBAL_PROXY_URL} - Ethos: {settings.PROXY_ETHOS}",
+        f"Global Proxy: {censor_url(settings.GLOBAL_PROXY_URL)} - Ethos: {settings.PROXY_ETHOS}",
     )
     logger.log(
         "COMET",
@@ -383,7 +412,7 @@ def log_startup_info(settings):
     )
 
     debridio_info = (
-        f" - {settings.DEBRIDIO_API_KEY} - {settings.DEBRIDIO_PROVIDER}|{settings.DEBRIDIO_PROVIDER_KEY}"
+        f" - {censor(settings.DEBRIDIO_API_KEY)} - {settings.DEBRIDIO_PROVIDER}|{censor(settings.DEBRIDIO_PROVIDER_KEY)}"
         if settings.is_any_context_enabled(settings.SCRAPE_DEBRIDIO)
         else ""
     )
@@ -393,7 +422,7 @@ def log_startup_info(settings):
     )
 
     torbox_api_key = (
-        f" - {settings.TORBOX_API_KEY}"
+        f" - {censor(settings.TORBOX_API_KEY)}"
         if settings.is_any_context_enabled(settings.SCRAPE_TORBOX)
         else ""
     )
@@ -412,8 +441,12 @@ def log_startup_info(settings):
         f"Peerflix Scraper: {settings.format_scraper_mode(settings.SCRAPE_PEERFLIX)}",
     )
 
+    proxy_stream_password = settings.PROXY_DEBRID_STREAM_PASSWORD
+    if "PROXY_DEBRID_STREAM_PASSWORD" in settings.model_fields_set:
+        proxy_stream_password = censor(proxy_stream_password)
+
     debrid_stream_proxy_display = (
-        f" - Password: {settings.PROXY_DEBRID_STREAM_PASSWORD} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Inactivity Threshold: {settings.PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD}s - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY}"
+        f" - Password: {proxy_stream_password} - Max Connections: {settings.PROXY_DEBRID_STREAM_MAX_CONNECTIONS} - Inactivity Threshold: {settings.PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD}s - Default Debrid Service: {settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE} - Default Debrid API Key: {censor(settings.PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY)}"
         if settings.PROXY_DEBRID_STREAM
         else ""
     )
@@ -441,7 +474,7 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"TMDB Read Access Token: {settings.TMDB_READ_ACCESS_TOKEN if settings.TMDB_READ_ACCESS_TOKEN else 'Shared'}",
+        f"TMDB Read Access Token: {censor(settings.TMDB_READ_ACCESS_TOKEN) if settings.TMDB_READ_ACCESS_TOKEN else 'Shared'}",
     )
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
@@ -469,3 +502,60 @@ def log_startup_info(settings):
         "COMET",
         f"Generic Trackers: {bool(settings.DOWNLOAD_GENERIC_TRACKERS)}",
     )
+
+    cometnet_info = ""
+
+    if settings.COMETNET_RELAY_URL:
+        cometnet_info = f" - Relay Mode: {settings.COMETNET_RELAY_URL}"
+        logger.log(
+            "COMETNET",
+            f"CometNet P2P: Relay Mode{cometnet_info}",
+        )
+    elif settings.COMETNET_ENABLED:
+        key_encrypted = "Yes" if settings.COMETNET_KEY_PASSWORD else "No"
+        cometnet_info = (
+            f" - Port: {settings.COMETNET_LISTEN_PORT}"
+            f" - Max Peers: {settings.COMETNET_MAX_PEERS}"
+            f" - Min Peers: {settings.COMETNET_MIN_PEERS}"
+            f" - Keys: {settings.COMETNET_KEYS_DIR}"
+            f" - Advertise: {settings.COMETNET_ADVERTISE_URL}"
+            f" - Key Encrypted: {key_encrypted}"
+            f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
+            f" - UPnP: {settings.COMETNET_UPNP_ENABLED} (Lease: {settings.COMETNET_UPNP_LEASE_DURATION}s)"
+            f" - Bootstrap Nodes: {len(settings.COMETNET_BOOTSTRAP_NODES)}"
+            f" - Manual Peers: {len(settings.COMETNET_MANUAL_PEERS)}"
+        )
+
+        logger.log(
+            "COMETNET",
+            f"CometNet P2P: Integrated Mode{cometnet_info}",
+        )
+
+        logger.log(
+            "COMETNET",
+            f"Gossip Tuning: Fanout={settings.COMETNET_GOSSIP_FANOUT} - Interval={settings.COMETNET_GOSSIP_INTERVAL}s - TTL={settings.COMETNET_GOSSIP_MESSAGE_TTL} - Cache TTL={settings.COMETNET_GOSSIP_CACHE_TTL}s - Clock Drift={settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE}s",
+        )
+        logger.log(
+            "COMETNET",
+            f"Discovery Tuning: PEX Batch={settings.COMETNET_PEX_BATCH_SIZE} - Backoff={settings.COMETNET_PEER_CONNECT_BACKOFF_MAX}s - Max Failures={settings.COMETNET_PEER_MAX_FAILURES}",
+        )
+        logger.log(
+            "COMETNET",
+            f"Transport Tuning: Max Msg Size={settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE} - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP} - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s",
+        )
+        logger.log(
+            "COMETNET",
+            f"Reputation Tuning: Init={settings.COMETNET_REPUTATION_INITIAL} - Trust={settings.COMETNET_REPUTATION_THRESHOLD_TRUSTED}/{settings.COMETNET_REPUTATION_THRESHOLD_UNTRUSTED} - Valid Bonus=+{settings.COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION} - Invalid Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION} - Sig Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE}",
+        )
+
+        if settings.FASTAPI_WORKERS > 1:
+            logger.warning(
+                f"⚠️  CometNet integrated mode with {settings.FASTAPI_WORKERS} workers "
+                "may cause port conflicts. Only the first worker will have an active "
+                "P2P connection. Consider using COMETNET_RELAY_URL for multi-worker deployments."
+            )
+    else:
+        logger.log(
+            "COMET",
+            "CometNet P2P: False",
+        )

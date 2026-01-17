@@ -146,6 +146,91 @@ class AppSettings(BaseSettings):
     HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
     DOWNLOAD_GENERIC_TRACKERS: Optional[bool] = False
 
+    # CometNet P2P Network Configuration
+    COMETNET_ENABLED: Optional[bool] = False
+    COMETNET_LISTEN_PORT: Optional[int] = 8765
+    COMETNET_HTTP_PORT: Optional[int] = 8766
+    COMETNET_BOOTSTRAP_NODES: List[str] = []
+    COMETNET_MANUAL_PEERS: List[str] = []
+    COMETNET_MAX_PEERS: Optional[int] = 50
+    COMETNET_MIN_PEERS: Optional[int] = 3
+    COMETNET_KEYS_DIR: Optional[str] = "data/cometnet"
+    COMETNET_ADVERTISE_URL: Optional[str] = None
+    COMETNET_KEY_PASSWORD: Optional[str] = None
+    COMETNET_ALLOW_PRIVATE_PEX: Optional[bool] = False
+    COMETNET_UPNP_ENABLED: Optional[bool] = False
+    COMETNET_UPNP_LEASE_DURATION: Optional[int] = 3600
+    COMETNET_RELAY_URL: Optional[str] = None
+    COMETNET_API_KEY: Optional[str] = None  # API key for standalone service auth
+
+    # CometNet Gossip Tuning
+    COMETNET_GOSSIP_FANOUT: Optional[int] = 3
+    COMETNET_GOSSIP_INTERVAL: Optional[float] = 1.0
+    COMETNET_GOSSIP_MESSAGE_TTL: Optional[int] = 5
+    COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE: Optional[int] = 1000
+    COMETNET_GOSSIP_CACHE_TTL: Optional[int] = 300
+    COMETNET_GOSSIP_CACHE_SIZE: Optional[int] = 10000
+    COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE: Optional[int] = 60
+    COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE: Optional[int] = 300
+    COMETNET_GOSSIP_TORRENT_MAX_AGE: Optional[int] = 604800
+
+    # CometNet Discovery Tuning
+    COMETNET_PEX_BATCH_SIZE: Optional[int] = 20
+    COMETNET_PEER_CONNECT_BACKOFF_MAX: Optional[int] = 300
+    COMETNET_PEER_MAX_FAILURES: Optional[int] = 5
+    COMETNET_PEER_CLEANUP_AGE: Optional[int] = 604800
+
+    # CometNet Transport Tuning
+    COMETNET_TRANSPORT_MAX_MESSAGE_SIZE: Optional[int] = 10485760  # 10MB
+    COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP: Optional[int] = 3
+    COMETNET_TRANSPORT_PING_INTERVAL: Optional[float] = 30.0
+    COMETNET_TRANSPORT_CONNECTION_TIMEOUT: Optional[float] = 120.0
+
+    # CometNet Reputation Tuning
+    COMETNET_REPUTATION_INITIAL: Optional[float] = 100.0
+    COMETNET_REPUTATION_MIN: Optional[float] = 0.0
+    COMETNET_REPUTATION_MAX: Optional[float] = 10000.0
+    COMETNET_REPUTATION_THRESHOLD_UNTRUSTED: Optional[float] = 50.0  # Ban threshold
+    COMETNET_REPUTATION_THRESHOLD_TRUSTED: Optional[float] = (
+        1000.0  # Trust threshold (approx 1 day of heavy scraping)
+    )
+    COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION: Optional[float] = (
+        0.001  # 1M torrents = 1000 pts
+    )
+    COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY: Optional[float] = 10.0
+    COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY: Optional[float] = (
+        1000.0  # Max 1000 pts from age (100 days)
+    )
+    COMETNET_REPUTATION_BONUS_TRUSTED_RECOMMENDATION: Optional[float] = 100.0
+    COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION: Optional[float] = 50.0
+    COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE: Optional[float] = 500.0
+    COMETNET_REPUTATION_INVALID_RATIO_THRESHOLD: Optional[float] = 0.5
+    COMETNET_REPUTATION_CLEANUP_AGE_DAYS: Optional[float] = 30.0
+
+    # CometNet Contribution Mode
+    # full: Share own torrents + receive + repropagate (default)
+    # consumer: Receive + repropagate, but don't share own torrents
+    # source: Share own torrents only (dedicated scraper)
+    # leech: Receive only, don't repropagate (save bandwidth)
+    COMETNET_CONTRIBUTION_MODE: Optional[str] = "full"
+
+    # CometNet Trust Pools
+    # List of pool IDs to subscribe to
+    # If empty: accept from everyone (open mode)
+    COMETNET_TRUSTED_POOLS: List[str] = []
+    # Directory for storing pool manifests and membership data
+    COMETNET_POOLS_DIR: Optional[str] = "data/cometnet/pools"
+
+    # CometNet Private Network
+    # Isolate this node in a private network
+    COMETNET_PRIVATE_NETWORK: Optional[bool] = False
+    # Network ID for private network (required if PRIVATE_NETWORK=true)
+    COMETNET_NETWORK_ID: Optional[str] = None
+    # Password to join the private network (Argon2 hashed for auth)
+    COMETNET_NETWORK_PASSWORD: Optional[str] = None
+    # Pools to ingest from even when in private mode
+    COMETNET_INGEST_POOLS: List[str] = []
+
     @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
     def normalize_executor_workers(cls, v):
         if v is None or v == "" or str(v).lower() == "none":

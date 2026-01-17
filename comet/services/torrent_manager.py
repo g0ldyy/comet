@@ -15,6 +15,7 @@ from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
 from torf import Magnet
 
+from comet.cometnet import get_active_backend
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import database, settings
@@ -114,6 +115,64 @@ def extract_torrent_metadata(content: bytes):
         return {}
 
 
+async def broadcast_torrents(torrents_params: list[dict]):
+    if not torrents_params:
+        return
+
+    backend = get_active_backend()
+    if not backend:
+        return
+
+    try:
+        clean_torrents = []
+        for params in torrents_params:
+            # Prepare clean data
+            sources = params.get("sources", [])
+            if isinstance(sources, str):
+                try:
+                    sources = orjson.loads(sources)
+                except Exception:
+                    sources = []
+
+            parsed = params.get("parsed", {})
+            if isinstance(parsed, str):
+                try:
+                    parsed = orjson.loads(parsed)
+                except Exception:
+                    parsed = {}
+
+            imdb_id = params.get("media_id")
+            if not (isinstance(imdb_id, str) and imdb_id.startswith("tt")):
+                imdb_id = None
+
+            clean_torrents.append(
+                {
+                    "info_hash": params["info_hash"],
+                    "title": params["title"],
+                    "size": params["size"],
+                    "tracker": params["tracker"],
+                    "imdb_id": imdb_id,
+                    "file_index": params.get("file_index", 0),
+                    "seeders": params.get("seeders", 0),
+                    "season": params.get("season"),
+                    "episode": params.get("episode"),
+                    "sources": sources,
+                    "parsed": parsed,
+                }
+            )
+
+        for t in clean_torrents:
+            asyncio.create_task(backend.broadcast_torrent(t))
+
+        logger.log(
+            "COMETNET",
+            f"Queued {len(clean_torrents)} torrents for broadcast via {backend.__class__.__name__}",
+        )
+
+    except Exception as e:
+        logger.debug(f"CometNet broadcast error: {e}")
+
+
 async def add_torrent(
     info_hash: str,
     seeders: int,
@@ -149,6 +208,35 @@ async def add_torrent(
                     "timestamp": time.time(),
                 }
             )
+
+        # Broadcast to CometNet
+        try:
+            episode_to_broadcast = episode_to_insert
+
+            broadcast_list = []
+            for season in seasons_to_process:
+                broadcast_list.append(
+                    {
+                        "info_hash": info_hash,
+                        "title": title,
+                        "size": size,
+                        "tracker": tracker,
+                        "media_id": media_id,
+                        "file_index": file_index,
+                        "seeders": seeders,
+                        "season": season,
+                        "episode": episode_to_broadcast,
+                        "sources": sources,
+                        "parsed": parsed.model_dump()
+                        if hasattr(parsed, "model_dump")
+                        else parsed,
+                    }
+                )
+
+            if broadcast_list:
+                await broadcast_torrents(broadcast_list)
+        except Exception:
+            pass  # Don't fail torrent insertion if CometNet fails
 
         additional = ""
         if seasons_to_process:
@@ -261,7 +349,11 @@ class TorrentUpdateQueue:
         self._is_postgresql = settings.DATABASE_TYPE == "postgresql"
         self._grouped_upserts = defaultdict(list)
 
-    async def add_torrent_info(self, file_info: dict, media_id: str = None):
+    async def add_torrent_info(
+        self, file_info: dict, media_id: str = None, from_cometnet: bool = False
+    ):
+        # Mark if this torrent came from CometNet (to avoid re-broadcasting)
+        file_info["_from_cometnet"] = from_cometnet
         await self.queue.put((file_info, media_id))
         self._event.set()
 
@@ -369,6 +461,18 @@ class TorrentUpdateQueue:
                     "SCRAPER",
                     f"Upserted {total_upserts} torrents in batch",
                 )
+
+                # Broadcast to CometNet P2P network (only for locally discovered torrents)
+                # Filter out torrents that came from CometNet to avoid ping-pong
+                local_torrents = [
+                    p
+                    for p in upserts_to_flush.values()
+                    if not p.get("_from_cometnet", False)
+                ]
+
+                if local_torrents:
+                    await broadcast_torrents(local_torrents)
+
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
         finally:
@@ -414,6 +518,9 @@ class TorrentUpdateQueue:
             params["lock_key"] = _compute_advisory_lock_key(
                 media_id, info_hash, season, episode
             )
+
+            # Preserve the CometNet origin flag to prevent re-broadcasting
+            params["_from_cometnet"] = file_info.get("_from_cometnet", False)
 
             self.upserts[upsert_key] = params
 
@@ -561,7 +668,7 @@ async def _execute_sqlite_batched_upsert(rows: list[dict]):
 
 
 async def _execute_standard_sqlite_insert(rows: list[dict]):
-    keys_to_ignore = {"lock_key", "update_interval"}
+    keys_to_ignore = {"lock_key", "update_interval", "_from_cometnet"}
     columns = [k for k in rows[0].keys() if k not in keys_to_ignore]
     sanitized_rows = [{k: row[k] for k in columns} for row in rows]
 
@@ -610,7 +717,11 @@ async def _execute_batched_upsert(query: str, rows):
 
             if rows_to_insert:
                 sanitized_rows = [
-                    {key: value for key, value in row.items() if key != "lock_key"}
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key not in ("lock_key", "_from_cometnet")
+                    }
                     for row in rows_to_insert
                 ]
 

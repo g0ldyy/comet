@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 
+import gunicorn.app.base
 import uvicorn
 
 from comet.api.app import app
@@ -60,7 +61,6 @@ def run_with_uvicorn():
 
 def run_with_gunicorn():
     """Run the server with gunicorn and uvicorn workers"""
-    import gunicorn.app.base
 
     class StandaloneApplication(gunicorn.app.base.BaseApplication):
         def __init__(self, app, options=None):

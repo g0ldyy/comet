@@ -74,6 +74,12 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #00FA9A>",
         "no": 35,
     },
+    "COMETNET": {
+        "color": "#00BFFF",
+        "icon": "🌐",
+        "loguru_color": "<fg #00BFFF>",
+        "no": 40,
+    },
 }
 
 ALL_LOG_LEVELS = {**STANDARD_LOG_LEVELS, **CUSTOM_LOG_LEVELS}
