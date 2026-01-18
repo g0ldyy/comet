@@ -884,28 +884,38 @@ web_config = {
 
 
 def _build_database_instance(raw_url: str):
-    driver = "sqlite" if settings.DATABASE_TYPE == "sqlite" else "postgresql+asyncpg"
-    prefix = "/" if settings.DATABASE_TYPE == "sqlite" else ""
-    return Database(f"{driver}://{prefix}{raw_url}")
+    if settings.DATABASE_TYPE == "sqlite":
+        return Database(f"sqlite:///{raw_url}")
 
+    for scheme in ["postgresql://", "postgres://"]:
+        if raw_url.startswith(scheme):
+            raw_url = raw_url[len(scheme) :]
+            break
 
-database_url = (
-    settings.DATABASE_PATH
-    if settings.DATABASE_TYPE == "sqlite"
-    else settings.DATABASE_URL
-)
+    return Database(f"postgresql+asyncpg://{raw_url}")
+
 
 replica_instances: List[Database] = []
-if settings.DATABASE_TYPE != "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
-    for replica_url in settings.DATABASE_READ_REPLICA_URLS:
-        if replica_url:
-            replica_instances.append(_build_database_instance(replica_url))
-elif settings.DATABASE_TYPE == "sqlite" and settings.DATABASE_READ_REPLICA_URLS:
-    logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
+force_ipv4 = False
+
+if settings.DATABASE_TYPE == "sqlite":
+    database_url = settings.DATABASE_PATH
+    if settings.DATABASE_READ_REPLICA_URLS:
+        logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
+else:
+    database_url = settings.DATABASE_URL
+    replica_instances = [
+        _build_database_instance(url)
+        for url in settings.DATABASE_READ_REPLICA_URLS
+        if url
+    ]
+    force_ipv4 = (
+        settings.DATABASE_FORCE_IPV4_RESOLUTION
+        and settings.DATABASE_TYPE == "postgresql"
+    )
 
 database = ReplicaAwareDatabase(
     _build_database_instance(database_url),
     replicas=replica_instances,
-    force_ipv4=settings.DATABASE_FORCE_IPV4_RESOLUTION
-    and settings.DATABASE_TYPE == "postgresql",
+    force_ipv4=force_ipv4,
 )
