@@ -85,12 +85,6 @@ async def lifespan(app: FastAPI):
         )
 
     elif settings.COMETNET_ENABLED:
-        if settings.FASTAPI_WORKERS > 1:
-            logger.warning(
-                f"⚠️  CometNet with {settings.FASTAPI_WORKERS} workers may cause port conflicts. "
-                "Consider using COMETNET_RELAY_URL for multi-worker deployments."
-            )
-
         cometnet_service = init_cometnet_service(
             enabled=True,
             listen_port=settings.COMETNET_LISTEN_PORT,

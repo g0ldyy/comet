@@ -1706,6 +1706,16 @@ def init_cometnet_service(
     """Initialize the global CometNet service."""
     global cometnet_service
 
+    if settings.FASTAPI_WORKERS > 1:
+        logger.critical(
+            f"\nCometNet failed to start because FASTAPI_WORKERS is set to {settings.FASTAPI_WORKERS}.\n"
+            "You cannot run CometNet in basic mode (non-relay) with multiple workers.\n"
+            "Please:\n"
+            "1. Use CometNet Relay Mode (COMETNET_RELAY_URL=...)\n"
+            "2. Or set FASTAPI_WORKERS=1"
+        )
+        sys.exit(1)
+
     cometnet_service = CometNetService(
         enabled=enabled,
         listen_port=listen_port,
