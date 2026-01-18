@@ -1836,7 +1836,7 @@
                  <div>
                      <div class="tracker-name" style="display: flex; align-items: center; gap: 8px;">
                          ${peer.address}
-                         <span class="connection-id" title="${peer.node_id}">${peer.node_id.substring(0, 8)}...</span>
+                         <span class="connection-id" title="${peer.node_id}">${peer.node_id.substring(0, 8)}</span>
                          <sl-badge variant="${peer.is_outbound ? "neutral" : "primary"}" pill>${type}</sl-badge>
                      </div>
                      <div class="tracker-stats" style="margin-top: 4px;">
@@ -2481,7 +2481,7 @@
             <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
               <div style="flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                  <span class="connection-id" style="font-size: 0.85rem;" title="${member.node_id}">${member.node_id.substring(0, 8)}...</span>
+                  <span class="connection-id" style="font-size: 0.85rem;" title="${member.node_id}">${member.node_id.substring(0, 8)}</span>
                   ${roleBadge}
                   ${isSelf ? '<sl-badge variant="primary" pill>You</sl-badge>' : ""}
                 </div>
