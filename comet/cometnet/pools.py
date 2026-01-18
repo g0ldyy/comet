@@ -864,6 +864,60 @@ class PoolStore:
                 result[pool_id] = peers.copy()
         return result
 
+    # ==================== Contribution Tracking ====================
+
+    async def record_contribution(
+        self,
+        contributor_public_key: str,
+        pool_id: Optional[str] = None,
+        count: int = 1,
+    ) -> bool:
+        """
+        Record a contribution from a pool member.
+
+        This increments the contribution_count for the member and persists
+        the change to disk.
+
+        Args:
+            contributor_public_key: Public key of the contributor
+            pool_id: Optional pool ID to search in (more efficient)
+            count: Number of contributions to add (default 1)
+
+        Returns:
+            True if contribution was recorded, False if member not found
+        """
+        # If pool_id is specified, only check that pool
+        if pool_id:
+            manifest = self._manifests.get(pool_id)
+            if manifest:
+                member = manifest.get_member(contributor_public_key)
+                if member:
+                    member.contribution_count += count
+                    member.last_seen = time.time()
+                    await self._save_manifest_async(manifest)
+                    return True
+            return False
+
+        # Search all pools for the contributor
+        for manifest in self._manifests.values():
+            member = manifest.get_member(contributor_public_key)
+            if member:
+                member.contribution_count += count
+                member.last_seen = time.time()
+                await self._save_manifest_async(manifest)
+                return True
+
+        return False
+
+    async def _save_manifest_async(self, manifest: PoolManifest) -> None:
+        """Save a manifest to disk (without re-signing)."""
+        manifest_path = self.manifests_dir / f"{manifest.pool_id}.json"
+        try:
+            with open(manifest_path, "w") as f:
+                json.dump(manifest.model_dump(), f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save pool manifest {manifest.pool_id}: {e}")
+
     # ==================== Validation ====================
 
     def validate_manifest(self, manifest: PoolManifest, keystore=None) -> bool:

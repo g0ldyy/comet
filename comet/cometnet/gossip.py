@@ -376,6 +376,22 @@ class GossipEngine:
         if valid_torrents:
             peer_rep.add_valid_contribution(len(valid_torrents))
 
+        # Record contributions in pool store (track member stats)
+        if valid_torrents and self._pool_store:
+            # Group by contributor to batch the updates
+            contributions: Dict[tuple, int] = {}
+            for torrent in valid_torrents:
+                key = (torrent.contributor_public_key, torrent.pool_id)
+                contributions[key] = contributions.get(key, 0) + 1
+
+            # Record each contributor's contributions
+            for (contributor_key, pool_id), count in contributions.items():
+                await self._pool_store.record_contribution(
+                    contributor_public_key=contributor_key,
+                    pool_id=pool_id,
+                    count=count,
+                )
+
         # Save valid torrents to database
         # Only save if contribution mode allows receiving (not 'source')
         if self._save_torrent and valid_torrents and self.contribution_mode != "source":
