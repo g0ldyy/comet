@@ -6,6 +6,7 @@ Handles both server-side (incoming) and client-side (outgoing) connections.
 """
 
 import asyncio
+import ipaddress
 import random
 import secrets
 import time
@@ -376,10 +377,20 @@ class ConnectionManager:
         # Use lock to prevent race condition on connection limits
         async with self._connection_lock:
             # Check per-IP connection limit (prevent Sybil-like attacks)
+            # Relax limit for private IPs (local network, Docker)
+            limit = self.max_connections_per_ip
+            try:
+                if ipaddress.ip_address(ip).is_private:
+                    limit = max(
+                        limit, 50
+                    )  # Allow more connections from local/private IPs
+            except ValueError:
+                pass  # Not an IP address (hostname)
+
             current_ip_connections = self._connections_per_ip.get(ip, 0)
-            if current_ip_connections >= self.max_connections_per_ip:
+            if current_ip_connections >= limit:
                 logger.debug(
-                    f"Rejecting connection from {address}: too many connections from IP {ip}"
+                    f"Rejecting connection from {address}: too many connections from IP {ip} (limit: {limit})"
                 )
                 await websocket.close()
                 return None
@@ -679,13 +690,21 @@ class ConnectionManager:
         # Find overrepresented IPs (more than 2 connections from same IP)
         peers_to_disconnect = []
         for ip, node_ids in ip_counts.items():
-            if len(node_ids) > 2:
-                # Keep only 2 connections per IP, disconnect the rest (prefer newer ones)
-                # Sort by connected_at and keep oldest 2
+            # Determine max connections allowed for this IP
+            max_allowed = 2
+            try:
+                if ipaddress.ip_address(ip).is_private:
+                    max_allowed = 50
+            except ValueError:
+                pass
+
+            if len(node_ids) > max_allowed:
+                # Keep only max_allowed connections per IP, disconnect the rest (prefer newer ones)
+                # Sort by connected_at and keep oldest ones (most stable)
                 sorted_peers = sorted(
                     node_ids, key=lambda nid: self._connections[nid].connected_at
                 )
-                peers_to_disconnect.extend(sorted_peers[2:])
+                peers_to_disconnect.extend(sorted_peers[max_allowed:])
 
         if peers_to_disconnect:
             logger.warning(
