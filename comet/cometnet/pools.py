@@ -129,7 +129,7 @@ class PoolManifest(BaseModel):
     @classmethod
     def from_bytes(cls, data: bytes) -> "PoolManifest":
         """Deserialize from MsgPack bytes."""
-        return cls.model_validate(msgpack.unpackb(data))
+        return cls.model_validate(msgpack.unpackb(data, raw=False))
 
 
 class PoolInvite(BaseModel):

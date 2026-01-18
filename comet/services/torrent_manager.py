@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import hashlib
 import re
 import time
@@ -19,6 +18,7 @@ from comet.cometnet import get_active_backend
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.utils.formatting import normalize_info_hash
 from comet.utils.parsing import default_dump, ensure_multi_language, is_video
 
 TRACKER_PATTERN = re.compile(r"[&?]tr=([^&]+)")
@@ -48,9 +48,7 @@ async def download_torrent(session, url: str):
                 if match:
                     info_hash = match.group(1)
                     if len(info_hash) == 32:
-                        info_hash = base64.b16encode(
-                            base64.b32decode(info_hash)
-                        ).decode("utf-8")
+                        info_hash = normalize_info_hash(info_hash)
                     return (None, info_hash, location)
             return (None, None, None)
     except Exception as e:

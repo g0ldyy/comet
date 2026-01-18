@@ -12,6 +12,8 @@ from typing import Any, List, Optional, Union
 import msgpack
 from pydantic import BaseModel, Field, field_validator
 
+from comet.utils.formatting import normalize_info_hash
+
 # Protocol version for backwards compatibility
 PROTOCOL_VERSION = "1.0"
 
@@ -72,7 +74,7 @@ class BaseMessage(BaseModel):
     @classmethod
     def from_bytes(cls, data: bytes) -> "BaseMessage":
         """Deserialize a message from MsgPack bytes."""
-        return cls.model_validate(msgpack.unpackb(data))
+        return cls.model_validate(msgpack.unpackb(data, raw=False))
 
 
 class HandshakeMessage(BaseMessage):
@@ -159,7 +161,8 @@ class TorrentMetadata(BaseModel):
     @classmethod
     def validate_info_hash(cls, v: str) -> str:
         """Validate that info_hash is a valid 40-character hex string."""
-        v = v.lower().strip()
+        v = normalize_info_hash(v)
+
         if len(v) != 40:
             raise ValueError("info_hash must be 40 characters")
         try:
@@ -303,7 +306,7 @@ def parse_message(data: Union[str, bytes]) -> Optional[AnyMessage]:
             # Should not happen in pure MsgPack env, but handle graceful fail
             return None
 
-        payload = msgpack.unpackb(data)
+        payload = msgpack.unpackb(data, raw=False)
         msg_type = payload.get("type")
 
         # Core messages

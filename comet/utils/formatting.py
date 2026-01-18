@@ -1,4 +1,14 @@
+import base64
+
 from RTN import ParsedData
+
+
+def normalize_info_hash(info_hash: str) -> str:
+    if len(info_hash) == 32:
+        info_hash = base64.b16encode(base64.b32decode(info_hash.upper())).decode(
+            "utf-8"
+        )
+    return info_hash
 
 
 def format_bytes(bytes_value):
