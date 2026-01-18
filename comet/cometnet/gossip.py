@@ -442,19 +442,25 @@ class GossipEngine:
         try:
             # Verify info_hash format
             if len(torrent.info_hash) != 40:
+                logger.debug(
+                    f"Torrent validation failed: info_hash length {len(torrent.info_hash)} != 40"
+                )
                 return False
             int(torrent.info_hash, 16)
 
             # Title should be non-empty
             if not torrent.title or len(torrent.title) < 1:
+                logger.debug("Torrent validation failed: empty title")
                 return False
 
             # Size should be positive
             if torrent.size <= 0:
+                logger.debug(f"Torrent validation failed: invalid size {torrent.size}")
                 return False
 
             # Tracker should be non-empty
             if not torrent.tracker:
+                logger.debug("Torrent validation failed: empty tracker")
                 return False
 
             # Timestamp should be reasonable
@@ -463,15 +469,22 @@ class GossipEngine:
                 torrent.updated_at
                 > now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
             ):  # Future tolerance
+                logger.debug(
+                    f"Torrent validation failed: timestamp in future ({torrent.updated_at} > {now})"
+                )
                 return False
             if (
                 torrent.updated_at < now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE
             ):  # Max age
+                logger.debug(
+                    f"Torrent validation failed: timestamp too old ({torrent.updated_at} < {now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE})"
+                )
                 return False
 
             return True
 
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Torrent validation failed: {e}")
             return False
 
     async def _repropagate(
