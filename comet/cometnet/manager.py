@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from comet.cometnet.crypto import NodeIdentity
-from comet.cometnet.discovery import DiscoveryService
+from comet.cometnet.discovery import DiscoveryService, is_valid_peer_address
 from comet.cometnet.gossip import GossipEngine
 from comet.cometnet.interface import CometNetBackend
 from comet.cometnet.keystore import PublicKeyStore
@@ -157,6 +157,18 @@ class CometNetService(CometNetBackend):
                     "Your P2P traffic (including metadata) is visible to interceptors. "
                     "It is STRONGLY recommended to use 'wss://' (SSL) for public instances."
                 )
+
+        # Warn if advertising a private IP (other peers won't be able to connect via PEX)
+        if self.advertise_url and not is_valid_peer_address(
+            self.advertise_url, allow_private=False
+        ):
+            logger.warning(
+                "Your COMETNET_ADVERTISE_URL contains a private/internal IP address. "
+                "Other peers will not be able to connect to you via PEX. "
+                "Please set COMETNET_ADVERTISE_URL to your public URL "
+                "(e.g., wss://your-comet-domain.com or wss://your-domain.com/cometnet/ws) "
+                "or enable UPnP with COMETNET_UPNP_ENABLED=true."
+            )
 
         # Start gossip engine
         await self.gossip.start()
