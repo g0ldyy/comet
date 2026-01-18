@@ -257,6 +257,12 @@ class DiscoveryService:
 
     def record_incoming_connection(self, node_id: str, address: str) -> None:
         """Record a peer that connected to us."""
+        # Log if peer announced a private address (misconfiguration on their end)
+        if not is_valid_peer_address(address, allow_private=False):
+            logger.debug(
+                f"Peer {node_id[:8]} announced private address: {address} "
+                "(they should configure COMETNET_ANNOUNCE_URL)"
+            )
         self._add_known_peer(address=address, node_id=node_id, source="incoming")
 
     def get_peers_for_pex(self, max_peers: int = None) -> List[PeerInfo]:
@@ -267,9 +273,16 @@ class DiscoveryService:
             self._get_connected_ids() if self._get_connected_ids else []
         )
 
+        # Only share private IPs if explicitly allowed
+        allow_private = settings.COMETNET_ALLOW_PRIVATE_PEX
+
         peers = []
         for address, known_peer in self._known_peers.items():
             if known_peer.node_id and known_peer.node_id in connected_ids:
+                if not allow_private and not is_valid_peer_address(
+                    address, allow_private=False
+                ):
+                    continue
                 peers.append(
                     PeerInfo(
                         node_id=known_peer.node_id,
