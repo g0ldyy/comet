@@ -592,3 +592,19 @@ class GossipEngine:
             "cache_size": len(self.seen_cache),
             "torrents_sent": self.stats["torrents_propagated"],
         }
+
+    def to_dict(self) -> Dict:
+        """Serialize the gossip engine state for persistence."""
+        return {
+            "stats": self.stats,
+        }
+
+    def from_dict(self, data: Dict) -> None:
+        """Load the gossip engine state from a dictionary."""
+        if "stats" in data:
+            # Update stats but preserve keys that might be missing in older state files
+            # or add new keys that are present in the current code
+            loaded_stats = data["stats"]
+            for key, value in loaded_stats.items():
+                if key in self.stats:
+                    self.stats[key] = value

@@ -1627,6 +1627,10 @@ class CometNetService(CometNetBackend):
             if "discovery" in state and self.discovery:
                 self.discovery.from_dict(state["discovery"])
 
+            # Load gossip stats
+            if "gossip" in state and self.gossip:
+                self.gossip.from_dict(state["gossip"])
+
         except Exception as e:
             logger.warning(f"Failed to load CometNet state: {e}")
 
@@ -1641,6 +1645,7 @@ class CometNetService(CometNetBackend):
                 "reputation": self.reputation.to_dict() if self.reputation else {},
                 "keystore": self.keystore.to_dict() if self.keystore else {},
                 "discovery": self.discovery.to_dict() if self.discovery else {},
+                "gossip": self.gossip.to_dict() if self.gossip else {},
             }
 
             # Add integrity hash to detect tampering
