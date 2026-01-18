@@ -187,6 +187,9 @@ class AppSettings(BaseSettings):
     COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP: Optional[int] = 3
     COMETNET_TRANSPORT_PING_INTERVAL: Optional[float] = 30.0
     COMETNET_TRANSPORT_CONNECTION_TIMEOUT: Optional[float] = 120.0
+    COMETNET_TRANSPORT_RATE_LIMIT_ENABLED: Optional[bool] = True
+    COMETNET_TRANSPORT_RATE_LIMIT_COUNT: Optional[int] = 20  # Messages per window
+    COMETNET_TRANSPORT_RATE_LIMIT_WINDOW: Optional[float] = 1.0  # Seconds
 
     # CometNet Reputation Tuning
     COMETNET_REPUTATION_INITIAL: Optional[float] = 100.0

@@ -29,6 +29,7 @@ from comet.cometnet.protocol import (AnyMessage, MessageType, PeerRequest,
                                      TorrentMetadata)
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
+from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -174,7 +175,9 @@ class CometNetService(CometNetBackend):
             f"Transport: Max Msg Size={settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE}"
             f" - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP}"
             f" - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s"
-            f" - Timeout={settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT}s",
+            f" - Timeout={settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT}s"
+            f" - RateLimit: {settings.COMETNET_TRANSPORT_RATE_LIMIT_ENABLED} "
+            f"({settings.COMETNET_TRANSPORT_RATE_LIMIT_COUNT}/{settings.COMETNET_TRANSPORT_RATE_LIMIT_WINDOW}s)",
         )
 
         logger.log(
@@ -506,24 +509,10 @@ class CometNetService(CometNetBackend):
     async def _handle_peer_request(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming peer request messages."""
         if isinstance(message, PeerRequest):
-            # Verify sender_id matches (prevent spoofing)
-            if message.sender_id and message.sender_id != sender_id:
-                logger.debug(f"PeerRequest sender_id mismatch from {sender_id[:8]}")
+            if not await validate_message_security(
+                message, sender_id, self.keystore, self.reputation
+            ):
                 return
-
-            # Verify signature if present and we have the key
-            if message.signature and self.keystore:
-                sender_key = self.keystore.get_key(sender_id)
-                if sender_key:
-                    if not await NodeIdentity.verify_hex_async(
-                        message.to_signable_bytes(),
-                        message.signature,
-                        sender_key,
-                    ):
-                        logger.debug(
-                            f"Invalid PeerRequest signature from {sender_id[:8]}"
-                        )
-                        return
 
             response = await self.discovery.handle_peer_request(sender_id, message)
             response.sender_id = self.identity.node_id
@@ -535,31 +524,10 @@ class CometNetService(CometNetBackend):
     async def _handle_peer_response(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming peer response messages."""
         if isinstance(message, PeerResponse):
-            # Verify sender_id matches (prevent spoofing)
-            if message.sender_id and message.sender_id != sender_id:
-                logger.warning(
-                    f"PeerResponse sender_id mismatch: expected {sender_id[:8]}, "
-                    f"got {message.sender_id[:8]}"
-                )
+            if not await validate_message_security(
+                message, sender_id, self.keystore, self.reputation
+            ):
                 return
-
-            # Verify signature if present and we have the key
-            if message.signature and self.keystore:
-                sender_key = self.keystore.get_key(sender_id)
-                if sender_key:
-                    if not await NodeIdentity.verify_hex_async(
-                        message.to_signable_bytes(),
-                        message.signature,
-                        sender_key,
-                    ):
-                        logger.warning(
-                            f"Invalid PeerResponse signature from {sender_id[:8]}"
-                        )
-                        # Apply reputation penalty for invalid signature
-                        if self.reputation:
-                            peer_rep = self.reputation.get_or_create(sender_id)
-                            peer_rep.add_signature_failure_penalty()
-                        return
 
             new_peers = self.discovery.handle_peer_response(message)
             if new_peers > 0:
@@ -573,6 +541,11 @@ class CometNetService(CometNetBackend):
             return
 
         if not self.pool_store:
+            return
+
+        if not await validate_message_security(
+            message, sender_id, self.keystore, self.reputation
+        ):
             return
 
         # Convert message to PoolManifest
@@ -725,6 +698,11 @@ class CometNetService(CometNetBackend):
         if not self.pool_store:
             return
 
+        if not await validate_message_security(
+            message, sender_id, self.keystore, self.reputation
+        ):
+            return
+
         pool_id = message.pool_id
         invite_code = message.invite_code
         requester_key = message.requester_key
@@ -792,6 +770,11 @@ class CometNetService(CometNetBackend):
             return
 
         if not self.pool_store:
+            return
+
+        if not await validate_message_security(
+            message, sender_id, self.keystore, self.reputation
+        ):
             return
 
         current_manifest = self.pool_store.get_manifest(message.pool_id)

@@ -13,6 +13,7 @@ import logging
 import random
 import secrets
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Dict, List, Optional, Set
 from urllib.parse import urlparse
@@ -67,6 +68,29 @@ class PeerConnection:
     listen_port: int = 0  # Port where this peer accepts connections
     pending_pings: Dict[str, float] = field(default_factory=dict)  # nonce -> sent_time
     latency_ms: float = 0.0
+
+    # Rate limiting
+    rate_limit_history: deque = field(default_factory=deque)
+
+    def check_rate_limit(self, max_count: int, window: float) -> bool:
+        """
+        Check if the peer has exceeded the rate limit.
+        Returns True if allowed, False if limited.
+        """
+        if not settings.COMETNET_TRANSPORT_RATE_LIMIT_ENABLED:
+            return True
+
+        now = time.time()
+
+        # Remove old entries
+        while self.rate_limit_history and now - self.rate_limit_history[0] > window:
+            self.rate_limit_history.popleft()
+
+        if len(self.rate_limit_history) >= max_count:
+            return False
+
+        self.rate_limit_history.append(now)
+        return True
 
     def update_activity(self) -> None:
         """Update the last activity timestamp."""
@@ -138,6 +162,10 @@ class ConnectionManager:
         # Security limits from settings
         self.max_message_size = settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE
         self.max_connections_per_ip = settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP
+
+        # Rate limits
+        self.rate_limit_count = settings.COMETNET_TRANSPORT_RATE_LIMIT_COUNT
+        self.rate_limit_window = settings.COMETNET_TRANSPORT_RATE_LIMIT_WINDOW
 
         # Active connections by node_id
         self._connections: Dict[str, PeerConnection] = {}
@@ -558,6 +586,15 @@ class ConnectionManager:
                 logger.warning(f"Node ID mismatch in handshake from {address}")
                 return None
 
+            # Verify timestamp (anti-replay)
+            now = time.time()
+            if abs(now - peer_handshake.timestamp) > 300:  # 5 minutes tolerance
+                logger.warning(
+                    f"Rejecting handshake from {address}: timestamp skew too large "
+                    f"(diff: {now - peer_handshake.timestamp:.1f}s)"
+                )
+                return None
+
             # Check if already connected to this node
             if peer_handshake.sender_id in self._connections:
                 logger.debug(f"Already connected to {peer_handshake.sender_id[:8]}")
@@ -643,6 +680,15 @@ class ConnectionManager:
                     raw_message = await conn.websocket.recv()
                     conn.update_activity()
 
+                    # Rate limiting check
+                    if not conn.check_rate_limit(
+                        self.rate_limit_count, self.rate_limit_window
+                    ):
+                        logger.debug(
+                            f"Rate limit exceeded for {conn.node_id[:8]} - Dropping message"
+                        )
+                        continue
+
                     message = parse_message(raw_message)
                     if message is None:
                         logger.debug(f"Invalid message from {conn.node_id[:8]}")
@@ -697,16 +743,25 @@ class ConnectionManager:
             conn.latency_ms = (time.time() - sent_time) * 1000
 
     async def _ping_loop(self) -> None:
-        """Periodically ping all peers to check health (parallelized)."""
+        """Periodically ping all peers to check health (staggered)."""
         while self._running:
             try:
                 await asyncio.sleep(settings.COMETNET_TRANSPORT_PING_INTERVAL)
 
-                # Collect stale connections and pings to send
-                stale_nodes: List[str] = []
-                ping_tasks: List[asyncio.Task] = []
+                # Get all connections
+                connections = list(self._connections.values())
+                if not connections:
+                    continue
 
-                for conn in list(self._connections.values()):
+                # Shuffle to randomize order
+                random.shuffle(connections)
+
+                stale_nodes: List[str] = []
+
+                for conn in connections:
+                    if not self._running:
+                        break
+
                     # Check for stale connection
                     if (
                         time.time() - conn.last_activity
@@ -726,7 +781,12 @@ class ConnectionManager:
                         ping.to_signable_bytes()
                     )
                     conn.pending_pings[nonce] = time.time()
-                    ping_tasks.append(conn.send(ping))
+
+                    # Send without waiting
+                    asyncio.create_task(conn.send(ping))
+
+                    # Sleep briefly to spread load (thundering herd prevention)
+                    await asyncio.sleep(0.05)
 
                 # Disconnect stale connections
                 if stale_nodes:
@@ -734,10 +794,6 @@ class ConnectionManager:
                         *(self.disconnect_peer(nid) for nid in stale_nodes),
                         return_exceptions=True,
                     )
-
-                # Send all pings
-                if ping_tasks:
-                    await asyncio.gather(*ping_tasks, return_exceptions=True)
 
                 # Eclipse Attack auto-remediation
                 await self._remediate_eclipse_attack()

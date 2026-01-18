@@ -15,6 +15,7 @@ from cachetools import TTLCache
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import TorrentAnnounce, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
+from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -250,53 +251,12 @@ class GossipEngine:
                 await self._disconnect_peer(sender_id)
             return
 
-        # Verify message timestamp (anti-replay protection)
-        now = time.time()
-        if (
-            announce.timestamp
-            > now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
-        ):  # Future tolerance
-            logger.debug(
-                f"Rejecting announce from {sender_id[:8]}: timestamp in future"
-            )
+        # Validate message security (timestamp, sender_id, signature)
+        if not await validate_message_security(
+            announce, sender_id, self._keystore, self.reputation
+        ):
             self.stats["invalid_messages"] += 1
             return
-        if (
-            announce.timestamp
-            < now - settings.COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE
-        ):  # Past tolerance
-            logger.debug(f"Rejecting announce from {sender_id[:8]}: message too old")
-            self.stats["invalid_messages"] += 1
-            return
-
-        # Verify announce message signature
-        if announce.sender_id != sender_id:
-            logger.warning(
-                f"Sender ID mismatch in announce: expected {sender_id[:8]}, got {announce.sender_id[:8]}"
-            )
-            self.stats["invalid_messages"] += 1
-            peer_rep = self.reputation.get_or_create(sender_id)
-            peer_rep.add_invalid_contribution()
-            return
-
-        # Verify announce signature if we have the sender's public key
-        sender_key = None
-        if self._keystore:
-            sender_key = self._keystore.get_key(sender_id)
-
-        if sender_key:
-            if not await NodeIdentity.verify_hex_async(
-                announce.to_signable_bytes(),
-                announce.signature,
-                sender_key,
-            ):
-                logger.warning(f"Invalid announce signature from {sender_id[:8]}")
-                self.stats["invalid_messages"] += 1
-                peer_rep = self.reputation.get_or_create(sender_id)
-                peer_rep.add_signature_failure_penalty()
-                if self._disconnect_peer:
-                    await self._disconnect_peer(sender_id)
-                return
 
         peer_rep = self.reputation.get_or_create(sender_id)
         peer_rep.messages_received += 1
