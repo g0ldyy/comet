@@ -6,9 +6,9 @@ Welcome to the CometNet documentation. CometNet is a decentralized peer-to-peer 
 
 | Document | Description |
 |----------|-------------|
-| [Quick Start](COMETNET_QUICKSTART.md) | Get CometNet running in 5 minutes |
+| [Quick Start](QUICKSTART.md) | Get CometNet running in 5 minutes |
 | [Full Documentation](COMETNET.md) | Complete reference with all settings and features |
-| [Docker Deployment](COMETNET_DOCKER.md) | Docker-specific configurations and examples |
+| [Docker Deployment](DOCKER.md) | Docker-specific configurations and examples |
 
 ## Overview
 

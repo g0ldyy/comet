@@ -13,7 +13,7 @@ This documentation covers everything you need to set up and configure CometNet f
 3. [Deployment Modes](#deployment-modes)
    - [Integrated Mode](#integrated-mode)
    - [Relay Mode](#relay-mode)
-4. [Quick Start](#quick-start)
+4. [Quick Start](QUICKSTART.md)
 5. [Configuration Reference](#configuration-reference)
    - [Core Settings](#core-settings)
    - [Network Discovery](#network-discovery)
@@ -107,61 +107,6 @@ uv run python -m comet.cometnet.standalone
 The standalone service exposes:
 - **WebSocket port** (default `8765`) for P2P connections
 - **HTTP port** (default `8766`) for the relay API
-
----
-
-## Quick Start
-
-### Single Instance (Integrated Mode)
-
-1. Add to your `.env`:
-   ```env
-   COMETNET_ENABLED=True
-   FASTAPI_WORKERS=1
-   ```
-
-2. Configure network entry points (one or both):
-   ```env
-   # Public bootstrap nodes (if available)
-   COMETNET_BOOTSTRAP_NODES='["wss://bootstrap.example.com:8765"]'
-   
-   # Or direct peers
-   COMETNET_MANUAL_PEERS='["ws://friend-comet.example.com:8765"]'
-   ```
-
-3. If behind NAT (home connection), enable UPnP:
-   ```env
-   COMETNET_UPNP_ENABLED=True
-   ```
-
-4. If behind a reverse proxy, set your public URL:
-   ```env
-   COMETNET_ADVERTISE_URL=wss://comet.yourdomain.com/cometnet/ws
-   ```
-
-5. Start Comet normally.
-
-### Cluster (Relay Mode)
-
-1. **docker-compose.yml** addition:
-   ```yaml
-   cometnet:
-     image: g0ldyy/comet
-     command: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
-     ports:
-       - "8765:8765"
-       - "8766:8766"
-     environment:
-       COMETNET_BOOTSTRAP_NODES: '["wss://bootstrap.example.com:8765"]'
-       COMETNET_ADVERTISE_URL: wss://comet.yourdomain.com:8765
-     volumes:
-       - cometnet_data:/app/data
-   ```
-
-2. Configure your Comet instances:
-   ```env
-   COMETNET_RELAY_URL=http://cometnet:8766
-   ```
 
 ---
 
