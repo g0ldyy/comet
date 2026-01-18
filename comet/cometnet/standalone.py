@@ -479,55 +479,15 @@ class StandaloneCometNet:
 
 def main():
     """Main entry point for standalone CometNet."""
-    logger.log("COMETNET", "=" * 60)
-    logger.log("COMETNET", "Starting CometNet Standalone Server")
-    logger.log("COMETNET", "=" * 60)
+    logger.log("COMETNET", "Initializing CometNet Standalone...")
 
     ws_port = settings.COMETNET_LISTEN_PORT
     http_port = settings.COMETNET_HTTP_PORT
 
-    key_encrypted = "Yes" if settings.COMETNET_KEY_PASSWORD else "No"
-    private_mode = ""
-    if settings.COMETNET_PRIVATE_NETWORK:
-        private_mode = f" - Private Network: {settings.COMETNET_NETWORK_ID}"
-    else:
-        private_mode = " - Private Network: False"
-
     logger.log(
         "COMETNET",
-        f"P2P Config: WS Port={ws_port} - HTTP Port={http_port}"
-        f" - Max Peers={settings.COMETNET_MAX_PEERS}"
-        f" - Min Peers={settings.COMETNET_MIN_PEERS}"
-        f" - Keys: {settings.COMETNET_KEYS_DIR}"
-        f" - Key Encrypted: {key_encrypted}"
-        f" - API Key: {'Set' if _api_key else 'Not Set'}"
-        f"{private_mode}",
-    )
-
-    if settings.COMETNET_ADVERTISE_URL:
-        logger.log("COMETNET", f"Advertise URL: {settings.COMETNET_ADVERTISE_URL}")
-
-    logger.log(
-        "COMETNET",
-        f"Peers: Bootstrap={len(settings.COMETNET_BOOTSTRAP_NODES)}"
-        f" - Manual={len(settings.COMETNET_MANUAL_PEERS)}"
-        f" - UPnP: {settings.COMETNET_UPNP_ENABLED} (Lease: {settings.COMETNET_UPNP_LEASE_DURATION}s)",
-    )
-
-    logger.log(
-        "COMETNET",
-        f"Gossip: Fanout={settings.COMETNET_GOSSIP_FANOUT}"
-        f" - Interval={settings.COMETNET_GOSSIP_INTERVAL}s"
-        f" - TTL={settings.COMETNET_GOSSIP_MESSAGE_TTL}"
-        f" - Cache TTL={settings.COMETNET_GOSSIP_CACHE_TTL}s"
-        f" - Clock Drift={settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE}s",
-    )
-
-    logger.log(
-        "COMETNET",
-        f"Transport: Max Msg Size={settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE}"
-        f" - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP}"
-        f" - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s",
+        f"Standalone Server: HTTP Port={http_port}"
+        f" - API Key: {'Set' if _api_key else 'Not Set'}",
     )
 
     standalone = StandaloneCometNet(

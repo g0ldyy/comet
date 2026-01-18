@@ -105,10 +105,96 @@ class CometNetService(CometNetBackend):
         if self._running:
             return
 
-        logger.log("COMETNET", "Starting CometNet P2P network...")
-
         # Initialize components
         self._init_components()
+
+        logger.log("COMETNET", "=" * 60)
+        logger.log(
+            "COMETNET", f"Starting CometNet P2P Node - {self.identity.node_id[:8]}"
+        )
+        logger.log("COMETNET", "=" * 60)
+
+        key_encrypted = "Yes" if settings.COMETNET_KEY_PASSWORD else "No"
+        private_mode = (
+            f" - Private Network: {settings.COMETNET_NETWORK_ID}"
+            if settings.COMETNET_PRIVATE_NETWORK
+            else " - Private Network: False"
+        )
+
+        if settings.COMETNET_TRUSTED_POOLS:
+            trusted_pools = f" - Trusted Pools={len(settings.COMETNET_TRUSTED_POOLS)}"
+        else:
+            trusted_pools = " - Trusted Pools=All (Open Mode)"
+
+        ingest_pools = (
+            f" - Ingest Pools={len(settings.COMETNET_INGEST_POOLS)}"
+            if settings.COMETNET_INGEST_POOLS
+            else ""
+        )
+
+        logger.log(
+            "COMETNET",
+            f"Configuration: Port={self.listen_port}"
+            f" - Max Peers={self.max_peers}"
+            f" - Min Peers={self.min_peers}"
+            f" - Keys: {self.keys_dir}"
+            f" - Key Encrypted: {key_encrypted}"
+            f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
+            f"{private_mode}",
+        )
+        logger.log(
+            "COMETNET",
+            f"Pools Config: Dir={settings.COMETNET_POOLS_DIR}"
+            f"{trusted_pools}{ingest_pools}",
+        )
+
+        if self.advertise_url:
+            logger.log("COMETNET", f"Advertise URL: {self.advertise_url}")
+
+        logger.log(
+            "COMETNET",
+            f"Peers: Bootstrap={len(self.bootstrap_nodes)}"
+            f" - Manual={len(self.manual_peers)}"
+            f" - UPnP: {settings.COMETNET_UPNP_ENABLED} (Lease: {settings.COMETNET_UPNP_LEASE_DURATION}s)",
+        )
+
+        logger.log(
+            "COMETNET",
+            f"Gossip: Fanout={settings.COMETNET_GOSSIP_FANOUT}"
+            f" - Interval={settings.COMETNET_GOSSIP_INTERVAL}s"
+            f" - TTL={settings.COMETNET_GOSSIP_MESSAGE_TTL}"
+            f" - Cache: {settings.COMETNET_GOSSIP_CACHE_SIZE} items / {settings.COMETNET_GOSSIP_CACHE_TTL}s"
+            f" - Max Torrents/Msg={settings.COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE}"
+            f" - Clock Drift={settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE}s/{settings.COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE}s"
+            f" - Max Torrent Age={settings.COMETNET_GOSSIP_TORRENT_MAX_AGE}s",
+        )
+
+        logger.log(
+            "COMETNET",
+            f"Transport: Max Msg Size={settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE}"
+            f" - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP}"
+            f" - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s"
+            f" - Timeout={settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT}s",
+        )
+
+        logger.log(
+            "COMETNET",
+            f"Discovery: PEX Batch={settings.COMETNET_PEX_BATCH_SIZE}"
+            f" - Backoff={settings.COMETNET_PEER_CONNECT_BACKOFF_MAX}s"
+            f" - Max Failures={settings.COMETNET_PEER_MAX_FAILURES}"
+            f" - Cleanup Age={settings.COMETNET_PEER_CLEANUP_AGE}s",
+        )
+
+        logger.log(
+            "COMETNET",
+            f"Reputation: Init={settings.COMETNET_REPUTATION_INITIAL}"
+            f" - Range=[{settings.COMETNET_REPUTATION_MIN}, {settings.COMETNET_REPUTATION_MAX}]"
+            f" - Trust={settings.COMETNET_REPUTATION_THRESHOLD_TRUSTED}/{settings.COMETNET_REPUTATION_THRESHOLD_UNTRUSTED}"
+            f" - Valid Bonus=+{settings.COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION}"
+            f" - Anciennety Bonus=+{settings.COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY}/day (Max {settings.COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY})"
+            f" - Invalid Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION}"
+            f" - Sig Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE}",
+        )
 
         # Load saved state
         await self._load_state()
@@ -125,7 +211,7 @@ class CometNetService(CometNetBackend):
             logger.log("COMETNET", "Initializing UPnP...")
             self.upnp = UPnPManager(
                 port=self.listen_port,
-                lease_duration=settings.COMETNET_UPNP_LEASE_DURATION or 3600,
+                lease_duration=settings.COMETNET_UPNP_LEASE_DURATION,
             )
             external_ip = await self.upnp.start()
             if external_ip:
@@ -194,7 +280,6 @@ class CometNetService(CometNetBackend):
         await self._reconnect_pool_peers()
 
         # Log contribution mode and pool info
-        mode = settings.COMETNET_CONTRIBUTION_MODE or "full"
         pool_count = len(self.pool_store.get_subscriptions()) if self.pool_store else 0
         pool_info = (
             f", subscribed to {pool_count} pools" if pool_count > 0 else ", open mode"
@@ -202,8 +287,7 @@ class CometNetService(CometNetBackend):
 
         logger.log(
             "COMETNET",
-            f"CometNet started - Node ID: {self.identity.node_id[:8]}"
-            f"(mode: {mode}{pool_info})",
+            f"CometNet started - Node ID: {self.identity.node_id[:8]} (mode: {settings.COMETNET_CONTRIBUTION_MODE}{pool_info})",
         )
 
     async def stop(self) -> None:

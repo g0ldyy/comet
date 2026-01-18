@@ -503,63 +503,16 @@ def log_startup_info(settings):
         f"Generic Trackers: {bool(settings.DOWNLOAD_GENERIC_TRACKERS)}",
     )
 
-    cometnet_info = ""
-
     if settings.COMETNET_RELAY_URL:
-        cometnet_info = f" - Relay Mode: {settings.COMETNET_RELAY_URL}"
         logger.log(
-            "COMETNET",
-            f"CometNet P2P: Relay Mode{cometnet_info}",
+            "COMET",
+            f"CometNet P2P: Relay Mode - {settings.COMETNET_RELAY_URL}",
         )
     elif settings.COMETNET_ENABLED:
-        key_encrypted = "Yes" if settings.COMETNET_KEY_PASSWORD else "No"
-        cometnet_info = (
-            f" - Port: {settings.COMETNET_LISTEN_PORT}"
-            f" - Max Peers: {settings.COMETNET_MAX_PEERS}"
-            f" - Min Peers: {settings.COMETNET_MIN_PEERS}"
-            f" - Keys: {settings.COMETNET_KEYS_DIR}"
-            f" - Advertise: {settings.COMETNET_ADVERTISE_URL}"
-            f" - Key Encrypted: {key_encrypted}"
-            f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
-            f" - UPnP: {settings.COMETNET_UPNP_ENABLED} (Lease: {settings.COMETNET_UPNP_LEASE_DURATION}s)"
-            f" - Bootstrap Nodes: {len(settings.COMETNET_BOOTSTRAP_NODES)}"
-            f" - Manual Peers: {len(settings.COMETNET_MANUAL_PEERS)}"
-        )
-
-        private_mode = ""
-        if settings.COMETNET_PRIVATE_NETWORK:
-            private_mode = f" - Private Network: {settings.COMETNET_NETWORK_ID}"
-        else:
-            private_mode = " - Private Network: False"
-
         logger.log(
-            "COMETNET",
-            f"CometNet P2P: Integrated Mode{cometnet_info}{private_mode}",
+            "COMET",
+            "CometNet P2P: Integrated Mode",
         )
-
-        logger.log(
-            "COMETNET",
-            f"Gossip Tuning: Fanout={settings.COMETNET_GOSSIP_FANOUT} - Interval={settings.COMETNET_GOSSIP_INTERVAL}s - TTL={settings.COMETNET_GOSSIP_MESSAGE_TTL} - Cache TTL={settings.COMETNET_GOSSIP_CACHE_TTL}s - Clock Drift={settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE}s",
-        )
-        logger.log(
-            "COMETNET",
-            f"Discovery Tuning: PEX Batch={settings.COMETNET_PEX_BATCH_SIZE} - Backoff={settings.COMETNET_PEER_CONNECT_BACKOFF_MAX}s - Max Failures={settings.COMETNET_PEER_MAX_FAILURES}",
-        )
-        logger.log(
-            "COMETNET",
-            f"Transport Tuning: Max Msg Size={settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE} - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP} - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s",
-        )
-        logger.log(
-            "COMETNET",
-            f"Reputation Tuning: Init={settings.COMETNET_REPUTATION_INITIAL} - Trust={settings.COMETNET_REPUTATION_THRESHOLD_TRUSTED}/{settings.COMETNET_REPUTATION_THRESHOLD_UNTRUSTED} - Valid Bonus=+{settings.COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION} - Invalid Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION} - Sig Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE}",
-        )
-
-        if settings.FASTAPI_WORKERS > 1:
-            logger.warning(
-                f"⚠️  CometNet integrated mode with {settings.FASTAPI_WORKERS} workers "
-                "may cause port conflicts. Only the first worker will have an active "
-                "P2P connection. Consider using COMETNET_RELAY_URL for multi-worker deployments."
-            )
     else:
         logger.log(
             "COMET",
