@@ -79,26 +79,6 @@ class PeerReputation:
             >= settings.COMETNET_REPUTATION_THRESHOLD_UNTRUSTED
         )
 
-    @property
-    def invalid_ratio(self) -> float:
-        """Returns the ratio of invalid contributions to total contributions."""
-        total = self.valid_contributions + self.invalid_contributions
-        if total == 0:
-            return 0.0
-        return self.invalid_contributions / total
-
-    def check_invalid_ratio(self) -> bool:
-        """
-        Check if this peer has too many invalid contributions.
-        Returns True if peer is acceptable, False if they're sending too much garbage.
-        Only applies after a minimum sample size.
-        """
-        total = self.valid_contributions + self.invalid_contributions
-        # Need at least 100 contributions to judge
-        if total < 100:
-            return True
-        return self.invalid_ratio < settings.COMETNET_REPUTATION_INVALID_RATIO_THRESHOLD
-
     def update_seen(self) -> None:
         """Update the last seen timestamp."""
         self.last_seen = time.time()
@@ -120,12 +100,6 @@ class PeerReputation:
     def add_signature_failure_penalty(self) -> None:
         """Apply invalid signature penalty to reputation."""
         self._adjust_reputation(-settings.COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE)
-
-    def add_trusted_recommendation(self) -> None:
-        """Apply bonus for being recommended by a trusted peer."""
-        self._adjust_reputation(
-            settings.COMETNET_REPUTATION_BONUS_TRUSTED_RECOMMENDATION
-        )
 
     def blacklist(self) -> None:
         """Blacklist this peer."""
@@ -205,22 +179,6 @@ class ReputationStore:
             if level in summary:
                 summary[level] += 1
         return summary
-
-    def cleanup_old_peers(self, max_age_days: float = None) -> int:
-        """
-        Remove peers that haven't been seen in a while.
-        Returns the number of peers removed.
-        """
-        max_age_days = max_age_days or settings.COMETNET_REPUTATION_CLEANUP_AGE_DAYS
-        cutoff = time.time() - (max_age_days * 86400)
-        to_remove = [
-            node_id
-            for node_id, peer in self._peers.items()
-            if peer.last_seen < cutoff and not peer.is_blacklisted
-        ]
-        for node_id in to_remove:
-            del self._peers[node_id]
-        return len(to_remove)
 
     def to_dict(self) -> Dict:
         """Serialize the store to a dictionary for persistence."""

@@ -201,11 +201,8 @@ class AppSettings(BaseSettings):
     COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY: Optional[float] = (
         1000.0  # Max 1000 pts from age (100 days)
     )
-    COMETNET_REPUTATION_BONUS_TRUSTED_RECOMMENDATION: Optional[float] = 100.0
     COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION: Optional[float] = 50.0
     COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE: Optional[float] = 500.0
-    COMETNET_REPUTATION_INVALID_RATIO_THRESHOLD: Optional[float] = 0.5
-    COMETNET_REPUTATION_CLEANUP_AGE_DAYS: Optional[float] = 30.0
 
     # CometNet Contribution Mode
     # full: Share own torrents + receive + repropagate (default)

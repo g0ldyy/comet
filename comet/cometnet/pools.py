@@ -119,10 +119,12 @@ class PoolManifest(BaseModel):
     def to_signable_bytes(self) -> bytes:
         """Get bytes for signing (excludes signatures field)."""
         data = self.model_dump(exclude={"signatures"})
-        
+
         # Sort members by public key for deterministic ordering
         if "members" in data and isinstance(data["members"], list):
-            data["members"] = sorted(data["members"], key=lambda m: m.get("public_key", ""))
+            data["members"] = sorted(
+                data["members"], key=lambda m: m.get("public_key", "")
+            )
 
         # Ensure consistent ordering for deterministic serialization
         return msgpack.packb(_canonicalize(data))

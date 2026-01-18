@@ -19,11 +19,13 @@ from comet.cometnet.gossip import GossipEngine
 from comet.cometnet.interface import CometNetBackend
 from comet.cometnet.keystore import PublicKeyStore
 from comet.cometnet.nat import UPnPManager
-from comet.cometnet.pools import PoolStore
+from comet.cometnet.pools import (JoinMode, MemberRole, PoolManifest,
+                                  PoolMember, PoolStore)
 from comet.cometnet.protocol import (AnyMessage, MessageType, PeerRequest,
-                                     PeerResponse, PoolJoinRequest,
-                                     PoolManifestMessage, PoolMemberUpdate,
-                                     TorrentAnnounce, TorrentMetadata)
+                                     PeerResponse, PoolDeleteMessage,
+                                     PoolJoinRequest, PoolManifestMessage,
+                                     PoolMemberUpdate, TorrentAnnounce,
+                                     TorrentMetadata)
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
 from comet.core.logger import logger
@@ -463,9 +465,6 @@ class CometNetService(CometNetBackend):
         if not self.pool_store:
             return
 
-        from comet.cometnet.pools import (JoinMode, MemberRole, PoolManifest,
-                                          PoolMember)
-
         # Convert message to PoolManifest
         try:
             members = [
@@ -638,7 +637,6 @@ class CometNetService(CometNetBackend):
             pass
         else:
             # Add as member
-            from comet.cometnet.pools import MemberRole, PoolMember
 
             manifest.members.append(
                 PoolMember(
@@ -685,11 +683,14 @@ class CometNetService(CometNetBackend):
         if not self.pool_store:
             return
 
-        from comet.cometnet.pools import MemberRole, PoolMember
+        current_manifest = self.pool_store.get_manifest(message.pool_id)
 
-        manifest = self.pool_store.get_manifest(message.pool_id)
-        if not manifest:
+        current_manifest = self.pool_store.get_manifest(message.pool_id)
+        if not current_manifest:
             return
+
+        # Work on a copy to verify before updating
+        manifest = PoolManifest(**current_manifest.model_dump())
 
         # Special case: member leaving (self-removal)
         # For "leave" action, the updated_by should be the member themselves
@@ -813,9 +814,9 @@ class CometNetService(CometNetBackend):
                 f"Computed manifest state for {message.pool_id} does not match admin signature. "
                 "Requesting full manifest..."
             )
-            # Fallback: Request full manifest
-            # (Not implemented here, but we could send a PoolJoinRequest or similar,
-            # or just wait for next full sync)
+            # Fallback: Send our current (stale) manifest to the sender
+            # This will trigger them to send us the full updated manifest
+            await self._send_pool_manifest(sender_id, current_manifest)
 
     async def _handle_pool_delete(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming pool deletion messages."""
@@ -840,7 +841,6 @@ class CometNetService(CometNetBackend):
             return
 
         # Verify the signature
-        from comet.cometnet.crypto import NodeIdentity
 
         if not NodeIdentity.verify_hex(
             message.to_signable_bytes(), message.signature, message.deleted_by
@@ -1125,8 +1125,6 @@ class CometNetService(CometNetBackend):
         if not self._running or not self.pool_store:
             raise RuntimeError("CometNet not running")
 
-        from comet.cometnet.pools import JoinMode
-
         mode = JoinMode(join_mode)
 
         manifest = await self.pool_store.create_pool(
@@ -1156,7 +1154,6 @@ class CometNetService(CometNetBackend):
             return False
 
         # Only the creator can delete the pool
-        from comet.cometnet.pools import MemberRole
 
         my_member = manifest.get_member(self.identity.public_key_hex)
         if not my_member or my_member.role != MemberRole.CREATOR:
@@ -1167,7 +1164,6 @@ class CometNetService(CometNetBackend):
 
         if result:
             # Broadcast deletion to all peers
-            from comet.cometnet.protocol import PoolDeleteMessage
 
             delete_msg = PoolDeleteMessage(
                 sender_id=self.identity.node_id,
@@ -1365,8 +1361,6 @@ class CometNetService(CometNetBackend):
         if not self.pool_store:
             return False
 
-        from comet.cometnet.pools import MemberRole
-
         member_role = MemberRole(role)
 
         try:
@@ -1458,8 +1452,6 @@ class CometNetService(CometNetBackend):
         if not self.pool_store:
             return False
 
-        from comet.cometnet.pools import MemberRole
-
         manifest = self.pool_store.get_manifest(pool_id)
         if not manifest:
             raise ValueError(f"Pool {pool_id} not found")
@@ -1520,8 +1512,6 @@ class CometNetService(CometNetBackend):
             if not member:
                 return False  # Not a member
 
-            from comet.cometnet.pools import MemberRole
-
             # Creator cannot leave
             if member.role == MemberRole.CREATOR:
                 raise ValueError(
@@ -1530,8 +1520,6 @@ class CometNetService(CometNetBackend):
 
             # Broadcast our departure to other pool members BEFORE cleaning up locally
             import time
-
-            from comet.cometnet.protocol import PoolMemberUpdate
 
             leave_message = PoolMemberUpdate(
                 sender_id=self.identity.node_id,

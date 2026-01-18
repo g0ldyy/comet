@@ -311,6 +311,12 @@ class GossipEngine:
                 self.stats["duplicates_ignored"] += 1
                 continue
 
+            # Skip torrents with invalid size (0) without penalizing the peer
+            # This handles cases where scrapers might send incomplete metadata
+            if torrent.size == 0:
+                self.stats["invalid_messages"] += 1
+                continue
+
             # Validate torrent structure
             if not self._validate_torrent(torrent):
                 peer_rep.add_invalid_contribution()
