@@ -165,8 +165,7 @@ class CometNetService(CometNetBackend):
             logger.warning(
                 "Your COMETNET_ADVERTISE_URL contains a private/internal IP address. "
                 "Other peers will not be able to connect to you via PEX. "
-                "Please set COMETNET_ADVERTISE_URL to your public URL "
-                "(e.g., wss://your-comet-domain.com or wss://your-domain.com/cometnet/ws) "
+                "Please set COMETNET_ADVERTISE_URL to your public URL (e.g., wss://yourdomain.com/cometnet/ws) "
                 "or enable UPnP with COMETNET_UPNP_ENABLED=true."
             )
 
