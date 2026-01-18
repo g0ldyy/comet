@@ -30,7 +30,7 @@ from comet.core.models import settings
 
 
 class WebSocketHeadFilter(logging.Filter):
-    """Filter out HEAD request errors from websockets (likely health checks)."""
+    """Filter out noise errors from websockets (health checks, port scanners)."""
 
     def filter(self, record):
         if record.exc_info:
@@ -38,7 +38,12 @@ class WebSocketHeadFilter(logging.Filter):
             current = exc_value
             while current:
                 msg = str(current)
-                if "unsupported HTTP method" in msg and "HEAD" in msg:
+                if (
+                    ("unsupported HTTP method" in msg and "HEAD" in msg)
+                    or "did not receive a valid HTTP request" in msg
+                    or "connection closed while reading HTTP request line" in msg
+                    or "line without CRLF" in msg
+                ):
                     return False
                 current = getattr(current, "__cause__", None)
         return True
