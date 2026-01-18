@@ -140,6 +140,8 @@ services:
     ports:
       - "8765:8765"
     environment:
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: comet:comet@postgres:5432/comet
       COMETNET_BOOTSTRAP_NODES: '["wss://bootstrap.example.com:8765"]'
       COMETNET_ADVERTISE_URL: wss://comet.yourdomain.com:8765
       COMETNET_API_KEY: "your-secret-key"

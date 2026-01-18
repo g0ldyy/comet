@@ -14,7 +14,6 @@ from comet.api.endpoints import (admin, base, chilllink, cometnet, cometnet_ui,
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
 from comet.cometnet.manager import init_cometnet_service
-from comet.cometnet.protocol import TorrentMetadata
 from comet.cometnet.relay import init_relay, stop_relay
 from comet.core.database import (cleanup_expired_locks,
                                  cleanup_expired_sessions, setup_database,
@@ -26,6 +25,7 @@ from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
 from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
+                                            save_torrent_from_network,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
 
@@ -101,27 +101,6 @@ async def lifespan(app: FastAPI):
         )
 
         # Set callback to save torrents received from the network
-        async def save_torrent_from_network(metadata):
-            """Save a torrent received from the CometNet P2P network."""
-
-            if isinstance(metadata, TorrentMetadata):
-                await torrent_update_queue.add_torrent_info(
-                    {
-                        "info_hash": metadata.info_hash,
-                        "index": metadata.file_index or 0,
-                        "season": metadata.season,
-                        "episode": metadata.episode,
-                        "title": metadata.title,
-                        "seeders": metadata.seeders or 0,
-                        "size": metadata.size,
-                        "tracker": metadata.tracker,
-                        "sources": metadata.sources or [],
-                        "parsed": metadata.parsed or {"raw_title": metadata.title},
-                    },
-                    media_id=metadata.imdb_id,
-                    from_cometnet=True,
-                )
-
         cometnet_service.set_save_torrent_callback(save_torrent_from_network)
         await cometnet_service.start()
 

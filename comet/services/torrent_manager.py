@@ -15,6 +15,7 @@ from RTN import ParsedData, parse
 from torf import Magnet
 
 from comet.cometnet import get_active_backend
+from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import database, settings
@@ -756,3 +757,31 @@ async def _upsert_torrent_record(params: dict):
 
 
 torrent_update_queue = TorrentUpdateQueue()
+
+
+async def save_torrent_from_network(metadata: TorrentMetadata):
+    """
+    Save a torrent received from the CometNet P2P network.
+
+    This function processes torrent metadata received from other peers
+    and queues it for insertion into the database.
+    """
+    if not isinstance(metadata, TorrentMetadata):
+        return
+
+    await torrent_update_queue.add_torrent_info(
+        {
+            "info_hash": metadata.info_hash,
+            "index": metadata.file_index or 0,
+            "season": metadata.season,
+            "episode": metadata.episode,
+            "title": metadata.title,
+            "seeders": metadata.seeders or 0,
+            "size": metadata.size,
+            "tracker": metadata.tracker,
+            "sources": metadata.sources or [],
+            "parsed": metadata.parsed or {"raw_title": metadata.title},
+        },
+        media_id=metadata.imdb_id,
+        from_cometnet=True,
+    )

@@ -105,6 +105,8 @@ services:
       - "8765:8765"   # P2P WebSocket
       # - "8766:8766" # HTTP API (optional, only if needed externally)
     environment:
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: comet:comet@postgres:5432/comet
       COMETNET_LISTEN_PORT: "8765"
       COMETNET_HTTP_PORT: "8766"
       COMETNET_API_KEY: ${COMETNET_API_KEY}
@@ -112,6 +114,9 @@ services:
       - .env-cometnet
     volumes:
       - cometnet_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8766/health"]
       interval: 10s
@@ -198,10 +203,15 @@ services:
     command: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
+    environment:
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: comet:comet@postgres:5432/comet
     env_file:
       - .env-cometnet
     volumes:
       - cometnet_data:/app/data
+    depends_on:
+      - postgres
     deploy:
       replicas: 1  # Only one CometNet instance needed
 

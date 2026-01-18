@@ -37,8 +37,12 @@ from pydantic import BaseModel
 
 from comet.cometnet.manager import CometNetService
 from comet.cometnet.protocol import TorrentMetadata
+from comet.core.database import setup_database, teardown_database
+from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.services.torrent_manager import (save_torrent_from_network,
+                                            torrent_update_queue)
 
 
 class BroadcastRequest(BaseModel):
@@ -180,6 +184,11 @@ class StandaloneCometNet:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            await setup_database()
+            setup_executor()
+
+            self.service.set_save_torrent_callback(save_torrent_from_network)
+
             await self.service.start()
             logger.log(
                 "COMETNET",
@@ -189,6 +198,11 @@ class StandaloneCometNet:
             yield
 
             await self.service.stop()
+            await torrent_update_queue.stop()
+
+            await teardown_database()
+            shutdown_executor()
+
             logger.log("COMETNET", "Standalone server stopped")
 
         app = FastAPI(

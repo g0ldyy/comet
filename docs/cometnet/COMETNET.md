@@ -90,7 +90,11 @@ FASTAPI_WORKERS=1
 
 **Best for**: Production deployments with multiple workers or replicas.
 
-In Relay Mode, you run a standalone CometNet service (a separate process) alongside your Comet instances. Your Comet workers send torrents to this standalone service via HTTP, and the standalone service handles all P2P networking.
+In Relay Mode, you run a standalone CometNet service (a separate process) alongside your Comet instances. This service handles all P2P networking and writes discovered torrents directly to your shared database.
+
+**Bidirectional Flow:**
+1. **Sending:** Comet workers send their discoveries to the standalone service via HTTP.
+2. **Receiving:** The standalone service receives torrents from the P2P network and writes them to the database, making them immediately available to all workers.
 
 **Configuration on Comet instances:**
 ```env
@@ -100,6 +104,7 @@ COMETNET_RELAY_URL=http://cometnet:8766
 When `COMETNET_RELAY_URL` is set, the `COMETNET_ENABLED` setting is ignored - Comet will use the relay instead.
 
 **Running the standalone service:**
+The standalone service requires access to your database environment variables (`DATABASE_URL`, etc.) to save received torrents.
 ```bash
 uv run python -m comet.cometnet.standalone
 ```
