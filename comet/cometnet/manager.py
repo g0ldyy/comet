@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -158,16 +159,30 @@ class CometNetService(CometNetBackend):
                     "It is STRONGLY recommended to use 'wss://' (SSL) for public instances."
                 )
 
-        # Warn if advertising a private IP (other peers won't be able to connect via PEX)
+        # validation for private IP in advertise URL
         if self.advertise_url and not is_valid_peer_address(
             self.advertise_url, allow_private=False
         ):
-            logger.warning(
-                "Your COMETNET_ADVERTISE_URL contains a private/internal IP address. "
-                "Other peers will not be able to connect to you via PEX. "
-                "Please set COMETNET_ADVERTISE_URL to your public URL (e.g., wss://yourdomain.com/cometnet/ws) "
-                "or enable UPnP with COMETNET_UPNP_ENABLED=true."
-            )
+            # If we are in a private network or explicitly allow private PEX, we allow it (with warning)
+            if settings.COMETNET_PRIVATE_NETWORK or settings.COMETNET_ALLOW_PRIVATE_PEX:
+                logger.warning(
+                    "Your COMETNET_ADVERTISE_URL contains a private/internal IP address. "
+                    "This is allowed because COMETNET_PRIVATE_NETWORK or COMETNET_ALLOW_PRIVATE_PEX is enabled. "
+                    "Public peers may not be able to connect."
+                )
+            else:
+                # Do not allow starting with private IP on public network
+                logger.critical(
+                    f"\nCometNet failed to start because COMETNET_ADVERTISE_URL ('{self.advertise_url}') "
+                    "is a private address.\n"
+                    "Public nodes MUST be reachable via a public URL.\n"
+                    "Please:\n"
+                    "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
+                    "2. Or enable UPnP with COMETNET_UPNP_ENABLED=true\n"
+                    "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
+                )
+                await logger.complete()
+                sys.exit(1)
 
         # Start gossip engine
         await self.gossip.start()
