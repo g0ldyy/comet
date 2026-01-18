@@ -1104,6 +1104,18 @@ class CometNetService(CometNetBackend):
 
         peer_info = []
         for node_id, conn in self.transport._connections.items():
+            # Get reputation data if available
+            rep_data = {}
+            if self.reputation:
+                peer_rep = self.reputation.get(node_id)
+                if peer_rep:
+                    rep_data = {
+                        "torrents_received": peer_rep.valid_contributions,
+                        "invalid_contributions": peer_rep.invalid_contributions,
+                        "reputation": round(peer_rep.effective_reputation, 2),
+                        "trust_level": peer_rep.trust_level,
+                    }
+
             peer_info.append(
                 {
                     "node_id": node_id,
@@ -1112,6 +1124,7 @@ class CometNetService(CometNetBackend):
                     "last_activity": conn.last_activity,
                     "is_outbound": conn.is_outbound,
                     "latency_ms": round(conn.latency_ms, 2),
+                    **rep_data,
                 }
             )
 
@@ -1437,6 +1450,7 @@ class CometNetService(CometNetBackend):
             "members": [
                 {
                     "public_key": m.public_key,
+                    "node_id": m.node_id,
                     "role": m.role.value,
                     "added_at": m.added_at,
                     "added_by": m.added_by,
