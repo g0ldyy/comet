@@ -5,6 +5,7 @@ Manages storage and retrieval of peer public keys for signature verification.
 """
 
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
@@ -36,7 +37,7 @@ class PublicKeyStore:
 
     def __init__(self, max_keys: int = 10000):
         self.max_keys = max_keys
-        self._keys: Dict[str, PeerKey] = {}
+        self._keys: OrderedDict[str, PeerKey] = OrderedDict()
 
     def store_key(
         self, node_id: str, public_key_hex: str, verified: bool = False
@@ -52,6 +53,7 @@ class PublicKeyStore:
         if node_id in self._keys:
             # Update existing entry
             self._keys[node_id].update_seen()
+            self._keys.move_to_end(node_id)
             if verified:
                 self._keys[node_id].verified = True
         else:
@@ -74,6 +76,7 @@ class PublicKeyStore:
         """
         if node_id in self._keys:
             self._keys[node_id].update_seen()
+            self._keys.move_to_end(node_id)
             return self._keys[node_id].public_key_hex
         return None
 
@@ -94,12 +97,11 @@ class PublicKeyStore:
         if not self._keys:
             return
 
-        # Sort by last_seen and remove oldest 10%
-        sorted_keys = sorted(self._keys.items(), key=lambda x: x[1].last_seen)
-        to_remove = max(1, len(sorted_keys) // 10)
+        # Remove oldest 10% (LRU)
+        to_remove = max(1, len(self._keys) // 10)
 
-        for node_id, _ in sorted_keys[:to_remove]:
-            del self._keys[node_id]
+        for _ in range(to_remove):
+            self._keys.popitem(last=False)
 
         logger.debug(f"Evicted {to_remove} old keys from PublicKeyStore")
 
@@ -139,7 +141,11 @@ class PublicKeyStore:
     def from_dict(self, data: Dict) -> None:
         """Load from persisted data."""
         keys_data = data.get("keys", {})
-        for node_id, key_info in keys_data.items():
+
+        # Sort by last_seen to preserve LRU order when reloading
+        sorted_items = sorted(keys_data.items(), key=lambda x: x[1].get("last_seen", 0))
+
+        for node_id, key_info in sorted_items:
             self._keys[node_id] = PeerKey(
                 node_id=node_id,
                 public_key_hex=key_info["public_key_hex"],

@@ -16,7 +16,6 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Dict, List, Optional, Set
-from urllib.parse import urlparse
 
 import websockets
 from websockets.client import WebSocketClientProtocol
@@ -26,6 +25,7 @@ from websockets.http11 import Response
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
                                      PingMessage, PongMessage, parse_message)
+from comet.cometnet.utils import extract_ip_from_address
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -419,18 +419,6 @@ class ConnectionManager:
         finally:
             self._connecting.discard(address)
 
-    def _extract_ip_from_address(self, address: str) -> str:
-        """Extract the IP/hostname from a WebSocket address."""
-        try:
-            # Handle ws:// or wss:// URLs
-            if address.startswith(("ws://", "wss://")):
-                parsed = urlparse(address)
-                return parsed.hostname or "unknown"
-            # Handle raw IP:port or just IP
-            return address.split(":")[0]
-        except Exception:
-            return "unknown"
-
     async def handle_incoming_connection(
         self, websocket: WebSocketClientProtocol, address: str
     ) -> Optional[str]:
@@ -444,7 +432,7 @@ class ConnectionManager:
             return None
 
         # Extract IP
-        ip = self._extract_ip_from_address(address)
+        ip = extract_ip_from_address(address)
 
         # Use lock to prevent race condition on connection limits
         async with self._connection_lock:
@@ -717,7 +705,7 @@ class ConnectionManager:
             # Clean up connection
             if conn.node_id in self._connections:
                 # Decrement IP connection counter
-                ip = self._extract_ip_from_address(conn.address)
+                ip = extract_ip_from_address(conn.address)
                 if ip in self._connections_per_ip:
                     self._connections_per_ip[ip] = max(
                         0, self._connections_per_ip[ip] - 1
@@ -823,7 +811,7 @@ class ConnectionManager:
         # Calculate IP distribution
         ip_counts: Dict[str, List[str]] = {}  # ip -> list of node_ids
         for node_id, conn in self._connections.items():
-            ip = self._extract_ip_from_address(conn.address)
+            ip = extract_ip_from_address(conn.address)
             if ip != "unknown":
                 if ip not in ip_counts:
                     ip_counts[ip] = []
@@ -888,13 +876,16 @@ class ConnectionManager:
         if not targets:
             return 0
 
-        # Send to all targets in parallel
-        results = await asyncio.gather(
-            *(conn.send(message) for conn in targets), return_exceptions=True
-        )
+        # Send to targets in batches
+        batch_size = 50
+        sent_count = 0
 
-        # Count successful sends
-        sent_count = sum(1 for r in results if r is True)
+        for i in range(0, len(targets), batch_size):
+            batch = targets[i : i + batch_size]
+            results = await asyncio.gather(
+                *(conn.send(message) for conn in batch), return_exceptions=True
+            )
+            sent_count += sum(1 for r in results if r is True)
 
         return sent_count
 
@@ -921,7 +912,7 @@ class ConnectionManager:
         # Calculate IP diversity for Eclipse attack detection
         unique_ips = set()
         for conn in self._connections.values():
-            ip = self._extract_ip_from_address(conn.address)
+            ip = extract_ip_from_address(conn.address)
             if ip != "unknown":
                 unique_ips.add(ip)
 

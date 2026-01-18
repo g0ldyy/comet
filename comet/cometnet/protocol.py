@@ -7,24 +7,16 @@ Uses MsgPack for efficient binary serialization.
 
 import time
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 import msgpack
 from pydantic import BaseModel, Field, field_validator
 
+from comet.cometnet.utils import canonicalize_data
 from comet.utils.formatting import normalize_info_hash
 
 # Protocol version for backwards compatibility
 PROTOCOL_VERSION = "1.0"
-
-
-def canonicalize_for_signing(data: Any) -> Any:
-    """Recursively sort dict keys for deterministic serialization."""
-    if isinstance(data, dict):
-        return {k: canonicalize_for_signing(v) for k, v in sorted(data.items())}
-    elif isinstance(data, list):
-        return [canonicalize_for_signing(i) for i in data]
-    return data
 
 
 class MessageType(str, Enum):
@@ -65,7 +57,7 @@ class BaseMessage(BaseModel):
         Uses MsgPack with sorted keys for stable canonicalization.
         """
         data = self.model_dump(exclude={"signature"})
-        return msgpack.packb(canonicalize_for_signing(data))
+        return msgpack.packb(canonicalize_data(data))
 
     def to_bytes(self) -> bytes:
         """Serialize the message to MsgPack bytes."""
@@ -185,7 +177,7 @@ class TorrentMetadata(BaseModel):
     def to_signable_bytes(self) -> bytes:
         """Returns bytes for signing (excludes contributor_signature)."""
         data = self.model_dump(exclude={"contributor_signature"})
-        return msgpack.packb(canonicalize_for_signing(data))
+        return msgpack.packb(canonicalize_data(data))
 
 
 class TorrentAnnounce(BaseMessage):

@@ -16,12 +16,13 @@ import secrets
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import msgpack
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 from comet.cometnet.crypto import NodeIdentity
+from comet.cometnet.utils import canonicalize_data
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -134,7 +135,7 @@ class PoolManifest(BaseModel):
             )
 
         # Ensure consistent ordering for deterministic serialization
-        return msgpack.packb(_canonicalize(data))
+        return msgpack.packb(canonicalize_data(data))
 
     def to_bytes(self) -> bytes:
         """Serialize the manifest to MsgPack bytes."""
@@ -170,7 +171,7 @@ class PoolInvite(BaseModel):
     def to_signable_bytes(self) -> bytes:
         """Get bytes for signing."""
         data = self.model_dump(exclude={"signature", "uses"})
-        return msgpack.packb(_canonicalize(data))
+        return msgpack.packb(canonicalize_data(data))
 
     def to_link(self) -> str:
         """
@@ -218,15 +219,6 @@ class PoolInvite(BaseModel):
         if "node" in params:
             result["node"] = params["node"][0]
         return result if result else None
-
-
-def _canonicalize(data: Any) -> Any:
-    """Recursively sort dict keys for deterministic serialization."""
-    if isinstance(data, dict):
-        return {k: _canonicalize(v) for k, v in sorted(data.items())}
-    elif isinstance(data, list):
-        return [_canonicalize(i) for i in data]
-    return data
 
 
 class PoolStore:

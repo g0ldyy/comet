@@ -8,78 +8,15 @@ Handles peer discovery through multiple methods:
 """
 
 import asyncio
-import ipaddress
 import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
-from urllib.parse import urlparse
 
 from comet.cometnet.protocol import PeerInfo, PeerRequest, PeerResponse
+from comet.cometnet.utils import is_valid_peer_address
 from comet.core.logger import logger
 from comet.core.models import settings
-
-
-def is_private_or_internal_ip(host: str) -> bool:
-    """
-    Check if a host is a private/internal IP address.
-
-    Checks for: private, loopback, link-local, and reserved addresses.
-    """
-    try:
-        ip = ipaddress.ip_address(host)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-    except ValueError:
-        # Not an IP address (could be a hostname)
-        return False
-
-
-def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
-    """
-    Validate a peer address for security.
-
-    Args:
-        address: WebSocket URL to validate
-        allow_private: If True, allow private/internal IPs (for manual/bootstrap peers)
-
-    Returns:
-        True if the address is valid and safe to connect to
-    """
-    try:
-        parsed = urlparse(address)
-
-        # Must be ws:// or wss:// scheme
-        if parsed.scheme not in ("ws", "wss"):
-            return False
-
-        # Must have a hostname
-        if not parsed.hostname:
-            return False
-
-        host = parsed.hostname.lower()
-
-        # Block localhost variants (hostnames that resolve to loopback)
-        if host in ("localhost", "localhost.localdomain"):
-            if not allow_private:
-                return False
-
-        # Check for private/internal IP addresses
-        if not allow_private and is_private_or_internal_ip(host):
-            return False
-
-        # Port must be valid if specified
-        if parsed.port is not None:
-            if not (1 <= parsed.port <= 65535):
-                return False
-
-        # Block suspicious patterns
-        if "@" in address:  # Credential injection
-            return False
-
-        return True
-
-    except Exception:
-        return False
 
 
 @dataclass

@@ -7,7 +7,6 @@ Manages node identity using ECDSA (SECP256k1) keys for:
 - Signature verification
 """
 
-import asyncio
 import hashlib
 import os
 from pathlib import Path
@@ -19,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import (
     EllipticCurvePrivateKey, EllipticCurvePublicKey)
 
+from comet.cometnet.utils import run_in_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -232,25 +232,20 @@ class NodeIdentity:
             return ""
 
     async def sign_async(self, data: bytes) -> bytes:
-        """
-        Sign data asynchronously.
-        """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.sign, data)
+        """Sign data asynchronously."""
+        return await run_in_executor(self.sign, data)
 
     async def sign_hex_async(self, data: bytes) -> str:
         """Sign data and return hex asynchronously."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.sign_hex, data)
+        return await run_in_executor(self.sign_hex, data)
 
     @staticmethod
     async def verify_async(
         data: bytes, signature: bytes, public_key_bytes: bytes
     ) -> bool:
         """Verify signature asynchronously."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, NodeIdentity.verify, data, signature, public_key_bytes
+        return await run_in_executor(
+            NodeIdentity.verify, data, signature, public_key_bytes
         )
 
     @staticmethod
@@ -258,7 +253,6 @@ class NodeIdentity:
         data: bytes, signature_hex: str, public_key_hex: str
     ) -> bool:
         """Verify hex signature asynchronously."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, NodeIdentity.verify_hex, data, signature_hex, public_key_hex
+        return await run_in_executor(
+            NodeIdentity.verify_hex, data, signature_hex, public_key_hex
         )
