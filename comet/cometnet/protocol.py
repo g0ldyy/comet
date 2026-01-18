@@ -90,6 +90,7 @@ class HandshakeMessage(BaseMessage):
     listen_port: int = 0  # Port this node is listening on (for reverse connections)
     public_url: Optional[str] = None  # Full public URL (for reverse proxies)
     capabilities: List[str] = Field(default_factory=list)  # Future extension
+    network_token: Optional[str] = None  # HMAC token for private network auth
 
 
 class PingMessage(BaseMessage):

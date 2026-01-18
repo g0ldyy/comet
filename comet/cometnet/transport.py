@@ -6,6 +6,8 @@ Handles both server-side (incoming) and client-side (outgoing) connections.
 """
 
 import asyncio
+import hashlib
+import hmac
 import ipaddress
 import random
 import secrets
@@ -68,6 +70,20 @@ class PeerConnection:
 MessageHandler = Callable[[str, AnyMessage], Awaitable[None]]
 
 
+def compute_network_token(
+    network_id: str, network_password: str, sender_id: str, timestamp: float
+) -> str:
+    """
+    Compute HMAC token for private network authentication.
+
+    Token = HMAC-SHA256(password, network_id:sender_id:window)
+    Timestamp is rounded to 5-minute windows to allow clock drift.
+    """
+    window = int(timestamp // 300) * 300
+    message = f"{network_id}:{sender_id}:{window}".encode()
+    return hmac.new(network_password.encode(), message, hashlib.sha256).hexdigest()
+
+
 class ConnectionManager:
     """
     Manages all WebSocket connections to peers.
@@ -122,6 +138,11 @@ class ConnectionManager:
 
         # Running flag
         self._running = False
+
+        # Private network settings
+        self._private_network = settings.COMETNET_PRIVATE_NETWORK
+        self._network_id = settings.COMETNET_NETWORK_ID or ""
+        self._network_password = settings.COMETNET_NETWORK_PASSWORD or ""
 
         # Callback when a peer connects (for Discovery notification)
         self._on_peer_connected: Optional[Callable[[str, str], Awaitable[None]]] = None
@@ -438,6 +459,18 @@ class ConnectionManager:
                     listen_port=self.listen_port,
                     public_url=self.advertise_url,
                 )
+                # Add network token for private mode
+                if (
+                    self._private_network
+                    and self._network_id
+                    and self._network_password
+                ):
+                    handshake.network_token = compute_network_token(
+                        self._network_id,
+                        self._network_password,
+                        self.identity.node_id,
+                        handshake.timestamp,
+                    )
                 handshake.signature = await self.identity.sign_hex_async(
                     handshake.to_signable_bytes()
                 )
@@ -462,6 +495,18 @@ class ConnectionManager:
                     listen_port=self.listen_port,
                     public_url=self.advertise_url,
                 )
+                # Add network token for private mode
+                if (
+                    self._private_network
+                    and self._network_id
+                    and self._network_password
+                ):
+                    handshake.network_token = compute_network_token(
+                        self._network_id,
+                        self._network_password,
+                        self.identity.node_id,
+                        handshake.timestamp,
+                    )
                 handshake.signature = await self.identity.sign_hex_async(
                     handshake.to_signable_bytes()
                 )
@@ -499,6 +544,36 @@ class ConnectionManager:
             if peer_handshake.sender_id == self.identity.node_id:
                 logger.debug("Rejecting connection to self")
                 return None
+
+            # Validate private network token
+            if self._private_network and self._network_id and self._network_password:
+                if not peer_handshake.network_token:
+                    logger.warning(
+                        f"Rejecting {address}: missing network token (private mode)"
+                    )
+                    return None
+
+                # Validate token for current AND previous window (clock tolerance)
+                token_current = compute_network_token(
+                    self._network_id,
+                    self._network_password,
+                    peer_handshake.sender_id,
+                    peer_handshake.timestamp,
+                )
+                token_prev = compute_network_token(
+                    self._network_id,
+                    self._network_password,
+                    peer_handshake.sender_id,
+                    peer_handshake.timestamp - 300,
+                )
+                if not (
+                    hmac.compare_digest(peer_handshake.network_token, token_current)
+                    or hmac.compare_digest(peer_handshake.network_token, token_prev)
+                ):
+                    logger.warning(
+                        f"Rejecting {address}: invalid network token (wrong password or network_id)"
+                    )
+                    return None
 
             # Determine effective address
             effective_address = address

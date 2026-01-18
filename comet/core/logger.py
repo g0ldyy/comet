@@ -526,9 +526,15 @@ def log_startup_info(settings):
             f" - Manual Peers: {len(settings.COMETNET_MANUAL_PEERS)}"
         )
 
+        private_mode = ""
+        if settings.COMETNET_PRIVATE_NETWORK:
+            private_mode = f" - Private Network: {settings.COMETNET_NETWORK_ID}"
+        else:
+            private_mode = " - Private Network: False"
+
         logger.log(
             "COMETNET",
-            f"CometNet P2P: Integrated Mode{cometnet_info}",
+            f"CometNet P2P: Integrated Mode{cometnet_info}{private_mode}",
         )
 
         logger.log(

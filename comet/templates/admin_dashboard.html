@@ -1110,6 +1110,10 @@
                   <div class="stat-number" id="cnet-sent">0</div>
                   <div class="stat-label">Torrents Sent</div>
                 </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-private-network">-</div>
+                  <div class="stat-label">Private Network</div>
+                </div>
               </div>
 
               <div class="metrics-grid">
@@ -1775,6 +1779,15 @@
         document.getElementById("cnet-sent").textContent = stats.gossip_stats
           ? (stats.gossip_stats.torrents_sent || 0).toLocaleString()
           : 0;
+
+        // Private network status
+        const privateNetEl = document.getElementById("cnet-private-network");
+        if (stats.private_network && stats.network_id) {
+          privateNetEl.innerHTML = `<sl-badge variant="warning" style="font-size: 0.7rem;">${escapeHtml(stats.network_id)}</sl-badge>`;
+        } else {
+          privateNetEl.innerHTML =
+            '<sl-badge variant="neutral" style="font-size: 0.7rem;">Public</sl-badge>';
+        }
 
         let modeHtml = '<sl-badge variant="success">P2P Node</sl-badge>';
         if (stats.relay) {

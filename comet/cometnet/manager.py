@@ -1090,6 +1090,11 @@ class CometNetService(CometNetBackend):
             # stats
             "contribution_mode": settings.COMETNET_CONTRIBUTION_MODE or "full",
             "pool_stats": self.pool_store.get_stats() if self.pool_store else {},
+            # Private network info
+            "private_network": settings.COMETNET_PRIVATE_NETWORK,
+            "network_id": settings.COMETNET_NETWORK_ID
+            if settings.COMETNET_PRIVATE_NETWORK
+            else None,
         }
 
     async def get_peers(self) -> Dict[str, Any]:
