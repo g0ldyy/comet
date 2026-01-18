@@ -502,6 +502,54 @@ class PoolStore:
         )
         return True
 
+    async def leave_pool(
+        self,
+        pool_id: str,
+        identity,  # NodeIdentity of the leaving member
+    ) -> bool:
+        """
+        Leave a pool (self-removal).
+
+        Any member can leave a pool, except the creator who must delete the pool instead.
+        """
+        manifest = self._manifests.get(pool_id)
+        if not manifest:
+            raise ValueError(f"Pool {pool_id} not found")
+
+        member = manifest.get_member(identity.public_key_hex)
+        if not member:
+            return False  # Not a member
+
+        # Creator cannot leave - they must delete the pool
+        if member.role == MemberRole.CREATOR:
+            raise ValueError("Creator cannot leave the pool. Delete the pool instead.")
+
+        # If leaving admin is the last admin (besides creator), prevent it
+        if member.role == MemberRole.ADMIN:
+            admin_count = len(manifest.get_admins())
+            # get_admins includes creator, so we check if there are other admins
+            if admin_count <= 1:
+                raise ValueError(
+                    "Cannot leave as the last admin. Promote another member first."
+                )
+
+        # Remove self from members
+        manifest.members = [
+            m for m in manifest.members if m.public_key != identity.public_key_hex
+        ]
+        manifest.version += 1
+        manifest.updated_at = time.time()
+
+        # Store manifest (we can sign if we were admin, but we're leaving so no need)
+        await self.store_manifest(manifest)
+
+        # Remove from our memberships
+        self._memberships.discard(pool_id)
+        await self._save_memberships()
+
+        logger.log("COMETNET", f"Left pool {pool_id}")
+        return True
+
     async def promote_member(
         self,
         pool_id: str,

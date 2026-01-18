@@ -356,6 +356,20 @@ class StandaloneCometNet:
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
 
+        @app.post("/pools/{pool_id}/leave", dependencies=[Depends(verify_api_key)])
+        async def leave_pool(pool_id: str):
+            """Leave a pool (self-removal). Any member except creator can leave."""
+            try:
+                if await self.service.leave_pool(pool_id):
+                    return {"status": "success"}
+                raise HTTPException(
+                    status_code=400, detail="Failed to leave pool (not a member?)"
+                )
+            except PermissionError as e:
+                raise HTTPException(status_code=403, detail=str(e))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
         @app.post("/broadcast", dependencies=[Depends(verify_api_key)])
         async def broadcast(request: BroadcastRequest):
             """

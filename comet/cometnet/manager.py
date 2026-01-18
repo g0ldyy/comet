@@ -1471,6 +1471,27 @@ class CometNetService(CometNetBackend):
         )
         return True
 
+    async def leave_pool(self, pool_id: str) -> bool:
+        """Leave a pool (self-removal). Any member except creator can leave."""
+        if not self._running or not self.pool_store:
+            return False
+
+        try:
+            result = await self.pool_store.leave_pool(
+                pool_id=pool_id,
+                identity=self.identity,
+            )
+            if result:
+                # Broadcast updated manifest to all peers
+                manifest = self.pool_store.get_manifest(pool_id)
+                if manifest:
+                    await self._broadcast_pool_manifest(manifest)
+                logger.log("COMETNET", f"Successfully left pool {pool_id}")
+            return result
+        except (PermissionError, ValueError) as e:
+            logger.warning(f"Failed to leave pool: {e}")
+            raise
+
     async def _load_state(self) -> None:
         """Load saved state from disk."""
         state_path = self.keys_dir / self.STATE_FILE

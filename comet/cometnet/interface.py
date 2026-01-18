@@ -117,3 +117,8 @@ class CometNetBackend(ABC):
     ) -> bool:
         """Update a member's role."""
         pass
+
+    @abstractmethod
+    async def leave_pool(self, pool_id: str) -> bool:
+        """Leave a pool (self-removal). Any member except creator can leave."""
+        pass

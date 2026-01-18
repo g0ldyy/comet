@@ -334,3 +334,27 @@ async def update_member_role(
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/admin/api/cometnet/pools/{pool_id}/leave",
+    tags=["Admin", "CometNet"],
+    summary="Leave Pool",
+)
+async def leave_pool(
+    pool_id: str,
+    admin_session: str = Cookie(None),
+    backend=Depends(get_cometnet_backend),
+):
+    """Leave a pool (self-removal). Any member except creator can leave."""
+    await require_admin_auth(admin_session)
+    try:
+        if await backend.leave_pool(pool_id):
+            return {"status": "success"}
+        raise HTTPException(
+            status_code=400, detail="Failed to leave pool (not a member?)"
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

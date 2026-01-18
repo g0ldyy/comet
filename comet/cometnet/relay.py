@@ -499,6 +499,18 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
+    async def leave_pool(self, pool_id: str) -> bool:
+        """Leave a pool (self-removal). Any member except creator can leave."""
+        try:
+            await self._pool_request("POST", f"/pools/{pool_id}/leave")
+            return True
+        except ValueError as e:
+            raise ValueError(str(e))
+        except PermissionError as e:
+            raise PermissionError(str(e))
+        except Exception:
+            return False
+
     async def broadcast_torrent(self, metadata) -> None:
         """Broadcast a torrent to the network (via relay)."""
         # Unwrap TorrentMetadata if necessary

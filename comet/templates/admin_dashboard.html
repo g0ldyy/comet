@@ -1906,6 +1906,11 @@
                         : ""
                     }
                     ${
+                      isMem && myMembership?.role !== "creator"
+                        ? `<sl-button size="small" variant="warning" outline onclick="leavePool('${pool.pool_id}')"><sl-icon slot="prefix" name="box-arrow-right"></sl-icon> Leave</sl-button>`
+                        : ""
+                    }
+                    ${
                       !isSub
                         ? `<sl-button size="small" variant="success" outline onclick="subscribePool('${pool.pool_id}')">Subscribe</sl-button>`
                         : `<sl-button size="small" variant="danger" outline onclick="unsubscribePool('${pool.pool_id}')">Unsubscribe</sl-button>`
@@ -2103,6 +2108,31 @@
           }
         } catch (e) {
           console.error(e);
+        }
+      }
+
+      async function leavePool(id) {
+        if (
+          !(await showConfirm(
+            `Are you sure you want to leave pool '${id}'? You will need a new invite to rejoin.`,
+            "Leave Pool",
+          ))
+        )
+          return;
+        try {
+          const res = await fetch(`/admin/api/cometnet/pools/${id}/leave`, {
+            method: "POST",
+          });
+          if (res.ok) {
+            showToast("Successfully left the pool", "success");
+            loadCometNetStats();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            showToast(data.detail || "Failed to leave pool", "danger");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error leaving pool", "danger");
         }
       }
 
