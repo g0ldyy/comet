@@ -953,8 +953,8 @@ class CometNetService(CometNetBackend):
                 seeders=metadata.get("seeders"),
                 season=metadata.get("season"),
                 episode=metadata.get("episode"),
-                sources=metadata.get("sources", []),
-                parsed=metadata.get("parsed", {}),
+                sources=metadata.get("sources") or [],
+                parsed=metadata.get("parsed"),
                 updated_at=metadata.get("updated_at", time.time()),
             )
         elif not isinstance(metadata, TorrentMetadata):
