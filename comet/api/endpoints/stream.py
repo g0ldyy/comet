@@ -459,8 +459,9 @@ async def stream(
                         ]
                     }
 
-        elif is_first or cache_is_stale:
-            # Background scrape if first search OR if cache is stale (needs refresh)
+        # Add placeholder stream if first search OR cache is stale (for background refresh)
+        # This ensures consistent behavior across all provider types (Cinemeta, custom providers, etc.)
+        if has_cached_results and (is_first or cache_is_stale):
             if is_first:
                 logger.log(
                     "SCRAPER",

@@ -84,12 +84,22 @@ class MetadataScraper:
         metadata_task = asyncio.create_task(
             self.get_metadata(id, season, episode, is_kitsu, provider)
         )
-        # Skip aliases for custom providers
         if is_custom:
-            aliases_task = asyncio.create_task(asyncio.sleep(0, result={}))
+            # For custom providers, create aliases with normalized title to help with matching
+            # This ensures torrents with/without diacritics can be matched properly
+            metadata = await metadata_task
+            if metadata and metadata.get("title"):
+                from RTN import normalize_title
+                title = metadata["title"]
+                normalized_title = normalize_title(title)
+                # Include both original and normalized title in aliases
+                # This helps match torrents that may have titles with or without diacritics
+                aliases = {"ez": [title] if normalized_title == title else [title, normalized_title]}
+            else:
+                aliases = {}
         else:
             aliases_task = asyncio.create_task(self.get_aliases(media_type, id, provider))
-        metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
+            metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
 
         if metadata is not None:
             await self.cache_metadata(cache_id, metadata, aliases)

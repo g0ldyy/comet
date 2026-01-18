@@ -66,14 +66,6 @@ async def manifest(request: Request, b64config: str = None):
         }
     ]
 
-    # Add meta resource if custom providers exist
-    if custom_prefixes:
-        base_manifest["resources"].append({
-            "name": "meta",
-            "types": ["movie", "series"],
-            "idPrefixes": custom_prefixes,
-        })
-
     debrid_extension = get_debrid_extension(config["debridService"])
     base_manifest["name"] = (
         f"{settings.ADDON_NAME}{(' | ' + debrid_extension) if debrid_extension != 'TORRENT' else ''}"
