@@ -533,19 +533,27 @@ class PoolStore:
                     "Cannot leave as the last admin. Promote another member first."
                 )
 
-        # Remove self from members
-        manifest.members = [
-            m for m in manifest.members if m.public_key != identity.public_key_hex
-        ]
-        manifest.version += 1
-        manifest.updated_at = time.time()
-
-        # Store manifest (we can sign if we were admin, but we're leaving so no need)
-        await self.store_manifest(manifest)
-
         # Remove from our memberships
         self._memberships.discard(pool_id)
         await self._save_memberships()
+
+        # Unsubscribe from the pool
+        self._subscriptions.discard(pool_id)
+        await self._save_subscriptions()
+
+        # Remove pool peers since we don't need to reconnect to this pool
+        if pool_id in self._pool_peers:
+            del self._pool_peers[pool_id]
+            await self._save_pool_peers()
+
+        # Remove the manifest from local storage
+        if pool_id in self._manifests:
+            del self._manifests[pool_id]
+            manifest_path = self.manifests_dir / f"{pool_id}.json"
+            try:
+                manifest_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
         logger.log("COMETNET", f"Left pool {pool_id}")
         return True

@@ -474,6 +474,8 @@ class CometNetService(CometNetBackend):
                     role=MemberRole(m.get("role", "member")),
                     added_at=m.get("added_at", 0),
                     added_by=m.get("added_by", ""),
+                    contribution_count=m.get("contribution_count", 0),
+                    last_seen=m.get("last_seen", 0.0),
                 )
                 for m in message.members
             ]
@@ -689,26 +691,43 @@ class CometNetService(CometNetBackend):
         if not manifest:
             return
 
-        # Verify the updater is an admin
-        if not manifest.is_admin(message.updated_by):
-            logger.debug(
-                f"Received pool update from non-admin {message.updated_by[:16]}"
-            )
-            return
+        # Special case: member leaving (self-removal)
+        # For "leave" action, the updated_by should be the member themselves
+        is_self_leave = (
+            message.action == "leave" and message.updated_by == message.member_key
+        )
 
-        # Verify signature of the update message
-        # (This prevents spoofing the update)
-        if self.keystore:
-            # Check if we have the admin's key (we should, if they are in the manifest)
-            # Or use message.updated_by as key?
-            # Creating node identity just to verify
+        if is_self_leave:
+            # Verify it's the actual member leaving (signature from the leaving member)
             if not await NodeIdentity.verify_hex_async(
                 message.to_signable_bytes(), message.signature, message.updated_by
             ):
-                logger.warning(
-                    f"Invalid signature on PoolMemberUpdate from {sender_id[:16]}"
+                logger.debug(
+                    f"Invalid signature on leave message from {message.updated_by[:16]}"
                 )
                 return
+
+            # Verify the person is actually a member
+            if not manifest.is_member(message.member_key):
+                return
+        else:
+            # Normal case: admin-initiated update
+            # Verify the updater is an admin
+            if not manifest.is_admin(message.updated_by):
+                logger.debug(
+                    f"Received pool update from non-admin {message.updated_by[:16]}"
+                )
+                return
+
+            # Verify signature of the update message
+            if self.keystore:
+                if not await NodeIdentity.verify_hex_async(
+                    message.to_signable_bytes(), message.signature, message.updated_by
+                ):
+                    logger.warning(
+                        f"Invalid signature on PoolMemberUpdate from {sender_id[:16]}"
+                    )
+                    return
 
         # Apply update tentatively
         target_member = manifest.get_member(message.member_key)
@@ -727,7 +746,7 @@ class CometNetService(CometNetBackend):
                     )
                 )
                 modified = True
-        elif message.action == "remove":
+        elif message.action == "remove" or message.action == "leave":
             if target_member:
                 manifest.members = [
                     m for m in manifest.members if m.public_key != message.member_key
@@ -748,6 +767,20 @@ class CometNetService(CometNetBackend):
         # Update version (we assume it increments by 1)
         manifest.version += 1
         manifest.updated_at = message.timestamp
+
+        # For "leave" action, we don't require manifest signatures
+        # The message signature from the leaving member is sufficient
+        if is_self_leave:
+            # Just store the updated manifest (no signature verification needed)
+            # The message signature was already verified
+            await self.pool_store.store_manifest(manifest)
+            logger.log(
+                "COMETNET",
+                f"Member {message.member_key[:8]}... left pool {message.pool_id}",
+            )
+            # Re-broadcast to others
+            await self.transport.broadcast(message, exclude={sender_id})
+            return
 
         # Verify that our new state matches the signatures provided by admin
         # This is the critical step: ensuring our strict determinism matches the admin's
@@ -1477,15 +1510,51 @@ class CometNetService(CometNetBackend):
             return False
 
         try:
+            # Get the manifest before we leave (to verify we're a member)
+            manifest = self.pool_store.get_manifest(pool_id)
+            if not manifest:
+                raise ValueError(f"Pool {pool_id} not found")
+
+            my_key = self.identity.public_key_hex
+            member = manifest.get_member(my_key)
+            if not member:
+                return False  # Not a member
+
+            from comet.cometnet.pools import MemberRole
+
+            # Creator cannot leave
+            if member.role == MemberRole.CREATOR:
+                raise ValueError(
+                    "Creator cannot leave the pool. Delete the pool instead."
+                )
+
+            # Broadcast our departure to other pool members BEFORE cleaning up locally
+            import time
+
+            from comet.cometnet.protocol import PoolMemberUpdate
+
+            leave_message = PoolMemberUpdate(
+                sender_id=self.identity.node_id,
+                pool_id=pool_id,
+                action="leave",
+                member_key=my_key,
+                updated_by=my_key,  # We're removing ourselves
+                timestamp=time.time(),
+            )
+            leave_message.signature = await self.identity.sign_hex_async(
+                leave_message.to_signable_bytes()
+            )
+
+            # Broadcast to all connected peers
+            await self.transport.broadcast(leave_message)
+            logger.log("COMETNET", f"Broadcasted leave from pool {pool_id}")
+
+            # Now do local cleanup
             result = await self.pool_store.leave_pool(
                 pool_id=pool_id,
                 identity=self.identity,
             )
             if result:
-                # Broadcast updated manifest to all peers
-                manifest = self.pool_store.get_manifest(pool_id)
-                if manifest:
-                    await self._broadcast_pool_manifest(manifest)
                 logger.log("COMETNET", f"Successfully left pool {pool_id}")
             return result
         except (PermissionError, ValueError) as e:

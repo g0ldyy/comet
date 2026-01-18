@@ -15,13 +15,13 @@ def normalize_info_hash(info_hash: str) -> str:
     if len(info_hash) == 80:
         try:
             decoded_bytes = bytes.fromhex(info_hash)
-            decoded_str = decoded_bytes.decode('ascii')
+            decoded_str = decoded_bytes.decode("ascii")
             if len(decoded_str) == 40:
                 int(decoded_str, 16)  # Validate it's hex
                 info_hash = decoded_str
         except (ValueError, UnicodeDecodeError):
             pass
-    
+
     return info_hash
 
 
