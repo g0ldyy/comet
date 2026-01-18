@@ -934,7 +934,7 @@ class CometNetService(CometNetBackend):
             metadata = TorrentMetadata(
                 info_hash=metadata.get("info_hash", "").lower(),
                 title=metadata.get("title", ""),
-                size=metadata.get("size", 0),
+                size=int(metadata.get("size") or 0),
                 tracker=metadata.get("tracker", ""),
                 imdb_id=metadata.get("imdb_id"),
                 file_index=metadata.get("file_index"),
