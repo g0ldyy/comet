@@ -104,13 +104,13 @@ class PeerReputation:
     def blacklist(self) -> None:
         """Blacklist this peer."""
         self.is_blacklisted = True
-        logger.log("COMETNET", f"Peer {self.node_id[:16]}... has been blacklisted")
+        logger.log("COMETNET", f"Peer {self.node_id[:8]} has been blacklisted")
 
     def unblacklist(self) -> None:
         """Remove this peer from the blacklist."""
         self.is_blacklisted = False
         logger.log(
-            "COMETNET", f"Peer {self.node_id[:16]}... has been removed from blacklist"
+            "COMETNET", f"Peer {self.node_id[:8]} has been removed from blacklist"
         )
 
     def _adjust_reputation(self, delta: float) -> None:

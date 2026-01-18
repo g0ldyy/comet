@@ -78,13 +78,11 @@ class NodeIdentity:
         if key_path.exists():
             self._load_keys(key_path)
             logger.log(
-                "COMETNET", f"Loaded existing node identity: {self._node_id[:16]}..."
+                "COMETNET", f"Loaded existing node identity: {self._node_id[:8]}"
             )
         else:
             self._generate_keys(key_path)
-            logger.log(
-                "COMETNET", f"Generated new node identity: {self._node_id[:16]}..."
-            )
+            logger.log("COMETNET", f"Generated new node identity: {self._node_id[:8]}")
 
     def _generate_keys(self, key_path: Path) -> None:
         """Generate a new ECDSA key pair and save to disk."""

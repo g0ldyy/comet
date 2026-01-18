@@ -56,7 +56,7 @@ class PeerConnection:
         except ConnectionClosed:
             return False
         except Exception as e:
-            logger.warning(f"Error sending message to {self.node_id[:16]}: {e}")
+            logger.warning(f"Error sending message to {self.node_id[:8]}: {e}")
             return False
 
     async def close(self) -> None:
@@ -351,9 +351,7 @@ class ConnectionManager:
             )
 
             if node_id:
-                logger.log(
-                    "COMETNET", f"Connected to peer {node_id[:16]}... at {address}"
-                )
+                logger.log("COMETNET", f"Connected to peer {node_id[:8]} at {address}")
                 return node_id
             else:
                 await websocket.close()
@@ -429,7 +427,7 @@ class ConnectionManager:
         node_id = await self._perform_handshake(websocket, address, is_outbound=False)
 
         if node_id:
-            logger.log("COMETNET", f"Accepted connection from peer {node_id[:16]}...")
+            logger.log("COMETNET", f"Accepted connection from peer {node_id[:8]}")
             return node_id
         else:
             # Handshake failed, decrement IP counter
@@ -537,7 +535,7 @@ class ConnectionManager:
 
             # Check if already connected to this node
             if peer_handshake.sender_id in self._connections:
-                logger.debug(f"Already connected to {peer_handshake.sender_id[:16]}")
+                logger.debug(f"Already connected to {peer_handshake.sender_id[:8]}")
                 return None
 
             # Don't connect to ourselves
@@ -622,7 +620,7 @@ class ConnectionManager:
 
                     message = parse_message(raw_message)
                     if message is None:
-                        logger.debug(f"Invalid message from {conn.node_id[:16]}")
+                        logger.debug(f"Invalid message from {conn.node_id[:8]}")
                         continue
 
                     # Handle ping/pong internally
@@ -643,7 +641,7 @@ class ConnectionManager:
                     break
 
         except Exception as e:
-            logger.debug(f"Receive loop error for {conn.node_id[:16]}: {e}")
+            logger.debug(f"Receive loop error for {conn.node_id[:8]}: {e}")
         finally:
             # Clean up connection
             if conn.node_id in self._connections:
@@ -656,7 +654,7 @@ class ConnectionManager:
                     if self._connections_per_ip[ip] == 0:
                         del self._connections_per_ip[ip]
                 del self._connections[conn.node_id]
-            logger.log("COMETNET", f"Disconnected from peer {conn.node_id[:16]}...")
+            logger.log("COMETNET", f"Disconnected from peer {conn.node_id[:8]}")
 
     async def _handle_ping(self, conn: PeerConnection, ping: PingMessage) -> None:
         """Respond to a ping with a pong."""
@@ -689,7 +687,7 @@ class ConnectionManager:
                         time.time() - conn.last_activity
                         > settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT
                     ):
-                        logger.debug(f"Closing stale connection to {conn.node_id[:16]}")
+                        logger.debug(f"Closing stale connection to {conn.node_id[:8]}")
                         stale_nodes.append(conn.node_id)
                         continue
 

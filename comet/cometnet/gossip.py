@@ -244,7 +244,7 @@ class GossipEngine:
 
         # Check sender reputation
         if not self.reputation.is_peer_acceptable(sender_id):
-            logger.debug(f"Ignoring announce from untrusted peer {sender_id[:16]}")
+            logger.debug(f"Ignoring announce from untrusted peer {sender_id[:8]}")
             self.stats["invalid_messages"] += 1
             if self._disconnect_peer:
                 await self._disconnect_peer(sender_id)
@@ -257,7 +257,7 @@ class GossipEngine:
             > now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
         ):  # Future tolerance
             logger.debug(
-                f"Rejecting announce from {sender_id[:16]}: timestamp in future"
+                f"Rejecting announce from {sender_id[:8]}: timestamp in future"
             )
             self.stats["invalid_messages"] += 1
             return
@@ -265,14 +265,14 @@ class GossipEngine:
             announce.timestamp
             < now - settings.COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE
         ):  # Past tolerance
-            logger.debug(f"Rejecting announce from {sender_id[:16]}: message too old")
+            logger.debug(f"Rejecting announce from {sender_id[:8]}: message too old")
             self.stats["invalid_messages"] += 1
             return
 
         # Verify announce message signature
         if announce.sender_id != sender_id:
             logger.warning(
-                f"Sender ID mismatch in announce: expected {sender_id[:16]}, got {announce.sender_id[:16]}"
+                f"Sender ID mismatch in announce: expected {sender_id[:8]}, got {announce.sender_id[:8]}"
             )
             self.stats["invalid_messages"] += 1
             peer_rep = self.reputation.get_or_create(sender_id)
@@ -290,7 +290,7 @@ class GossipEngine:
                 announce.signature,
                 sender_key,
             ):
-                logger.warning(f"Invalid announce signature from {sender_id[:16]}")
+                logger.warning(f"Invalid announce signature from {sender_id[:8]}")
                 self.stats["invalid_messages"] += 1
                 peer_rep = self.reputation.get_or_create(sender_id)
                 peer_rep.add_signature_failure_penalty()
@@ -332,7 +332,7 @@ class GossipEngine:
                 or not torrent.contributor_signature
                 or not torrent.contributor_public_key
             ):
-                logger.debug(f"Rejecting incomplete torrent {torrent.info_hash[:16]}")
+                logger.debug(f"Rejecting incomplete torrent {torrent.info_hash}")
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
                 continue
@@ -343,8 +343,8 @@ class GossipEngine:
             )
             if derived_id != torrent.contributor_id:
                 logger.debug(
-                    f"Contributor ID mismatch for {torrent.info_hash[:16]}: "
-                    f"claimed {torrent.contributor_id[:16]}, derived {derived_id[:16]}"
+                    f"Contributor ID mismatch for {torrent.info_hash}: "
+                    f"claimed {torrent.contributor_id[:8]}, derived {derived_id[:8]}"
                 )
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
@@ -357,7 +357,7 @@ class GossipEngine:
                 torrent.contributor_public_key,
             ):
                 logger.debug(
-                    f"Invalid contributor signature on torrent {torrent.info_hash[:16]}"
+                    f"Invalid contributor signature on torrent {torrent.info_hash}"
                 )
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
@@ -416,9 +416,7 @@ class GossipEngine:
                     self.stats["torrents_received"] += 1
                     saved_count += 1
                 except Exception as e:
-                    logger.debug(
-                        f"Failed to save torrent {torrent.info_hash[:16]}: {e}"
-                    )
+                    logger.debug(f"Failed to save torrent {torrent.info_hash}: {e}")
 
             if saved_count > 0:
                 logger.log(
@@ -434,7 +432,7 @@ class GossipEngine:
 
         # Check if peer is still acceptable after processing
         if not self.reputation.is_peer_acceptable(sender_id):
-            logger.debug(f"Peer {sender_id[:16]} became unacceptable, disconnecting")
+            logger.debug(f"Peer {sender_id[:8]} became unacceptable, disconnecting")
             if self._disconnect_peer:
                 await self._disconnect_peer(sender_id)
 
@@ -525,7 +523,7 @@ class GossipEngine:
                 await self._send_message(peer_id, announce)
                 return True
             except Exception as e:
-                logger.debug(f"Failed to send to peer {peer_id[:16]}: {e}")
+                logger.debug(f"Failed to send to peer {peer_id[:8]}: {e}")
                 return False
 
         results = await asyncio.gather(

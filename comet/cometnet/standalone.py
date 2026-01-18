@@ -391,7 +391,7 @@ class StandaloneCometNet:
                 self._broadcasts_success += 1
                 logger.log(
                     "COMETNET",
-                    f"HTTP Broadcast: {request.title} ({request.info_hash[:8]}...)",
+                    f"HTTP Broadcast: {request.title} ({request.info_hash})",
                 )
 
                 return {"status": "queued", "info_hash": request.info_hash}

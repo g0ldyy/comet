@@ -188,7 +188,7 @@ class CometNetRelay(CometNetBackend):
                     self._total_relayed += 1
                     logger.log(
                         "COMETNET",
-                        f"Relayed torrent {torrent['info_hash'][:8]}... to {self.relay_url}",
+                        f"Relayed torrent {torrent['info_hash']} to {self.relay_url}",
                     )
                     return True
                 else:

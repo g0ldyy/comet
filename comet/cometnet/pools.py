@@ -472,9 +472,8 @@ class PoolStore:
         # Re-sign and save
         await self.store_manifest(manifest, identity)
 
-        logger.log(
-            "COMETNET", f"Added member {new_member_key[:16]}... to pool {pool_id}"
-        )
+        new_member_id = NodeIdentity.node_id_from_public_key(new_member_key)
+        logger.log("COMETNET", f"Added member {new_member_id[:8]} to pool {pool_id}")
         return True
 
     async def remove_member(
@@ -512,7 +511,7 @@ class PoolStore:
         await self.store_manifest(manifest, identity)
 
         logger.log(
-            "COMETNET", f"Removed member {member_key[:16]}... from pool {pool_id}"
+            "COMETNET", f"Removed member {member.node_id[:8]} from pool {pool_id}"
         )
         return True
 
@@ -597,7 +596,7 @@ class PoolStore:
         await self.store_manifest(manifest, identity)
 
         logger.log(
-            "COMETNET", f"Promoted {member_key[:16]}... to admin in pool {pool_id}"
+            "COMETNET", f"Promoted {member.node_id[:8]} to admin in pool {pool_id}"
         )
         return True
 
@@ -1027,8 +1026,10 @@ class PoolStore:
                 if NodeIdentity.verify_hex(signable_data, signature, admin_key):
                     return True
                 else:
+                    member = manifest.get_member(admin_key)
+                    admin_id = member.node_id if member else admin_key
                     logger.warning(
-                        f"Invalid pool manifest signature from admin {admin_key[:16]}"
+                        f"Invalid pool manifest signature from admin {admin_id[:8]}"
                     )
 
         return False
