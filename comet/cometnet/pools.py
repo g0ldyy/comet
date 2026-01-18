@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 import msgpack
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
+from comet.cometnet.crypto import NodeIdentity
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -50,6 +51,12 @@ class PoolMember(BaseModel):
     # Stats (local tracking)
     contribution_count: int = 0
     last_seen: float = 0.0
+
+    @computed_field
+    @property
+    def node_id(self) -> str:
+        """Derive node_id from public_key (SHA256 hash). Matches peer IDs in transport."""
+        return NodeIdentity.node_id_from_public_key(self.public_key)
 
 
 class PoolManifest(BaseModel):
