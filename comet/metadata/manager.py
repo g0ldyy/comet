@@ -140,16 +140,40 @@ class MetadataScraper:
         if row is None:
             return None
 
-        return (
-            {
-                "title": row["title"],
-                "year": row["year"],
-                "year_end": row["year_end"],
-                "season": season,
-                "episode": episode,
-            },
-            orjson.loads(row["aliases"]),
-        )
+        metadata = {
+            "title": row["title"],
+            "year": row["year"],
+            "year_end": row["year_end"],
+            "season": season,
+            "episode": episode,
+        }
+        aliases = orjson.loads(row["aliases"])
+        
+        # For custom providers (cache_id starts with prefix like "kbx"), ensure normalized title is in aliases if missing
+        # This handles cases where metadata was cached before the normalization fix
+        # Check if this is a custom provider by checking metadata_providers config
+        metadata_providers = self.config.get("metadataProviders", [])
+        is_custom_cache = False
+        for provider in metadata_providers:
+            prefix = provider.get("prefix", "")
+            if prefix and media_id.startswith(prefix):
+                is_custom_cache = True
+                break
+        
+        if is_custom_cache and metadata.get("title"):
+            ez_aliases = aliases.get("ez", [])
+            # If aliases are empty or don't have normalized title, add it
+            if not ez_aliases or (len(ez_aliases) == 1 and ez_aliases[0] == metadata["title"]):
+                from RTN import normalize_title
+                title = metadata["title"]
+                normalized_title = normalize_title(title)
+                # Ensure both original and normalized titles are in aliases
+                ez_aliases = [title]
+                if normalized_title != title:
+                    ez_aliases.append(normalized_title)
+                aliases = {"ez": ez_aliases}
+
+        return (metadata, aliases)
 
     async def cache_metadata(self, media_id: str, metadata: dict, aliases: dict):
         await database.execute(
