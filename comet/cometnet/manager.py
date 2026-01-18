@@ -885,56 +885,40 @@ class CometNetService(CometNetBackend):
         msg.signature = await self.identity.sign_hex_async(msg.to_signable_bytes())
         await self.transport.broadcast(msg, exclude)
 
-    async def broadcast_torrent(self, metadata: TorrentMetadata) -> None:
+    async def broadcast_torrent(self, metadata) -> None:
         """
         Broadcast a torrent to the network.
 
         This is the main method for sharing newly discovered torrents.
         Should be called when a scraper discovers a new torrent.
+        Accepts both TorrentMetadata objects and dicts.
         """
         if not self._running or not self.gossip:
             return
 
-        await self.gossip.queue_torrent(metadata)
-
-    async def broadcast_torrent_from_db(
-        self,
-        info_hash: str,
-        title: str,
-        size: int,
-        tracker: str,
-        imdb_id: Optional[str] = None,
-        file_index: Optional[int] = None,
-        seeders: Optional[int] = None,
-        season: Optional[int] = None,
-        episode: Optional[int] = None,
-        sources: Optional[List[str]] = None,
-        parsed: Optional[dict] = None,
-    ) -> None:
-        """
-        Convenience method to broadcast a torrent using raw data.
-
-        This creates a TorrentMetadata object and queues it for gossip.
-        """
-        if not self._running:
+        # Convert dict to TorrentMetadata if needed
+        if isinstance(metadata, dict):
+            metadata = TorrentMetadata(
+                info_hash=metadata.get("info_hash", "").lower(),
+                title=metadata.get("title", ""),
+                size=metadata.get("size", 0),
+                tracker=metadata.get("tracker", ""),
+                imdb_id=metadata.get("imdb_id"),
+                file_index=metadata.get("file_index"),
+                seeders=metadata.get("seeders"),
+                season=metadata.get("season"),
+                episode=metadata.get("episode"),
+                sources=metadata.get("sources", []),
+                parsed=metadata.get("parsed", {}),
+                updated_at=metadata.get("updated_at", time.time()),
+            )
+        elif not isinstance(metadata, TorrentMetadata):
+            logger.warning(
+                f"Invalid metadata type passed to broadcast_torrent: {type(metadata)}"
+            )
             return
 
-        metadata = TorrentMetadata(
-            info_hash=info_hash.lower(),
-            title=title,
-            size=size,
-            tracker=tracker,
-            imdb_id=imdb_id,
-            file_index=file_index,
-            seeders=seeders,
-            season=season,
-            episode=episode,
-            sources=sources or [],
-            parsed=parsed or {},
-            updated_at=time.time(),
-        )
-
-        await self.broadcast_torrent(metadata)
+        await self.gossip.queue_torrent(metadata)
 
     async def handle_websocket_connection(self, websocket, path: str = "") -> None:
         """
