@@ -218,6 +218,14 @@ class GossipEngine:
             metadata.to_signable_bytes()
         )
 
+        # Record our own contribution
+        if self._pool_store:
+            await self._pool_store.record_contribution(
+                contributor_public_key=self.identity.public_key_hex,
+                pool_id=metadata.pool_id,
+                count=1,
+            )
+
         # Mark as seen to prevent re-gossiping our own announce
         self.seen_cache.mark_seen(metadata.info_hash, metadata.updated_at)
 
