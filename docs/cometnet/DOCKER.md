@@ -167,7 +167,7 @@ COMETNET_CONTRIBUTION_MODE=full
 # Optional: Trust Pools
 # COMETNET_TRUSTED_POOLS=["my-community"]
 
-# Optional: API Key for security (Recommended)
+# Mandatory: API Key for security (Auto-generated if not set)
 COMETNET_API_KEY=my-secret-key
 ```
 

@@ -213,6 +213,8 @@ def log_startup_info(settings):
     admin_password = settings.ADMIN_DASHBOARD_PASSWORD
     if "ADMIN_DASHBOARD_PASSWORD" in settings.model_fields_set:
         admin_password = censor(admin_password)
+    else:
+        admin_password = f"{admin_password} (Randomly Generated)"
 
     logger.log(
         "COMET",

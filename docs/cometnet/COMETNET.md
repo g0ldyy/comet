@@ -125,7 +125,7 @@ The standalone service exposes:
 | `COMETNET_LISTEN_PORT` | `8765` | WebSocket port for incoming P2P connections. |
 | `COMETNET_HTTP_PORT` | `8766` | HTTP API port (standalone service only). |
 | `COMETNET_RELAY_URL` | *(empty)* | URL of standalone CometNet service. When set, Integrated Mode is disabled. |
-| `COMETNET_API_KEY` | *(empty)* | Optional API key for standalone service authentication. When set, the relay and standalone service require this key for API access. |
+| `COMETNET_API_KEY` | *(auto)* | Mandatory API key for standalone service authentication. If not provided, a random key is generated. |
 
 ### Network Discovery
 
@@ -379,7 +379,7 @@ Pool creators and admins can:
 2. **Encrypt Keys**: Set `COMETNET_KEY_PASSWORD` to encrypt your private key on disk.
 3. **Trust Pools**: In production, use Trust Pools to limit who can contribute.
 4. **Firewall**: Only expose CometNet ports to trusted networks or the internet if necessary.
-5. **API Key for Standalone**: When running the standalone service, set `COMETNET_API_KEY` to protect the HTTP API from unauthorized access.
+5. **API Key for Standalone**: When running the standalone service, the `COMETNET_API_KEY` is mandatory. If you do not provide one, a random key will be generated and printed in the logs at startup. Use this key to authenticate your Comet instances.
 
 ### What CometNet Does NOT Protect Against
 

@@ -161,7 +161,9 @@ class AppSettings(BaseSettings):
     COMETNET_UPNP_ENABLED: Optional[bool] = False
     COMETNET_UPNP_LEASE_DURATION: Optional[int] = 3600
     COMETNET_RELAY_URL: Optional[str] = None
-    COMETNET_API_KEY: Optional[str] = None  # API key for standalone service auth
+    COMETNET_API_KEY: Optional[str] = "".join(
+        random.choices(string.ascii_letters + string.digits, k=16)
+    )  # API key for standalone service auth
 
     # CometNet Gossip Tuning
     COMETNET_GOSSIP_FANOUT: Optional[int] = 3

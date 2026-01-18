@@ -14,12 +14,11 @@ Environment Variables:
     COMETNET_KEYS_DIR: Directory for node identity keys
     COMETNET_BOOTSTRAP_NODES: List of bootstrap nodes (JSON array)
     COMETNET_MANUAL_PEERS: List of peers to connect to (JSON array)
-    COMETNET_API_KEY: Optional API key for authenticating HTTP requests
+    COMETNET_API_KEY: Mandatory API key for authenticating HTTP requests
 
 Security Notes:
     - The standalone service is designed for INTERNAL cluster use only.
-    - If exposed publicly, set COMETNET_API_KEY to protect sensitive endpoints.
-    - When API key is set, all endpoints except /health require X-API-Key header.
+    - All endpoints except /health require X-API-Key header.
     - In Docker deployments, keep the HTTP port (8766) internal to the Docker network.
 """
 
@@ -103,21 +102,15 @@ class UpdateMemberRoleRequest(BaseModel):
     role: str
 
 
-# API key for authentication (optional, from settings)
-_api_key: Optional[str] = getattr(settings, "COMETNET_API_KEY", None) or None
+_api_key: str = settings.COMETNET_API_KEY
 
 
-async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
     """
-    Verify API key if COMETNET_API_KEY is configured.
+    Verify API key.
 
-    When API key is set, all protected endpoints require X-API-Key header.
-    If no API key is configured, all endpoints are open (for internal cluster use).
+    The API key is mandatory. All protected endpoints require the X-API-Key header.
     """
-    if not _api_key:
-        # No API key configured - allow all requests (internal mode)
-        return True
-
     if not x_api_key:
         raise HTTPException(
             status_code=401,
@@ -484,10 +477,15 @@ def main():
     ws_port = settings.COMETNET_LISTEN_PORT
     http_port = settings.COMETNET_HTTP_PORT
 
+    api_key_str = _api_key
+    if "COMETNET_API_KEY" in settings.model_fields_set:
+        api_key_str = "Set (Hidden)"
+    else:
+        api_key_str = f"{_api_key} (Randomly Generated)"
+
     logger.log(
         "COMETNET",
-        f"Standalone Server: HTTP Port={http_port}"
-        f" - API Key: {'Set' if _api_key else 'Not Set'}",
+        f"Standalone Server: HTTP Port={http_port} - API Key: {api_key_str}",
     )
 
     standalone = StandaloneCometNet(
