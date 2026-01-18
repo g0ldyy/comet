@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import websockets
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
+from websockets.http11 import Response
 
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
@@ -124,6 +125,52 @@ class ConnectionManager:
         # Callback when a peer connects (for Discovery notification)
         self._on_peer_connected: Optional[Callable[[str, str], Awaitable[None]]] = None
 
+    def _process_request(self, connection, request):
+        """
+        Handle non-WebSocket HTTP requests gracefully.
+
+        This is called for every incoming connection. If the request is not a valid
+        WebSocket upgrade request (e.g., health checks, load balancer probes),
+        we return an appropriate HTTP response instead of raising an error.
+        """
+        # Check if this is a WebSocket upgrade request
+        connection_header = request.headers.get("Connection", "").lower()
+        upgrade_header = request.headers.get("Upgrade", "").lower()
+
+        if "upgrade" not in connection_header or upgrade_header != "websocket":
+            # Not a WebSocket request - likely a misconfigured reverse proxy
+            logger.warning(
+                f"Received HTTP request on WebSocket port (path={request.path}). "
+                "If using a reverse proxy, ensure it forwards WebSocket headers: "
+                "'Upgrade: websocket' and 'Connection: Upgrade'"
+            )
+
+            # Handle as HTTP
+            if request.path == "/" or request.path == "/health":
+                # Health check probe - return 200 OK
+                return Response(
+                    200,
+                    "OK",
+                    websockets.Headers([("Content-Type", "text/plain")]),
+                    b"CometNet WebSocket Server\n",
+                )
+            else:
+                # Other requests - return 426 Upgrade Required
+                return Response(
+                    426,
+                    "Upgrade Required",
+                    websockets.Headers(
+                        [
+                            ("Content-Type", "text/plain"),
+                            ("Upgrade", "websocket"),
+                        ]
+                    ),
+                    b"This is a WebSocket endpoint. Use a WebSocket client.\n",
+                )
+
+        # Valid WebSocket request - continue with normal handshake
+        return None
+
     def set_on_peer_connected(
         self, callback: Callable[[str, str], Awaitable[None]]
     ) -> None:
@@ -179,6 +226,7 @@ class ConnectionManager:
                 ping_interval=None,
                 ping_timeout=None,
                 max_size=self.max_message_size,
+                process_request=self._process_request,
             )
             logger.log(
                 "COMETNET",
