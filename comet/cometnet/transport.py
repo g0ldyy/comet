@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import hmac
 import ipaddress
+import logging
 import random
 import secrets
 import time
@@ -26,6 +27,25 @@ from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
                                      PingMessage, PongMessage, parse_message)
 from comet.core.logger import logger
 from comet.core.models import settings
+
+
+class WebSocketHeadFilter(logging.Filter):
+    """Filter out HEAD request errors from websockets (likely health checks)."""
+
+    def filter(self, record):
+        if record.exc_info:
+            _, exc_value, _ = record.exc_info
+            current = exc_value
+            while current:
+                msg = str(current)
+                if "unsupported HTTP method" in msg and "HEAD" in msg:
+                    return False
+                current = getattr(current, "__cause__", None)
+        return True
+
+
+# Apply filter to websockets logger
+logging.getLogger("websockets.server").addFilter(WebSocketHeadFilter())
 
 
 @dataclass
