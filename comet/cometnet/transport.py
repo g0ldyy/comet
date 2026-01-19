@@ -535,7 +535,13 @@ class ConnectionManager:
                 await websocket.send(handshake.to_bytes())
 
                 # Wait for their handshake
+                logger.debug(f"Sent handshake to {address}, waiting for response...")
                 response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+                logger.debug(
+                    f"Received response from {address} "
+                    f"({len(response) if isinstance(response, bytes) else 'text'} bytes), "
+                    f"parsing..."
+                )
                 peer_handshake = parse_message(response)
             else:
                 # They initiated, so we wait for their handshake first
@@ -571,10 +577,15 @@ class ConnectionManager:
                 await websocket.send(handshake.to_bytes())
 
             # Validate peer handshake
+            logger.debug(f"Validating handshake from {address}...")
             if not isinstance(peer_handshake, HandshakeMessage):
-                logger.debug(f"Invalid handshake from {address}")
+                logger.debug(
+                    f"Invalid handshake from {address}: "
+                    f"expected HandshakeMessage, got {type(peer_handshake).__name__}"
+                )
                 return None
 
+            logger.debug(f"Handshake type OK, verifying signature from {address}...")
             # Verify signature
             if not await NodeIdentity.verify_hex_async(
                 peer_handshake.to_signable_bytes(),
@@ -583,6 +594,8 @@ class ConnectionManager:
             ):
                 logger.warning(f"Invalid signature in handshake from {address}")
                 return None
+
+            logger.debug(f"Signature OK, verifying node ID from {address}...")
 
             # Verify node ID matches public key
             expected_node_id = NodeIdentity.node_id_from_public_key(
@@ -601,14 +614,19 @@ class ConnectionManager:
                 )
                 return None
 
+            logger.debug(
+                f"All validations passed for {address}, checking connection status..."
+            )
             # Check if already connected to this node
             if peer_handshake.sender_id in self._connections:
-                logger.debug(f"Already connected to {peer_handshake.sender_id[:8]}")
+                logger.debug(
+                    f"Already connected to {peer_handshake.sender_id[:8]} at {address}"
+                )
                 return None
 
             # Don't connect to ourselves
             if peer_handshake.sender_id == self.identity.node_id:
-                logger.debug("Rejecting connection to self")
+                logger.debug(f"Rejecting connection to self at {address}")
                 return None
 
             # Validate private network token
@@ -669,13 +687,25 @@ class ConnectionManager:
             task = asyncio.create_task(self._receive_loop(conn))
             self._tasks.add(task)
 
+            logger.debug(
+                f"Handshake completed successfully with {address} "
+                f"(node_id: {peer_handshake.sender_id[:8]})"
+            )
             return peer_handshake.sender_id
 
         except asyncio.TimeoutError:
             logger.debug(f"Handshake timeout with {address}")
             return None
+        except ConnectionClosed as e:
+            # Connection closed during handshake - likely incompatible or rejecting us
+            logger.debug(
+                f"Handshake failed with {address}: connection closed "
+                f"(code={e.rcvd.code if e.rcvd else 'N/A'}, "
+                f"reason='{e.rcvd.reason if e.rcvd else 'N/A'}')"
+            )
+            return None
         except Exception as e:
-            logger.debug(f"Handshake error with {address}: {e}")
+            logger.debug(f"Handshake error with {address}: {type(e).__name__}: {e}")
             return None
 
     async def _receive_loop(self, conn: PeerConnection) -> None:
