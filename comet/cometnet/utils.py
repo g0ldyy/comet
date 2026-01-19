@@ -512,9 +512,45 @@ async def check_advertise_url_reachability(
         advertise_url, timeout=12.0, logger=logger
     )
 
-    if external_result is True:
+    is_local_ok, local_error = await _check_local_reachability(http_url, timeout)
+
+    # Case 1: External OK + Local OK
+    if external_result is True and is_local_ok:
         return True, f"EXTERNAL_VERIFIED: {external_msg}"
-    elif external_result is False:
+
+    # Case 2: External OK + Local FAIL
+    if external_result is True and not is_local_ok:
+        if "Connection failed" in (local_error or "") or "timed out" in (
+            local_error or ""
+        ):
+            # Likely hairpin NAT - accept with warning
+            return (
+                True,
+                f"EXTERNAL_VERIFIED_NO_LOCAL: {external_msg} (local check failed: hairpin NAT?)",
+            )
+        else:
+            # Local check got a response but it's NOT CometNet
+            return (
+                False,
+                f"URL is reachable but does NOT appear to be CometNet!\n\n"
+                f"External check: {external_msg}\n"
+                f"Local check: {local_error}\n\n"
+                "The URL responds but the response doesn't contain 'CometNet WebSocket Server'.\n"
+                "This usually means you've configured the WRONG URL.\n\n"
+                "Please verify COMETNET_ADVERTISE_URL points to YOUR CometNet instance,\n"
+                "not some other website or service.",
+            )
+
+    # Case 3: External FAIL + Local OK
+    if external_result is False and is_local_ok:
+        # Local works but external doesn't - maybe check-host.net is blocked?
+        return (
+            True,
+            f"LOCAL_ONLY: External check failed ({external_msg}) but local check passed",
+        )
+
+    # Case 4: External FAIL + Local FAIL
+    if external_result is False:
         return (
             False,
             f"External verification failed: {external_msg}\n\n"
@@ -527,11 +563,11 @@ async def check_advertise_url_reachability(
             "4. SSL certificate is valid",
         )
 
-    is_local_ok, local_error = await _check_local_reachability(http_url, timeout)
-
-    if is_local_ok:
+    # Case 5: External unavailable (None) + Local OK
+    if external_result is None and is_local_ok:
         return True, f"LOCAL_ONLY: {external_msg}"
 
+    # Case 6: External unavailable + Local FAIL
     error_msg = local_error or "Local check failed"
 
     if "Connection failed" in error_msg or "timed out" in error_msg:
@@ -553,8 +589,8 @@ async def check_advertise_url_reachability(
             f"Could not verify reachability.\n"
             f"External check: {external_msg}\n"
             f"Local check: {error_msg}\n\n"
-            "Note: Local checks through reverse proxies can be unreliable.\n"
-            "The response you see locally may differ from external responses.\n\n"
+            "The URL responds but doesn't appear to be CometNet.\n"
+            "Verify COMETNET_ADVERTISE_URL points to your CometNet instance.\n\n"
             "Options:\n"
             "1. Test manually from OUTSIDE your network:\n"
             f"   curl -v {http_url}\n"

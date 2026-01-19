@@ -425,7 +425,20 @@ class CometNetService(CometNetBackend):
                 await logger.complete()
                 sys.exit(1)
 
-            if result_msg and result_msg.startswith("EXTERNAL_VERIFIED:"):
+            if result_msg and result_msg.startswith("EXTERNAL_VERIFIED_NO_LOCAL:"):
+                # External OK but local failed (hairpin NAT)
+                verification_details = result_msg.replace(
+                    "EXTERNAL_VERIFIED_NO_LOCAL: ", ""
+                )
+                logger.log(
+                    "COMETNET",
+                    f"Reachability check passed - {verification_details}",
+                )
+                logger.warning(
+                    "Could not verify locally (likely hairpin NAT). "
+                    "External check confirmed your URL is reachable from the internet."
+                )
+            elif result_msg and result_msg.startswith("EXTERNAL_VERIFIED:"):
                 verification_details = result_msg.replace("EXTERNAL_VERIFIED: ", "")
                 logger.log(
                     "COMETNET",
