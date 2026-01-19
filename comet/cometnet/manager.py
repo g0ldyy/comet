@@ -8,7 +8,6 @@ Orchestrates all components: Identity, Transport, Discovery, Gossip, Reputation,
 import asyncio
 import hashlib
 import hmac
-import ipaddress
 import json
 import sys
 import time
@@ -310,151 +309,33 @@ class CometNetService(CometNetBackend):
                 await logger.complete()
                 sys.exit(1)
 
-        # External reachability check
-        # Verify that our advertise URL is actually reachable from the outside
+        # WebSocket reachability check
+        # Verify we can connect to our own advertise URL (like a peer would)
         if self.advertise_url and not settings.COMETNET_SKIP_REACHABILITY_CHECK:
-            try:
-                parsed_host = urlparse(self.advertise_url).hostname
-                ip = ipaddress.ip_address(parsed_host)
-                is_public_ip = not (
-                    ip.is_private
-                    or ip.is_loopback
-                    or ip.is_link_local
-                    or ip.is_reserved
-                )
-            except (ValueError, TypeError):
-                is_public_ip = False
-
-            if is_public_ip:
-                logger.log(
-                    "COMETNET",
-                    f"Verifying EXTERNAL reachability of {self.advertise_url} "
-                    "(public IP detected, using check-host.net)...",
-                )
-            else:
-                logger.log(
-                    "COMETNET",
-                    f"Verifying reachability of {self.advertise_url}...",
-                )
+            logger.log(
+                "COMETNET",
+                f"Verifying WebSocket reachability of {self.advertise_url}...",
+            )
             is_reachable, result_msg = await check_advertise_url_reachability(
-                self.advertise_url, logger=logger
+                self.advertise_url, timeout=10.0
             )
 
             if not is_reachable:
-                parsed = urlparse(self.advertise_url)
-                is_ssl = parsed.scheme == "wss"
-                port = parsed.port or (443 if is_ssl else 80)
-
-                error_lines = [
-                    "\nCometNet failed to start: COMETNET_ADVERTISE_URL is not reachable.",
-                    f"URL: {self.advertise_url}",
-                    f"Error: {result_msg}",
-                    "",
-                    "=" * 60,
-                    "TROUBLESHOOTING GUIDE",
-                    "=" * 60,
-                    "",
-                    "1. FIREWALL / PORT FORWARDING",
-                    f"   - Ensure port {self.listen_port} (CometNet) is open for incoming connections",
-                    f"   - If behind NAT, forward port {self.listen_port} to this machine",
-                    "",
-                ]
-
-                if is_ssl or port in (80, 443):
-                    error_lines.extend(
-                        [
-                            "2. REVERSE PROXY CONFIGURATION",
-                            "   Your URL suggests you're using a reverse proxy. Ensure:",
-                            "",
-                            "   For NGINX:",
-                            "   ```",
-                            "   location /cometnet/ws {",
-                            "       proxy_pass http://127.0.0.1:"
-                            + str(self.listen_port)
-                            + ";",
-                            "       proxy_http_version 1.1;",
-                            "       proxy_set_header Upgrade $http_upgrade;",
-                            '       proxy_set_header Connection "upgrade";',
-                            "       proxy_set_header Host $host;",
-                            "       proxy_read_timeout 86400;",
-                            "   }",
-                            "   # Also add a health check endpoint",
-                            "   location /cometnet/health {",
-                            "       proxy_pass http://127.0.0.1:"
-                            + str(self.listen_port)
-                            + "/health;",
-                            "   }",
-                            "   ```",
-                            "",
-                            "   For CADDY:",
-                            "   ```",
-                            "   reverse_proxy /cometnet/* 127.0.0.1:"
-                            + str(self.listen_port),
-                            "   ```",
-                            "",
-                            "   For TRAEFIK:",
-                            "   - Ensure WebSocket support is enabled on your router",
-                            "",
-                        ]
-                    )
-                else:
-                    error_lines.extend(
-                        [
-                            "2. DIRECT CONNECTION (no reverse proxy)",
-                            f"   - Ensure CometNet is listening on port {self.listen_port}",
-                            f"   - Check that no firewall is blocking port {port}",
-                            "",
-                        ]
-                    )
-
-                error_lines.extend(
-                    [
-                        "3. TESTING / DEVELOPMENT",
-                        "   If testing locally or don't need external reachability:",
-                        "   - Set COMETNET_SKIP_REACHABILITY_CHECK=true",
-                        "   - Note: Other nodes won't be able to connect to you",
-                        "",
-                        "4. VERIFY MANUALLY",
-                        "   From another machine/network, try:",
-                        f"   curl -v {self.advertise_url.replace('ws://', 'http://').replace('wss://', 'https://').rstrip('/') + '/health'}",
-                        "   Expected: 'CometNet WebSocket Server'",
-                    ]
+                logger.critical(
+                    f"\nCometNet failed to start: Cannot connect to COMETNET_ADVERTISE_URL\n"
+                    f"URL: {self.advertise_url}\n"
+                    f"Error: {result_msg}\n\n"
+                    "Other peers won't be able to connect to you either.\n\n"
+                    "Troubleshooting:\n"
+                    f"1. Ensure port {self.listen_port} is open and forwarded correctly\n"
+                    "2. If using reverse proxy, ensure WebSocket upgrade headers are forwarded\n"
+                    "3. Test manually: wscat -c " + self.advertise_url + "\n"
+                    "4. To skip this check: COMETNET_SKIP_REACHABILITY_CHECK=true"
                 )
-
-                logger.critical("\n".join(error_lines))
                 await logger.complete()
                 sys.exit(1)
 
-            if result_msg and result_msg.startswith("EXTERNAL_VERIFIED_NO_LOCAL:"):
-                # External OK but local failed (hairpin NAT)
-                verification_details = result_msg.replace(
-                    "EXTERNAL_VERIFIED_NO_LOCAL: ", ""
-                )
-                logger.log(
-                    "COMETNET",
-                    f"Reachability check passed - {verification_details}",
-                )
-                logger.warning(
-                    "Could not verify locally (likely hairpin NAT). "
-                    "External check confirmed your URL is reachable from the internet."
-                )
-            elif result_msg and result_msg.startswith("EXTERNAL_VERIFIED:"):
-                verification_details = result_msg.replace("EXTERNAL_VERIFIED: ", "")
-                logger.log(
-                    "COMETNET",
-                    f"Reachability check passed - {verification_details}",
-                )
-            elif result_msg and result_msg.startswith("LOCAL_ONLY:"):
-                reason = result_msg.replace("LOCAL_ONLY: ", "")
-                logger.log("COMETNET", "Reachability check passed (local verification)")
-                if not settings.COMETNET_PRIVATE_NETWORK:
-                    logger.warning(
-                        f"Could not verify external reachability ({reason}). "
-                        "Local server responds correctly, but this doesn't guarantee "
-                        "external accessibility. Test from another network to confirm."
-                    )
-            else:
-                logger.log("COMETNET", "Reachability check passed")
+            logger.log("COMETNET", f"Reachability check passed ({result_msg})")
 
         # Start gossip engine
         await self.gossip.start()
