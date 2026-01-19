@@ -655,8 +655,6 @@ class CometNetService(CometNetBackend):
                 await logger.complete()
                 sys.exit(1)
 
-        logger.debug(f"Advertise URL validation passed: {url}")
-
     def _init_components(self) -> None:
         """Initialize all CometNet components."""
         # Ensure keys directory exists

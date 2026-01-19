@@ -358,17 +358,21 @@ async def _check_external_reachability(
                             pending_count += 1
                             continue
 
-                        # node_result is a list: [[is_ok, response_time, response, ...], ...]
                         if isinstance(node_result, list) and len(node_result) > 0:
                             check_data = node_result[0]
                             if isinstance(check_data, list) and len(check_data) > 0:
-                                # First element indicates success (1) or failure (0)
-                                if check_data[0] == 1:
+                                is_ok = check_data[0]
+                                status = check_data[2] if len(check_data) > 2 else None
+
+                                if is_ok == 1:
                                     success_count += 1
-                                    success_nodes.append(node_id)
+                                    success_nodes.append(f"{node_id}(HTTP OK)")
+                                elif isinstance(status, int) and 100 <= status < 600:
+                                    success_count += 1
+                                    success_nodes.append(f"{node_id}(HTTP {status})")
                                 else:
                                     failure_count += 1
-                                    failure_nodes.append(node_id)
+                                    failure_nodes.append(f"{node_id}({status})")
 
                     total_completed = success_count + failure_count
                     log(
@@ -504,30 +508,8 @@ async def check_advertise_url_reachability(
                 "to temporarily allow outbound HTTPS to verify, or use option 4.",
             )
 
-    is_local_ok, local_error = await _check_local_reachability(http_url, timeout)
-
-    if not is_local_ok:
-        error_msg = local_error or "Local check failed"
-
-        if "Connection failed" in error_msg or "timed out" in error_msg:
-            error_msg += (
-                "\n\nIf using a reverse proxy (nginx, Caddy, Traefik):\n"
-                "1. Ensure the proxy forwards WebSocket connections (Upgrade headers)\n"
-                "2. Verify the backend port matches COMETNET_PORT\n"
-                "3. Check that the proxy is running and reachable"
-            )
-        elif COMETNET_SERVER_IDENTIFIER not in (local_error or ""):
-            error_msg += (
-                "\n\nThe URL responds but doesn't appear to be CometNet:\n"
-                "1. Check your reverse proxy routes to the correct backend\n"
-                "2. Ensure you're not accidentally proxying to a different service\n"
-                "3. Verify COMETNET_ADVERTISE_URL matches your public URL"
-            )
-
-        return False, error_msg
-
     external_result, external_msg = await _check_external_reachability(
-        advertise_url, timeout=8.0, logger=logger
+        advertise_url, timeout=12.0, logger=logger
     )
 
     if external_result is True:
@@ -535,9 +517,46 @@ async def check_advertise_url_reachability(
     elif external_result is False:
         return (
             False,
-            f"Local check passed but external verification failed.\n"
-            f"{external_msg}\n\n"
-            "Your reverse proxy may be accessible locally but not from the internet.",
+            f"External verification failed: {external_msg}\n\n"
+            "check-host.net servers could not reach your URL.\n"
+            "This means your reverse proxy is not publicly accessible.\n\n"
+            "Check:\n"
+            "1. DNS is correctly configured for your domain\n"
+            "2. Reverse proxy (Traefik/nginx/Caddy) is routing to CometNet port\n"
+            "3. Firewall allows incoming HTTPS traffic\n"
+            "4. SSL certificate is valid",
         )
 
-    return True, f"LOCAL_ONLY: {external_msg}"
+    is_local_ok, local_error = await _check_local_reachability(http_url, timeout)
+
+    if is_local_ok:
+        return True, f"LOCAL_ONLY: {external_msg}"
+
+    error_msg = local_error or "Local check failed"
+
+    if "Connection failed" in error_msg or "timed out" in error_msg:
+        return (
+            False,
+            f"Could not verify reachability.\n"
+            f"External check: {external_msg}\n"
+            f"Local check: {error_msg}\n\n"
+            "This might be a hairpin NAT issue (your server can't reach itself\n"
+            "via its public domain from inside the network).\n\n"
+            "Options:\n"
+            "1. Test manually from OUTSIDE your network:\n"
+            f"   curl -v {http_url}\n"
+            "2. If you're SURE it works externally, set COMETNET_SKIP_REACHABILITY_CHECK=true",
+        )
+    else:
+        return (
+            False,
+            f"Could not verify reachability.\n"
+            f"External check: {external_msg}\n"
+            f"Local check: {error_msg}\n\n"
+            "Note: Local checks through reverse proxies can be unreliable.\n"
+            "The response you see locally may differ from external responses.\n\n"
+            "Options:\n"
+            "1. Test manually from OUTSIDE your network:\n"
+            f"   curl -v {http_url}\n"
+            "2. If you're SURE it works externally, set COMETNET_SKIP_REACHABILITY_CHECK=true",
+        )
