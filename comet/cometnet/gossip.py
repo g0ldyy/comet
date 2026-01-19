@@ -135,7 +135,8 @@ class GossipEngine:
         # Statistics
         self.stats = {
             "torrents_received": 0,
-            "torrents_propagated": 0,
+            "torrents_propagated": 0,  # Original torrents from this node
+            "torrents_repropagated": 0,  # Torrents received and forwarded to others
             "messages_sent": 0,
             "messages_received": 0,
             "invalid_messages": 0,
@@ -386,9 +387,12 @@ class GossipEngine:
 
         # Re-propagate to other peers (with reduced TTL)
         if torrents_to_repropagate and self._get_random_peers and self._send_message:
-            await self._repropagate(
+            peers_reached = await self._repropagate(
                 torrents_to_repropagate, announce.ttl - 1, exclude={sender_id}
             )
+            # Track re-propagations separately from original contributions
+            if peers_reached > 0:
+                self.stats["torrents_repropagated"] += len(torrents_to_repropagate)
 
         # Check if peer is still acceptable after processing
         if not self.reputation.is_peer_acceptable(sender_id):
@@ -456,16 +460,16 @@ class GossipEngine:
         torrents: List[TorrentMetadata],
         ttl: int,
         exclude: Optional[Set[str]] = None,
-    ) -> None:
-        """Re-propagate torrents to random peers."""
+    ) -> int:
+        """Re-propagate torrents to random peers. Returns the number of peers reached."""
         if not self._get_random_peers or not self._send_message:
-            return
+            return 0
 
         # Select random peers
         peers = self._get_random_peers(self.fanout, exclude)
 
         if not peers:
-            return
+            return 0
 
         # Create announce message
         announce = TorrentAnnounce(
@@ -490,7 +494,9 @@ class GossipEngine:
             *(send_to_peer(peer_id) for peer_id in peers),
             return_exceptions=True,
         )
-        self.stats["messages_sent"] += sum(1 for r in results if r is True)
+        successful_sends = sum(1 for r in results if r is True)
+        self.stats["messages_sent"] += successful_sends
+        return successful_sends
 
     async def _gossip_loop(self) -> None:
         """Main gossip loop - periodically sends queued torrents."""
@@ -513,9 +519,13 @@ class GossipEngine:
 
                     # Create and send announce
                     if self._get_random_peers and self._send_message and to_send:
-                        await self._repropagate(to_send, self.message_ttl)
-                        self.stats["torrents_propagated"] += len(to_send)
-                        total_sent += len(to_send)
+                        peers_reached = await self._repropagate(
+                            to_send, self.message_ttl
+                        )
+                        # Only count torrents as propagated if at least one peer received them
+                        if peers_reached > 0:
+                            self.stats["torrents_propagated"] += len(to_send)
+                            total_sent += len(to_send)
 
             except asyncio.CancelledError:
                 break
@@ -550,7 +560,6 @@ class GossipEngine:
             **self.stats,
             "queue_size": len(self._outgoing_queue),
             "cache_size": len(self.seen_cache),
-            "torrents_sent": self.stats["torrents_propagated"],
         }
 
     def to_dict(self) -> Dict:

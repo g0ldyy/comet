@@ -1108,7 +1108,11 @@
                 </div>
                 <div class="stat-card">
                   <div class="stat-number" id="cnet-sent">0</div>
-                  <div class="stat-label">Torrents Sent</div>
+                  <div class="stat-label">Torrents Propagated</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-repropagated">0</div>
+                  <div class="stat-label">Torrents Repropagated</div>
                 </div>
                 <div class="stat-card">
                   <div class="stat-number" id="cnet-private-network">-</div>
@@ -1777,8 +1781,12 @@
             ? stats.gossip_stats.torrents_received.toLocaleString()
             : 0;
         document.getElementById("cnet-sent").textContent = stats.gossip_stats
-          ? (stats.gossip_stats.torrents_sent || 0).toLocaleString()
+          ? (stats.gossip_stats.torrents_propagated || 0).toLocaleString()
           : 0;
+        document.getElementById("cnet-repropagated").textContent =
+          stats.gossip_stats
+            ? (stats.gossip_stats.torrents_repropagated || 0).toLocaleString()
+            : 0;
 
         // Private network status
         const privateNetEl = document.getElementById("cnet-private-network");
