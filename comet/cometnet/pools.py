@@ -937,17 +937,18 @@ class PoolStore:
         Record a contribution from a pool member.
 
         This increments the contribution_count for the member and persists
-        the change to disk.
+        the change to disk. If pool_id is not specified, the contribution
+        is recorded in all pools the member belongs to.
 
         Args:
             contributor_public_key: Public key of the contributor
-            pool_id: Optional pool ID to search in (more efficient)
+            pool_id: Optional pool ID to search in (if specified, only that pool is updated)
             count: Number of contributions to add (default 1)
 
         Returns:
-            True if contribution was recorded, False if member not found
+            True if contribution was recorded in at least one pool, False if member not found
         """
-        # If pool_id is specified, only check that pool
+        # If pool_id is specified, only update that specific pool
         if pool_id:
             manifest = self._manifests.get(pool_id)
             if manifest:
@@ -959,16 +960,17 @@ class PoolStore:
                     return True
             return False
 
-        # Search all pools for the contributor
+        # No pool_id specified: record contribution in all pools the member belongs to
+        recorded = False
         for manifest in self._manifests.values():
             member = manifest.get_member(contributor_public_key)
             if member:
                 member.contribution_count += count
                 member.last_seen = time.time()
                 await self._save_manifest_async(manifest)
-                return True
+                recorded = True
 
-        return False
+        return recorded
 
     async def _save_manifest_async(self, manifest: PoolManifest) -> None:
         """Save a manifest to disk (without re-signing)."""
