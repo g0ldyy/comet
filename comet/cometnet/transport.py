@@ -370,12 +370,13 @@ class ConnectionManager:
         )
 
         if node_id:
-            # Notify Discovery of the new connection
+            # Notify Discovery of the new connection (only if we have a valid address)
             if self._on_peer_connected:
                 corrected_address = (
                     self.get_peer_address(node_id) or connectable_address
                 )
-                await self._on_peer_connected(node_id, corrected_address)
+                if corrected_address:
+                    await self._on_peer_connected(node_id, corrected_address)
 
             # Keep connection alive until it's closed
             try:

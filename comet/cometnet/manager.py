@@ -1233,9 +1233,10 @@ class CometNetService(CometNetBackend):
             # Sync manifests with the newly connected peer
             asyncio.create_task(self._sync_manifests_with_peers([node_id]))
 
-    async def _on_peer_connected(self, node_id: str, address: str) -> None:
+    async def _on_peer_connected(self, node_id: str, address: Optional[str]) -> None:
         """Callback when a peer connects via the native WebSocket server."""
-        self.discovery.record_incoming_connection(node_id, address)
+        if address:
+            self.discovery.record_incoming_connection(node_id, address)
 
         # Sync manifests with the newly connected peer
         # This ensures role changes and pool updates are synchronized
