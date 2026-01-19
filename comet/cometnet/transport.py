@@ -25,8 +25,7 @@ from websockets.http11 import Response
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
                                      PingMessage, PongMessage, parse_message)
-from comet.cometnet.utils import (extract_ip_from_address,
-                                  format_address_for_log)
+from comet.cometnet.utils import extract_ip_from_address
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.network import extract_ip_from_headers
@@ -353,27 +352,29 @@ class ConnectionManager:
         """
         Handle incoming WebSocket connection from the native server.
         """
-        # Try to get real IP from proxy headers
         real_ip = getattr(websocket, "real_client_ip", None)
+        connectable_address: Optional[str] = None
 
         if real_ip:
-            # We got a real IP from proxy headers
-            address = f"ws://{real_ip}:0"
+            client_ip = real_ip
         else:
-            # No proxy headers - use direct connection IP
-            # This will be the reverse proxy IP if behind one
             remote = websocket.remote_address
             if remote:
-                address = f"ws://{remote[0]}:{remote[1]}"
+                client_ip = remote[0]
+                connectable_address = f"ws://{remote[0]}:{remote[1]}"
             else:
-                address = "ws://unknown:0"
+                client_ip = "unknown"
 
-        node_id = await self.handle_incoming_connection(websocket, address)
+        node_id = await self.handle_incoming_connection(
+            websocket, client_ip, connectable_address
+        )
 
         if node_id:
             # Notify Discovery of the new connection
             if self._on_peer_connected:
-                corrected_address = self.get_peer_address(node_id) or address
+                corrected_address = (
+                    self.get_peer_address(node_id) or connectable_address
+                )
                 await self._on_peer_connected(node_id, corrected_address)
 
             # Keep connection alive until it's closed
@@ -460,10 +461,19 @@ class ConnectionManager:
             self._connecting.discard(address)
 
     async def handle_incoming_connection(
-        self, websocket: WebSocketClientProtocol, address: str
+        self,
+        websocket: WebSocketClientProtocol,
+        client_ip: str,
+        connectable_address: Optional[str] = None,
     ) -> Optional[str]:
         """
         Handle an incoming WebSocket connection.
+
+        Args:
+            websocket: The WebSocket connection
+            client_ip: The client's IP address (for rate limiting and logging)
+            connectable_address: Optional real address we can reconnect to (e.g. ws://ip:port).
+                                 If not provided, we rely on the peer's public_url from handshake.
 
         Returns the peer's node_id on success, None on failure.
         """
@@ -471,8 +481,7 @@ class ConnectionManager:
             await websocket.close()
             return None
 
-        # Extract IP from the address (format: ws://IP:port)
-        ip = extract_ip_from_address(address)
+        ip = client_ip
 
         # Use lock to prevent race condition on connection limits
         async with self._connection_lock:
@@ -504,7 +513,9 @@ class ConnectionManager:
             self._connections_per_ip[ip] = current_ip_connections + 1
 
         # Perform handshake (we wait for their handshake first)
-        node_id = await self._perform_handshake(websocket, address, is_outbound=False)
+        node_id = await self._perform_handshake(
+            websocket, client_ip, connectable_address, is_outbound=False
+        )
 
         if node_id:
             logger.log("COMETNET", f"Accepted connection from peer {node_id[:8]}")
@@ -521,10 +532,20 @@ class ConnectionManager:
             return None
 
     async def _perform_handshake(
-        self, websocket: WebSocketClientProtocol, address: str, is_outbound: bool
+        self,
+        websocket: WebSocketClientProtocol,
+        client_ip: str,
+        connectable_address: Optional[str],
+        is_outbound: bool,
     ) -> Optional[str]:
         """
         Perform the handshake protocol with a peer.
+
+        Args:
+            websocket: The WebSocket connection
+            client_ip: The client's IP address (for logging)
+            connectable_address: Optional real address we can reconnect to
+            is_outbound: True if we initiated the connection
 
         Returns the peer's node_id on success, None on failure.
         """
@@ -601,9 +622,7 @@ class ConnectionManager:
                 peer_handshake.signature,
                 peer_handshake.public_key,
             ):
-                logger.warning(
-                    f"Invalid signature in handshake from {format_address_for_log(address)}"
-                )
+                logger.warning(f"Invalid signature in handshake from {client_ip}")
                 return None
 
             # Verify node ID matches public key
@@ -611,16 +630,14 @@ class ConnectionManager:
                 peer_handshake.public_key
             )
             if peer_handshake.sender_id != expected_node_id:
-                logger.warning(
-                    f"Node ID mismatch in handshake from {format_address_for_log(address)}"
-                )
+                logger.warning(f"Node ID mismatch in handshake from {client_ip}")
                 return None
 
             # Verify timestamp (anti-replay)
             now = time.time()
             if abs(now - peer_handshake.timestamp) > 300:  # 5 minutes tolerance
                 logger.warning(
-                    f"Rejecting handshake from {format_address_for_log(address)}: timestamp skew too large "
+                    f"Rejecting handshake from {client_ip}: timestamp skew too large "
                     f"(diff: {now - peer_handshake.timestamp:.1f}s)"
                 )
                 return None
@@ -638,7 +655,7 @@ class ConnectionManager:
             if self._private_network and self._network_id and self._network_password:
                 if not peer_handshake.network_token:
                     logger.warning(
-                        f"Rejecting {format_address_for_log(address)}: missing network token (private mode)"
+                        f"Rejecting {client_ip}: missing network token (private mode)"
                     )
                     return None
 
@@ -660,14 +677,12 @@ class ConnectionManager:
                     or hmac.compare_digest(peer_handshake.network_token, token_prev)
                 ):
                     logger.warning(
-                        f"Rejecting {format_address_for_log(address)}: invalid network token (wrong password or network_id)"
+                        f"Rejecting {client_ip}: invalid network token (wrong password or network_id)"
                     )
                     return None
 
             # Determine effective address
-            effective_address = address
-            if peer_handshake.public_url:
-                effective_address = peer_handshake.public_url
+            effective_address = peer_handshake.public_url or connectable_address
 
             # Create connection record
             conn = PeerConnection(
@@ -695,10 +710,7 @@ class ConnectionManager:
             return peer_handshake.sender_id
 
         except asyncio.TimeoutError:
-            logger.debug(f"Handshake timeout with {format_address_for_log(address)}")
-            return None
-        except ConnectionClosed:
-            # Connection closed during handshake - likely incompatible or rejecting us
+            logger.debug(f"Handshake timeout with {client_ip}")
             return None
         except Exception:
             return None

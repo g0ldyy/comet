@@ -1215,28 +1215,20 @@ class CometNetService(CometNetBackend):
     async def handle_websocket_connection(self, websocket, path: str = "") -> None:
         """
         Handle an incoming WebSocket connection from FastAPI /cometnet/ws endpoint.
-
-        This is the preferred entry point for connections through reverse proxies
-        (Cloudflare, Traefik, nginx, etc.) as it has access to proxy headers for
-        real IP extraction.
         """
         if not self._running:
             await websocket.close()
             return
 
-        real_ip, from_proxy = get_client_ip_any(websocket)
+        client_ip, from_proxy = get_client_ip_any(websocket)
 
-        # Use a dummy port since we only care about the IP for rate limiting
-        # The actual listen port will be obtained from the peer's handshake
-        address = f"ws://{real_ip}:0"
-
-        node_id = await self.transport.handle_incoming_connection(websocket, address)
+        node_id = await self.transport.handle_incoming_connection(websocket, client_ip)
 
         if node_id:
             # Record in discovery for future PEX
-            # Use corrected address (with listen port) if available
-            real_address = self.transport.get_peer_address(node_id) or address
-            self.discovery.record_incoming_connection(node_id, real_address)
+            real_address = self.transport.get_peer_address(node_id)
+            if real_address:
+                self.discovery.record_incoming_connection(node_id, real_address)
 
             # Sync manifests with the newly connected peer
             asyncio.create_task(self._sync_manifests_with_peers([node_id]))
