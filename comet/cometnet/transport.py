@@ -451,6 +451,10 @@ class ConnectionManager:
 
         # Extract IP
         ip = extract_ip_from_address(address)
+        
+        logger.warning(
+            f"handle_incoming_connection called: address={address}, extracted_ip={ip}"
+        )
 
         # Use lock to prevent race condition on connection limits
         async with self._connection_lock:
