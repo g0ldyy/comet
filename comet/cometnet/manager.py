@@ -36,6 +36,7 @@ from comet.cometnet.utils import (check_advertise_url_reachability,
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.network import get_client_ip
 
 
 class CometNetService(CometNetBackend):
@@ -1260,13 +1261,14 @@ class CometNetService(CometNetBackend):
             await websocket.close()
             return
 
-        # Get client address
-        client_address = getattr(websocket, "client", ("unknown", 0))
-        address = (
-            f"ws://{client_address[0]}:{client_address[1]}"
-            if client_address
-            else "unknown"
-        )
+        real_ip = get_client_ip(websocket)
+        if not real_ip:
+            # Fallback to direct client address
+            client_address = getattr(websocket, "client", ("unknown", 0))
+            real_ip = client_address[0] if client_address else "unknown"
+
+        # Use a dummy port since we only care about the IP for rate limiting
+        address = f"ws://{real_ip}:0"
 
         node_id = await self.transport.handle_incoming_connection(websocket, address)
 

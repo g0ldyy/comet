@@ -1,6 +1,7 @@
 import ipaddress
+from typing import Union
 
-from fastapi import Request
+from fastapi import Request, WebSocket
 
 IP_REQUEST_HEADERS = [
     "X-Client-Ip",
@@ -27,7 +28,7 @@ def is_public_ip(ip: str):
         return False
 
 
-def get_client_ip(request: Request):
+def get_client_ip(request: Union[Request, WebSocket]):
     for header in IP_REQUEST_HEADERS:
         header_value = request.headers.get(header)
         if not header_value:
