@@ -620,9 +620,10 @@ class ConnectionManager:
             # Check if already connected to this node
             if peer_handshake.sender_id in self._connections:
                 logger.debug(
-                    f"Already connected to {peer_handshake.sender_id[:8]} at {address}"
+                    f"Already connected to {peer_handshake.sender_id[:8]} (existing connection), closing duplicate and reusing existing"
                 )
-                return None
+                await websocket.close()
+                return peer_handshake.sender_id
 
             # Don't connect to ourselves
             if peer_handshake.sender_id == self.identity.node_id:
