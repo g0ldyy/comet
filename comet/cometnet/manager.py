@@ -36,7 +36,7 @@ from comet.cometnet.utils import (check_advertise_url_reachability,
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.utils.network import get_client_ip
+from comet.utils.network import get_client_ip_any
 
 
 class CometNetService(CometNetBackend):
@@ -1253,30 +1253,20 @@ class CometNetService(CometNetBackend):
 
     async def handle_websocket_connection(self, websocket, path: str = "") -> None:
         """
-        Handle an incoming WebSocket connection from FastAPI.
+        Handle an incoming WebSocket connection from FastAPI /cometnet/ws endpoint.
 
-        This should be called from the FastAPI WebSocket endpoint.
+        This is the preferred entry point for connections through reverse proxies
+        (Cloudflare, Traefik, nginx, etc.) as it has access to proxy headers for
+        real IP extraction.
         """
         if not self._running:
             await websocket.close()
             return
 
-        headers_dict = dict(getattr(websocket, "headers", {}))
-        client_info = getattr(websocket, "client", None)
-        logger.warning(
-            f"WebSocket connection - Headers: {headers_dict}, Client: {client_info}"
-        )
-
-        real_ip = get_client_ip(websocket)
-        logger.warning(f"get_client_ip returned: '{real_ip}'")
-
-        if not real_ip:
-            # Fallback to direct client address
-            client_address = getattr(websocket, "client", ("unknown", 0))
-            real_ip = client_address[0] if client_address else "unknown"
-            logger.warning(f"Using fallback: {real_ip}")
+        real_ip, from_proxy = get_client_ip_any(websocket)
 
         # Use a dummy port since we only care about the IP for rate limiting
+        # The actual listen port will be obtained from the peer's handshake
         address = f"ws://{real_ip}:0"
 
         node_id = await self.transport.handle_incoming_connection(websocket, address)

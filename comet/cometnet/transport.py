@@ -28,6 +28,7 @@ from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
 from comet.cometnet.utils import extract_ip_from_address
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.network import extract_ip_from_headers
 
 
 class WebSocketHeadFilter(logging.Filter):
@@ -208,6 +209,10 @@ class ConnectionManager:
         WebSocket upgrade request (e.g., health checks, load balancer probes),
         we return an appropriate HTTP response instead of raising an error.
         """
+        real_ip = extract_ip_from_headers(dict(request.headers), require_public=False)
+        if real_ip:
+            connection.real_client_ip = real_ip
+
         # Check if this is a WebSocket upgrade request
         connection_header = request.headers.get("Connection", "").lower()
         upgrade_header = request.headers.get("Upgrade", "").lower()
@@ -341,8 +346,24 @@ class ConnectionManager:
         )
 
     async def _handle_ws_connection(self, websocket, path: str = "") -> None:
-        """Handle incoming WebSocket connection from the server."""
-        address = f"ws://{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        """
+        Handle incoming WebSocket connection from the native server.
+        """
+        # Try to get real IP from proxy headers
+        real_ip = getattr(websocket, "real_client_ip", None)
+
+        if real_ip:
+            # We got a real IP from proxy headers
+            address = f"ws://{real_ip}:0"
+        else:
+            # No proxy headers - use direct connection IP
+            # This will be the reverse proxy IP if behind one
+            remote = websocket.remote_address
+            if remote:
+                address = f"ws://{remote[0]}:{remote[1]}"
+            else:
+                address = "ws://unknown:0"
+
         node_id = await self.handle_incoming_connection(websocket, address)
 
         if node_id:
@@ -441,7 +462,7 @@ class ConnectionManager:
         self, websocket: WebSocketClientProtocol, address: str
     ) -> Optional[str]:
         """
-        Handle an incoming WebSocket connection (called from FastAPI).
+        Handle an incoming WebSocket connection.
 
         Returns the peer's node_id on success, None on failure.
         """
@@ -449,12 +470,8 @@ class ConnectionManager:
             await websocket.close()
             return None
 
-        # Extract IP
+        # Extract IP from the address (format: ws://IP:port)
         ip = extract_ip_from_address(address)
-        
-        logger.warning(
-            f"handle_incoming_connection called: address={address}, extracted_ip={ip}"
-        )
 
         # Use lock to prevent race condition on connection limits
         async with self._connection_lock:
