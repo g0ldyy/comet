@@ -185,7 +185,6 @@ class DiscoveryService:
         # Allow private IPs only if explicitly configured
         allow_private = settings.COMETNET_ALLOW_PRIVATE_PEX
         if not is_valid_peer_address(peer_info.address, allow_private=allow_private):
-            logger.debug(f"Rejecting invalid PEX address: {peer_info.address}")
             return
 
         self._add_known_peer(
@@ -194,12 +193,6 @@ class DiscoveryService:
 
     def record_incoming_connection(self, node_id: str, address: str) -> None:
         """Record a peer that connected to us."""
-        # Log if peer announced a private address (misconfiguration on their end)
-        if not is_valid_peer_address(address, allow_private=False):
-            logger.debug(
-                f"Peer {node_id[:8]} announced private address: {address} "
-                "(they should configure COMETNET_ANNOUNCE_URL)"
-            )
         self._add_known_peer(address=address, node_id=node_id, source="incoming")
 
     def get_peers_for_pex(self, max_peers: int = None) -> List[PeerInfo]:
@@ -297,8 +290,7 @@ class DiscoveryService:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.debug(f"Discovery loop error: {e}")
+            except Exception:
                 await asyncio.sleep(10.0)
 
     async def _perform_pex(self) -> None:
@@ -326,8 +318,8 @@ class DiscoveryService:
                         request.to_signable_bytes()
                     )
                 await self._send_message_callback(node_id, request)
-            except Exception as e:
-                logger.debug(f"PEX query failed for {node_id[:8]}: {e}")
+            except Exception:
+                pass
 
     async def _try_connect_to_peers(self) -> None:
         """Attempt to connect to known peers."""
@@ -377,8 +369,7 @@ class DiscoveryService:
 
                 known_peer.record_connect_attempt(success)
 
-            except Exception as e:
-                logger.debug(f"Connection attempt failed: {e}")
+            except Exception:
                 known_peer.record_connect_attempt(False)
 
     def _cleanup_old_peers(self) -> None:

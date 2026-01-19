@@ -25,7 +25,8 @@ from websockets.http11 import Response
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
                                      PingMessage, PongMessage, parse_message)
-from comet.cometnet.utils import extract_ip_from_address
+from comet.cometnet.utils import (extract_ip_from_address,
+                                  format_address_for_log)
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.network import extract_ip_from_headers
@@ -420,7 +421,6 @@ class ConnectionManager:
         async with self._connection_lock:
             # Check peer limit
             if len(self._connections) >= self.max_peers:
-                logger.debug(f"Cannot connect to {address}: max peers reached")
                 return None
 
             self._connecting.add(address)
@@ -450,10 +450,8 @@ class ConnectionManager:
                 return None
 
         except asyncio.TimeoutError:
-            logger.debug(f"Connection to {address} timed out")
             return None
-        except Exception as e:
-            logger.debug(f"Failed to connect to {address}: {e}")
+        except Exception:
             return None
         finally:
             self._connecting.discard(address)
@@ -489,14 +487,13 @@ class ConnectionManager:
             current_ip_connections = self._connections_per_ip.get(ip, 0)
             if current_ip_connections >= limit:
                 logger.debug(
-                    f"Rejecting connection from {address}: too many connections from IP {ip} (limit: {limit})"
+                    f"Rejecting connection from {ip}: too many connections (limit: {limit})"
                 )
                 await websocket.close()
                 return None
 
             # Check peer limit
             if len(self._connections) >= self.max_peers:
-                logger.debug(f"Rejecting connection from {address}: max peers reached")
                 await websocket.close()
                 return None
 
@@ -556,13 +553,7 @@ class ConnectionManager:
                 await websocket.send(handshake.to_bytes())
 
                 # Wait for their handshake
-                logger.debug(f"Sent handshake to {address}, waiting for response...")
                 response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
-                logger.debug(
-                    f"Received response from {address} "
-                    f"({len(response) if isinstance(response, bytes) else 'text'} bytes), "
-                    f"parsing..."
-                )
                 peer_handshake = parse_message(response)
             else:
                 # They initiated, so we wait for their handshake first
@@ -598,64 +589,53 @@ class ConnectionManager:
                 await websocket.send(handshake.to_bytes())
 
             # Validate peer handshake
-            logger.debug(f"Validating handshake from {address}...")
             if not isinstance(peer_handshake, HandshakeMessage):
-                logger.debug(
-                    f"Invalid handshake from {address}: "
-                    f"expected HandshakeMessage, got {type(peer_handshake).__name__}"
-                )
                 return None
 
-            logger.debug(f"Handshake type OK, verifying signature from {address}...")
             # Verify signature
             if not await NodeIdentity.verify_hex_async(
                 peer_handshake.to_signable_bytes(),
                 peer_handshake.signature,
                 peer_handshake.public_key,
             ):
-                logger.warning(f"Invalid signature in handshake from {address}")
+                logger.warning(
+                    f"Invalid signature in handshake from {format_address_for_log(address)}"
+                )
                 return None
-
-            logger.debug(f"Signature OK, verifying node ID from {address}...")
 
             # Verify node ID matches public key
             expected_node_id = NodeIdentity.node_id_from_public_key(
                 peer_handshake.public_key
             )
             if peer_handshake.sender_id != expected_node_id:
-                logger.warning(f"Node ID mismatch in handshake from {address}")
+                logger.warning(
+                    f"Node ID mismatch in handshake from {format_address_for_log(address)}"
+                )
                 return None
 
             # Verify timestamp (anti-replay)
             now = time.time()
             if abs(now - peer_handshake.timestamp) > 300:  # 5 minutes tolerance
                 logger.warning(
-                    f"Rejecting handshake from {address}: timestamp skew too large "
+                    f"Rejecting handshake from {format_address_for_log(address)}: timestamp skew too large "
                     f"(diff: {now - peer_handshake.timestamp:.1f}s)"
                 )
                 return None
 
-            logger.debug(
-                f"All validations passed for {address}, checking connection status..."
-            )
             # Check if already connected to this node
             if peer_handshake.sender_id in self._connections:
-                logger.debug(
-                    f"Already connected to {peer_handshake.sender_id[:8]} (existing connection), closing duplicate and reusing existing"
-                )
                 await websocket.close()
                 return peer_handshake.sender_id
 
             # Don't connect to ourselves
             if peer_handshake.sender_id == self.identity.node_id:
-                logger.debug(f"Rejecting connection to self at {address}")
                 return None
 
             # Validate private network token
             if self._private_network and self._network_id and self._network_password:
                 if not peer_handshake.network_token:
                     logger.warning(
-                        f"Rejecting {address}: missing network token (private mode)"
+                        f"Rejecting {format_address_for_log(address)}: missing network token (private mode)"
                     )
                     return None
 
@@ -677,7 +657,7 @@ class ConnectionManager:
                     or hmac.compare_digest(peer_handshake.network_token, token_prev)
                 ):
                     logger.warning(
-                        f"Rejecting {address}: invalid network token (wrong password or network_id)"
+                        f"Rejecting {format_address_for_log(address)}: invalid network token (wrong password or network_id)"
                     )
                     return None
 
@@ -709,25 +689,15 @@ class ConnectionManager:
             task = asyncio.create_task(self._receive_loop(conn))
             self._tasks.add(task)
 
-            logger.debug(
-                f"Handshake completed successfully with {address} "
-                f"(node_id: {peer_handshake.sender_id[:8]})"
-            )
             return peer_handshake.sender_id
 
         except asyncio.TimeoutError:
-            logger.debug(f"Handshake timeout with {address}")
+            logger.debug(f"Handshake timeout with {format_address_for_log(address)}")
             return None
-        except ConnectionClosed as e:
+        except ConnectionClosed:
             # Connection closed during handshake - likely incompatible or rejecting us
-            logger.debug(
-                f"Handshake failed with {address}: connection closed "
-                f"(code={e.rcvd.code if e.rcvd else 'N/A'}, "
-                f"reason='{e.rcvd.reason if e.rcvd else 'N/A'}')"
-            )
             return None
-        except Exception as e:
-            logger.debug(f"Handshake error with {address}: {type(e).__name__}: {e}")
+        except Exception:
             return None
 
     async def _receive_loop(self, conn: PeerConnection) -> None:
@@ -742,14 +712,10 @@ class ConnectionManager:
                     if not conn.check_rate_limit(
                         self.rate_limit_count, self.rate_limit_window
                     ):
-                        logger.debug(
-                            f"Rate limit exceeded for {conn.node_id[:8]} - Dropping message"
-                        )
                         continue
 
                     message = parse_message(raw_message)
                     if message is None:
-                        logger.debug(f"Invalid message from {conn.node_id[:8]}")
                         continue
 
                     # Handle ping/pong internally
@@ -769,8 +735,8 @@ class ConnectionManager:
                 except ConnectionClosed:
                     break
 
-        except Exception as e:
-            logger.debug(f"Receive loop error for {conn.node_id[:8]}: {e}")
+        except Exception:
+            pass
         finally:
             # Clean up connection
             if conn.node_id in self._connections:
@@ -825,7 +791,6 @@ class ConnectionManager:
                         time.time() - conn.last_activity
                         > settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT
                     ):
-                        logger.debug(f"Closing stale connection to {conn.node_id[:8]}")
                         stale_nodes.append(conn.node_id)
                         continue
 
@@ -858,8 +823,8 @@ class ConnectionManager:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.debug(f"Ping loop error: {e}")
+            except Exception:
+                pass
 
     async def disconnect_peer(self, node_id: str) -> None:
         """Disconnect from a specific peer."""

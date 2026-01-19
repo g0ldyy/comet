@@ -144,6 +144,30 @@ def extract_ip_from_address(address: str) -> str:
         return "unknown"
 
 
+def format_address_for_log(address: str) -> str:
+    """
+    Format an address for logging, stripping placeholder ports like :0.
+    Returns just the IP/hostname if the port is 0, otherwise the full address.
+    """
+    try:
+        if not address:
+            return "unknown"
+        # Handle ws:// or wss:// URLs
+        if address.startswith(("ws://", "wss://")):
+            parsed = urlparse(address)
+            host = parsed.hostname or "unknown"
+            # If port is 0 or missing, just return the host
+            if parsed.port in (0, None):
+                return host
+            return f"{host}:{parsed.port}"
+        # Handle raw IP:port
+        if ":0" in address:
+            return address.replace(":0", "").rstrip(":")
+        return address
+    except Exception:
+        return address or "unknown"
+
+
 def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
     """
     Validate a peer address for security.

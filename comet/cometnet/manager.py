@@ -446,7 +446,6 @@ class CometNetService(CometNetBackend):
         if total_peers == 0:
             return
 
-        logger.debug(f"Reconnecting to {total_peers} known pool peers...")
         asyncio.create_task(self._connect_to_pool_peers(pool_peers))
 
     async def _connect_to_pool_peers(self, pool_peers: Dict[str, Set[str]]) -> None:
@@ -474,13 +473,10 @@ class CometNetService(CometNetBackend):
                     if peer_id:
                         connected += 1
                         connected_peers.append(peer_id)
-                        logger.debug(
-                            f"Reconnected to pool peer {peer_id[:8]} for pool {pool_id}"
-                        )
                         # Small delay between connections
                         await asyncio.sleep(0.5)
-                except Exception as e:
-                    logger.debug(f"Failed to reconnect to {peer_addr}: {e}")
+                except Exception:
+                    pass
 
         if connected > 0:
             logger.log("COMETNET", f"Reconnected to {connected} pool peers")
@@ -699,8 +695,8 @@ class CometNetService(CometNetBackend):
         if self._save_torrent_callback:
             try:
                 await self._save_torrent_callback(metadata)
-            except Exception as e:
-                logger.debug(f"Failed to save torrent from network: {e}")
+            except Exception:
+                pass
 
     async def _handle_torrent_announce(
         self, sender_id: str, message: AnyMessage
@@ -733,11 +729,7 @@ class CometNetService(CometNetBackend):
             ):
                 return
 
-            new_peers = self.discovery.handle_peer_response(message)
-            if new_peers > 0:
-                logger.debug(
-                    f"Received {new_peers} new peers via PEX from {sender_id[:8]}"
-                )
+            self.discovery.handle_peer_response(message)
 
     async def _handle_pool_manifest(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming pool manifest messages."""
@@ -786,12 +778,8 @@ class CometNetService(CometNetBackend):
                 if existing.version > manifest.version:
                     try:
                         await self._send_pool_manifest(sender_id, existing)
-                        logger.debug(
-                            f"Sent newer manifest v{existing.version} to {sender_id[:8]} "
-                            f"(they had v{manifest.version})"
-                        )
-                    except Exception as e:
-                        logger.debug(f"Failed to send updated manifest: {e}")
+                    except Exception:
+                        pass
                 return
 
             # Store the manifest (validation happens inside)
@@ -881,9 +869,6 @@ class CometNetService(CometNetBackend):
                     "COMETNET",
                     f"Received pool manifest: {message.display_name} ({message.pool_id}) v{message.version}",
                 )
-            else:
-                logger.debug(f"Invalid pool manifest from {sender_id[:8]}")
-
         except Exception as e:
             logger.debug(f"Failed to process pool manifest: {e}")
 
@@ -914,13 +899,11 @@ class CometNetService(CometNetBackend):
         # Get the invite
         invite = self.pool_store.get_invite(pool_id, invite_code)
         if not invite or not invite.is_valid():
-            logger.debug(f"Invalid or expired invite code from {sender_id[:8]}")
             return
 
         # Get the manifest
         manifest = self.pool_store.get_manifest(pool_id)
         if not manifest:
-            logger.debug(f"Pool {pool_id} not found for join request")
             return
 
         # Check if already a member
@@ -1001,9 +984,6 @@ class CometNetService(CometNetBackend):
             if not await NodeIdentity.verify_hex_async(
                 message.to_signable_bytes(), message.signature, message.updated_by
             ):
-                logger.debug(
-                    f"Invalid signature on leave message from {message.updated_by[:8]}"
-                )
                 return
 
             # Verify the person is actually a member
@@ -1013,9 +993,6 @@ class CometNetService(CometNetBackend):
             # Normal case: admin-initiated update
             # Verify the updater is an admin
             if not manifest.is_admin(message.updated_by):
-                logger.debug(
-                    f"Received pool update from non-admin {message.updated_by[:8]}"
-                )
                 return
 
             # Verify signature of the update message
@@ -1023,9 +1000,6 @@ class CometNetService(CometNetBackend):
                 if not await NodeIdentity.verify_hex_async(
                     message.to_signable_bytes(), message.signature, message.updated_by
                 ):
-                    logger.warning(
-                        f"Invalid signature on PoolMemberUpdate from {sender_id[:8]}"
-                    )
                     return
 
         # Apply update tentatively
@@ -1104,16 +1078,9 @@ class CometNetService(CometNetBackend):
             )
 
             # Re-broadcast to others who might not have received it
-            # (Gossip protocol usually handles this, but here we do direct broadcast)
-            # Ideally we should only forward if we just applied it
             await self.transport.broadcast(message, exclude={sender_id})
         else:
-            logger.warning(
-                f"Computed manifest state for {message.pool_id} does not match admin signature. "
-                "Requesting full manifest..."
-            )
-            # Fallback: Send our current (stale) manifest to the sender
-            # This will trigger them to send us the full updated manifest
+            # Manifest state mismatch - request full manifest
             await self._send_pool_manifest(sender_id, current_manifest)
 
     async def _handle_pool_delete(self, sender_id: str, message: AnyMessage) -> None:
@@ -1133,19 +1100,12 @@ class CometNetService(CometNetBackend):
 
         # Only accept deletion from the creator
         if manifest.creator_key != message.deleted_by:
-            logger.warning(
-                f"Received pool deletion for {message.pool_id} from non-creator {message.deleted_by[:8]}"
-            )
             return
 
         # Verify the signature
-
         if not NodeIdentity.verify_hex(
             message.to_signable_bytes(), message.signature, message.deleted_by
         ):
-            logger.warning(
-                f"Invalid signature on pool deletion message for {message.pool_id}"
-            )
             return
 
         # Delete the pool locally
@@ -1316,10 +1276,8 @@ class CometNetService(CometNetBackend):
             for peer_id in peer_ids:
                 try:
                     await self._send_pool_manifest(peer_id, manifest)
-                except Exception as e:
-                    logger.debug(
-                        f"Failed to send manifest {pool_id} to {peer_id[:8]}: {e}"
-                    )
+                except Exception:
+                    pass
 
     async def get_stats(self) -> Dict:
         """Get comprehensive CometNet statistics."""
@@ -1595,9 +1553,6 @@ class CometNetService(CometNetBackend):
 
         # If no node_url provided and local failed, we can't proceed
         if not node_url:
-            logger.debug(
-                f"Cannot join pool {pool_id}: no local invite/manifest and no node_url provided"
-            )
             return False
 
         # Remote join: connect to the node and request to join
@@ -1634,7 +1589,6 @@ class CometNetService(CometNetBackend):
 
             success = await self.transport.send_to_peer(peer_id, join_request)
             if not success:
-                logger.warning(f"Failed to send join request to {peer_id[:8]}")
                 return False
 
             logger.log(
@@ -1658,13 +1612,9 @@ class CometNetService(CometNetBackend):
                 logger.log("COMETNET", f"Successfully joined pool {pool_id}")
                 return True
 
-            logger.debug(
-                f"Join request sent but manifest not yet received for {pool_id}"
-            )
             return False
 
-        except Exception as e:
-            logger.warning(f"Failed to join pool remotely: {e}")
+        except Exception:
             return False
 
     async def add_pool_member(
@@ -1950,8 +1900,6 @@ class CometNetService(CometNetBackend):
 
             with open(state_path, "w") as f:
                 json.dump(state, f, indent=2)
-
-            logger.debug("CometNet state saved")
 
         except Exception as e:
             logger.warning(f"Failed to save CometNet state: {e}")

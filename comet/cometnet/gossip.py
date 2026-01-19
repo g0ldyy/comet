@@ -246,7 +246,6 @@ class GossipEngine:
 
         # Check sender reputation
         if not self.reputation.is_peer_acceptable(sender_id):
-            logger.debug(f"Ignoring announce from untrusted peer {sender_id[:8]}")
             self.stats["invalid_messages"] += 1
             if self._disconnect_peer:
                 await self._disconnect_peer(sender_id)
@@ -293,7 +292,6 @@ class GossipEngine:
                 or not torrent.contributor_signature
                 or not torrent.contributor_public_key
             ):
-                logger.debug(f"Rejecting incomplete torrent {torrent.info_hash}")
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
                 continue
@@ -303,10 +301,6 @@ class GossipEngine:
                 torrent.contributor_public_key
             )
             if derived_id != torrent.contributor_id:
-                logger.debug(
-                    f"Contributor ID mismatch for {torrent.info_hash}: "
-                    f"claimed {torrent.contributor_id[:8]}, derived {derived_id[:8]}"
-                )
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
                 continue
@@ -317,9 +311,6 @@ class GossipEngine:
                 torrent.contributor_signature,
                 torrent.contributor_public_key,
             ):
-                logger.debug(
-                    f"Invalid contributor signature on torrent {torrent.info_hash}"
-                )
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
                 continue
@@ -376,13 +367,13 @@ class GossipEngine:
                     await self._save_torrent(torrent)
                     self.stats["torrents_received"] += 1
                     saved_count += 1
-                except Exception as e:
-                    logger.debug(f"Failed to save torrent {torrent.info_hash}: {e}")
+                except Exception:
+                    pass
 
             if saved_count > 0:
                 logger.log(
                     "COMETNET",
-                    f"Received {saved_count} torrents from peer {sender_id[:12]}...",
+                    f"Received {saved_count} torrents from peer {sender_id[:8]}",
                 )
 
         # Re-propagate to other peers (with reduced TTL)
@@ -396,7 +387,6 @@ class GossipEngine:
 
         # Check if peer is still acceptable after processing
         if not self.reputation.is_peer_acceptable(sender_id):
-            logger.debug(f"Peer {sender_id[:8]} became unacceptable, disconnecting")
             if self._disconnect_peer:
                 await self._disconnect_peer(sender_id)
 
@@ -410,25 +400,19 @@ class GossipEngine:
         try:
             # Verify info_hash format
             if len(torrent.info_hash) != 40:
-                logger.debug(
-                    f"Torrent validation failed: info_hash length {len(torrent.info_hash)} != 40"
-                )
                 return False
             int(torrent.info_hash, 16)
 
             # Title should be non-empty
             if not torrent.title or len(torrent.title) < 1:
-                logger.debug("Torrent validation failed: empty title")
                 return False
 
             # Size should be positive
             if torrent.size <= 0:
-                logger.debug(f"Torrent validation failed: invalid size {torrent.size}")
                 return False
 
             # Tracker should be non-empty
             if not torrent.tracker:
-                logger.debug("Torrent validation failed: empty tracker")
                 return False
 
             # Timestamp should be reasonable
@@ -437,22 +421,15 @@ class GossipEngine:
                 torrent.updated_at
                 > now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
             ):  # Future tolerance
-                logger.debug(
-                    f"Torrent validation failed: timestamp in future ({torrent.updated_at} > {now})"
-                )
                 return False
             if (
                 torrent.updated_at < now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE
             ):  # Max age
-                logger.debug(
-                    f"Torrent validation failed: timestamp too old ({torrent.updated_at} < {now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE})"
-                )
                 return False
 
             return True
 
-        except (ValueError, TypeError) as e:
-            logger.debug(f"Torrent validation failed: {e}")
+        except (ValueError, TypeError):
             return False
 
     async def _repropagate(
@@ -486,8 +463,7 @@ class GossipEngine:
             try:
                 await self._send_message(peer_id, announce)
                 return True
-            except Exception as e:
-                logger.debug(f"Failed to send to peer {peer_id[:8]}: {e}")
+            except Exception:
                 return False
 
         results = await asyncio.gather(
@@ -529,8 +505,8 @@ class GossipEngine:
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.debug(f"Gossip loop error: {e}")
+            except Exception:
+                pass
 
     async def _cleanup_loop(self) -> None:
         """Periodically clean up the message cache and keystore."""
@@ -539,20 +515,16 @@ class GossipEngine:
                 await asyncio.sleep(60.0)
 
                 # Cleanup message cache
-                removed = self.seen_cache.cleanup()
-                if removed > 0:
-                    logger.debug(f"Cleaned up {removed} expired cache entries")
+                self.seen_cache.cleanup()
 
                 # Cleanup old keys from keystore
                 if self._keystore:
-                    keys_removed = self._keystore.cleanup_old_keys(max_age_days=30.0)
-                    if keys_removed > 0:
-                        logger.debug(f"Cleaned up {keys_removed} old public keys")
+                    self._keystore.cleanup_old_keys(max_age_days=30.0)
 
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.debug(f"Cleanup loop error: {e}")
+            except Exception:
+                pass
 
     def get_stats(self) -> Dict:
         """Get gossip statistics."""
