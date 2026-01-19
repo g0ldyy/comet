@@ -1261,11 +1261,20 @@ class CometNetService(CometNetBackend):
             await websocket.close()
             return
 
+        headers_dict = dict(getattr(websocket, "headers", {}))
+        client_info = getattr(websocket, "client", None)
+        logger.warning(
+            f"WebSocket connection - Headers: {headers_dict}, Client: {client_info}"
+        )
+
         real_ip = get_client_ip(websocket)
+        logger.warning(f"get_client_ip returned: '{real_ip}'")
+
         if not real_ip:
             # Fallback to direct client address
             client_address = getattr(websocket, "client", ("unknown", 0))
             real_ip = client_address[0] if client_address else "unknown"
+            logger.warning(f"Using fallback: {real_ip}")
 
         # Use a dummy port since we only care about the IP for rate limiting
         address = f"ws://{real_ip}:0"
