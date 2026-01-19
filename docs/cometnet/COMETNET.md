@@ -239,6 +239,7 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_PEER_MAX_FAILURES` | `5` | Failures before temporarily banning a peer. |
 | `COMETNET_PEER_CLEANUP_AGE` | `604800` | Seconds (7 days) to keep inactive peers. |
 | `COMETNET_ALLOW_PRIVATE_PEX` | `False` | Allow private/internal IPs via Peer Exchange. Enable for LAN setups. |
+| `COMETNET_SKIP_REACHABILITY_CHECK` | `False` | Skip the external reachability check on startup. Only use for local testing. |
 
 #### Transport
 
@@ -393,6 +394,18 @@ Pool creators and admins can:
 ---
 
 ## Troubleshooting
+
+### Reachability Check Failed
+
+On startup, CometNet verifies that your `COMETNET_ADVERTISE_URL` is actually reachable from the outside. If this check fails:
+
+1. **Check your URL**: Ensure `COMETNET_ADVERTISE_URL` points to your public address.
+2. **Firewall/NAT**: Make sure port 8765 is open and forwarded.
+3. **Reverse proxy**: If using nginx/caddy, ensure WebSocket headers are forwarded (`Upgrade` and `Connection`).
+4. **SSL certificate**: If using `wss://`, verify your SSL certificate is valid.
+5. **Testing locally?** Set `COMETNET_SKIP_REACHABILITY_CHECK=True` to bypass this check.
+
+The check works by making an HTTP request to your advertise URL and verifying the response contains "CometNet WebSocket Server".
 
 ### No Peers Connecting
 

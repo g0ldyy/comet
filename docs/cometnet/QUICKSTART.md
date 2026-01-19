@@ -241,6 +241,14 @@ Make sure `COMETNET_ENABLED=True` and `FASTAPI_WORKERS=1`.
 2. Verify `COMETNET_ADVERTISE_URL` is set correctly
 3. Enable UPnP if behind NAT: `COMETNET_UPNP_ENABLED=True`
 
+### "Reachability check failed" on startup
+
+CometNet verifies your advertise URL is accessible before joining the network. If this fails:
+
+1. Check your firewall and port forwarding
+2. If using a reverse proxy, ensure WebSocket headers are forwarded
+3. For local testing only: `COMETNET_SKIP_REACHABILITY_CHECK=True`
+
 ### Using relay but getting errors
 
 Make sure:

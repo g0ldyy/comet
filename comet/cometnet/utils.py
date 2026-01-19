@@ -8,8 +8,10 @@ and asynchronous execution.
 import asyncio
 import ipaddress
 from functools import partial
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
+
+import aiohttp
 
 T = TypeVar("T")
 
@@ -119,3 +121,86 @@ async def run_in_executor(func: Callable[..., T], *args: Any) -> T:
     """
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, partial(func, *args))
+
+
+# --- Reachability Check ---
+
+COMETNET_SERVER_IDENTIFIER = "CometNet WebSocket Server"
+
+
+def websocket_url_to_http(ws_url: str) -> str:
+    """
+    Convert a WebSocket URL to its HTTP equivalent.
+
+    ws://host:port/path -> http://host:port/path
+    wss://host:port/path -> https://host:port/path
+    """
+    if ws_url.startswith("wss://"):
+        return "https://" + ws_url[6:]
+    elif ws_url.startswith("ws://"):
+        return "http://" + ws_url[5:]
+    return ws_url
+
+
+async def check_advertise_url_reachability(
+    advertise_url: str, timeout: float = 10.0
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check if the advertise URL is externally reachable by making an HTTP request.
+
+    The CometNet WebSocket server responds with "CometNet WebSocket Server" on
+    HTTP health check requests. This function verifies that the URL is accessible
+    from the outside by checking for this response.
+
+    Args:
+        advertise_url: The WebSocket URL to check (ws:// or wss://)
+        timeout: Request timeout in seconds
+
+    Returns:
+        Tuple of (is_reachable, error_message)
+        - (True, None) if the URL is reachable and responds correctly
+        - (False, error_message) if the URL is not reachable or invalid
+    """
+    if not advertise_url:
+        return False, "No advertise URL configured"
+
+    # Convert ws:// to http:// or wss:// to https://
+    http_url = websocket_url_to_http(advertise_url)
+
+    # Extract base URL (remove /ws or other paths, check root)
+    parsed = urlparse(http_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}/"
+
+    try:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=timeout)
+        ) as session:
+            async with session.get(base_url) as response:
+                if response.status != 200:
+                    return False, (
+                        f"HTTP {response.status} - Server may not be accessible from outside"
+                    )
+
+                body = await response.text()
+                if COMETNET_SERVER_IDENTIFIER not in body:
+                    return False, (
+                        f"Response does not contain '{COMETNET_SERVER_IDENTIFIER}' - "
+                        "the URL may point to a different service or a reverse proxy "
+                        "is not correctly configured"
+                    )
+
+                return True, None
+    except aiohttp.ClientConnectorError as e:
+        return (
+            False,
+            f"Connection failed: {e} - The address may not be accessible from outside",
+        )
+    except asyncio.TimeoutError:
+        return (
+            False,
+            f"Connection timed out after {timeout}s - The address may not be accessible",
+        )
+    except aiohttp.ClientSSLError as e:
+        return False, f"SSL/TLS error: {e} - Check your certificate configuration"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"

@@ -29,6 +29,7 @@ from comet.cometnet.protocol import (AnyMessage, MessageType, PeerRequest,
                                      TorrentMetadata)
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
+from comet.cometnet.utils import check_advertise_url_reachability
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -141,6 +142,7 @@ class CometNetService(CometNetBackend):
             f" - Keys: {self.keys_dir}"
             f" - Key Encrypted: {key_encrypted}"
             f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
+            f" - Skip Reachability Check: {settings.COMETNET_SKIP_REACHABILITY_CHECK}"
             f"{private_mode}",
         )
         logger.log(
@@ -229,7 +231,6 @@ class CometNetService(CometNetBackend):
                     )
                 else:
                     logger.warning(
-                        "COMETNET",
                         f"UPnP mapped to {external_ip} but COMETNET_ADVERTISE_URL is already set. Using configured URL.",
                     )
 
@@ -272,6 +273,58 @@ class CometNetService(CometNetBackend):
                 )
                 await logger.complete()
                 sys.exit(1)
+
+        # Require advertise_url on public networks
+        if not self.advertise_url:
+            if (
+                not settings.COMETNET_PRIVATE_NETWORK
+                and not settings.COMETNET_ALLOW_PRIVATE_PEX
+            ):
+                upnp_hint = (
+                    "   (UPnP is enabled but failed to configure - check your router)\n"
+                    if settings.COMETNET_UPNP_ENABLED
+                    else "2. Or enable UPnP with COMETNET_UPNP_ENABLED=true (will auto-configure)\n"
+                )
+                logger.critical(
+                    "\nCometNet failed to start because COMETNET_ADVERTISE_URL is not configured.\n"
+                    "Without a public URL, your node's local address will be shared with peers,\n"
+                    "polluting the network with unreachable addresses.\n\n"
+                    "Please:\n"
+                    "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
+                    f"{upnp_hint}"
+                    "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
+                )
+                await logger.complete()
+                sys.exit(1)
+
+        # External reachability check
+        # Verify that our advertise URL is actually reachable from the outside
+        if self.advertise_url and not settings.COMETNET_SKIP_REACHABILITY_CHECK:
+            logger.log(
+                "COMETNET",
+                f"Verifying external reachability of {self.advertise_url}...",
+            )
+            is_reachable, error = await check_advertise_url_reachability(
+                self.advertise_url
+            )
+
+            if not is_reachable:
+                logger.critical(
+                    f"\nCometNet failed to start because COMETNET_ADVERTISE_URL ('{self.advertise_url}') "
+                    f"is not reachable from outside.\n"
+                    f"Error: {error}\n\n"
+                    "Other nodes will not be able to connect to you, which pollutes the network "
+                    "with unreachable peer addresses.\n\n"
+                    "Please:\n"
+                    "1. Ensure your COMETNET_ADVERTISE_URL is publicly accessible\n"
+                    "2. Check your firewall and port forwarding settings\n"
+                    "3. If using a reverse proxy, ensure WebSocket headers are forwarded correctly\n"
+                    "4. If testing locally, set COMETNET_SKIP_REACHABILITY_CHECK=true"
+                )
+                await logger.complete()
+                sys.exit(1)
+
+            logger.log("COMETNET", "External reachability check passed")
 
         # Start gossip engine
         await self.gossip.start()
