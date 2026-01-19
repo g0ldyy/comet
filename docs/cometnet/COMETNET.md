@@ -240,6 +240,9 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_PEER_CLEANUP_AGE` | `604800` | Seconds (7 days) to keep inactive peers. |
 | `COMETNET_ALLOW_PRIVATE_PEX` | `False` | Allow private/internal IPs via Peer Exchange. Enable for LAN setups. |
 | `COMETNET_SKIP_REACHABILITY_CHECK` | `False` | Skip the external reachability check on startup. Only use for local testing. |
+| `COMETNET_REACHABILITY_RETRIES` | `5` | Number of retry attempts for the reachability check. Useful when using Traefik or other reverse proxies that take time to start. |
+| `COMETNET_REACHABILITY_RETRY_DELAY` | `10` | Delay in seconds between retry attempts for the reachability check. |
+| `COMETNET_REACHABILITY_TIMEOUT` | `10` | Timeout in seconds for each reachability check attempt. |
 
 #### Transport
 
@@ -401,11 +404,15 @@ On startup, CometNet verifies that your `COMETNET_ADVERTISE_URL` is actually rea
 
 1. **Check your URL**: Ensure `COMETNET_ADVERTISE_URL` points to your public address.
 2. **Firewall/NAT**: Make sure port 8765 is open and forwarded.
-3. **Reverse proxy**: If using nginx/caddy, ensure WebSocket headers are forwarded (`Upgrade` and `Connection`).
+3. **Reverse proxy**: If using nginx/caddy/Traefik, ensure WebSocket headers are forwarded (`Upgrade` and `Connection`).
 4. **SSL certificate**: If using `wss://`, verify your SSL certificate is valid.
-5. **Testing locally?** Set `COMETNET_SKIP_REACHABILITY_CHECK=True` to bypass this check.
+5. **Using Traefik or slow reverse proxy?** The reverse proxy may take time to open. Increase retry settings:
+   - `COMETNET_REACHABILITY_RETRIES=10` (default: 5)
+   - `COMETNET_REACHABILITY_RETRY_DELAY=15` (default: 10 seconds)
+   - `COMETNET_REACHABILITY_TIMEOUT=15` (default: 10 seconds)
+6. **Testing locally?** Set `COMETNET_SKIP_REACHABILITY_CHECK=True` to bypass this check.
 
-The check works by making an HTTP request to your advertise URL and verifying the response contains "CometNet WebSocket Server".
+The check makes multiple attempts to connect to your WebSocket URL with configurable retries and delays to accommodate slow-starting reverse proxies like Traefik.
 
 ### No Peers Connecting
 

@@ -150,6 +150,12 @@ class CometNetService(CometNetBackend):
         )
         logger.log(
             "COMETNET",
+            f"Reachability Check Config: Retries={settings.COMETNET_REACHABILITY_RETRIES}"
+            f" - Retry Delay={settings.COMETNET_REACHABILITY_RETRY_DELAY}s"
+            f" - Timeout={settings.COMETNET_REACHABILITY_TIMEOUT}s",
+        )
+        logger.log(
+            "COMETNET",
             f"Pools Config: Dir={settings.COMETNET_POOLS_DIR}"
             f"{trusted_pools}{ingest_pools}",
         )
@@ -312,30 +318,63 @@ class CometNetService(CometNetBackend):
         # WebSocket reachability check
         # Verify we can connect to our own advertise URL (like a peer would)
         if self.advertise_url and not settings.COMETNET_SKIP_REACHABILITY_CHECK:
+            max_retries = settings.COMETNET_REACHABILITY_RETRIES
+            retry_delay = settings.COMETNET_REACHABILITY_RETRY_DELAY
+            timeout = settings.COMETNET_REACHABILITY_TIMEOUT
+
             logger.log(
                 "COMETNET",
                 f"Verifying WebSocket reachability of {self.advertise_url}...",
             )
-            is_reachable, result_msg = await check_advertise_url_reachability(
-                self.advertise_url, timeout=10.0
-            )
+
+            is_reachable = False
+            result_msg = None
+
+            for attempt in range(1, max_retries + 1):
+                if attempt > 1:
+                    logger.log(
+                        "COMETNET",
+                        f"Retry {attempt}/{max_retries} after {retry_delay}s delay...",
+                    )
+                    await asyncio.sleep(retry_delay)
+
+                is_reachable, result_msg = await check_advertise_url_reachability(
+                    self.advertise_url, timeout=timeout
+                )
+
+                if is_reachable:
+                    if attempt > 1:
+                        logger.log(
+                            "COMETNET",
+                            f"✓ Reachability check passed on attempt {attempt}/{max_retries} ({result_msg})",
+                        )
+                    else:
+                        logger.log(
+                            "COMETNET", f"✓ Reachability check passed ({result_msg})"
+                        )
+                    break
+                else:
+                    logger.log(
+                        "COMETNET",
+                        f"✗ Attempt {attempt}/{max_retries} failed: {result_msg}",
+                    )
 
             if not is_reachable:
                 logger.critical(
                     f"\nCometNet failed to start: Cannot connect to COMETNET_ADVERTISE_URL\n"
                     f"URL: {self.advertise_url}\n"
-                    f"Error: {result_msg}\n\n"
+                    f"Error: {result_msg}\n"
+                    f"Failed after {max_retries} attempts\n\n"
                     "Other peers won't be able to connect to you either.\n\n"
                     "Troubleshooting:\n"
                     f"1. Ensure port {self.listen_port} is open and forwarded correctly\n"
-                    "2. If using reverse proxy, ensure WebSocket upgrade headers are forwarded\n"
-                    "3. Test manually: wscat -c " + self.advertise_url + "\n"
-                    "4. To skip this check: COMETNET_SKIP_REACHABILITY_CHECK=true"
+                    "2. If using reverse proxy (e.g., Traefik), ensure WebSocket upgrade headers are forwarded\n"
+                    "3. If using Traefik, the reverse proxy may take time to open - increase COMETNET_REACHABILITY_RETRIES/DELAY\n"
+                    "4. Test manually: wscat -c " + self.advertise_url + "\n"
+                    "5. To skip this check: COMETNET_SKIP_REACHABILITY_CHECK=true"
                 )
                 await logger.complete()
                 sys.exit(1)
-
-            logger.log("COMETNET", f"Reachability check passed ({result_msg})")
 
         # Start gossip engine
         await self.gossip.start()

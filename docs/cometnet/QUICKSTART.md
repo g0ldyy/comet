@@ -219,12 +219,12 @@ Connected to peer def456...
 Navigate to **Admin Dashboard → CometNet** to see:
 - Your Node ID
 - Connected peers count
-- Torrents sent/received
+- Torrents propagated/repropagated/received
 
 ### Test propagation
 
 1. Search for content to trigger scraping.
-2. Watch the CometNet stats for "Torrents Sent".
+2. Watch the CometNet stats for "Torrents Propagated".
 3. Your peers should see the same torrents appear.
 
 ---
@@ -246,8 +246,14 @@ Make sure `COMETNET_ENABLED=True` and `FASTAPI_WORKERS=1`.
 CometNet verifies your advertise URL is accessible before joining the network. If this fails:
 
 1. Check your firewall and port forwarding
-2. If using a reverse proxy, ensure WebSocket headers are forwarded
-3. For local testing only: `COMETNET_SKIP_REACHABILITY_CHECK=True`
+2. If using a reverse proxy (e.g., Traefik), ensure WebSocket headers are forwarded
+3. **Traefik or slow reverse proxy?** The port may take time to open. Increase retry settings:
+   ```bash
+   COMETNET_REACHABILITY_RETRIES=10  # Default: 5
+   COMETNET_REACHABILITY_RETRY_DELAY=15  # Default: 10 seconds
+   COMETNET_REACHABILITY_TIMEOUT=15  # Default: 10 seconds
+   ```
+4. For local testing only: `COMETNET_SKIP_REACHABILITY_CHECK=True`
 
 ### Using relay but getting errors
 

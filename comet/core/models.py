@@ -159,6 +159,9 @@ class AppSettings(BaseSettings):
     COMETNET_KEY_PASSWORD: Optional[str] = None
     COMETNET_ALLOW_PRIVATE_PEX: Optional[bool] = False
     COMETNET_SKIP_REACHABILITY_CHECK: Optional[bool] = False
+    COMETNET_REACHABILITY_RETRIES: Optional[int] = 5
+    COMETNET_REACHABILITY_RETRY_DELAY: Optional[int] = 10
+    COMETNET_REACHABILITY_TIMEOUT: Optional[int] = 10
     COMETNET_UPNP_ENABLED: Optional[bool] = False
     COMETNET_UPNP_LEASE_DURATION: Optional[int] = 3600
     COMETNET_RELAY_URL: Optional[str] = None
