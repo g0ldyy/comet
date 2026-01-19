@@ -8,11 +8,13 @@ Orchestrates all components: Identity, Transport, Discovery, Gossip, Reputation,
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlparse
 
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.discovery import DiscoveryService, is_valid_peer_address
@@ -29,7 +31,9 @@ from comet.cometnet.protocol import (AnyMessage, MessageType, PeerRequest,
                                      TorrentMetadata)
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
-from comet.cometnet.utils import check_advertise_url_reachability
+from comet.cometnet.utils import (check_advertise_url_reachability,
+                                  is_internal_domain,
+                                  is_private_or_internal_ip)
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -201,6 +205,10 @@ class CometNetService(CometNetBackend):
             f" - Sig Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE}",
         )
 
+        # Validate advertise_url format and security
+        if self.advertise_url:
+            await self._validate_advertise_url()
+
         # Load saved state
         await self._load_state()
 
@@ -239,8 +247,13 @@ class CometNetService(CometNetBackend):
 
         # Custom check for unencrypted transport
         if self.advertise_url and self.advertise_url.startswith("ws://"):
-            allowed_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
-            is_local = any(host in self.advertise_url for host in allowed_hosts)
+            try:
+                parsed = urlparse(self.advertise_url)
+                host = (parsed.hostname or "").lower()
+                local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+                is_local = host in local_hosts
+            except Exception:
+                is_local = False
 
             if not is_local:
                 logger.warning(
@@ -300,31 +313,135 @@ class CometNetService(CometNetBackend):
         # External reachability check
         # Verify that our advertise URL is actually reachable from the outside
         if self.advertise_url and not settings.COMETNET_SKIP_REACHABILITY_CHECK:
-            logger.log(
-                "COMETNET",
-                f"Verifying external reachability of {self.advertise_url}...",
-            )
-            is_reachable, error = await check_advertise_url_reachability(
-                self.advertise_url
+            try:
+                parsed_host = urlparse(self.advertise_url).hostname
+                ip = ipaddress.ip_address(parsed_host)
+                is_public_ip = not (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_reserved
+                )
+            except (ValueError, TypeError):
+                is_public_ip = False
+
+            if is_public_ip:
+                logger.log(
+                    "COMETNET",
+                    f"Verifying EXTERNAL reachability of {self.advertise_url} "
+                    "(public IP detected, using check-host.net)...",
+                )
+            else:
+                logger.log(
+                    "COMETNET",
+                    f"Verifying reachability of {self.advertise_url}...",
+                )
+            is_reachable, result_msg = await check_advertise_url_reachability(
+                self.advertise_url, logger=logger
             )
 
             if not is_reachable:
-                logger.critical(
-                    f"\nCometNet failed to start because COMETNET_ADVERTISE_URL ('{self.advertise_url}') "
-                    f"is not reachable from outside.\n"
-                    f"Error: {error}\n\n"
-                    "Other nodes will not be able to connect to you, which pollutes the network "
-                    "with unreachable peer addresses.\n\n"
-                    "Please:\n"
-                    "1. Ensure your COMETNET_ADVERTISE_URL is publicly accessible\n"
-                    "2. Check your firewall and port forwarding settings\n"
-                    "3. If using a reverse proxy, ensure WebSocket headers are forwarded correctly\n"
-                    "4. If testing locally, set COMETNET_SKIP_REACHABILITY_CHECK=true"
+                parsed = urlparse(self.advertise_url)
+                is_ssl = parsed.scheme == "wss"
+                port = parsed.port or (443 if is_ssl else 80)
+
+                error_lines = [
+                    "\nCometNet failed to start: COMETNET_ADVERTISE_URL is not reachable.",
+                    f"URL: {self.advertise_url}",
+                    f"Error: {result_msg}",
+                    "",
+                    "=" * 60,
+                    "TROUBLESHOOTING GUIDE",
+                    "=" * 60,
+                    "",
+                    "1. FIREWALL / PORT FORWARDING",
+                    f"   - Ensure port {self.listen_port} (CometNet) is open for incoming connections",
+                    f"   - If behind NAT, forward port {self.listen_port} to this machine",
+                    "",
+                ]
+
+                if is_ssl or port in (80, 443):
+                    error_lines.extend(
+                        [
+                            "2. REVERSE PROXY CONFIGURATION",
+                            "   Your URL suggests you're using a reverse proxy. Ensure:",
+                            "",
+                            "   For NGINX:",
+                            "   ```",
+                            "   location /cometnet/ws {",
+                            "       proxy_pass http://127.0.0.1:"
+                            + str(self.listen_port)
+                            + ";",
+                            "       proxy_http_version 1.1;",
+                            "       proxy_set_header Upgrade $http_upgrade;",
+                            '       proxy_set_header Connection "upgrade";',
+                            "       proxy_set_header Host $host;",
+                            "       proxy_read_timeout 86400;",
+                            "   }",
+                            "   # Also add a health check endpoint",
+                            "   location /cometnet/health {",
+                            "       proxy_pass http://127.0.0.1:"
+                            + str(self.listen_port)
+                            + "/health;",
+                            "   }",
+                            "   ```",
+                            "",
+                            "   For CADDY:",
+                            "   ```",
+                            "   reverse_proxy /cometnet/* 127.0.0.1:"
+                            + str(self.listen_port),
+                            "   ```",
+                            "",
+                            "   For TRAEFIK:",
+                            "   - Ensure WebSocket support is enabled on your router",
+                            "",
+                        ]
+                    )
+                else:
+                    error_lines.extend(
+                        [
+                            "2. DIRECT CONNECTION (no reverse proxy)",
+                            f"   - Ensure CometNet is listening on port {self.listen_port}",
+                            f"   - Check that no firewall is blocking port {port}",
+                            "",
+                        ]
+                    )
+
+                error_lines.extend(
+                    [
+                        "3. TESTING / DEVELOPMENT",
+                        "   If testing locally or don't need external reachability:",
+                        "   - Set COMETNET_SKIP_REACHABILITY_CHECK=true",
+                        "   - Note: Other nodes won't be able to connect to you",
+                        "",
+                        "4. VERIFY MANUALLY",
+                        "   From another machine/network, try:",
+                        f"   curl -v {self.advertise_url.replace('ws://', 'http://').replace('wss://', 'https://').rstrip('/') + '/health'}",
+                        "   Expected: 'CometNet WebSocket Server'",
+                    ]
                 )
+
+                logger.critical("\n".join(error_lines))
                 await logger.complete()
                 sys.exit(1)
 
-            logger.log("COMETNET", "External reachability check passed")
+            if result_msg and result_msg.startswith("EXTERNAL_VERIFIED:"):
+                verification_details = result_msg.replace("EXTERNAL_VERIFIED: ", "")
+                logger.log(
+                    "COMETNET",
+                    f"Reachability check passed - {verification_details}",
+                )
+            elif result_msg and result_msg.startswith("LOCAL_ONLY:"):
+                reason = result_msg.replace("LOCAL_ONLY: ", "")
+                logger.log("COMETNET", "Reachability check passed (local verification)")
+                if not settings.COMETNET_PRIVATE_NETWORK:
+                    logger.warning(
+                        f"Could not verify external reachability ({reason}). "
+                        "Local server responds correctly, but this doesn't guarantee "
+                        "external accessibility. Test from another network to confirm."
+                    )
+            else:
+                logger.log("COMETNET", "Reachability check passed")
 
         # Start gossip engine
         await self.gossip.start()
@@ -437,6 +554,108 @@ class CometNetService(CometNetBackend):
             # Send our manifests to newly connected peers to trigger sync
             # This ensures we receive their updated manifests if they have newer versions
             await self._sync_manifests_with_peers(connected_peers)
+
+    async def _validate_advertise_url(self) -> None:
+        """
+        Validate the advertise URL for security and format issues.
+
+        Checks:
+        1. URL format (scheme, hostname, port)
+        2. Internal/private domain detection
+        3. DNS rebinding protection (domain resolving to private IP)
+        4. Port range validation
+        """
+        url = self.advertise_url
+        if not url:
+            return
+
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            logger.critical(
+                f"\nCometNet failed to start: Invalid COMETNET_ADVERTISE_URL format.\n"
+                f"URL: {url}\n"
+                f"Error: {e}\n\n"
+                "Please provide a valid WebSocket URL like:\n"
+                "  wss://your-domain.com/cometnet/ws\n"
+                "  ws://123.45.67.89:8765"
+            )
+            await logger.complete()
+            sys.exit(1)
+
+        # Validate scheme
+        if parsed.scheme not in ("ws", "wss"):
+            logger.critical(
+                f"\nCometNet failed to start: Invalid URL scheme '{parsed.scheme}'.\n"
+                f"URL: {url}\n\n"
+                "COMETNET_ADVERTISE_URL must use 'ws://' or 'wss://' scheme.\n"
+                "Examples:\n"
+                "  wss://your-domain.com/cometnet/ws (recommended)\n"
+                "  ws://123.45.67.89:8765 (unencrypted)"
+            )
+            await logger.complete()
+            sys.exit(1)
+
+        # Validate hostname exists
+        hostname = parsed.hostname
+        if not hostname:
+            logger.critical(
+                f"\nCometNet failed to start: No hostname in COMETNET_ADVERTISE_URL.\n"
+                f"URL: {url}\n\n"
+                "Please specify a hostname or IP address."
+            )
+            await logger.complete()
+            sys.exit(1)
+
+        # Validate port range
+        if parsed.port is not None and not (1 <= parsed.port <= 65535):
+            logger.critical(
+                f"\nCometNet failed to start: Invalid port {parsed.port}.\n"
+                f"URL: {url}\n\n"
+                "Port must be between 1 and 65535."
+            )
+            await logger.complete()
+            sys.exit(1)
+
+        # Check for internal domains (unless private network is allowed)
+        if (
+            not settings.COMETNET_PRIVATE_NETWORK
+            and not settings.COMETNET_ALLOW_PRIVATE_PEX
+        ):
+            hostname_lower = hostname.lower()
+
+            # Check for suspicious internal domain patterns
+            if is_internal_domain(hostname_lower):
+                logger.critical(
+                    f"\nCometNet failed to start: COMETNET_ADVERTISE_URL uses an internal domain.\n"
+                    f"URL: {url}\n"
+                    f"Hostname: {hostname}\n\n"
+                    "Internal domains (.local, .internal, .lan, etc.) are not routable on the public internet.\n"
+                    "Public nodes MUST use a publicly resolvable domain or IP address.\n\n"
+                    "If this is intentional:\n"
+                    "1. For private networks: set COMETNET_PRIVATE_NETWORK=true\n"
+                    "2. For testing: set COMETNET_ALLOW_PRIVATE_PEX=true"
+                )
+                await logger.complete()
+                sys.exit(1)
+
+            # Check if domain resolves to a private IP (DNS rebinding protection)
+            if is_private_or_internal_ip(hostname_lower):
+                logger.critical(
+                    f"\nCometNet failed to start: COMETNET_ADVERTISE_URL resolves to a private IP.\n"
+                    f"URL: {url}\n"
+                    f"Hostname: {hostname}\n\n"
+                    "This domain resolves to a private/internal IP address.\n"
+                    "This could be a DNS rebinding attack or a misconfiguration.\n"
+                    "Public nodes MUST resolve to a public IP address.\n\n"
+                    "If this is intentional:\n"
+                    "1. For private networks: set COMETNET_PRIVATE_NETWORK=true\n"
+                    "2. For testing: set COMETNET_ALLOW_PRIVATE_PEX=true"
+                )
+                await logger.complete()
+                sys.exit(1)
+
+        logger.debug(f"Advertise URL validation passed: {url}")
 
     def _init_components(self) -> None:
         """Initialize all CometNet components."""

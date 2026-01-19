@@ -213,16 +213,34 @@ class ConnectionManager:
         upgrade_header = request.headers.get("Upgrade", "").lower()
 
         if "upgrade" not in connection_header or upgrade_header != "websocket":
-            # Not a WebSocket request - likely a misconfigured reverse proxy
-            logger.warning(
-                f"Received HTTP request on WebSocket port (path={request.path}). "
-                "If using a reverse proxy, ensure it forwards WebSocket headers: "
-                "'Upgrade: websocket' and 'Connection: Upgrade'"
+            path = request.path or "/"
+            path_lower = path.lower().rstrip("/")
+
+            # Known health check paths (don't warn for these)
+            health_paths = {
+                "",
+                "/",
+                "/health",
+                "/healthz",
+                "/cometnet",
+                "/cometnet/health",
+                "/cometnet/healthz",
+            }
+
+            is_health_check = (
+                path_lower in health_paths
+                or path_lower.endswith("/health")
+                or path_lower.endswith("/healthz")
             )
 
-            # Handle as HTTP
-            if request.path == "/" or request.path == "/health":
-                # Health check probe - return 200 OK
+            if not is_health_check:
+                logger.warning(
+                    f"Received HTTP request on WebSocket port (path={path}). "
+                    "If using a reverse proxy, ensure it forwards WebSocket headers: "
+                    "'Upgrade: websocket' and 'Connection: Upgrade'"
+                )
+
+            if is_health_check:
                 return Response(
                     200,
                     "OK",
