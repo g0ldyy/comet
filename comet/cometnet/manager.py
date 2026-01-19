@@ -188,6 +188,7 @@ class CometNetService(CometNetBackend):
             f" - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP}"
             f" - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s"
             f" - Timeout={settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT}s"
+            f" - Max Latency={settings.COMETNET_TRANSPORT_MAX_LATENCY_MS}ms"
             f" - RateLimit: {settings.COMETNET_TRANSPORT_RATE_LIMIT_ENABLED} "
             f"({settings.COMETNET_TRANSPORT_RATE_LIMIT_COUNT}/{settings.COMETNET_TRANSPORT_RATE_LIMIT_WINDOW}s)",
         )

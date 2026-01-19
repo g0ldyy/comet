@@ -252,6 +252,7 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP` | `3` | Maximum connections from a single IP (anti-Sybil). |
 | `COMETNET_TRANSPORT_PING_INTERVAL` | `30.0` | Seconds between keepalive pings. |
 | `COMETNET_TRANSPORT_CONNECTION_TIMEOUT` | `120.0` | Seconds before dropping a silent connection. |
+| `COMETNET_TRANSPORT_MAX_LATENCY_MS` | `10000.0` | Maximum acceptable peer latency (ms). Peers exceeding this are disconnected. |
 | `COMETNET_TRANSPORT_RATE_LIMIT_ENABLED` | `True` | Enable rate limiting for incoming messages. |
 | `COMETNET_TRANSPORT_RATE_LIMIT_COUNT` | `20` | Max messages per window. |
 | `COMETNET_TRANSPORT_RATE_LIMIT_WINDOW` | `1.0` | Window size (seconds). |

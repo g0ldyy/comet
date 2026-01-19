@@ -70,6 +70,9 @@ class PeerConnection:
     listen_port: int = 0  # Port where this peer accepts connections
     pending_pings: Dict[str, float] = field(default_factory=dict)  # nonce -> sent_time
     latency_ms: float = 0.0
+    latency_samples: deque = field(
+        default_factory=lambda: deque(maxlen=10)
+    )  # Rolling window of latency samples
 
     # Rate limiting
     rate_limit_history: deque = field(default_factory=deque)
@@ -764,7 +767,15 @@ class ConnectionManager:
         """Handle a pong response."""
         if pong.nonce in conn.pending_pings:
             sent_time = conn.pending_pings.pop(pong.nonce)
-            conn.latency_ms = (time.time() - sent_time) * 1000
+            rtt = (time.time() - sent_time) * 1000
+
+            # Ignore extremely old pongs (> 60s) - they're stale
+            if rtt > 60000:
+                return
+
+            # Add to rolling window and compute average
+            conn.latency_samples.append(rtt)
+            conn.latency_ms = sum(conn.latency_samples) / len(conn.latency_samples)
 
     async def _ping_loop(self) -> None:
         """Periodically ping all peers to check health (staggered)."""
@@ -782,16 +793,35 @@ class ConnectionManager:
 
                 stale_nodes: List[str] = []
 
+                now = time.time()
+                high_latency_nodes: List[str] = []
+                max_latency = settings.COMETNET_TRANSPORT_MAX_LATENCY_MS or 10000.0
+
                 for conn in connections:
                     if not self._running:
                         break
 
                     # Check for stale connection
                     if (
-                        time.time() - conn.last_activity
+                        now - conn.last_activity
                         > settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT
                     ):
                         stale_nodes.append(conn.node_id)
+                        continue
+
+                    # Clean up stale pending pings (older than 60s)
+                    # This prevents latency from being calculated on very old pings
+                    stale_pings = [
+                        nonce
+                        for nonce, sent_time in conn.pending_pings.items()
+                        if now - sent_time > 60
+                    ]
+                    for nonce in stale_pings:
+                        del conn.pending_pings[nonce]
+
+                    # Check for persistently high latency (only if we have enough samples)
+                    if len(conn.latency_samples) >= 5 and conn.latency_ms > max_latency:
+                        high_latency_nodes.append(conn.node_id)
                         continue
 
                     # Prepare ping
@@ -803,7 +833,7 @@ class ConnectionManager:
                     ping.signature = await self.identity.sign_hex_async(
                         ping.to_signable_bytes()
                     )
-                    conn.pending_pings[nonce] = time.time()
+                    conn.pending_pings[nonce] = now
 
                     # Send without waiting
                     asyncio.create_task(conn.send(ping))
@@ -815,6 +845,17 @@ class ConnectionManager:
                 if stale_nodes:
                     await asyncio.gather(
                         *(self.disconnect_peer(nid) for nid in stale_nodes),
+                        return_exceptions=True,
+                    )
+
+                # Disconnect high-latency connections
+                if high_latency_nodes:
+                    logger.log(
+                        "COMETNET",
+                        f"Disconnecting {len(high_latency_nodes)} peers with high latency (>{max_latency:.0f}ms)",
+                    )
+                    await asyncio.gather(
+                        *(self.disconnect_peer(nid) for nid in high_latency_nodes),
                         return_exceptions=True,
                     )
 
