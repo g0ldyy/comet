@@ -32,7 +32,8 @@ from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
 from comet.cometnet.utils import (check_advertise_url_reachability,
                                   is_internal_domain,
-                                  is_private_or_internal_ip)
+                                  is_private_or_internal_ip,
+                                  shutdown_crypto_executor)
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -426,6 +427,9 @@ class CometNetService(CometNetBackend):
 
         if self.upnp:
             self.upnp.stop()
+
+        # Shutdown the dedicated crypto thread pool
+        shutdown_crypto_executor()
 
         logger.log("COMETNET", "CometNet stopped")
 

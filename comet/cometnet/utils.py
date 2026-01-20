@@ -9,6 +9,7 @@ import asyncio
 import ipaddress
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
@@ -16,7 +17,30 @@ from urllib.parse import urlparse
 import websockets
 from websockets.exceptions import InvalidHandshake, InvalidStatusCode
 
+from comet.core.models import settings
+
 T = TypeVar("T")
+
+_crypto_executor: Optional[ThreadPoolExecutor] = None
+
+
+def _get_crypto_executor() -> ThreadPoolExecutor:
+    """Get or create the dedicated crypto thread pool."""
+    global _crypto_executor
+    if _crypto_executor is None:
+        pool_size = max(4, settings.EXECUTOR_MAX_WORKERS)
+        _crypto_executor = ThreadPoolExecutor(
+            max_workers=pool_size, thread_name_prefix="cometnet-crypto-"
+        )
+    return _crypto_executor
+
+
+def shutdown_crypto_executor() -> None:
+    """Shutdown the crypto executor (call on application shutdown)."""
+    global _crypto_executor
+    if _crypto_executor is not None:
+        _crypto_executor.shutdown(wait=False)
+        _crypto_executor = None
 
 
 # --- Data Normalization ---
@@ -197,10 +221,11 @@ def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
 
 async def run_in_executor(func: Callable[..., T], *args: Any) -> T:
     """
-    Run a blocking function in the default loop executor.
+    Run a blocking function in the dedicated crypto executor.
     """
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(func, *args))
+    executor = _get_crypto_executor()
+    return await loop.run_in_executor(executor, partial(func, *args))
 
 
 # --- Reachability Check ---

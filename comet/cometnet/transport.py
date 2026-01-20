@@ -583,7 +583,9 @@ class ConnectionManager:
 
                 logger.debug(f"Sending handshake to {client_ip}...")
                 await websocket.send(handshake.to_bytes())
-                logger.debug(f"Handshake sent, waiting for response from {client_ip}...")
+                logger.debug(
+                    f"Handshake sent, waiting for response from {client_ip}..."
+                )
 
                 # Wait for their handshake
                 response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
@@ -800,7 +802,7 @@ class ConnectionManager:
             conn.latency_ms = sum(conn.latency_samples) / len(conn.latency_samples)
 
     async def _ping_loop(self) -> None:
-        """Periodically ping all peers to check health (staggered)."""
+        """Periodically ping all peers to check health."""
         while self._running:
             try:
                 await asyncio.sleep(settings.COMETNET_TRANSPORT_PING_INTERVAL)
@@ -810,20 +812,13 @@ class ConnectionManager:
                 if not connections:
                     continue
 
-                # Shuffle to randomize order
-                random.shuffle(connections)
-
-                stale_nodes: List[str] = []
-
                 now = time.time()
+                stale_nodes: List[str] = []
                 high_latency_nodes: List[str] = []
                 max_latency = settings.COMETNET_TRANSPORT_MAX_LATENCY_MS or 10000.0
 
+                peers_to_ping: List[PeerConnection] = []
                 for conn in connections:
-                    if not self._running:
-                        break
-
-                    # Check for stale connection
                     if (
                         now - conn.last_activity
                         > settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT
@@ -831,8 +826,6 @@ class ConnectionManager:
                         stale_nodes.append(conn.node_id)
                         continue
 
-                    # Clean up stale pending pings (older than 60s)
-                    # This prevents latency from being calculated on very old pings
                     stale_pings = [
                         nonce
                         for nonce, sent_time in conn.pending_pings.items()
@@ -841,27 +834,46 @@ class ConnectionManager:
                     for nonce in stale_pings:
                         del conn.pending_pings[nonce]
 
-                    # Check for persistently high latency (only if we have enough samples)
                     if len(conn.latency_samples) >= 5 and conn.latency_ms > max_latency:
                         high_latency_nodes.append(conn.node_id)
                         continue
 
-                    # Prepare ping
+                    peers_to_ping.append(conn)
+
+                ping_data: List[tuple] = []
+                for conn in peers_to_ping:
                     nonce = secrets.token_hex(8)
                     ping = PingMessage(
                         sender_id=self.identity.node_id,
                         nonce=nonce,
                     )
-                    ping.signature = await self.identity.sign_hex_async(
-                        ping.to_signable_bytes()
+                    ping_data.append((conn, nonce, ping))
+
+                if ping_data:
+
+                    async def sign_ping(ping: PingMessage) -> str:
+                        return await self.identity.sign_hex_async(
+                            ping.to_signable_bytes()
+                        )
+
+                    signatures = await asyncio.gather(
+                        *(sign_ping(ping) for _, _, ping in ping_data),
+                        return_exceptions=True,
                     )
-                    conn.pending_pings[nonce] = now
 
-                    # Send without waiting
-                    asyncio.create_task(conn.send(ping))
+                    for i, (conn, nonce, ping) in enumerate(ping_data):
+                        if not self._running:
+                            break
 
-                    # Sleep briefly to spread load (thundering herd prevention)
-                    await asyncio.sleep(0.05)
+                        sig = signatures[i]
+                        if isinstance(sig, Exception):
+                            continue
+
+                        ping.signature = sig
+                        send_time = time.time()
+                        conn.pending_pings[nonce] = send_time
+
+                        asyncio.create_task(conn.send(ping))
 
                 # Disconnect stale connections
                 if stale_nodes:
