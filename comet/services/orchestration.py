@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import BrokenProcessPool
 
 import orjson
 from RTN import DefaultRanking, ParsedData
@@ -231,22 +232,29 @@ class TorrentManager:
 
         loop = asyncio.get_running_loop()
         chunk_size = 20
-        tasks = [
-            loop.run_in_executor(
-                get_executor(),
-                filter_worker,
-                new_torrents[i : i + chunk_size],
-                self.title,
-                self.year,
-                self.year_end,
-                self.aliases,
-                self.remove_adult_content,
+        try:
+            tasks = [
+                loop.run_in_executor(
+                    get_executor(),
+                    filter_worker,
+                    new_torrents[i : i + chunk_size],
+                    self.title,
+                    self.year,
+                    self.year_end,
+                    self.aliases,
+                    self.remove_adult_content,
+                )
+                for i in range(0, len(new_torrents), chunk_size)
+            ]
+            results = await asyncio.gather(*tasks)
+            for result in results:
+                self.ready_to_cache.extend(result)
+        except BrokenProcessPool:
+            logger.error(
+                "RTN filter worker process pool crashed during filtering; skipping RTN filter for this request."
             )
-            for i in range(0, len(new_torrents), chunk_size)
-        ]
-        results = await asyncio.gather(*tasks)
-        for result in results:
-            self.ready_to_cache.extend(result)
+        except Exception as e:
+            logger.error(f"Unexpected error during RTN filtering: {e}")
 
     async def rank_torrents(
         self,
@@ -258,15 +266,24 @@ class TorrentManager:
         remove_trash: int,
     ):
         loop = asyncio.get_running_loop()
-        self.ranked_torrents = await loop.run_in_executor(
-            get_executor(),
-            rank_worker,
-            self.torrents,
-            self.debrid_service,
-            rtn_settings,
-            rtn_ranking,
-            max_results_per_resolution,
-            max_size,
-            cached_only,
-            remove_trash,
-        )
+        try:
+            self.ranked_torrents = await loop.run_in_executor(
+                get_executor(),
+                rank_worker,
+                self.torrents,
+                self.debrid_service,
+                rtn_settings,
+                rtn_ranking,
+                max_results_per_resolution,
+                max_size,
+                cached_only,
+                remove_trash,
+            )
+        except BrokenProcessPool:
+            logger.error(
+                "RTN ranking worker process pool crashed during ranking; returning unranked torrents."
+            )
+            # Fallback: leave torrents in current order
+            self.ranked_torrents = self.torrents
+        except Exception as e:
+            logger.error(f"Unexpected error during RTN ranking: {e}")
