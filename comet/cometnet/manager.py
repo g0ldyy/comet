@@ -1876,10 +1876,9 @@ class CometNetService(CometNetBackend):
 
                 if not hmac.compare_digest(stored_hash, expected_hash):
                     logger.warning(
-                        "State file integrity check failed - possible tampering detected. "
-                        "State will not be loaded."
+                        f"State file integrity check failed (Stored: {stored_hash[:8]}..., Expected: {expected_hash[:8]}...). "
+                        "Loading state anyway to prevent data loss."
                     )
-                    return
 
             # Load reputation data
             if "reputation" in state and self.reputation:
