@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import msgpack
-import xxhash
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 from comet.cometnet.crypto import NodeIdentity
@@ -125,26 +124,34 @@ class PoolManifest(BaseModel):
         """Check if a public key belongs to any member."""
         return self.get_member(public_key) is not None
 
-    def to_signable_bytes(self, use_int_timestamps: bool = False) -> bytes:
+    def to_signable_bytes(self) -> bytes:
         """
         Get bytes for signing (excludes signatures field).
-        Args:
-            use_int_timestamps: If True, convert known timestamp fields to integers.
-                                This helps interacting with nodes using int-based timestamps.
+
+        Standardization Rules:
+        - Timestamps: Converted to integers (floor) to prevent float precision drift.
+        - Computed Fields: 'node_id' is EXCLUDED (must be re-computed by receiver).
+        - Local Stats: 'contribution_count' and 'last_seen' are EXCLUDED (not part of consensus).
         """
         data = self.model_dump(exclude={"signatures"})
 
-        if use_int_timestamps:
-            if "created_at" in data:
-                data["created_at"] = int(data["created_at"])
-            if "updated_at" in data:
-                data["updated_at"] = int(data["updated_at"])
-            if "members" in data and isinstance(data["members"], list):
-                for m in data["members"]:
-                    if "added_at" in m:
-                        m["added_at"] = int(m["added_at"])
-                    if "last_seen" in m:
-                        m["last_seen"] = int(m["last_seen"])
+        if "members" in data and isinstance(data["members"], list):
+            for m in data["members"]:
+                if "node_id" in m:
+                    del m["node_id"]
+
+                if "contribution_count" in m:
+                    del m["contribution_count"]
+                if "last_seen" in m:
+                    del m["last_seen"]
+
+                if "added_at" in m:
+                    m["added_at"] = int(m["added_at"])
+
+        if "created_at" in data:
+            data["created_at"] = int(data["created_at"])
+        if "updated_at" in data:
+            data["updated_at"] = int(data["updated_at"])
 
         # Sort members by public key for deterministic ordering
         if "members" in data and isinstance(data["members"], list):
@@ -1025,48 +1032,29 @@ class PoolStore:
             return False
 
         # Creator must have admin privileges (CREATOR or ADMIN role)
-        if not manifest.is_admin(manifest.creator_key):
-            return False  # Must have at least one signature
-        if not manifest.signatures:
-            return False
+        try:
+            signable_data = manifest.to_signable_bytes()
 
-        # At least one signature must be from an admin and VALID
-        # Prepare two variants: generic (float) and int-conformed (compatibility)
-        signable_data_float = manifest.to_signable_bytes(use_int_timestamps=False)
-        signable_data_int = manifest.to_signable_bytes(use_int_timestamps=True)
+            for admin_key, signature in manifest.signatures.items():
+                if manifest.is_admin(admin_key):
+                    if await NodeIdentity.verify_hex_async(
+                        signable_data, signature, admin_key
+                    ):
+                        return True
+        except Exception as e:
+            logger.debug(f"Validation error for pool {manifest.pool_id}: {e}")
+            pass
 
-        for admin_key, signature in manifest.signatures.items():
-            if manifest.is_admin(admin_key):
-                # Try standard verification first
-                if await NodeIdentity.verify_hex_async(
-                    signable_data_float, signature, admin_key
-                ):
-                    return True
-
-                # If failed, try compatibility mode (int timestamps)
-                if await NodeIdentity.verify_hex_async(
-                    signable_data_int, signature, admin_key
-                ):
-                    logger.log(
-                        "COMETNET",
-                        f"Validated pool {manifest.pool_id} using compatibility mode (INT timestamps)",
-                    )
-                    return True
-
+        if manifest.signatures:
+            try:
+                admin_key = next(iter(manifest.signatures.keys()))
                 member = manifest.get_member(admin_key)
                 admin_id = member.node_id if member else admin_key
-
                 logger.warning(
                     f"Invalid pool manifest signature from admin {admin_id[:8]}"
                 )
-
-                logger.debug(f"DEBUG: Verify Fail {admin_id[:8]}.")
-                logger.debug(
-                    f"DEBUG: Float SHA: {xxhash.xxh64(signable_data_float).hexdigest()}"
-                )
-                logger.debug(
-                    f"DEBUG: Int SHA: {xxhash.xxh64(signable_data_int).hexdigest()}"
-                )
+            except Exception:
+                pass
 
         return False
 
