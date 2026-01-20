@@ -122,10 +122,10 @@ class NyaaScraper(BaseScraper):
         torrents = []
 
         try:
-            query = request.title
-
-            all_torrents = await get_all_nyaa_pages(self.session, query)
-            torrents.extend(all_torrents)
+            queries = request.title_variants or [request.title]
+            for query in queries:
+                all_torrents = await get_all_nyaa_pages(self.session, query)
+                torrents.extend(all_torrents)
 
         except Exception as e:
             log_scraper_error("Nyaa", "https://nyaa.si", request.media_id, e)

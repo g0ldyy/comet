@@ -82,28 +82,29 @@ class AnimeToshoScraper(BaseScraper):
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
-        query = request.title
         limit = 150
 
-        initial_items, total = await self.scrape_page(query, 0, limit)
-        torrents.extend(initial_items)
+        queries = request.title_variants or [request.title]
+        for query in queries:
+            initial_items, total = await self.scrape_page(query, 0, limit)
+            torrents.extend(initial_items)
 
-        if total > limit:
-            batch_size = settings.ANIMETOSHO_MAX_CONCURRENT_PAGES
-            current_offset = limit
+            if total > limit:
+                batch_size = settings.ANIMETOSHO_MAX_CONCURRENT_PAGES
+                current_offset = limit
 
-            while current_offset < total:
-                tasks = []
-                for _ in range(batch_size):
-                    if current_offset >= total:
-                        break
+                while current_offset < total:
+                    tasks = []
+                    for _ in range(batch_size):
+                        if current_offset >= total:
+                            break
 
-                    tasks.append(self.scrape_page(query, current_offset, limit))
-                    current_offset += limit
+                        tasks.append(self.scrape_page(query, current_offset, limit))
+                        current_offset += limit
 
-                if tasks:
-                    results = await asyncio.gather(*tasks)
-                    for batch_items, _ in results:
-                        torrents.extend(batch_items)
+                    if tasks:
+                        results = await asyncio.gather(*tasks)
+                        for batch_items, _ in results:
+                            torrents.extend(batch_items)
 
         return torrents

@@ -114,12 +114,13 @@ class JackettScraper(BaseScraper):
         torrents: List[ScrapeResult] = []
         seen: Set[str] = set()
 
-        queries = [request.title]
-        if request.media_type == "series" and request.episode is not None:
-            queries.append(f"{request.title} S{request.season:02d}")
-            queries.append(
-                f"{request.title} S{request.season:02d}E{request.episode:02d}"
-            )
+        base_titles = request.title_variants or [request.title]
+        queries = []
+        for base in base_titles:
+            queries.append(base)
+            if request.media_type == "series" and request.episode is not None:
+                queries.append(f"{base} S{request.season:02d}")
+                queries.append(f"{base} S{request.season:02d}E{request.episode:02d}")
 
         try:
             tasks = []
