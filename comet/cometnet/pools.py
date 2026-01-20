@@ -13,6 +13,7 @@ Key concepts:
 
 import json
 import secrets
+import xxhash
 import time
 from enum import Enum
 from pathlib import Path
@@ -1027,6 +1028,9 @@ class PoolStore:
                     logger.warning(
                         f"Invalid pool manifest signature from admin {admin_id[:8]}"
                     )
+                    # debug precision issues
+                    logger.debug(f"DEBUG: Verify Fail {admin_id[:8]}. Data SHA: {xxhash.xxh64(signable_data).hexdigest()}")
+                    logger.debug(f"DEBUG: Data (hex first 128): {signable_data.hex()[:128]}...")
 
         return False
 
