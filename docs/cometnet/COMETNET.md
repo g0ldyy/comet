@@ -180,6 +180,8 @@ Control what your node shares and receives:
 COMETNET_CONTRIBUTION_MODE=full
 ```
 
+> **Note**: Contribution modes apply globally to **all** network traffic, including Trust Pools. For example, if you are in `consumer` mode, you will not share your own discoveries even to pools you are a member of. If you are in `source` mode, you will not save torrents even from your trusted pools.
+
 ### Trust Pools
 
 Trust Pools allow you to create private groups where only members can contribute torrents.
