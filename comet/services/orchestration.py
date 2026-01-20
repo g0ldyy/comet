@@ -1,5 +1,5 @@
 import asyncio
-from concurrent.futures import BrokenProcessPool
+from concurrent.futures.process import BrokenProcessPool
 
 import orjson
 from RTN import DefaultRanking, ParsedData
