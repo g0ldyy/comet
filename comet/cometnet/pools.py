@@ -983,7 +983,7 @@ class PoolStore:
 
     # ==================== Validation ====================
 
-    def validate_manifest(self, manifest: PoolManifest, keystore=None) -> bool:
+    async def validate_manifest(self, manifest: PoolManifest, keystore=None) -> bool:
         """
         Validate a pool manifest.
 
@@ -1017,7 +1017,9 @@ class PoolStore:
 
         for admin_key, signature in manifest.signatures.items():
             if manifest.is_admin(admin_key):
-                if NodeIdentity.verify_hex(signable_data, signature, admin_key):
+                if await NodeIdentity.verify_hex_async(
+                    signable_data, signature, admin_key
+                ):
                     return True
                 else:
                     member = manifest.get_member(admin_key)

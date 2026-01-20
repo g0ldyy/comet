@@ -24,6 +24,7 @@ Security Notes:
 
 import asyncio
 import secrets
+import signal
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -177,6 +178,20 @@ class StandaloneCometNet:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            def signal_handler(sig, frame):
+                sig_name = signal.Signals(sig).name
+                logger.log(
+                    "COMETNET",
+                    f"Received signal {sig_name} ({sig}), initiating shutdown...",
+                )
+
+            try:
+                loop = asyncio.get_running_loop()
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.add_signal_handler(sig, lambda s=sig: signal_handler(s, None))
+            except NotImplementedError:
+                pass
+
             await setup_database()
             setup_executor()
 
@@ -449,7 +464,9 @@ class StandaloneCometNet:
 
         @app.exception_handler(Exception)
         async def generic_exception_handler(request: Request, exc: Exception):
-            logger.warning(f"Unhandled exception: {exc}")
+            logger.error(
+                f"Unhandled exception triggering potential instability: {type(exc).__name__}: {exc}"
+            )
             return JSONResponse(
                 status_code=500,
                 content={"detail": "Internal server error"},

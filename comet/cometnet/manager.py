@@ -788,7 +788,7 @@ class CometNetService(CometNetBackend):
                 return
 
             # Store the manifest (validation happens inside)
-            if self.pool_store.validate_manifest(manifest, self.keystore):
+            if await self.pool_store.validate_manifest(manifest, self.keystore):
                 await self.pool_store.store_manifest(manifest)
 
                 # Update our membership status based on the new manifest
