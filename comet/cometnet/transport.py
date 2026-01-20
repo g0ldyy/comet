@@ -432,6 +432,7 @@ class ConnectionManager:
 
         try:
             # Connect with timeout
+            logger.debug(f"Attempting WebSocket connection to {address}...")
             websocket = await asyncio.wait_for(
                 websockets.connect(
                     address,
@@ -441,22 +442,27 @@ class ConnectionManager:
                 ),
                 timeout=5.0,
             )
+            logger.debug(f"WebSocket connection established to {address}")
 
             # Perform handshake
+            # For outbound connections, address is both the client_ip (for logging) and connectable_address
             node_id = await self._perform_handshake(
-                websocket, address, is_outbound=True
+                websocket, address, address, is_outbound=True
             )
 
             if node_id:
                 logger.log("COMETNET", f"Connected to peer {node_id[:8]} at {address}")
                 return node_id
             else:
+                logger.debug(f"Handshake failed with {address}")
                 await websocket.close()
                 return None
 
         except asyncio.TimeoutError:
+            logger.debug(f"Connection timeout to {address}")
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Connection error to {address}: {type(e).__name__}: {e}")
             return None
         finally:
             self._connecting.discard(address)
@@ -575,10 +581,13 @@ class ConnectionManager:
                     handshake.to_signable_bytes()
                 )
 
+                logger.debug(f"Sending handshake to {client_ip}...")
                 await websocket.send(handshake.to_bytes())
+                logger.debug(f"Handshake sent, waiting for response from {client_ip}...")
 
                 # Wait for their handshake
                 response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+                logger.debug(f"Received handshake response from {client_ip}")
                 peer_handshake = parse_message(response)
             else:
                 # They initiated, so we wait for their handshake first
