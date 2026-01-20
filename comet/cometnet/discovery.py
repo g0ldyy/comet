@@ -172,7 +172,7 @@ class DiscoveryService:
         if node_id:
             self._node_id_to_address[node_id] = address
 
-    def add_peer_from_pex(self, peer_info: PeerInfo) -> None:
+    async def add_peer_from_pex(self, peer_info: PeerInfo) -> None:
         """
         Add a peer discovered through Peer Exchange.
 
@@ -184,7 +184,9 @@ class DiscoveryService:
         # Validate address before adding
         # Allow private IPs only if explicitly configured
         allow_private = settings.COMETNET_ALLOW_PRIVATE_PEX
-        if not is_valid_peer_address(peer_info.address, allow_private=allow_private):
+        if not await is_valid_peer_address(
+            peer_info.address, allow_private=allow_private
+        ):
             return
 
         self._add_known_peer(
@@ -195,7 +197,7 @@ class DiscoveryService:
         """Record a peer that connected to us."""
         self._add_known_peer(address=address, node_id=node_id, source="incoming")
 
-    def get_peers_for_pex(self, max_peers: int = None) -> List[PeerInfo]:
+    async def get_peers_for_pex(self, max_peers: int = None) -> List[PeerInfo]:
         """Get a list of peers to share via PEX."""
         if max_peers is None:
             max_peers = settings.COMETNET_PEX_BATCH_SIZE
@@ -209,7 +211,7 @@ class DiscoveryService:
         peers = []
         for address, known_peer in self._known_peers.items():
             if known_peer.node_id and known_peer.node_id in connected_ids:
-                if not allow_private and not is_valid_peer_address(
+                if not allow_private and not await is_valid_peer_address(
                     address, allow_private=False
                 ):
                     continue
@@ -229,7 +231,7 @@ class DiscoveryService:
         self, sender_id: str, request: PeerRequest
     ) -> PeerResponse:
         """Handle a peer request and return a response."""
-        peers = self.get_peers_for_pex(request.max_peers)
+        peers = await self.get_peers_for_pex(request.max_peers)
 
         # Don't include the requester in the response
         peers = [p for p in peers if p.node_id != sender_id]
@@ -243,7 +245,7 @@ class DiscoveryService:
         request = PeerRequest(max_peers=settings.COMETNET_PEX_BATCH_SIZE)
         await send_callback(node_id, request)
 
-    def handle_peer_response(self, response: PeerResponse) -> int:
+    async def handle_peer_response(self, response: PeerResponse) -> int:
         """
         Handle a peer response from PEX.
         Returns the number of new peers added.
@@ -251,7 +253,7 @@ class DiscoveryService:
         new_count = 0
         for peer_info in response.peers:
             if peer_info.address not in self._known_peers:
-                self.add_peer_from_pex(peer_info)
+                await self.add_peer_from_pex(peer_info)
                 new_count += 1
         return new_count
 
@@ -287,7 +289,6 @@ class DiscoveryService:
                 else:
                     # Normal pace when healthy
                     await asyncio.sleep(30.0)
-
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -368,7 +369,6 @@ class DiscoveryService:
                     connected_count += 1
 
                 known_peer.record_connect_attempt(success)
-
             except Exception:
                 known_peer.record_connect_attempt(False)
 
@@ -416,7 +416,7 @@ class DiscoveryService:
             )
         return {"known_peers": peers_data}
 
-    def from_dict(self, data: Dict) -> None:
+    async def from_dict(self, data: Dict) -> None:
         """Load known peers from persisted data."""
         peers_data = data.get("known_peers", [])
         loaded_count = 0
@@ -426,7 +426,7 @@ class DiscoveryService:
                 continue
             # Validate before loading to prevent loading invalid data
             allow_private = peer_info.get("source") in ("manual", "bootstrap")
-            if not is_valid_peer_address(address, allow_private=allow_private):
+            if not await is_valid_peer_address(address, allow_private=allow_private):
                 continue
 
             self._known_peers[address] = KnownPeer(

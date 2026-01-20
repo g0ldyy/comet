@@ -417,7 +417,6 @@ class StandaloneCometNet:
                 )
 
                 return {"status": "queued", "info_hash": request.info_hash}
-
             except Exception as e:
                 logger.warning(f"Failed to broadcast torrent: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
@@ -446,7 +445,6 @@ class StandaloneCometNet:
                     await self.service.broadcast_torrent(metadata)
                     queued += 1
                     self._broadcasts_success += 1
-
                 except Exception as e:
                     errors.append({"info_hash": torrent.info_hash, "error": str(e)})
 

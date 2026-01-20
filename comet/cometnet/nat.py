@@ -92,7 +92,6 @@ class UPnPManager:
             except Exception as e:
                 logger.warning(f"Failed to add UPnP port mapping: {e}")
                 return None
-
         except Exception as e:
             logger.warning(f"UPnP setup failed: {e}")
             return None
@@ -120,6 +119,5 @@ class UPnPManager:
 
                 # Renew mapping
                 self._setup_upnp()
-
             except Exception as e:
                 logger.debug(f"UPnP keepalive error: {e}")

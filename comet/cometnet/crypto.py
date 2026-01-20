@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import aiofiles
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -68,7 +69,7 @@ class NodeIdentity:
         """Returns the public key as a hex string."""
         return self.public_key_bytes.hex()
 
-    def load_or_generate(self) -> None:
+    async def load_or_generate(self) -> None:
         """
         Load existing keys from disk or generate new ones.
         This must be called before using any other methods.
@@ -76,15 +77,15 @@ class NodeIdentity:
         key_path = self._keys_dir / self.PRIVATE_KEY_FILE
 
         if key_path.exists():
-            self._load_keys(key_path)
+            await self._load_keys(key_path)
             logger.log(
                 "COMETNET", f"Loaded existing node identity: {self._node_id[:8]}"
             )
         else:
-            self._generate_keys(key_path)
+            await self._generate_keys(key_path)
             logger.log("COMETNET", f"Generated new node identity: {self._node_id[:8]}")
 
-    def _generate_keys(self, key_path: Path) -> None:
+    async def _generate_keys(self, key_path: Path) -> None:
         """Generate a new ECDSA key pair and save to disk."""
         # Generate new key pair
         self._private_key = ec.generate_private_key(ec.SECP256K1())
@@ -107,8 +108,8 @@ class NodeIdentity:
             encryption = serialization.NoEncryption()
 
         # Save private key to disk (PEM format)
-        with open(key_path, "wb") as f:
-            f.write(
+        async with aiofiles.open(key_path, "wb") as f:
+            await f.write(
                 self._private_key.private_bytes(
                     encoding=serialization.Encoding.PEM,
                     format=serialization.PrivateFormat.PKCS8,
@@ -119,13 +120,13 @@ class NodeIdentity:
         # Set restrictive permissions (owner read/write only)
         os.chmod(key_path, 0o600)
 
-    def _load_keys(self, key_path: Path) -> None:
+    async def _load_keys(self, key_path: Path) -> None:
         """Load existing keys from disk."""
         key_password = settings.COMETNET_KEY_PASSWORD
         password_bytes = key_password.encode("utf-8") if key_password else None
 
-        with open(key_path, "rb") as f:
-            key_data = f.read()
+        async with aiofiles.open(key_path, "rb") as f:
+            key_data = await f.read()
 
         try:
             # Try loading with password first (if provided)

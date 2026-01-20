@@ -428,7 +428,6 @@ class GossipEngine:
                 return False
 
             return True
-
         except (ValueError, TypeError):
             return False
 
@@ -502,7 +501,6 @@ class GossipEngine:
                         if peers_reached > 0:
                             self.stats["torrents_propagated"] += len(to_send)
                             total_sent += len(to_send)
-
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -520,7 +518,6 @@ class GossipEngine:
                 # Cleanup old keys from keystore
                 if self._keystore:
                     self._keystore.cleanup_old_keys(max_age_days=30.0)
-
             except asyncio.CancelledError:
                 break
             except Exception:

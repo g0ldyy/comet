@@ -9,11 +9,14 @@ import asyncio
 import hashlib
 import hmac
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urlparse
+
+import aiofiles
 
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.discovery import DiscoveryService, is_valid_peer_address
@@ -32,7 +35,7 @@ from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
 from comet.cometnet.utils import (check_advertise_url_reachability,
                                   is_internal_domain,
-                                  is_private_or_internal_ip,
+                                  is_private_or_internal_ip, run_in_executor,
                                   shutdown_crypto_executor)
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
@@ -113,7 +116,7 @@ class CometNetService(CometNetBackend):
             return
 
         # Initialize components
-        self._init_components()
+        await self._init_components()
 
         logger.log("COMETNET", "=" * 60)
         logger.log(
@@ -271,7 +274,7 @@ class CometNetService(CometNetBackend):
                 )
 
         # validation for private IP in advertise URL
-        if self.advertise_url and not is_valid_peer_address(
+        if self.advertise_url and not await is_valid_peer_address(
             self.advertise_url, allow_private=False
         ):
             # If we are in a private network or explicitly allow private PEX, we allow it (with warning)
@@ -575,7 +578,7 @@ class CometNetService(CometNetBackend):
                 sys.exit(1)
 
             # Check if domain resolves to a private IP (DNS rebinding protection)
-            if is_private_or_internal_ip(hostname_lower):
+            if await is_private_or_internal_ip(hostname_lower):
                 logger.critical(
                     f"\nCometNet failed to start: COMETNET_ADVERTISE_URL resolves to a private IP.\n"
                     f"URL: {url}\n"
@@ -590,14 +593,14 @@ class CometNetService(CometNetBackend):
                 await logger.complete()
                 sys.exit(1)
 
-    def _init_components(self) -> None:
+    async def _init_components(self) -> None:
         """Initialize all CometNet components."""
         # Ensure keys directory exists
         self.keys_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize identity
         self.identity = NodeIdentity(keys_dir=self.keys_dir)
-        self.identity.load_or_generate()
+        await self.identity.load_or_generate()
 
         # Initialize reputation store
         self.reputation = ReputationStore()
@@ -734,7 +737,7 @@ class CometNetService(CometNetBackend):
             ):
                 return
 
-            self.discovery.handle_peer_response(message)
+            await self.discovery.handle_peer_response(message)
 
     async def _handle_pool_manifest(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming pool manifest messages."""
@@ -827,9 +830,7 @@ class CometNetService(CometNetBackend):
                         pool_inv_dir = self.pool_store.invites_dir / message.pool_id
                         if pool_inv_dir.exists():
                             try:
-                                import shutil
-
-                                shutil.rmtree(pool_inv_dir)
+                                await run_in_executor(shutil.rmtree, pool_inv_dir)
                             except Exception:
                                 pass
 
@@ -1090,8 +1091,6 @@ class CometNetService(CometNetBackend):
 
     async def _handle_pool_delete(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming pool deletion messages."""
-        from comet.cometnet.protocol import PoolDeleteMessage
-
         if not isinstance(message, PoolDeleteMessage):
             return
 
@@ -1611,7 +1610,6 @@ class CometNetService(CometNetBackend):
                 return True
 
             return False
-
         except Exception:
             return False
 
@@ -1784,8 +1782,6 @@ class CometNetService(CometNetBackend):
                 )
 
             # Broadcast our departure to other pool members BEFORE cleaning up locally
-            import time
-
             leave_message = PoolMemberUpdate(
                 sender_id=self.identity.node_id,
                 pool_id=pool_id,
@@ -1822,8 +1818,9 @@ class CometNetService(CometNetBackend):
             return
 
         try:
-            with open(state_path, "r") as f:
-                state = json.load(f)
+            async with aiofiles.open(state_path, "r") as f:
+                content = await f.read()
+                state = json.loads(content)
 
             # Verify state file integrity (detect tampering)
             stored_hash = state.pop("integrity_hash", None)
@@ -1859,12 +1856,11 @@ class CometNetService(CometNetBackend):
 
             # Load discovered peers
             if "discovery" in state and self.discovery:
-                self.discovery.from_dict(state["discovery"])
+                await self.discovery.from_dict(state["discovery"])
 
             # Load gossip stats
             if "gossip" in state and self.gossip:
                 self.gossip.from_dict(state["gossip"])
-
         except Exception as e:
             logger.warning(f"Failed to load CometNet state: {e}")
 
@@ -1896,9 +1892,8 @@ class CometNetService(CometNetBackend):
 
             self.keys_dir.mkdir(parents=True, exist_ok=True)
 
-            with open(state_path, "w") as f:
-                json.dump(state, f, indent=2)
-
+            async with aiofiles.open(state_path, "w") as f:
+                await f.write(json.dumps(state, indent=2))
         except Exception as e:
             logger.warning(f"Failed to save CometNet state: {e}")
 

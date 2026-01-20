@@ -172,7 +172,6 @@ class CometNetRelay(CometNetBackend):
                 await self._send_single(batch_to_send[0])
             else:
                 await self._send_batch(batch_to_send)
-
         except Exception as e:
             self._total_errors += len(batch_to_send)
             logger.debug(f"Relay batch send failed: {e}")
@@ -197,7 +196,6 @@ class CometNetRelay(CometNetBackend):
                         f"Relay returned {response.status} from {self.relay_url}"
                     )
                     return False
-
         except aiohttp.ClientError as e:
             self._total_errors += 1
             logger.warning(f"Relay connection error to {self.relay_url}: {e}")
@@ -227,7 +225,6 @@ class CometNetRelay(CometNetBackend):
                         f"Relay batch returned {response.status} from {self.relay_url}"
                     )
                     return 0
-
         except aiohttp.ClientError as e:
             self._total_errors += len(torrents)
             logger.warning(f"Relay batch connection error to {self.relay_url}: {e}")
@@ -244,7 +241,6 @@ class CometNetRelay(CometNetBackend):
                     data = await response.json()
                     return data.get("status") == "healthy"
                 return False
-
         except Exception:
             return False
 

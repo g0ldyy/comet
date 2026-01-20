@@ -457,7 +457,6 @@ class ConnectionManager:
                 logger.debug(f"Handshake failed with {address}")
                 await websocket.close()
                 return None
-
         except asyncio.TimeoutError:
             logger.debug(f"Connection timeout to {address}")
             return None
@@ -720,7 +719,6 @@ class ConnectionManager:
             self._tasks.add(task)
 
             return peer_handshake.sender_id
-
         except asyncio.TimeoutError:
             logger.debug(f"Handshake timeout with {client_ip}")
             return None
@@ -758,10 +756,8 @@ class ConnectionManager:
                                 await handler(conn.node_id, message)
                             except Exception as e:
                                 logger.warning(f"Handler error for {message.type}: {e}")
-
                 except ConnectionClosed:
                     break
-
         except Exception:
             pass
         finally:
@@ -895,7 +891,6 @@ class ConnectionManager:
 
                 # Eclipse Attack auto-remediation
                 await self._remediate_eclipse_attack()
-
             except asyncio.CancelledError:
                 break
             except Exception:

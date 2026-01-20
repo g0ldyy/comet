@@ -31,6 +31,7 @@ dependencies = [
     "msgpack",
     "miniupnpc",
     "cachetools",
+    "aiofiles",
 ]
 
 [tool.uv.sources]

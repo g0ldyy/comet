@@ -13,16 +13,19 @@ Key concepts:
 
 import json
 import secrets
+import shutil
 import time
+import urllib.parse
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+import aiofiles
 import msgpack
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 from comet.cometnet.crypto import NodeIdentity
-from comet.cometnet.utils import canonicalize_data
+from comet.cometnet.utils import canonicalize_data, run_in_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -208,8 +211,6 @@ class PoolInvite(BaseModel):
         2. Have the invite code
         3. Connect to the creator node to fetch the manifest
         """
-        import urllib.parse
-
         params = {
             "pool": self.pool_id,
             "code": self.invite_code,
@@ -225,8 +226,6 @@ class PoolInvite(BaseModel):
 
         Returns dict with 'pool', 'code', and optionally 'node' keys.
         """
-        import urllib.parse
-
         if not link.startswith("cometnet://join?"):
             # Try legacy format
             if link.startswith("cometnet://pool/"):
@@ -341,8 +340,8 @@ class PoolStore:
         # Persist to disk
         manifest_path = self.manifests_dir / f"{manifest.pool_id}.json"
         try:
-            with open(manifest_path, "w") as f:
-                json.dump(manifest.model_dump(), f, indent=2)
+            async with aiofiles.open(manifest_path, "w") as f:
+                await f.write(json.dumps(manifest.model_dump(), indent=2))
             return True
         except Exception as e:
             logger.warning(f"Failed to save pool manifest {manifest.pool_id}: {e}")
@@ -416,16 +415,15 @@ class PoolStore:
             pool_inv_dir = self.invites_dir / pool_id
             if pool_inv_dir.exists():
                 try:
-                    import shutil
-
-                    shutil.rmtree(pool_inv_dir)
+                    await run_in_executor(shutil.rmtree, pool_inv_dir)
                 except Exception:
                     pass
             del self._invites[pool_id]
 
         manifest_path = self.manifests_dir / f"{pool_id}.json"
         try:
-            manifest_path.unlink(missing_ok=True)
+            if manifest_path.exists():
+                await run_in_executor(manifest_path.unlink)
         except Exception:
             pass
 
@@ -581,7 +579,8 @@ class PoolStore:
             del self._manifests[pool_id]
             manifest_path = self.manifests_dir / f"{pool_id}.json"
             try:
-                manifest_path.unlink(missing_ok=True)
+                if manifest_path.exists():
+                    await run_in_executor(manifest_path.unlink)
             except Exception:
                 pass
 
@@ -727,7 +726,7 @@ class PoolStore:
             invite_file = pool_inv_dir / f"{invite_code}.json"
             if invite_file.exists():
                 try:
-                    invite_file.unlink()
+                    await run_in_executor(invite_file.unlink)
                 except Exception as e:
                     logger.warning(f"Failed to delete invite file: {e}")
 
@@ -807,8 +806,9 @@ class PoolStore:
 
         for manifest_file in self.manifests_dir.glob("*.json"):
             try:
-                with open(manifest_file, "r") as f:
-                    data = json.load(f)
+                async with aiofiles.open(manifest_file, "r") as f:
+                    content = await f.read()
+                    data = json.loads(content)
                 manifest = PoolManifest.model_validate(data)
                 self._manifests[manifest.pool_id] = manifest
             except Exception as e:
@@ -821,8 +821,9 @@ class PoolStore:
 
         if memberships_file.exists():
             try:
-                with open(memberships_file, "r") as f:
-                    self._memberships = set(json.load(f))
+                async with aiofiles.open(memberships_file, "r") as f:
+                    content = await f.read()
+                    self._memberships = set(json.loads(content))
             except Exception as e:
                 logger.warning(f"Failed to load memberships: {e}")
 
@@ -830,8 +831,8 @@ class PoolStore:
         """Save memberships to disk."""
         memberships_file = self.pools_dir / "memberships.json"
         try:
-            with open(memberships_file, "w") as f:
-                json.dump(list(self._memberships), f)
+            async with aiofiles.open(memberships_file, "w") as f:
+                await f.write(json.dumps(list(self._memberships)))
         except Exception as e:
             logger.warning(f"Failed to save memberships: {e}")
 
@@ -847,8 +848,9 @@ class PoolStore:
         subscriptions_file = self.pools_dir / "subscriptions.json"
         if subscriptions_file.exists():
             try:
-                with open(subscriptions_file, "r") as f:
-                    self._subscriptions.update(json.load(f))
+                async with aiofiles.open(subscriptions_file, "r") as f:
+                    content = await f.read()
+                    self._subscriptions.update(json.loads(content))
             except Exception as e:
                 logger.warning(f"Failed to load subscriptions: {e}")
 
@@ -856,8 +858,8 @@ class PoolStore:
         """Save subscriptions to disk."""
         subscriptions_file = self.pools_dir / "subscriptions.json"
         try:
-            with open(subscriptions_file, "w") as f:
-                json.dump(list(self._subscriptions), f)
+            async with aiofiles.open(subscriptions_file, "w") as f:
+                await f.write(json.dumps(list(self._subscriptions)))
         except Exception as e:
             logger.warning(f"Failed to save subscriptions: {e}")
 
@@ -875,14 +877,15 @@ class PoolStore:
 
                 for invite_file in pool_dir.glob("*.json"):
                     try:
-                        with open(invite_file, "r") as f:
-                            data = json.load(f)
+                        async with aiofiles.open(invite_file, "r") as f:
+                            content = await f.read()
+                            data = json.loads(content)
                         invite = PoolInvite.model_validate(data)
                         if invite.is_valid():
                             self._invites[pool_id][invite.invite_code] = invite
                         else:
                             # Clean up expired invites
-                            invite_file.unlink()
+                            await run_in_executor(invite_file.unlink)
                     except Exception as e:
                         logger.warning(f"Failed to load invite {invite_file}: {e}")
 
@@ -893,8 +896,8 @@ class PoolStore:
 
         invite_file = pool_inv_dir / f"{invite.invite_code}.json"
         try:
-            with open(invite_file, "w") as f:
-                json.dump(invite.model_dump(), f, indent=2)
+            async with aiofiles.open(invite_file, "w") as f:
+                await f.write(json.dumps(invite.model_dump(), indent=2))
         except Exception as e:
             logger.warning(f"Failed to save invite: {e}")
 
@@ -905,8 +908,9 @@ class PoolStore:
 
         if peers_file.exists():
             try:
-                with open(peers_file, "r") as f:
-                    data = json.load(f)
+                async with aiofiles.open(peers_file, "r") as f:
+                    content = await f.read()
+                    data = json.loads(content)
                 # Convert lists back to sets
                 for pool_id, peers in data.items():
                     self._pool_peers[pool_id] = set(peers)
@@ -919,8 +923,8 @@ class PoolStore:
         try:
             # Convert sets to lists for JSON serialization
             data = {pid: list(peers) for pid, peers in self._pool_peers.items()}
-            with open(peers_file, "w") as f:
-                json.dump(data, f, indent=2)
+            async with aiofiles.open(peers_file, "w") as f:
+                await f.write(json.dumps(data, indent=2))
         except Exception as e:
             logger.warning(f"Failed to save pool peers: {e}")
 
@@ -1001,8 +1005,8 @@ class PoolStore:
         """Save a manifest to disk (without re-signing)."""
         manifest_path = self.manifests_dir / f"{manifest.pool_id}.json"
         try:
-            with open(manifest_path, "w") as f:
-                json.dump(manifest.model_dump(), f, indent=2)
+            async with aiofiles.open(manifest_path, "w") as f:
+                await f.write(json.dumps(manifest.model_dump(), indent=2))
         except Exception as e:
             logger.warning(f"Failed to save pool manifest {manifest.pool_id}: {e}")
 
@@ -1024,8 +1028,6 @@ class PoolStore:
         Returns:
             True if the manifest is valid
         """
-        from comet.cometnet.crypto import NodeIdentity
-
         # Must have at least one admin
         admins = manifest.get_admins()
         if not admins:

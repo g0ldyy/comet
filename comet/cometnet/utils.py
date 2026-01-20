@@ -108,18 +108,22 @@ def is_internal_domain(hostname: str) -> bool:
     return False
 
 
-def resolve_hostname_to_ip(hostname: str) -> Optional[str]:
+async def resolve_hostname_to_ip(hostname: str) -> Optional[str]:
     """
     Resolve a hostname to its IP address.
     Returns None if resolution fails.
     """
     try:
-        return socket.gethostbyname(hostname)
-    except (socket.gaierror, socket.herror, OSError):
+        loop = asyncio.get_running_loop()
+        result = await loop.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        if result:
+            return result[0][4][0]
+        return None
+    except (socket.gaierror, socket.herror, OSError, IndexError):
         return None
 
 
-def is_private_or_internal_ip(host: str) -> bool:
+async def is_private_or_internal_ip(host: str) -> bool:
     """
     Check if a host is a private/internal IP address.
     Checks for: private, loopback, link-local, and reserved addresses.
@@ -139,7 +143,7 @@ def is_private_or_internal_ip(host: str) -> bool:
     # Try to resolve the hostname and check the resulting IP
     # This catches DNS rebinding attempts where a public-looking domain
     # resolves to a private IP
-    resolved_ip = resolve_hostname_to_ip(host)
+    resolved_ip = await resolve_hostname_to_ip(host)
     if resolved_ip:
         try:
             ip = ipaddress.ip_address(resolved_ip)
@@ -168,7 +172,7 @@ def extract_ip_from_address(address: str) -> str:
         return "unknown"
 
 
-def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
+async def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
     """
     Validate a peer address for security.
 
@@ -198,7 +202,7 @@ def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
                 return False
 
         # Check for private/internal IP addresses
-        if not allow_private and is_private_or_internal_ip(host):
+        if not allow_private and await is_private_or_internal_ip(host):
             return False
 
         # Port must be valid if specified
@@ -211,7 +215,6 @@ def is_valid_peer_address(address: str, allow_private: bool = False) -> bool:
             return False
 
         return True
-
     except Exception:
         return False
 
@@ -264,7 +267,6 @@ async def check_advertise_url_reachability(
             ) as ws:
                 await ws.close()
                 return True, "WebSocket connection successful"
-
     except InvalidStatusCode as e:
         return (
             False,
