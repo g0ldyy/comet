@@ -373,6 +373,42 @@ curl http://localhost:8766/peers
 
 ---
 
+## Best Practices
+
+### State Persistence
+
+CometNet periodically saves state (stats, peer reputation, pools) to disk every 5 minutes by default (configurable via `COMETNET_STATE_SAVE_INTERVAL`).
+
+This protects against data loss from:
+- Abrupt container kills (OOM, SIGKILL)
+- Docker stop timeouts
+- System crashes
+
+**Recommendation:** Ensure your `data` directory is mounted as a persistent volume:
+```yaml
+volumes:
+  - ./data:/app/data  # or named volume: comet_data:/app/data
+```
+
+### Graceful Shutdown
+
+To ensure all state is saved on shutdown, allow sufficient time for graceful shutdown:
+
+```yaml
+services:
+  comet:
+    stop_grace_period: 30s  # Allow 30s for graceful shutdown
+```
+
+Or when manually stopping:
+```bash
+docker stop -t 30 comet
+```
+
+Without this, Docker may send SIGKILL after 10s, preventing final state save.
+
+---
+
 ## Troubleshooting
 
 ### Container fails to start

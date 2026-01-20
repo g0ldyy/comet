@@ -242,6 +242,7 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_PEER_CLEANUP_AGE` | `604800` | Seconds (7 days) to keep inactive peers. |
 | `COMETNET_ALLOW_PRIVATE_PEX` | `False` | Allow private/internal IPs via Peer Exchange. Enable for LAN setups. |
 | `COMETNET_SKIP_REACHABILITY_CHECK` | `False` | Skip the external reachability check on startup. Only use for local testing. |
+| `COMETNET_STATE_SAVE_INTERVAL` | `300` | Periodic state save interval in seconds. Protects stats and peer reputation from being lost in abrupt container shutdowns. |
 | `COMETNET_REACHABILITY_RETRIES` | `5` | Number of retry attempts for the reachability check. Useful when using Traefik or other reverse proxies that take time to start. |
 | `COMETNET_REACHABILITY_RETRY_DELAY` | `10` | Delay in seconds between retry attempts for the reachability check. |
 | `COMETNET_REACHABILITY_TIMEOUT` | `10` | Timeout in seconds for each reachability check attempt. |

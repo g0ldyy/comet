@@ -168,6 +168,9 @@ class AppSettings(BaseSettings):
     COMETNET_API_KEY: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )  # API key for standalone service auth
+    COMETNET_STATE_SAVE_INTERVAL: Optional[int] = (
+        300  # Periodic state save interval in seconds (5 minutes)
+    )
 
     # CometNet Gossip Tuning
     COMETNET_GOSSIP_FANOUT: Optional[int] = 3

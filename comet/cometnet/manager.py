@@ -91,6 +91,7 @@ class CometNetService(CometNetBackend):
         # Running state
         self._running = False
         self._started_at: Optional[float] = None
+        self._state_save_task: Optional[asyncio.Task] = None
 
     @property
     def running(self) -> bool:
@@ -151,6 +152,7 @@ class CometNetService(CometNetBackend):
             f" - Key Encrypted: {key_encrypted}"
             f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
             f" - Skip Reachability Check: {settings.COMETNET_SKIP_REACHABILITY_CHECK}"
+            f" - State Save Interval: {settings.COMETNET_STATE_SAVE_INTERVAL}s"
             f"{private_mode}",
         )
         logger.log(
@@ -391,6 +393,9 @@ class CometNetService(CometNetBackend):
         # Reconnect to known pool peers (from previous sessions)
         await self._reconnect_pool_peers()
 
+        # Start periodic state save task
+        self._state_save_task = asyncio.create_task(self._periodic_state_save())
+
         # Log contribution mode and pool info
         pool_count = len(self.pool_store.get_subscriptions()) if self.pool_store else 0
         pool_info = (
@@ -410,6 +415,14 @@ class CometNetService(CometNetBackend):
         logger.log("COMETNET", "Stopping CometNet...")
 
         self._running = False
+
+        # Stop periodic state save task
+        if self._state_save_task:
+            self._state_save_task.cancel()
+            try:
+                await self._state_save_task
+            except asyncio.CancelledError:
+                pass
 
         # Save state before stopping
         await self._save_state()
@@ -435,6 +448,32 @@ class CometNetService(CometNetBackend):
         shutdown_crypto_executor()
 
         logger.log("COMETNET", "CometNet stopped")
+
+    async def _periodic_state_save(self) -> None:
+        """
+        Periodically save CometNet state to disk.
+        """
+        interval = settings.COMETNET_STATE_SAVE_INTERVAL
+
+        while self._running:
+            try:
+                await asyncio.sleep(interval)
+
+                if not self._running:
+                    break
+
+                # Save state
+                await self._save_state()
+
+                # Save pools data
+                if self.pool_store:
+                    await self.pool_store.save()
+
+                logger.log("COMETNET", "Periodic state save completed")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Error during periodic state save: {e}")
 
     async def _reconnect_pool_peers(self) -> None:
         """
