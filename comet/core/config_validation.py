@@ -10,7 +10,7 @@ from comet.core.models import (ConfigModel, default_config,
 
 def config_check(b64config: str):
     try:
-        config = orjson.loads(base64.b64decode(b64config).decode())
+        config = orjson.loads(base64.urlsafe_b64decode(b64config).decode())
 
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump(by_alias=True)

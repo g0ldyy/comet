@@ -46,11 +46,7 @@ class MetadataScraper:
         self, media_id: str, id: str, season: int | None, episode: int | None
     ):
         provider = self._extract_provider(media_id)
-        # For custom providers, use the full ID with prefix as cache_id
-        if provider and provider.startswith("custom:"):
-            cache_id = id  # id already contains prefix like "kbx3585128"
-        else:
-            cache_id = f"{provider}:{id}" if provider else id
+        cache_id = f"{provider}:{id}" if provider else id
         cache_season = 1 if provider == "kitsu" else season
 
         return await self.get_cached(cache_id, cache_season, episode)
@@ -67,11 +63,7 @@ class MetadataScraper:
             id, season, episode = parse_media_id(media_type, media_id)
 
         provider = self._extract_provider(media_id)
-        # For custom providers, use the full ID with prefix as cache_id
-        if provider and provider.startswith("custom:"):
-            cache_id = id  # id already contains prefix like "kbx3585128"
-        else:
-            cache_id = f"{provider}:{id}" if provider else id
+        cache_id = f"{provider}:{id}" if provider else id
         cache_season = 1 if provider == "kitsu" else season
 
         get_cached = await self.get_cached(cache_id, cache_season, episode)

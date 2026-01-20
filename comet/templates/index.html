@@ -909,6 +909,11 @@
                     const resultFormatSelect = document.getElementById("resultFormat");
                     resultFormatSelect.value = defaultResultFormat;
 
+                    // Populate language selects before applying settings so saved values can be restored
+                    // populateSelect("languages_required", Object.keys(languagesEmojis));
+                    populateSelect("languages_excluded", Object.keys(languagesEmojis));
+                    populateSelect("languages_preferred", Object.keys(languagesEmojis));
+
                     // try populate the form from previous settings
                     try {
                       const settings = getSettingsFromUrl();
@@ -920,11 +925,6 @@
                     // trigger sl-change event on debridService to set initial state
                     const debridServiceSelect = document.getElementById("debridService");
                     debridServiceSelect.dispatchEvent(new Event("sl-change"));
-
-                    // Populate language selects
-                    // populateSelect("languages_required", Object.keys(languagesEmojis));
-                    populateSelect("languages_excluded", Object.keys(languagesEmojis));
-                    populateSelect("languages_preferred", Object.keys(languagesEmojis));
 
                     document.body.classList.add("ready");
                           });
@@ -1012,11 +1012,32 @@
                     let titleMappingCounter = 0;
 
                     function toBase64Utf8(str) {
-                      return btoa(unescape(encodeURIComponent(str)));
+                      const encoder = new TextEncoder();
+                      const bytes = encoder.encode(str);
+                      let binary = "";
+                      for (let i = 0; i < bytes.length; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                      }
+                      let base64 = btoa(binary);
+                      // Make base64 URL-safe
+                      base64 = base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+                      return base64;
                     }
 
                     function fromBase64Utf8(b64) {
-                      return decodeURIComponent(escape(atob(b64)));
+                      // Restore standard base64 from URL-safe variant
+                      let base64 = b64.replace(/-/g, "+").replace(/_/g, "/");
+                      const paddingNeeded = base64.length % 4;
+                      if (paddingNeeded) {
+                        base64 += "=".repeat(4 - paddingNeeded);
+                      }
+                      const binary = atob(base64);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                      }
+                      const decoder = new TextDecoder();
+                      return decoder.decode(bytes);
                     }
 
                     function escapeHtml(text) {

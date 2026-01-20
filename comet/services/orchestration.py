@@ -253,8 +253,12 @@ class TorrentManager:
             logger.error(
                 "RTN filter worker process pool crashed during filtering; skipping RTN filter for this request."
             )
+            # Fallback: if filtering fails, use unfiltered torrents so the request can still return results
+            self.ready_to_cache.extend(new_torrents)
         except Exception as e:
             logger.error(f"Unexpected error during RTN filtering: {e}")
+            # Fallback: on unexpected errors, also use unfiltered torrents
+            self.ready_to_cache.extend(new_torrents)
 
     async def rank_torrents(
         self,
@@ -266,8 +270,14 @@ class TorrentManager:
         remove_trash: int,
     ):
         loop = asyncio.get_running_loop()
+        # Preserve the last successful ranked snapshot so we can fall back safely on errors
+        if not hasattr(self, "_last_successful_ranked_torrents"):
+            self._last_successful_ranked_torrents = {}
+        previous_ranked = (
+            self.ranked_torrents or self._last_successful_ranked_torrents or {}
+        )
         try:
-            self.ranked_torrents = await loop.run_in_executor(
+            result = await loop.run_in_executor(
                 get_executor(),
                 rank_worker,
                 self.torrents,
@@ -279,11 +289,13 @@ class TorrentManager:
                 cached_only,
                 remove_trash,
             )
+            self.ranked_torrents = result
+            self._last_successful_ranked_torrents = result
         except BrokenProcessPool:
             logger.error(
-                "RTN ranking worker process pool crashed during ranking; returning unranked torrents."
+                "RTN ranking worker process pool crashed during ranking; returning last successful ranked torrents if available."
             )
-            # Fallback: leave torrents in current order
-            self.ranked_torrents = self.torrents
+            self.ranked_torrents = previous_ranked
         except Exception as e:
             logger.error(f"Unexpected error during RTN ranking: {e}")
+            self.ranked_torrents = previous_ranked

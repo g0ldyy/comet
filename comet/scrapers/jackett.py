@@ -1,5 +1,6 @@
 import asyncio
 from typing import List, Set
+from urllib.parse import quote
 
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
@@ -117,10 +118,13 @@ class JackettScraper(BaseScraper):
         base_titles = request.title_variants or [request.title]
         queries = []
         for base in base_titles:
-            queries.append(base)
+            raw_query = base
+            queries.append(quote(raw_query, safe=""))
             if request.media_type == "series" and request.episode is not None:
-                queries.append(f"{base} S{request.season:02d}")
-                queries.append(f"{base} S{request.season:02d}E{request.episode:02d}")
+                season_query = f"{base} S{request.season:02d}"
+                episode_query = f"{base} S{request.season:02d}E{request.episode:02d}"
+                queries.append(quote(season_query, safe=""))
+                queries.append(quote(episode_query, safe=""))
 
         try:
             tasks = []
