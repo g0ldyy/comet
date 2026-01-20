@@ -13,7 +13,7 @@ def config_check(b64config: str):
         config = orjson.loads(base64.b64decode(b64config).decode())
 
         validated_config = ConfigModel(**config)
-        validated_config = validated_config.model_dump()
+        validated_config = validated_config.model_dump(by_alias=True)
 
         for key in list(validated_config["options"].keys()):
             if key not in [
@@ -93,6 +93,33 @@ def config_check(b64config: str):
             validated_config["metadataProviders"] = valid_providers
         else:
             validated_config["metadataProviders"] = []
+
+        # Validate title mappings (from -> to)
+        if "titleMappings" in validated_config and validated_config["titleMappings"]:
+            mappings = validated_config["titleMappings"]
+            seen_from = set()
+            valid_mappings = []
+
+            for mapping in mappings:
+                if not isinstance(mapping, dict):
+                    continue
+
+                from_value = str(mapping.get("from", "")).strip()
+                to_value = str(mapping.get("to", "")).strip()
+
+                if not from_value or not to_value:
+                    continue
+
+                key = from_value.lower()
+                if key in seen_from:
+                    continue
+                seen_from.add(key)
+
+                valid_mappings.append({"from": from_value, "to": to_value})
+
+            validated_config["titleMappings"] = valid_mappings
+        else:
+            validated_config["titleMappings"] = []
 
         if (
             settings.PROXY_DEBRID_STREAM

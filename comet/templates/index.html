@@ -638,9 +638,56 @@
                             Add Provider
                         </sl-button>
                     </div>
+
+                    <div style="margin-top: 1.5rem">
+                        <label
+                            style="
+                                display: flex;
+                                align-items: center;
+                                margin-bottom: 8px;
+                                font-weight: 500;
+                            "
+                        >
+                            Title Mappings
+                        </label>
+                        <p
+                            style="
+                                color: var(--sl-color-neutral-500);
+                                font-size: 0.875rem;
+                                margin: 0 0 12px 0;
+                            "
+                        >
+                            Map titles returned by Cinemeta or custom providers to
+                            alternative names (e.g., “Bachelor Česko” → “Bachelor”)
+                            to broaden search results.
+                        </p>
+                        <div
+                            id="titleMappingsContainer"
+                            style="
+                                display: flex;
+                                flex-direction: column;
+                                gap: 12px;
+                            "
+                        >
+                            <!-- Title mappings will be dynamically added here -->
+                        </div>
+                        <sl-button
+                            id="addTitleMapping"
+                            variant="neutral"
+                            outline
+                            size="small"
+                            style="margin-top: 12px"
+                        >
+                            <sl-icon slot="prefix" name="plus"></sl-icon>
+                            Add Mapping
+                        </sl-button>
+                    </div>
                 </div>
             </sl-details>
 
+            <script id="web-config-json" type="application/json">
+                {{ webConfig | tojson }}
+            </script>
             <script>
                 const debridServiceElement =
                     document.getElementById("debridService");
@@ -849,8 +896,10 @@
                         customElements.whenDefined("sl-checkbox")
                       ]);
 
-                      const webConfig = {{ webConfig| tojson
-                    }};
+                      const webConfigElement = document.getElementById("web-config-json");
+                      const webConfig = webConfigElement
+                        ? JSON.parse(webConfigElement.textContent || "{}")
+                        : {};
 
                     const resolutionsSelect = document.getElementById("resolutions");
                     resolutionsSelect.value = ["r2160p", "r1080p", "r720p", "r480p", "r360p", "unknown"];
@@ -956,8 +1005,19 @@
                     const copyAlert = document.querySelector('#copyAlert');
                     const addMetadataProviderButton = document.querySelector("#addMetadataProvider");
                     const metadataProvidersContainer = document.querySelector("#metadataProvidersContainer");
+                    const addTitleMappingButton = document.querySelector("#addTitleMapping");
+                    const titleMappingsContainer = document.querySelector("#titleMappingsContainer");
 
                     let providerEntryCounter = 0;
+                    let titleMappingCounter = 0;
+
+                    function toBase64Utf8(str) {
+                      return btoa(unescape(encodeURIComponent(str)));
+                    }
+
+                    function fromBase64Utf8(b64) {
+                      return decodeURIComponent(escape(atob(b64)));
+                    }
 
                     function escapeHtml(text) {
                       if (!text) return '';
@@ -1023,6 +1083,56 @@
                       });
                     }
 
+                    function createTitleMappingEntry(mapping = null) {
+                      const entryId = `title-mapping-${titleMappingCounter++}`;
+                      const entry = document.createElement("div");
+                      entry.className = "title-mapping-entry";
+                      entry.id = entryId;
+                      entry.style.cssText = "display: flex; gap: 8px; align-items: flex-start; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);";
+
+                      const fromValue = mapping ? escapeHtml(mapping.from || "") : "";
+                      const toValue = mapping ? escapeHtml(mapping.to || "") : "";
+
+                      entry.innerHTML = `
+                        <sl-input
+                          class="mapping-from"
+                          placeholder="From title (e.g., Bachelor Česko)"
+                          value="${fromValue}"
+                          style="flex: 1;"
+                        ></sl-input>
+                        <sl-input
+                          class="mapping-to"
+                          placeholder="To title (e.g., Bachelor)"
+                          value="${toValue}"
+                          style="flex: 1;"
+                        ></sl-input>
+                        <sl-icon-button
+                          class="remove-mapping"
+                          name="x-circle"
+                          label="Remove"
+                          style="flex-shrink: 0; margin-top: 4px;"
+                        ></sl-icon-button>
+                      `;
+
+                      const removeButton = entry.querySelector('.remove-mapping');
+                      removeButton.addEventListener('click', () => {
+                        entry.remove();
+                      });
+
+                      return entry;
+                    }
+
+                    function addTitleMappingEntry(mapping = null) {
+                      const entry = createTitleMappingEntry(mapping);
+                      titleMappingsContainer.appendChild(entry);
+                    }
+
+                    if (addTitleMappingButton) {
+                      addTitleMappingButton.addEventListener("click", () => {
+                        addTitleMappingEntry();
+                      });
+                    }
+
                     function getSettings() {
                       // const languages_required = Array.from(document.getElementById("languages_required").selectedOptions).map(option => option.value);
                       const languages_excluded = Array.from(document.getElementById("languages_excluded").selectedOptions).map(option => option.value);
@@ -1071,6 +1181,21 @@
                         }
                       });
 
+                      // Collect title mappings
+                      const titleMappings = [];
+                      const mappingEntries = document.querySelectorAll('.title-mapping-entry');
+                      mappingEntries.forEach(entry => {
+                        const fromInput = entry.querySelector('.mapping-from');
+                        const toInput = entry.querySelector('.mapping-to');
+                        if (fromInput && toInput) {
+                          const from = fromInput.value.trim();
+                          const to = toInput.value.trim();
+                          if (from && to) {
+                            titleMappings.push({ from, to });
+                          }
+                        }
+                      });
+
                       return {
                         maxResultsPerResolution: parseInt(maxResultsPerResolution),
                         maxSize: parseFloat(maxSize * 1073741824),
@@ -1092,13 +1217,14 @@
                           allow_english_in_languages: allowEnglishInLanguages,
                           remove_unknown_languages: removeUnknownLanguages
                         },
-                        metadataProviders: metadataProviders
+                        metadataProviders: metadataProviders,
+                        titleMappings: titleMappings
                       };
                     }
 
                     copyLinkButton.addEventListener("click", () => {
                       const settings = getSettings();
-                      const settingsString = btoa(JSON.stringify(settings))
+                      const settingsString = toBase64Utf8(JSON.stringify(settings));
 
                       const textArea = document.createElement("textarea");
                       textArea.value = `${window.location.origin}/${settingsString}/manifest.json`;
@@ -1115,7 +1241,7 @@
 
                     installButton.addEventListener("click", () => {
                       const settings = getSettings();
-                      const settingsString = btoa(JSON.stringify(settings))
+                      const settingsString = toBase64Utf8(JSON.stringify(settings));
                       window.location.href = `stremio://${window.location.host}/${settingsString}/manifest.json`;
                       console.log(settingsString);
                       installAlert.toast();
@@ -1132,7 +1258,7 @@
                         console.log("can't fetch previous settings", settingsString)
                         return null;
                       }
-                      const settingsJson = atob(settingsString);
+                      const settingsJson = fromBase64Utf8(settingsString);
                       return JSON.parse(settingsJson);
                     }
 
@@ -1187,6 +1313,12 @@
                         // Add providers from settings
                         settings.metadataProviders.forEach(provider => {
                           addProviderEntry(provider);
+                        });
+                      }
+                      if (settings.titleMappings && Array.isArray(settings.titleMappings) && settings.titleMappings.length > 0) {
+                        titleMappingsContainer.innerHTML = '';
+                        settings.titleMappings.forEach(mapping => {
+                          addTitleMappingEntry(mapping);
                         });
                       }
                     }

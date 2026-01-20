@@ -346,6 +346,7 @@ class BackgroundScraperWorker:
             aliases=aliases,
             remove_adult_content=settings.REMOVE_ADULT_CONTENT,
             context="background",
+            title_variants=None,
         )
 
         await manager.scrape_torrents()
@@ -382,6 +383,7 @@ class BackgroundScraperWorker:
                 aliases=aliases,
                 remove_adult_content=settings.REMOVE_ADULT_CONTENT,
                 context="background",
+                title_variants=None,
             )
 
             await manager.scrape_torrents()

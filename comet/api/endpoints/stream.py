@@ -5,6 +5,8 @@ from urllib.parse import quote
 import aiohttp
 from fastapi import APIRouter, BackgroundTasks, Request
 
+from RTN import normalize_title
+
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
 from comet.core.models import database, settings, trackers
@@ -57,6 +59,35 @@ def _build_stream_response(
         etag=etag,
         vary=list(set(vary)),
     )
+
+
+def _build_title_variants(title: str, mappings: list[dict]) -> list[str]:
+    variants: list[str] = []
+
+    def add(value: str | None):
+        if value and value not in variants:
+            variants.append(value)
+
+    add(title)
+    add(normalize_title(title))
+    base_normalized = normalize_title(title)
+
+    for mapping in mappings or []:
+        from_value = str(mapping.get("from", "")).strip()
+        to_value = str(mapping.get("to", "")).strip()
+
+        if not to_value:
+            continue
+
+        from_normalized = normalize_title(from_value)
+        if (
+            from_value.lower() == title.lower()
+            or (from_normalized and from_normalized == base_normalized)
+        ):
+            add(to_value)
+            add(normalize_title(to_value))
+
+    return variants
 
 
 async def is_first_search(media_id: str):
@@ -351,6 +382,23 @@ async def stream(
         season = metadata["season"]
         episode = metadata["episode"]
 
+        title_variants = _build_title_variants(title, config.get("titleMappings", []))
+
+        # Expand aliases with title mappings so RTN filtering can match both
+        # original and mapped titles (with/without diacritics).
+        aliases_ez = aliases.get("ez", []) if aliases else []
+        alias_set = set(aliases_ez)
+        for variant in title_variants:
+            if variant not in alias_set:
+                aliases_ez.append(variant)
+                alias_set.add(variant)
+            normalized_variant = normalize_title(variant)
+            if normalized_variant and normalized_variant not in alias_set:
+                aliases_ez.append(normalized_variant)
+                alias_set.add(normalized_variant)
+        aliases = aliases or {}
+        aliases["ez"] = aliases_ez
+
         log_title = f"({media_id}) {title}"
         if media_type == "series" and episode is not None:
             log_title += f" S{season:02d}E{episode:02d}"
@@ -406,6 +454,7 @@ async def stream(
             is_kitsu=is_kitsu,
             search_episode=search_episode,
             search_season=search_season,
+            title_variants=title_variants,
         )
 
         await torrent_manager.get_cached_torrents()

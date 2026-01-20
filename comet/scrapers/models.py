@@ -22,7 +22,9 @@ class ScrapeRequest(BaseModel):
         query using both the original and normalized titles. This helps custom
         catalogs whose metadata contains diacritics find more torrent results.
         """
-        variants = [self.title]
+        variants = list(self.title_variants) if self.title_variants else [self.title]
+        if self.title not in variants:
+            variants.append(self.title)
         normalized = normalize_title(self.title)
         if normalized and normalized not in variants:
             variants.append(normalized)

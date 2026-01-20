@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 
 import RTN
 from databases import Database
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
 from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
@@ -688,6 +688,13 @@ class MetadataProvider(BaseModel):
     url: str
 
 
+class TitleMapping(BaseModel):
+    # from_title -> to_title to try additional search terms
+    from_: str = Field(alias="from")
+    to: str
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ConfigModel(BaseModel):
     cachedOnly: Optional[bool] = False
     sortCachedUncachedTogether: Optional[bool] = False
@@ -702,6 +709,7 @@ class ConfigModel(BaseModel):
     resolutions: Optional[dict] = rtn_settings_default_dumped["resolutions"]
     options: Optional[dict] = rtn_settings_default_dumped["options"]
     metadataProviders: Optional[List[MetadataProvider]] = []
+    titleMappings: Optional[List[TitleMapping]] = Field(default_factory=list, alias="titleMappings")
     rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
     rtnRanking: Optional[DefaultRanking] = rtn_ranking_default
 
@@ -741,7 +749,7 @@ class ConfigModel(BaseModel):
         return v
 
 
-default_config = ConfigModel().model_dump()
+default_config = ConfigModel().model_dump(by_alias=True)
 default_config["rtnSettings"] = rtn_settings_default
 default_config["rtnRanking"] = rtn_ranking_default
 

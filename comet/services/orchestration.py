@@ -32,6 +32,7 @@ class TorrentManager:
         context: str = "live",
         search_episode: int | None = None,
         search_season: int | None = None,
+        title_variants: list[str] | None = None,
     ):
         self.debrid_service = debrid_service
         self.debrid_api_key = debrid_api_key
@@ -50,6 +51,7 @@ class TorrentManager:
         self.remove_adult_content = remove_adult_content
         self.is_kitsu = is_kitsu
         self.context = context
+        self.title_variants = title_variants
 
         self.seen_hashes = set()
         self.torrents = {}
@@ -66,6 +68,7 @@ class TorrentManager:
             media_id=self.media_id,
             media_only_id=self.media_only_id,
             title=self.title,
+            title_variants=self.title_variants,
             year=self.year,
             year_end=self.year_end,
             season=self.search_season,
@@ -73,8 +76,19 @@ class TorrentManager:
             context=self.context,
         )
 
+        if len(request.title_variants) > 1:
+            logger.log(
+                "SCRAPER",
+                f"🔎 Title variants for search: {', '.join(request.title_variants)}",
+            )
+
         async for scraper_name, results in scraper_manager.scrape_all(request):
             await self.filter_manager(scraper_name, results)
+
+        logger.log(
+            "SCRAPER",
+            f"🧪 Filtered torrents collected: {len(self.ready_to_cache)}",
+        )
 
         asyncio.create_task(self.cache_torrents())
 
