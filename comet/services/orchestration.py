@@ -1,7 +1,7 @@
 import asyncio
 
 import orjson
-from RTN import DefaultRanking, ParsedData
+from RTN import DefaultRanking, ParsedData, parse
 
 from comet.core.logger import logger
 from comet.core.models import CometSettingsModel, database
@@ -9,6 +9,16 @@ from comet.scrapers.manager import scraper_manager
 from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
+
+
+def _parse_torrents_worker(torrents):
+    """Parse torrents without filtering - used as fallback when filter_worker fails."""
+    results = []
+    for torrent in torrents:
+        torrent_copy = torrent.copy()
+        torrent_copy["parsed"] = parse(torrent["title"])
+        results.append(torrent_copy)
+    return results
 
 
 class TorrentManager:
@@ -247,8 +257,19 @@ class TorrentManager:
                 self.ready_to_cache.extend(result)
         except Exception as e:
             logger.error(f"Error during RTN filtering: {e}")
-            # Fallback: if filtering fails, use unfiltered torrents so the request can still return results
-            self.ready_to_cache.extend(new_torrents)
+            # Fallback: if filtering fails, parse torrents without filtering so rank_torrents can access torrent["parsed"]
+            try:
+                parsed_torrents = await asyncio.to_thread(
+                    _parse_torrents_worker, new_torrents
+                )
+                self.ready_to_cache.extend(parsed_torrents)
+            except Exception as parse_error:
+                logger.error(f"Error parsing torrents in fallback: {parse_error}")
+                # Last resort: add torrents with empty parsed data to avoid KeyError
+                for torrent in new_torrents:
+                    torrent_copy = torrent.copy()
+                    torrent_copy["parsed"] = parse(torrent["title"])
+                    self.ready_to_cache.append(torrent_copy)
 
     async def rank_torrents(
         self,
