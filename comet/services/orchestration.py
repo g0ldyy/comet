@@ -1,10 +1,8 @@
 import asyncio
-from concurrent.futures.process import BrokenProcessPool
 
 import orjson
 from RTN import DefaultRanking, ParsedData
 
-from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import CometSettingsModel, database
 from comet.scrapers.manager import scraper_manager
@@ -230,12 +228,10 @@ class TorrentManager:
         if not new_torrents:
             return
 
-        loop = asyncio.get_running_loop()
         chunk_size = 20
         try:
             tasks = [
-                loop.run_in_executor(
-                    get_executor(),
+                asyncio.to_thread(
                     filter_worker,
                     new_torrents[i : i + chunk_size],
                     self.title,
@@ -249,15 +245,9 @@ class TorrentManager:
             results = await asyncio.gather(*tasks)
             for result in results:
                 self.ready_to_cache.extend(result)
-        except BrokenProcessPool:
-            logger.error(
-                "RTN filter worker process pool crashed during filtering; skipping RTN filter for this request."
-            )
-            # Fallback: if filtering fails, use unfiltered torrents so the request can still return results
-            self.ready_to_cache.extend(new_torrents)
         except Exception as e:
-            logger.error(f"Unexpected error during RTN filtering: {e}")
-            # Fallback: on unexpected errors, also use unfiltered torrents
+            logger.error(f"Error during RTN filtering: {e}")
+            # Fallback: if filtering fails, use unfiltered torrents so the request can still return results
             self.ready_to_cache.extend(new_torrents)
 
     async def rank_torrents(
@@ -269,7 +259,6 @@ class TorrentManager:
         cached_only: int,
         remove_trash: int,
     ):
-        loop = asyncio.get_running_loop()
         # Preserve the last successful ranked snapshot so we can fall back safely on errors
         if not hasattr(self, "_last_successful_ranked_torrents"):
             self._last_successful_ranked_torrents = {}
@@ -277,8 +266,7 @@ class TorrentManager:
             self.ranked_torrents or self._last_successful_ranked_torrents or {}
         )
         try:
-            result = await loop.run_in_executor(
-                get_executor(),
+            result = await asyncio.to_thread(
                 rank_worker,
                 self.torrents,
                 self.debrid_service,
@@ -291,11 +279,7 @@ class TorrentManager:
             )
             self.ranked_torrents = result
             self._last_successful_ranked_torrents = result
-        except BrokenProcessPool:
-            logger.error(
-                "RTN ranking worker process pool crashed during ranking; returning last successful ranked torrents if available."
-            )
-            self.ranked_torrents = previous_ranked
         except Exception as e:
-            logger.error(f"Unexpected error during RTN ranking: {e}")
+            logger.error(f"Error during RTN ranking: {e}")
+            # Fallback: return last successful ranked torrents if available
             self.ranked_torrents = previous_ranked
