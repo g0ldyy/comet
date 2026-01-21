@@ -182,7 +182,6 @@ class CometNetService(CometNetBackend):
             f"Gossip: Fanout={settings.COMETNET_GOSSIP_FANOUT}"
             f" - Interval={settings.COMETNET_GOSSIP_INTERVAL}s"
             f" - TTL={settings.COMETNET_GOSSIP_MESSAGE_TTL}"
-            f" - Cache: {settings.COMETNET_GOSSIP_CACHE_SIZE} items / {settings.COMETNET_GOSSIP_CACHE_TTL}s"
             f" - Max Torrents/Msg={settings.COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE}"
             f" - Clock Drift={settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE}s/{settings.COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE}s"
             f" - Max Torrent Age={settings.COMETNET_GOSSIP_TORRENT_MAX_AGE}s",

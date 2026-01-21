@@ -226,8 +226,6 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_GOSSIP_INTERVAL` | `1.0` | Seconds between gossip rounds. |
 | `COMETNET_GOSSIP_MESSAGE_TTL` | `5` | Maximum hops a message can travel. |
 | `COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE` | `1000` | Maximum torrents per gossip message. |
-| `COMETNET_GOSSIP_CACHE_TTL` | `300` | Seconds to remember seen messages (deduplication). |
-| `COMETNET_GOSSIP_CACHE_SIZE` | `10000` | Maximum number of seen messages to cache. |
 
 #### Validation
 
@@ -449,7 +447,6 @@ The check makes multiple attempts to connect to your WebSocket URL with configur
 ### High Memory/CPU
 
 1. Reduce `COMETNET_MAX_PEERS` (fewer connections = less overhead).
-2. Reduce `COMETNET_GOSSIP_CACHE_SIZE` (smaller deduplication cache).
 3. Increase `COMETNET_GOSSIP_INTERVAL` (less frequent gossiping).
 
 ### Logs and Debugging

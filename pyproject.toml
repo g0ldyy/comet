@@ -30,7 +30,6 @@ dependencies = [
     "websockets",
     "msgpack",
     "miniupnpc",
-    "cachetools",
     "aiofiles",
 ]
 

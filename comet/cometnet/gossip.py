@@ -10,49 +10,12 @@ import time
 from collections import deque
 from typing import Awaitable, Callable, Deque, Dict, List, Optional, Set
 
-from cachetools import TTLCache
-
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import TorrentAnnounce, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
-
-
-class MessageCache:
-    """
-    Cache of recently seen messages for deduplication.
-
-    Each entry is keyed by (info_hash, updated_at) to prevent
-    processing the same torrent announcement multiple times.
-    """
-
-    def __init__(
-        self,
-        ttl_seconds: float = None,
-        max_size: int = None,
-    ):
-        self.ttl_seconds = ttl_seconds or settings.COMETNET_GOSSIP_CACHE_TTL
-        self.max_size = max_size or settings.COMETNET_GOSSIP_CACHE_SIZE
-        self._cache: TTLCache = TTLCache(maxsize=self.max_size, ttl=self.ttl_seconds)
-
-    def is_seen(self, info_hash: str, updated_at: float) -> bool:
-        """Check if we've seen this message recently."""
-        return (info_hash, updated_at) in self._cache
-
-    def mark_seen(self, info_hash: str, updated_at: float) -> None:
-        """Mark a message as seen."""
-        self._cache[(info_hash, updated_at)] = True
-
-    def cleanup(self) -> int:
-        """TTLCache auto-expires, but we can force expiration check."""
-        self._cache.expire()
-        return 0
-
-    def __len__(self) -> int:
-        return len(self._cache)
-
 
 # Type for the callback to save a torrent to the database
 SaveTorrentCallback = Callable[[TorrentMetadata], Awaitable[None]]
@@ -113,9 +76,6 @@ class GossipEngine:
                 f"Invalid contribution mode '{self.contribution_mode}', defaulting to 'full'"
             )
             self.contribution_mode = "full"
-
-        # Message deduplication cache
-        self.seen_cache = MessageCache()
 
         # Queue of torrents waiting to be gossiped
         self._outgoing_queue: Deque[TorrentMetadata] = deque(maxlen=10000)
@@ -228,9 +188,6 @@ class GossipEngine:
                 count=1,
             )
 
-        # Mark as seen to prevent re-gossiping our own announce
-        self.seen_cache.mark_seen(metadata.info_hash, metadata.updated_at)
-
         # Add to outgoing queue
         self._outgoing_queue.append(metadata)
 
@@ -266,11 +223,6 @@ class GossipEngine:
         torrents_to_repropagate = []
 
         for torrent in announce.torrents:
-            # Check deduplication
-            if self.seen_cache.is_seen(torrent.info_hash, torrent.updated_at):
-                self.stats["duplicates_ignored"] += 1
-                continue
-
             # Skip torrents with invalid size (0) without penalizing the peer
             # This handles cases where scrapers might send incomplete metadata
             if torrent.size == 0:
@@ -282,9 +234,6 @@ class GossipEngine:
                 peer_rep.add_invalid_contribution()
                 self.stats["invalid_messages"] += 1
                 continue
-
-            # Mark as seen
-            self.seen_cache.mark_seen(torrent.info_hash, torrent.updated_at)
 
             # Require valid signature and public key on all torrents
             if (
@@ -507,15 +456,11 @@ class GossipEngine:
                 pass
 
     async def _cleanup_loop(self) -> None:
-        """Periodically clean up the message cache and keystore."""
+        """Periodically clean up keystore."""
         while self._running:
             try:
                 await asyncio.sleep(60.0)
 
-                # Cleanup message cache
-                self.seen_cache.cleanup()
-
-                # Cleanup old keys from keystore
                 if self._keystore:
                     self._keystore.cleanup_old_keys(max_age_days=30.0)
             except asyncio.CancelledError:
@@ -528,7 +473,6 @@ class GossipEngine:
         return {
             **self.stats,
             "queue_size": len(self._outgoing_queue),
-            "cache_size": len(self.seen_cache),
         }
 
     def to_dict(self) -> Dict:
