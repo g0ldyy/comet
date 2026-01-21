@@ -47,7 +47,7 @@ CometNet transforms your Comet instance from an isolated scraper into a particip
 **Important Notes:**
 
 - CometNet is an **experimental feature** and may have bugs or breaking changes.
-- CometNet shares **metadata only** (titles, hashes, sizes) - not actual torrent files or content.
+- **Metadata Only**: CometNet shares **only metadata** (titles, infohashes, file sizes). It **never** transmits actual video files, copyrighted content, or `.torrent` files. Running a node does not involve hosting or distributing copyrighted material.
 - All propagated data is cryptographically signed to ensure authenticity.
 
 ---
@@ -185,6 +185,10 @@ COMETNET_CONTRIBUTION_MODE=full
 ### Trust Pools
 
 Trust Pools allow you to create private groups where only members can contribute torrents.
+
+> **Note**: **Trust Pools are optional.** By default, CometNet runs in "Open Mode", allowing you to receive metadata from the entire public network. You do not need to create or subscribe to a pool to use CometNet.
+
+Subscribing to a pool acts as a filter: instead of receiving metadata from everyone, you will **only** receive updates from other verified members of that pool. This is useful for communities that want to maintain a high-quality, curated index free from spam, but it effectively isolates you from the wider public discovery network.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

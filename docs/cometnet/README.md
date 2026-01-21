@@ -12,7 +12,7 @@ Welcome to the CometNet documentation. CometNet is a decentralized peer-to-peer 
 
 ## Overview
 
-CometNet enables Comet instances to share discovered torrents with each other automatically. When your instance finds a new torrent, it's propagated to other nodes in the network - and you receive torrents discovered by others.
+CometNet enables Comet instances to share discovered torrent **metadata** with each other automatically. When your instance finds a new torrent, its **metadata** (hash, title, size) is propagated to other nodes in the network - and you receive metadata discovered by others. No actual files are shared.
 
 ### Key Features
 

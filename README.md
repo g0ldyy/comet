@@ -63,12 +63,12 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
     ```
 
 # CometNet (P2P Network)
-Comet transforms your Comet instance from an isolated scraper into a participant in a collaborative network. Instead of each instance independently discovering the same torrents, CometNet allows instances to share their discoveries with each other in a decentralized way.
+Comet transforms your Comet instance from an isolated scraper into a participant in a collaborative network. Instead of each instance independently discovering the same torrents, CometNet allows instances to share their discovered **metadata** (hashes, titles, etc.) with each other in a decentralized way. **No actual files are shared.**
 
 Key benefits:
-- **Improved Coverage**: Receive torrents discovered by other nodes.
+- **Improved Coverage**: Receive torrent metadata discovered by other nodes.
 - **Reduced Load**: Less redundant scraping across the network.
-- **Trust Pools**: Create closed groups with trusted contributors.
+- **Trust Pools**: Optional closed groups for trusted metadata sharing.
 
 For more information on how to setup and configure CometNet, please refer to the [CometNet Documentation](docs/cometnet/README.md).
 
