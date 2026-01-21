@@ -81,6 +81,7 @@ class HandshakeMessage(BaseMessage):
     public_key: str = ""  # Hex-encoded public key
     listen_port: int = 0  # Port this node is listening on (for reverse connections)
     public_url: Optional[str] = None  # Full public URL (for reverse proxies)
+    alias: Optional[str] = None  # Friendly name for the node
     capabilities: List[str] = Field(default_factory=list)  # Future extension
     network_token: Optional[str] = None  # HMAC token for private network auth
 
@@ -248,6 +249,7 @@ class PoolJoinRequest(BaseMessage):
     invite_code: Optional[str] = None  # For invite-based join
 
     requester_key: str = ""
+    alias: Optional[str] = None  # Friendly name of the requester
 
 
 class PoolMemberUpdate(BaseMessage):

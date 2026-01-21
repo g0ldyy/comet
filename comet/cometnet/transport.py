@@ -62,6 +62,7 @@ class PeerConnection:
     node_id: str
     address: str  # WebSocket URL
     websocket: WebSocketClientProtocol
+    alias: Optional[str] = None  # Friendly name
     public_key: str = ""
     connected_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
@@ -109,7 +110,9 @@ class PeerConnection:
         except ConnectionClosed:
             return False
         except Exception as e:
-            logger.warning(f"Error sending message to {self.node_id[:8]}: {e}")
+            logger.warning(
+                f"Error sending message to {self.node_id[:8]} ({self.alias or 'no alias'}): {e}"
+            )
             return False
 
     async def close(self) -> None:
@@ -451,7 +454,12 @@ class ConnectionManager:
             )
 
             if node_id:
-                logger.log("COMETNET", f"Connected to peer {node_id[:8]} at {address}")
+                conn = self._connections.get(node_id)
+                alias_str = f" ({conn.alias})" if conn and conn.alias else ""
+                logger.log(
+                    "COMETNET",
+                    f"Connected to peer {node_id[:8]}{alias_str} at {address}",
+                )
                 return node_id
             else:
                 logger.debug(f"Handshake failed with {address}")
@@ -524,7 +532,11 @@ class ConnectionManager:
         )
 
         if node_id:
-            logger.log("COMETNET", f"Accepted connection from peer {node_id[:8]}")
+            conn = self._connections.get(node_id)
+            alias_str = f" ({conn.alias})" if conn and conn.alias else ""
+            logger.log(
+                "COMETNET", f"Accepted connection from peer {node_id[:8]}{alias_str}"
+            )
             return node_id
         else:
             # Handshake failed, decrement IP counter
@@ -563,6 +575,7 @@ class ConnectionManager:
                     public_key=self.identity.public_key_hex,
                     listen_port=self.listen_port,
                     public_url=self.advertise_url,
+                    alias=settings.COMETNET_NODE_ALIAS,
                 )
                 # Add network token for private mode
                 if (
@@ -604,6 +617,7 @@ class ConnectionManager:
                     public_key=self.identity.public_key_hex,
                     listen_port=self.listen_port,
                     public_url=self.advertise_url,
+                    alias=settings.COMETNET_NODE_ALIAS,
                 )
                 # Add network token for private mode
                 if (
@@ -703,6 +717,7 @@ class ConnectionManager:
                 public_key=peer_handshake.public_key,
                 is_outbound=is_outbound,
                 listen_port=peer_handshake.listen_port,
+                alias=peer_handshake.alias,
             )
             self._connections[peer_handshake.sender_id] = conn
 
@@ -772,7 +787,10 @@ class ConnectionManager:
                     if self._connections_per_ip[ip] == 0:
                         del self._connections_per_ip[ip]
                 del self._connections[conn.node_id]
-            logger.log("COMETNET", f"Disconnected from peer {conn.node_id[:8]}")
+            logger.log(
+                "COMETNET",
+                f"Disconnected from peer {conn.node_id[:8]} ({conn.alias or 'no alias'})",
+            )
 
     async def _handle_ping(self, conn: PeerConnection, ping: PingMessage) -> None:
         """Respond to a ping with a pong."""

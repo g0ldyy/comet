@@ -243,6 +243,11 @@ class AppSettings(BaseSettings):
     # Pools to ingest from even when in private mode
     COMETNET_INGEST_POOLS: List[str] = []
 
+    # CometNet Node Alias
+    # Optional friendly name for this node (exchanged with other peers)
+    # If not set, users will only see the Node ID
+    COMETNET_NODE_ALIAS: Optional[str] = None
+
     @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
     def normalize_executor_workers(cls, v):
         if v is None or v == "" or str(v).lower() == "none":

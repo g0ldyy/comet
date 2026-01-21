@@ -402,9 +402,13 @@ class CometNetService(CometNetBackend):
             f", subscribed to {pool_count} pools" if pool_count > 0 else ", open mode"
         )
 
+        alias_info = (
+            f" ({settings.COMETNET_NODE_ALIAS})" if settings.COMETNET_NODE_ALIAS else ""
+        )
+
         logger.log(
             "COMETNET",
-            f"CometNet started - Node ID: {self.identity.node_id[:8]} (mode: {settings.COMETNET_CONTRIBUTION_MODE}{pool_info})",
+            f"CometNet started - Node ID: {self.identity.node_id[:8]}{alias_info} (mode: {settings.COMETNET_CONTRIBUTION_MODE}{pool_info})",
         )
 
     async def stop(self) -> None:
@@ -963,6 +967,7 @@ class CometNetService(CometNetBackend):
                     public_key=requester_key,
                     role=MemberRole.MEMBER,
                     added_by=invite.created_by,
+                    alias=message.alias,
                 )
             )
             manifest.version += 1
@@ -1416,6 +1421,7 @@ class CometNetService(CometNetBackend):
                     "last_activity": conn.last_activity,
                     "is_outbound": conn.is_outbound,
                     "latency_ms": round(conn.latency_ms, 2),
+                    "alias": conn.alias,
                     **rep_data,
                 }
             )
@@ -1582,7 +1588,7 @@ class CometNetService(CometNetBackend):
 
         # First, try local (if we already have the manifest and invite)
         local_success = await self.pool_store.use_invite(
-            pool_id, invite_code, self.identity
+            pool_id, invite_code, self.identity, alias=settings.COMETNET_NODE_ALIAS
         )
         if local_success:
             return True
@@ -1618,6 +1624,7 @@ class CometNetService(CometNetBackend):
                 pool_id=pool_id,
                 invite_code=invite_code,
                 requester_key=self.identity.public_key_hex,
+                alias=settings.COMETNET_NODE_ALIAS,
             )
             join_request.signature = await self.identity.sign_hex_async(
                 join_request.to_signable_bytes()

@@ -51,6 +51,7 @@ class PoolMember(BaseModel):
     role: MemberRole = MemberRole.MEMBER
     added_at: float = Field(default_factory=time.time)
     added_by: str = ""  # Public key of admin who added this member
+    alias: Optional[str] = None  # Friendly name
 
     # Stats (local tracking)
     contribution_count: int = 0
@@ -135,6 +136,7 @@ class PoolManifest(BaseModel):
         - Timestamps: Converted to integers (floor) to prevent float precision drift.
         - Computed Fields: 'node_id' is EXCLUDED (must be re-computed by receiver).
         - Local Stats: 'contribution_count' and 'last_seen' are EXCLUDED (not part of consensus).
+        - Metadata: 'alias' is EXCLUDED (not part of consensus).
         """
         data = self.model_dump(exclude={"signatures"})
 
@@ -147,6 +149,9 @@ class PoolManifest(BaseModel):
                     del m["contribution_count"]
                 if "last_seen" in m:
                     del m["last_seen"]
+
+                if "alias" in m:
+                    del m["alias"]
 
                 if "added_at" in m:
                     m["added_at"] = int(m["added_at"])
@@ -382,6 +387,7 @@ class PoolStore:
                     public_key=identity.public_key_hex,
                     role=MemberRole.CREATOR,
                     added_by=identity.public_key_hex,
+                    alias=settings.COMETNET_NODE_ALIAS,
                 )
             ],
         )
@@ -448,6 +454,7 @@ class PoolStore:
         new_member_key: str,
         identity,  # NodeIdentity (must be admin)
         role: MemberRole = MemberRole.MEMBER,
+        alias: Optional[str] = None,
     ) -> bool:
         """
         Add a new member to a pool (admin action).
@@ -457,6 +464,7 @@ class PoolStore:
             new_member_key: Public key of new member
             identity: Admin's identity
             role: Role for the new member
+            alias: Optional friendly name for the member
 
         Returns:
             True if member was added
@@ -477,6 +485,7 @@ class PoolStore:
                 public_key=new_member_key,
                 role=role,
                 added_by=identity.public_key_hex,
+                alias=alias,
             )
         )
 
@@ -745,6 +754,7 @@ class PoolStore:
         pool_id: str,
         invite_code: str,
         identity,  # NodeIdentity of the joining node
+        alias: Optional[str] = None,
     ) -> bool:
         """
         Use an invitation to join a pool.
@@ -753,6 +763,7 @@ class PoolStore:
             pool_id: Pool to join
             invite_code: The invitation code
             identity: Identity of the node joining
+            alias: Optional alias for the joining node
 
         Returns:
             True if successfully joined
@@ -775,6 +786,7 @@ class PoolStore:
                 public_key=identity.public_key_hex,
                 role=MemberRole.MEMBER,
                 added_by=invite.created_by,
+                alias=alias,
             )
         )
 

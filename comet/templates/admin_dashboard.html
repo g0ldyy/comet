@@ -1843,7 +1843,7 @@
              <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
                  <div>
                      <div class="tracker-name" style="display: flex; align-items: center; gap: 8px;">
-                         ${peer.address}
+                         ${peer.alias ? `<strong>${escapeHtml(peer.alias)}</strong>` : peer.address}
                          <span class="connection-id" title="${peer.node_id}">${peer.node_id.substring(0, 8)}</span>
                          <sl-badge variant="${peer.is_outbound ? "neutral" : "primary"}" pill>${type}</sl-badge>
                      </div>
@@ -2524,6 +2524,7 @@
             <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
               <div style="flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  ${member.alias ? `<span style="font-weight: 600; color: #fff;">${escapeHtml(member.alias)}</span>` : ""}
                   <span class="connection-id" style="font-size: 0.85rem;" title="${member.node_id}">${member.node_id.substring(0, 8)}</span>
                   ${roleBadge}
                   ${isSelf ? '<sl-badge variant="primary" pill>You</sl-badge>' : ""}
