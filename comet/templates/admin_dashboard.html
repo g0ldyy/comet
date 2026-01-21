@@ -2213,40 +2213,75 @@
         });
       }
 
-      function copyInviteLink(text) {
+      async function copyInviteLink(text) {
         const isInsecure =
           window.location.protocol === "http:" &&
           window.location.hostname !== "localhost";
 
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
+        const fallbackCopy = () => {
+          const textArea = document.createElement("textarea");
+          textArea.value = text;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-9999px";
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+
+          const success = document.execCommand("copy");
+          document.body.removeChild(textArea);
+          if (!success) throw new Error("execCommand copy failed");
+        };
 
         try {
-          const success = document.execCommand("copy");
-          if (success) {
+          if (!isInsecure && navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
             showToast("Copied to clipboard!", "success");
-          } else if (isInsecure) {
-            showToast(
-              "Copy may not work over HTTP. Use HTTPS for clipboard access.",
-              "warning",
-            );
+            return;
+          }
+
+          try {
+            fallbackCopy();
+            if (isInsecure) {
+              showToast(
+                "Copy may be blocked on HTTP. Please paste to confirm or copy manually.",
+                "warning",
+              );
+            } else {
+              showToast("Copied to clipboard!", "success");
+            }
+          } catch (fallbackErr) {
+            if (isInsecure) {
+              showToast(
+                "Clipboard not available over HTTP. Please copy manually.",
+                "warning",
+              );
+            } else {
+              console.error("Fallback copy failed:", fallbackErr);
+              showToast(
+                "Could not copy to clipboard. Please copy manually.",
+                "warning",
+              );
+            }
           }
         } catch (err) {
-          console.error("Copy failed:", err);
-          if (isInsecure) {
-            showToast(
-              "Clipboard not available over HTTP. Please copy manually.",
-              "warning",
-            );
+          console.warn("Clipboard copy failed, retrying with fallback:", err);
+          if (!isInsecure) {
+            try {
+              fallbackCopy();
+              showToast("Copied to clipboard!", "success");
+              return;
+            } catch (fallbackErr) {
+              console.error("Fallback copy failed:", fallbackErr);
+            }
           }
-        }
 
-        document.body.removeChild(textArea);
+          showToast(
+            isInsecure
+              ? "Clipboard not available over HTTP. Please copy manually."
+              : "Could not copy to clipboard. Please copy manually.",
+            "warning",
+          );
+        }
       }
 
       let pendingInvitePoolId = null;
