@@ -1051,7 +1051,6 @@ class ConnectionManager:
             "ip_diversity": round(
                 ip_diversity, 2
             ),  # 1.0 = all unique, lower = potential eclipse
-            "connections_per_ip": dict(self._connections_per_ip),
             "avg_latency_ms": (
                 sum(c.latency_ms for c in self._connections.values())
                 / len(self._connections)

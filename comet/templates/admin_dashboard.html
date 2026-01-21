@@ -1723,11 +1723,6 @@
         return div.innerHTML;
       }
 
-      const cometNetTab = document.querySelector('sl-tab[panel="cometnet"]');
-      if (cometNetTab) {
-        cometNetTab.addEventListener("click", loadCometNetStats);
-      }
-
       let myPublicKey = null;
 
       async function loadCometNetStats() {
