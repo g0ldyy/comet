@@ -228,6 +228,25 @@ class CometNetService(CometNetBackend):
         if self.pool_store:
             await self.pool_store.load()
 
+            # Reconciliation: Ensure I am marked as a member in pools where I appear in the manifest
+            # This fixes issues where local membership state gets out of sync with manifest
+            if self.identity:
+                my_key = self.identity.public_key_hex
+                manifests = self.pool_store.get_all_manifests()
+                changes = False
+                for pool_id, manifest in manifests.items():
+                    if manifest.is_member(my_key):
+                        if pool_id not in self.pool_store._memberships:
+                            self.pool_store._memberships.add(pool_id)
+                            changes = True
+                            logger.log(
+                                "COMETNET",
+                                f"Restored missing membership for pool {pool_id}",
+                            )
+
+                if changes:
+                    await self.pool_store._save_memberships()
+
         # Start transport layer
         await self.transport.start()
 

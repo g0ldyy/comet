@@ -2156,6 +2156,8 @@
           filtered = filtered.filter((p) => p.isSubscribed);
         } else if (currentPoolFilter === "my-pools") {
           filtered = filtered.filter((p) => p.isMember);
+        } else if (currentPoolFilter === "discover") {
+          filtered = filtered.filter((p) => !p.isMember && !p.isSubscribed);
         }
 
         if (poolSearchTerm) {

@@ -7,6 +7,7 @@ dedicated CometNet standalone service.
 """
 
 import asyncio
+import traceback
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -175,6 +176,7 @@ class CometNetRelay(CometNetBackend):
         except Exception as e:
             self._total_errors += len(batch_to_send)
             logger.debug(f"Relay batch send failed: {e}")
+            logger.debug(traceback.format_exc())
 
     async def _send_single(self, torrent: Dict) -> bool:
         """Send a single torrent to the relay."""
