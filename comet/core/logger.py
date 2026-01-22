@@ -320,7 +320,7 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"Comet Scraper: {settings.format_scraper_mode(settings.SCRAPE_COMET)}{comet_url}",
+        f"Comet Scraper: {settings.format_scraper_mode(settings.SCRAPE_COMET)}{comet_url} - Clean Tracker: {bool(settings.COMET_CLEAN_TRACKER)}",
     )
 
     nyaa_anime_only = (

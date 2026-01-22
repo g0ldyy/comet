@@ -2,6 +2,8 @@ import base64
 
 from RTN import ParsedData
 
+from comet.core.models import settings
+
 
 def normalize_info_hash(info_hash: str) -> str:
     if len(info_hash) == 32:
@@ -204,6 +206,9 @@ def format_group_info(data: ParsedData):
     return " • ".join(group_parts) if group_parts else ""
 
 
+comet_clean_tracker = settings.COMET_CLEAN_TRACKER
+
+
 def get_formatted_components(
     data: ParsedData,
     ttitle: str,
@@ -244,8 +249,11 @@ def get_formatted_components(
     if (has_all or "size" in result_format) and size is not None:
         components["size"] = f"💾 {format_bytes(size)}"
 
-    if has_all or "tracker" in result_format:
-        components["tracker"] = f"🔎 {tracker}"
+    if (has_all or "tracker" in result_format) and tracker:
+        if comet_clean_tracker and tracker[:6] == "Comet|":
+            components["tracker"] = f"🔎 Comet|{tracker.rsplit('|', 1)[-1]}"
+        else:
+            components["tracker"] = f"🔎 {tracker}"
 
     if (
         (has_all or "languages" in result_format)

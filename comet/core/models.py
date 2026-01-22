@@ -72,6 +72,7 @@ class AppSettings(BaseSettings):
     DOWNLOAD_TORRENT_FILES: Optional[bool] = False
     SCRAPE_COMET: Union[bool, str] = False
     COMET_URL: Union[str, List[str]] = "https://comet.feels.legal"
+    COMET_CLEAN_TRACKER: Optional[bool] = False
     SCRAPE_NYAA: Union[bool, str] = False
     NYAA_ANIME_ONLY: Optional[bool] = True
     NYAA_MAX_CONCURRENT_PAGES: Optional[int] = 5
