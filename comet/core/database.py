@@ -622,7 +622,10 @@ async def _run_startup_cleanup():
                     DELETE FROM first_searches 
                     WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
                     """,
-                    {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
+                    {
+                        "cache_ttl": settings.TORRENT_CACHE_TTL,
+                        "current_time": current_time,
+                    },
                 )
 
             await database.execute(

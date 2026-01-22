@@ -753,6 +753,143 @@
           grid-template-columns: repeat(2, 1fr);
         }
       }
+
+      .pools-container {
+        display: flex;
+        gap: 20px;
+        height: 600px;
+      }
+
+      .pools-sidebar {
+        width: 300px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        flex-shrink: 0;
+      }
+
+      .pools-content {
+        flex: 1;
+        background-color: #0f1419;
+        border-radius: 0.375rem;
+        border: 1px solid #374151;
+        overflow-y: auto;
+        padding: 15px;
+      }
+
+      .pool-filter-btn {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .pool-filter-btn::part(base) {
+        justify-content: flex-start;
+      }
+
+      .pool-card {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        transition: background-color 0.2s ease;
+      }
+
+      .pool-card:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .pool-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+      }
+
+      .pool-name-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .pool-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .pool-id-pill {
+        font-family: monospace;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        color: #aaa;
+      }
+
+      .pool-description {
+        color: #bbb;
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .pool-stats-row {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .pool-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .pool-stat-val {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #fff;
+      }
+
+      .pool-stat-lbl {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #888;
+      }
+
+      .pool-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .pool-filter-btn.active::part(base) {
+        background-color: var(--sl-color-primary-600);
+        border-color: var(--sl-color-primary-500);
+        color: white;
+      }
+
+      @media (max-width: 800px) {
+        .pools-container {
+          flex-direction: column;
+          height: auto;
+        }
+        .pools-sidebar {
+          width: 100%;
+        }
+        .pools-content {
+          height: 500px;
+        }
+      }
     </style>
   </head>
 
@@ -1123,29 +1260,109 @@
               <div class="metrics-grid">
                 <div class="metric-section">
                   <h3><sl-icon name="shield-lock"></sl-icon> Trust Pools</h3>
-                  <div class="metric-content">
-                    <div style="display: flex; gap: 10px; margin-bottom: 15px">
-                      <sl-button
-                        size="small"
-                        variant="primary"
-                        onclick="openCreatePoolDialog()"
+
+                  <div class="pools-container">
+                    <!-- Left Sidebar -->
+                    <div class="pools-sidebar">
+                      <sl-input
+                        id="pool-search"
+                        placeholder="Search pools..."
+                        clearable
+                        size="medium"
                       >
-                        <sl-icon slot="prefix" name="plus-lg"></sl-icon> Create
-                        Pool
-                      </sl-button>
-                      <sl-button
-                        size="small"
-                        variant="neutral"
-                        onclick="openJoinPoolDialog()"
+                        <sl-icon slot="prefix" name="search"></sl-icon>
+                      </sl-input>
+
+                      <div
+                        style="display: flex; flex-direction: column; gap: 5px"
                       >
-                        <sl-icon
-                          slot="prefix"
-                          name="box-arrow-in-right"
-                        ></sl-icon>
-                        Join Pool
-                      </sl-button>
+                        <sl-button
+                          class="pool-filter-btn active"
+                          variant="default"
+                          outline
+                          id="filter-subscribed"
+                          onclick="setPoolFilter('subscribed')"
+                        >
+                          <sl-icon slot="prefix" name="check-circle"></sl-icon>
+                          Subscribed
+                          <sl-badge
+                            pill
+                            variant="primary"
+                            style="margin-left: auto"
+                            id="count-subscribed"
+                            >0</sl-badge
+                          >
+                        </sl-button>
+                        <sl-button
+                          class="pool-filter-btn"
+                          variant="default"
+                          outline
+                          id="filter-discover"
+                          onclick="setPoolFilter('discover')"
+                        >
+                          <sl-icon slot="prefix" name="globe"></sl-icon>
+                          Discover
+                          <sl-badge
+                            pill
+                            variant="neutral"
+                            style="margin-left: auto"
+                            id="count-discover"
+                            >0</sl-badge
+                          >
+                        </sl-button>
+                        <sl-button
+                          class="pool-filter-btn"
+                          variant="default"
+                          outline
+                          id="filter-my-pools"
+                          onclick="setPoolFilter('my-pools')"
+                        >
+                          <sl-icon slot="prefix" name="person"></sl-icon>
+                          My Pools
+                          <sl-badge
+                            pill
+                            variant="neutral"
+                            style="margin-left: auto"
+                            id="count-my-pools"
+                            >0</sl-badge
+                          >
+                        </sl-button>
+                      </div>
+
+                      <div
+                        style="
+                          margin-top: auto;
+                          padding-top: 15px;
+                          border-top: 1px solid rgba(255, 255, 255, 0.1);
+                          display: flex;
+                          flex-direction: column;
+                          gap: 8px;
+                        "
+                      >
+                        <sl-button
+                          variant="primary"
+                          onclick="openCreatePoolDialog()"
+                          style="width: 100%"
+                        >
+                          <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+                          Create Pool
+                        </sl-button>
+                        <sl-button
+                          variant="neutral"
+                          onclick="openJoinPoolDialog()"
+                          style="width: 100%"
+                        >
+                          <sl-icon
+                            slot="prefix"
+                            name="box-arrow-in-right"
+                          ></sl-icon>
+                          Join Pool
+                        </sl-button>
+                      </div>
                     </div>
-                    <div class="data-list" id="pools-list">
+
+                    <!-- Right Content -->
+                    <div class="pools-content" id="pools-list">
                       <div class="loading-state">
                         <sl-spinner></sl-spinner>
                         <span>Loading pools...</span>
@@ -1381,6 +1598,14 @@
       let lastLogTimestamp = 0;
       let currentTab = "connections"; // Track current active tab
 
+      // Pools state
+      let poolsCache = [];
+      let currentPoolFilter = "subscribed";
+      let poolSearchTerm = "";
+
+      // Peer cache for cross-referencing
+      let peersCache = [];
+
       function initializeDashboard() {
         loadConnections();
 
@@ -1412,6 +1637,14 @@
         document
           .querySelector("sl-tab-group")
           .addEventListener("sl-tab-show", handleTabChange);
+
+        const poolSearch = document.getElementById("pool-search");
+        if (poolSearch) {
+          poolSearch.addEventListener("sl-input", () => {
+            poolSearchTerm = poolSearch.value.trim().toLowerCase();
+            renderPoolsList();
+          });
+        }
       }
 
       function stopAllIntervals() {
@@ -1748,8 +1981,34 @@
 
           myPublicKey = stats.public_key;
 
+          // Update caches
+          peersCache = peersData.peers || [];
+
+          if (poolsData.pools) {
+            const pools = Object.values(poolsData.pools);
+            poolsCache = pools.map((p) => {
+              const isSub = new Set(poolsData.subscriptions || []).has(
+                p.pool_id,
+              );
+              const isMem = new Set(poolsData.memberships || []).has(p.pool_id);
+              const members = new Set(p.members.map((m) => m.public_key));
+              const activePeers = peersCache.filter((peer) => {
+                return p.members.some((m) => m.node_id === peer.node_id);
+              }).length;
+
+              return {
+                ...p,
+                isSubscribed: isSub,
+                isMember: isMem,
+                activePeersCount: activePeers,
+              };
+            });
+          } else {
+            poolsCache = [];
+          }
+
           updateCometNetOverview(stats);
-          updatePoolsList(poolsData, stats.pool_stats);
+          updatePoolsUI();
           updateCometNetPeers(peersData.peers);
         } catch (e) {
           console.error("CometNet load error", e);
@@ -1856,82 +2115,154 @@
           .join("");
       }
 
-      function updatePoolsList(poolsData, poolStats) {
+      function setPoolFilter(filter) {
+        currentPoolFilter = filter;
+
+        document.querySelectorAll(".pool-filter-btn").forEach((btn) => {
+          btn.classList.remove("active");
+          btn.variant = "default";
+          const badge = btn.querySelector("sl-badge");
+          if (badge) badge.variant = "neutral";
+        });
+
+        const activeBtn = document.getElementById(`filter-${filter}`);
+        if (activeBtn) {
+          activeBtn.classList.add("active");
+          const badge = activeBtn.querySelector("sl-badge");
+          if (badge) badge.variant = "primary";
+        }
+
+        renderPoolsList();
+      }
+
+      function updatePoolsUI() {
+        const subCount = poolsCache.filter((p) => p.isSubscribed).length;
+        const myCount = poolsCache.filter((p) => p.isMember).length;
+        const discoverCount = poolsCache.length;
+
+        document.getElementById("count-subscribed").textContent = subCount;
+        document.getElementById("count-discover").textContent = discoverCount;
+        document.getElementById("count-my-pools").textContent = myCount;
+
+        renderPoolsList();
+      }
+
+      function renderPoolsList() {
         const container = document.getElementById("pools-list");
-        if (!poolsData.pools || Object.keys(poolsData.pools).length === 0) {
-          container.innerHTML =
-            '<div class="empty-state"><sl-icon name="shield-slash"></sl-icon><p>No pools known</p></div>';
+
+        let filtered = poolsCache;
+
+        if (currentPoolFilter === "subscribed") {
+          filtered = filtered.filter((p) => p.isSubscribed);
+        } else if (currentPoolFilter === "my-pools") {
+          filtered = filtered.filter((p) => p.isMember);
+        }
+
+        if (poolSearchTerm) {
+          filtered = filtered.filter(
+            (p) =>
+              p.display_name.toLowerCase().includes(poolSearchTerm) ||
+              p.pool_id.toLowerCase().includes(poolSearchTerm),
+          );
+        }
+
+        if (filtered.length === 0) {
+          container.innerHTML = `
+                <div class="empty-state">
+                    <sl-icon name="search"></sl-icon>
+                    <p>No pools found matching your criteria</p>
+                    ${currentPoolFilter === "subscribed" ? '<sl-button size="small" variant="neutral" outline onclick="setPoolFilter(\'discover\')">Discover Pools</sl-button>' : ""}
+                </div>`;
           return;
         }
 
-        const subscriptions = new Set(poolsData.subscriptions || []);
-        const memberships = new Set(poolsData.memberships || []);
-
-        container.innerHTML = Object.values(poolsData.pools)
+        container.innerHTML = filtered
           .map((pool) => {
-            const isSub = subscriptions.has(pool.pool_id);
-            const isMem = memberships.has(pool.pool_id);
-
-            const myMembership = myPublicKey
-              ? pool.members.find((m) => m.public_key === myPublicKey)
-              : null;
+            const myMembership = pool.members.find(
+              (m) => m.public_key === myPublicKey,
+            );
             const isAdmin =
-              myMembership?.role === "admin" ||
-              myMembership?.role === "creator";
+              myMembership &&
+              (myMembership.role === "admin" ||
+                myMembership.role === "creator");
+            const isCreator = myMembership && myMembership.role === "creator";
 
             let roleBadge = "";
-            if (myMembership) {
-              if (myMembership.role === "creator") {
-                roleBadge =
-                  '<sl-badge variant="success" pill>Creator</sl-badge>';
-              } else if (myMembership.role === "admin") {
-                roleBadge = '<sl-badge variant="warning" pill>Admin</sl-badge>';
-              } else {
-                roleBadge =
-                  '<sl-badge variant="primary" pill>Member</sl-badge>';
-              }
-            }
-
-            const description = pool.description
-              ? `<div style="color: #9ca3af; font-size: 0.85rem; margin-top: 4px; max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(pool.description)}">${escapeHtml(pool.description)}</div>`
-              : "";
+            if (isCreator)
+              roleBadge = '<sl-badge variant="success" pill>Creator</sl-badge>';
+            else if (isAdmin)
+              roleBadge = '<sl-badge variant="warning" pill>Admin</sl-badge>';
+            else if (pool.isMember)
+              roleBadge = '<sl-badge variant="neutral" pill>Member</sl-badge>';
 
             return `
-            <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="flex: 1; min-width: 0;">
-                    <div class="tracker-name" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        ${escapeHtml(pool.display_name)}
-                        <span class="connection-id">${pool.pool_id}</span>
-                        ${isSub ? '<sl-badge variant="success" pill>Subscribed</sl-badge>' : ""}
+            <div class="pool-card">
+                <div class="pool-header">
+                    <div class="pool-name-row">
+                        <span class="pool-title">${escapeHtml(pool.display_name)}</span>
+                        ${pool.isSubscribed ? '<sl-icon name="check-circle-fill" style="color: var(--sl-color-primary-500)"></sl-icon>' : ""}
+                        <span class="pool-id-pill">${pool.pool_id}</span>
                         ${roleBadge}
                     </div>
-                    ${description}
-                    <div class="tracker-stats" style="margin-top: 6px;">
-                        <span>${pool.members.length} members</span>
+                </div>
+                
+                <div class="pool-description" title="${escapeHtml(pool.description)}">
+                    ${pool.description ? escapeHtml(pool.description) : '<span style="color: #666; font-style: italic">No description</span>'}
+                </div>
+                
+                <div class="pool-stats-row">
+                    <div class="pool-stat">
+                        <span class="pool-stat-val">${pool.members.length}</span>
+                        <span class="pool-stat-lbl">Members</span>
+                    </div>
+                    <div class="pool-stat">
+                        <span class="pool-stat-val">${pool.activePeersCount}</span>
+                        <span class="pool-stat-lbl">Active Peers</span>
+                    </div>
+                    <div class="pool-stat">
+                        <span class="pool-stat-val">${pool.version}</span>
+                        <span class="pool-stat-lbl">Revision</span>
                     </div>
                 </div>
-                <div style="display: flex; gap: 5px; flex-shrink: 0; margin-left: 10px;">
-                    <sl-button size="small" variant="neutral" outline onclick="openPoolMembersDialog('${pool.pool_id}')"><sl-icon slot="prefix" name="people"></sl-icon> Members</sl-button>
-                    ${
-                      isAdmin
-                        ? `<sl-button size="small" variant="neutral" outline onclick="createPoolInvite('${pool.pool_id}')"><sl-icon slot="prefix" name="link-45deg"></sl-icon> Invite</sl-button>`
-                        : ""
-                    }
-                    ${
-                      isAdmin
-                        ? `<sl-button size="small" variant="danger" outline onclick="deletePool('${pool.pool_id}')"><sl-icon slot="prefix" name="trash"></sl-icon></sl-button>`
-                        : ""
-                    }
-                    ${
-                      isMem && myMembership?.role !== "creator"
-                        ? `<sl-button size="small" variant="warning" outline onclick="leavePool('${pool.pool_id}')"><sl-icon slot="prefix" name="box-arrow-right"></sl-icon> Leave</sl-button>`
-                        : ""
-                    }
-                    ${
-                      !isSub
-                        ? `<sl-button size="small" variant="success" outline onclick="subscribePool('${pool.pool_id}')">Subscribe</sl-button>`
-                        : `<sl-button size="small" variant="danger" outline onclick="unsubscribePool('${pool.pool_id}')">Unsubscribe</sl-button>`
-                    }
+                
+                <div class="pool-actions">
+                     <sl-button size="small" variant="neutral" outline onclick="openPoolMembersDialog('${pool.pool_id}')">
+                        <sl-icon slot="prefix" name="people"></sl-icon> Members
+                     </sl-button>
+                     
+                     ${
+                       isAdmin
+                         ? `<sl-button size="small" variant="neutral" outline onclick="createPoolInvite('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="link-45deg"></sl-icon> Invite
+                         </sl-button>`
+                         : ""
+                     }
+                         
+                     ${
+                       pool.isMember && !isCreator
+                         ? `<sl-button size="small" variant="warning" outline onclick="leavePool('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="box-arrow-right"></sl-icon> Leave
+                         </sl-button>`
+                         : ""
+                     }
+                         
+                     ${
+                       isCreator
+                         ? `<sl-button size="small" variant="danger" outline onclick="deletePool('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="trash"></sl-icon> Delete
+                         </sl-button>`
+                         : ""
+                     }
+                         
+                     ${
+                       !pool.isSubscribed
+                         ? `<sl-button size="small" variant="success" onclick="subscribePool('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="plus"></sl-icon> Subscribe
+                         </sl-button>`
+                         : `<sl-button size="small" variant="danger" outline onclick="unsubscribePool('${pool.pool_id}')">
+                            Unsubscribe
+                         </sl-button>`
+                     }
                 </div>
             </div>
             `;
