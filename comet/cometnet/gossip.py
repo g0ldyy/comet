@@ -463,6 +463,9 @@ class GossipEngine:
 
                 if self._keystore:
                     self._keystore.cleanup_old_keys(max_age_days=30.0)
+
+                if self.reputation:
+                    self.reputation.cleanup_old_peers(max_age_days=30.0)
             except asyncio.CancelledError:
                 break
             except Exception:

@@ -167,6 +167,21 @@ class ReputationStore:
         if node_id in self._peers:
             self._peers[node_id].unblacklist()
 
+    def cleanup_old_peers(self, max_age_days: float = 30.0) -> int:
+        """
+        Remove peers that haven't been seen in a while.
+        Does not remove blacklisted peers.
+        """
+        cutoff = time.time() - (max_age_days * 86400)
+        to_remove = [
+            node_id
+            for node_id, peer in self._peers.items()
+            if peer.last_seen < cutoff and not peer.is_blacklisted
+        ]
+        for node_id in to_remove:
+            del self._peers[node_id]
+        return len(to_remove)
+
     def get_trusted_peers(self) -> list[PeerReputation]:
         """Get all trusted peers."""
         return [p for p in self._peers.values() if p.is_trusted()]

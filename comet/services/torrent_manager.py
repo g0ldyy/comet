@@ -160,16 +160,69 @@ async def broadcast_torrents(torrents_params: list[dict]):
                 }
             )
 
-        for t in clean_torrents:
-            asyncio.create_task(backend.broadcast_torrent(t))
-
-        logger.log(
-            "COMETNET",
-            f"Queued {len(clean_torrents)} torrents for broadcast via {backend.__class__.__name__}",
-        )
+        await torrent_broadcast_queue.add(clean_torrents)
 
     except Exception as e:
         logger.debug(f"CometNet broadcast error: {e}")
+
+
+class TorrentBroadcastQueue:
+    def __init__(self):
+        self.queue = asyncio.Queue()
+        self.is_running = False
+        self._lock = asyncio.Lock()
+
+    async def add(self, torrents: list[dict]):
+        if not torrents:
+            return
+
+        await self.queue.put(torrents)
+
+        if not self.is_running:
+            async with self._lock:
+                if not self.is_running:
+                    self.is_running = True
+                    asyncio.create_task(self._process_queue())
+
+    async def _process_queue(self):
+        backend = get_active_backend()
+        if not backend:
+            self.is_running = False
+            return
+
+        while self.is_running:
+            try:
+                torrents = await self.queue.get()
+
+                if torrents:
+                    tasks = [backend.broadcast_torrent(t) for t in torrents]
+                    if tasks:
+                        await asyncio.gather(*tasks)
+
+                    logger.log(
+                        "COMETNET",
+                        f"Queued {len(torrents)} torrents for broadcast via {backend.__class__.__name__}",
+                    )
+
+                self.queue.task_done()
+
+            except Exception as e:
+                logger.warning(f"Error in broadcast queue: {e}")
+                await asyncio.sleep(1)
+
+            if self.queue.empty():
+                await asyncio.sleep(1)
+                if self.queue.empty():
+                    async with self._lock:
+                        if self.queue.empty():
+                            self.is_running = False
+                            return
+
+    async def stop(self):
+        self.is_running = False
+
+
+torrent_broadcast_queue = TorrentBroadcastQueue()
 
 
 async def add_torrent(
@@ -305,7 +358,6 @@ class AddTorrentQueue:
                                 )
                     finally:
                         self.queue.task_done()
-
             except Exception:
                 await asyncio.sleep(1)
 

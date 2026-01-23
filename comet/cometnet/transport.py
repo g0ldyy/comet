@@ -62,6 +62,7 @@ class PeerConnection:
     node_id: str
     address: str  # WebSocket URL
     websocket: WebSocketClientProtocol
+    client_ip: Optional[str] = None  # The actual IP address (for rate limiting)
     alias: Optional[str] = None  # Friendly name
     public_key: str = ""
     connected_at: float = field(default_factory=time.time)
@@ -714,6 +715,7 @@ class ConnectionManager:
                 node_id=peer_handshake.sender_id,
                 address=effective_address,
                 websocket=websocket,
+                client_ip=client_ip,
                 public_key=peer_handshake.public_key,
                 is_outbound=is_outbound,
                 listen_port=peer_handshake.listen_port,
@@ -732,6 +734,7 @@ class ConnectionManager:
             # Start message receiver task
             task = asyncio.create_task(self._receive_loop(conn))
             self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
 
             return peer_handshake.sender_id
         except asyncio.TimeoutError:
@@ -778,14 +781,15 @@ class ConnectionManager:
         finally:
             # Clean up connection
             if conn.node_id in self._connections:
-                # Decrement IP connection counter
-                ip = extract_ip_from_address(conn.address)
-                if ip in self._connections_per_ip:
-                    self._connections_per_ip[ip] = max(
-                        0, self._connections_per_ip[ip] - 1
-                    )
-                    if self._connections_per_ip[ip] == 0:
-                        del self._connections_per_ip[ip]
+                # Decrement IP connection counter (only for inbound connections that we track)
+                if not conn.is_outbound and conn.client_ip:
+                    ip = conn.client_ip
+                    if ip in self._connections_per_ip:
+                        self._connections_per_ip[ip] = max(
+                            0, self._connections_per_ip[ip] - 1
+                        )
+                        if self._connections_per_ip[ip] == 0:
+                            del self._connections_per_ip[ip]
                 del self._connections[conn.node_id]
             logger.log(
                 "COMETNET",
