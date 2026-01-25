@@ -26,6 +26,7 @@ dependencies = [
     "rank-torrent-name",
     "uvicorn",
     "xxhash",
+    "redis",
     "cryptography",
     "websockets",
     "msgpack",
