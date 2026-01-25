@@ -40,7 +40,8 @@ from comet.core.database import setup_database, teardown_database
 from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.services.torrent_manager import (save_torrent_from_network,
+from comet.services.torrent_manager import (cometnet_receive_limiter,
+                                            save_torrent_from_network,
                                             torrent_update_queue)
 
 
@@ -181,8 +182,23 @@ class StandaloneCometNet:
             setup_executor()
 
             self.service.set_save_torrent_callback(save_torrent_from_network)
-
             await self.service.start()
+
+            # Start CometNet receive rate limiter
+            await cometnet_receive_limiter.start()
+
+            # Initialize Redis Consumer if configured
+            redis_task = None
+            if settings.COMETNET_REDIS_URL:
+                try:
+                    redis_task = asyncio.create_task(self._redis_consumer_loop())
+                    logger.log(
+                        "COMETNET",
+                        f"Redis Consumer started - Stream: {settings.COMETNET_REDIS_STREAM} Group: {settings.COMETNET_REDIS_GROUP}",
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to start Redis Consumer: {e}")
+
             logger.log(
                 "COMETNET",
                 f"Standalone server started - WS:{self.ws_port} HTTP:{self.http_port}",
@@ -190,7 +206,15 @@ class StandaloneCometNet:
 
             yield
 
+            if redis_task:
+                redis_task.cancel()
+                try:
+                    await redis_task
+                except asyncio.CancelledError:
+                    pass
+
             await self.service.stop()
+            await cometnet_receive_limiter.stop()
             await torrent_update_queue.stop()
 
             await teardown_database()
@@ -206,6 +230,8 @@ class StandaloneCometNet:
             docs_url="/docs",
             redoc_url=None,
         )
+
+
 
         @app.get("/health")
         async def health():
@@ -456,6 +482,82 @@ class StandaloneCometNet:
             )
 
         return app
+
+    async def _redis_consumer_loop(self):
+        """Consume torrents from Redis Stream."""
+        try:
+            from redis.asyncio import Redis
+        except ImportError:
+            logger.error("redis package not installed, cannot start consumer")
+            return
+
+        redis = Redis.from_url(settings.COMETNET_REDIS_URL, decode_responses=True)
+        stream_key = settings.COMETNET_REDIS_STREAM or "cometnet:broadcast"
+        group_name = settings.COMETNET_REDIS_GROUP or "cometnet_group"
+        consumer_name = f"consumer-{secrets.token_hex(4)}"
+
+        try:
+            # Create consumer group (ignore if exists)
+            try:
+                await redis.xgroup_create(stream_key, group_name, id="0", mkstream=True)
+            except Exception as e:
+                if "BUSYGROUP" not in str(e):
+                    raise
+
+            while True:
+                try:
+                    # Read new messages
+                    entries = await redis.xreadgroup(
+                        group_name, consumer_name, {stream_key: ">"}, count=50, block=2000
+                    )
+
+                    if not entries:
+                        continue
+
+                    for _, messages in entries:
+                        for message_id, data in messages:
+                            try:
+                                # Reconstruct metadata
+                                sources = None
+                                if "sources" in data:
+                                    sources = __import__("orjson").loads(data["sources"])
+
+                                parsed = None
+                                if "parsed" in data:
+                                    parsed = __import__("orjson").loads(data["parsed"])
+
+                                metadata = TorrentMetadata(
+                                    info_hash=data["info_hash"],
+                                    title=data["title"],
+                                    size=int(data["size"]) if data["size"] else 0,
+                                    tracker=data["tracker"],
+                                    imdb_id=data["imdb_id"] or None,
+                                    file_index=int(data["file_index"]) if data.get("file_index") else None,
+                                    seeders=int(data["seeders"]) if data.get("seeders") else None,
+                                    season=int(data["season"]) if data.get("season") else None,
+                                    episode=int(data["episode"]) if data.get("episode") else None,
+                                    sources=sources,
+                                    parsed=parsed,
+                                )
+
+                                await self.service.broadcast_torrent(metadata)
+                                await redis.xack(stream_key, group_name, message_id)
+                                self._broadcasts_success += 1
+                                self._broadcasts_received += 1
+                            except Exception as e:
+                                logger.warning(f"Redis Consumer error processing {message_id}: {e}")
+                                # Ack anyway to avoid poison pill loop? Or better to use DLQ?
+                                # For now, ack to keep moving
+                                await redis.xack(stream_key, group_name, message_id)
+
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Redis Consumer loop error: {e}")
+                    await asyncio.sleep(5)
+
+        finally:
+            await redis.close()
 
     async def run(self):
         """Run the standalone server."""

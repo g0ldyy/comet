@@ -561,6 +561,24 @@ async def setup_database():
             """
         )
 
+        # =============================================================================
+        # METRICS OPTIMIZATION INDEXES
+        # =============================================================================
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_first_searches_timestamp
+            ON first_searches (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scrape_locks_expires
+            ON scrape_locks (expires_at)
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")

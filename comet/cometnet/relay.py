@@ -8,7 +8,7 @@ dedicated CometNet standalone service.
 
 import asyncio
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 
@@ -141,7 +141,9 @@ class CometNetRelay(CometNetBackend):
             self._batch.append(torrent_data)
 
             if len(self._batch) >= self.batch_size:
-                asyncio.create_task(self._flush_batch())
+                batch_to_send = self._batch
+                self._batch = []
+                asyncio.create_task(self._process_batch(batch_to_send))
 
         return True
 
@@ -165,6 +167,10 @@ class CometNetRelay(CometNetBackend):
             batch_to_send = self._batch
             self._batch = []
 
+        await self._process_batch(batch_to_send)
+
+    async def _process_batch(self, batch_to_send: List[Dict]):
+        """Process a batch of torrents to send."""
         if not self._session:
             return
 
@@ -537,24 +543,167 @@ class CometNetRelay(CometNetBackend):
         )
 
 
-_relay_instance: Optional[CometNetRelay] = None
+class RedisRelay(CometNetBackend):
+    """
+    Redis-based relay client.
+
+    Uses Redis Streams to broadcast torrents to a shared queue that
+    CometNet Standalone service consumes.
+    """
+
+    def __init__(self, redis_url: str, stream_key: str = "cometnet:broadcast"):
+        try:
+            from redis.asyncio import Redis
+        except ImportError:
+            raise ImportError("redis package is required for RedisRelay")
+
+        self.redis_url = redis_url
+        self.stream_key = stream_key
+        self.redis: Optional[Redis] = None
+        self._running = False
+        self._total_relayed = 0
+        self._total_errors = 0
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    async def start(self):
+        """Start the Redis relay."""
+        if self._running:
+            return
+
+        try:
+            from redis.asyncio import Redis
+
+            self.redis = Redis.from_url(self.redis_url, decode_responses=True)
+            await self.redis.ping()
+            self._running = True
+            logger.log("COMETNET", f"Redis Relay started - Stream: {self.stream_key}")
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            self._running = False
+
+    async def stop(self):
+        """Stop the Redis relay."""
+        self._running = False
+        if self.redis:
+            await self.redis.close()
+            self.redis = None
+        logger.log("COMETNET", "Redis Relay stopped")
+
+    async def relay_torrent(
+        self,
+        info_hash: str,
+        title: str,
+        size: int,
+        tracker: str = "",
+        imdb_id: Optional[str] = None,
+        file_index: Optional[int] = None,
+        seeders: Optional[int] = None,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
+        sources: Optional[List[str]] = None,
+        parsed: Optional[dict] = None,
+    ) -> bool:
+        """Publish torrent to Redis Stream."""
+        if not self._running or not self.redis:
+            return False
+
+        try:
+            # Serialize data
+            data = {
+                "info_hash": info_hash,
+                "title": title,
+                "size": str(size),  # Redis stores strings
+                "tracker": tracker,
+                "imdb_id": imdb_id or "",
+                "file_index": str(file_index) if file_index is not None else "",
+                "seeders": str(seeders) if seeders is not None else "",
+                "season": str(season) if season is not None else "",
+                "episode": str(episode) if episode is not None else "",
+            }
+
+            if sources:
+                data["sources"] = __import__("orjson").dumps(sources).decode()
+            if parsed:
+                data["parsed"] = __import__("orjson").dumps(parsed).decode()
+
+            await self.redis.xadd(self.stream_key, data, maxlen=100000)
+            self._total_relayed += 1
+            return True
+        except Exception as e:
+            self._total_errors += 1
+            logger.warning(f"Redis Relay error: {e}")
+            return False
+
+    async def broadcast_torrent(self, metadata) -> None:
+        """Broadcast a torrent (wrapper)."""
+        if hasattr(metadata, "model_dump"):
+            data = metadata.model_dump()
+        elif isinstance(metadata, dict):
+            data = metadata
+        else:
+            return
+
+        await self.relay_torrent(
+            info_hash=data.get("info_hash"),
+            title=data.get("title", ""),
+            size=data.get("size", 0),
+            tracker=data.get("tracker", ""),
+            imdb_id=data.get("imdb_id"),
+            file_index=data.get("file_index"),
+            seeders=data.get("seeders"),
+            season=data.get("season"),
+            episode=data.get("episode"),
+            sources=data.get("sources"),
+            parsed=data.get("parsed"),
+        )
+
+    # Stub methods for compatibility
+    async def get_stats(self) -> Dict:
+        return {
+            "relay": {
+                "type": "redis",
+                "running": self._running,
+                "total_relayed": self._total_relayed,
+                "total_errors": self._total_errors,
+            }
+        }
+
+    async def health_check(self) -> bool:
+        return self._running
 
 
-def get_relay() -> Optional[CometNetRelay]:
+_relay_instance: Optional[Union[CometNetRelay, RedisRelay]] = None
+
+
+def get_relay() -> Optional[Union[CometNetRelay, RedisRelay]]:
     """Get the global relay instance."""
     return _relay_instance
 
 
-async def init_relay(relay_url: str, api_key: Optional[str] = None) -> CometNetRelay:
+async def init_relay(relay_url: Optional[str], api_key: Optional[str] = None) -> Union[CometNetRelay, RedisRelay]:
     """Initialize the global relay instance."""
     global _relay_instance
 
     if _relay_instance is not None:
         await _relay_instance.stop()
 
-    _relay_instance = CometNetRelay(relay_url, api_key=api_key)
-    await _relay_instance.start()
+    from comet.core.models import settings
 
+    if settings.COMETNET_REDIS_URL:
+        _relay_instance = RedisRelay(
+            settings.COMETNET_REDIS_URL,
+            settings.COMETNET_REDIS_STREAM or "cometnet:broadcast"
+        )
+    elif relay_url:
+        _relay_instance = CometNetRelay(relay_url, api_key=api_key)
+    else:
+        # Fallback/No-op if neither is configured but function called
+        return None
+
+    await _relay_instance.start()
     return _relay_instance
 
 

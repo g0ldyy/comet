@@ -808,7 +808,98 @@ async def _upsert_torrent_record(params: dict):
     await database.execute(query, params)
 
 
-torrent_update_queue = TorrentUpdateQueue()
+torrent_update_queue = TorrentUpdateQueue(
+    batch_size=settings.DATABASE_BATCH_SIZE,
+    flush_interval=settings.TORRENT_QUEUE_FLUSH_INTERVAL,
+)
+
+
+class CometNetReceiveLimiter:
+    """
+    Rate limiter for incoming CometNet torrents.
+    Batches torrents before queuing them to reduce database pressure.
+    """
+
+    def __init__(self, batch_interval: float = 10.0):
+        self.batch_interval = batch_interval
+        self.pending_torrents = []
+        self._lock = asyncio.Lock()
+        self._task = None
+        self._running = False
+
+    async def start(self):
+        """Start the batch flusher."""
+        if self._running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(self._flush_loop())
+        logger.log("COMETNET", f"Receive rate limiter started (interval: {self.batch_interval}s)")
+
+    async def stop(self):
+        """Stop the batch flusher and flush remaining torrents."""
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        
+        # Flush any remaining torrents
+        async with self._lock:
+            if self.pending_torrents:
+                await self._flush_batch()
+
+    async def add_torrent(self, metadata: TorrentMetadata):
+        """Add a torrent to the batch."""
+        async with self._lock:
+            self.pending_torrents.append(metadata)
+
+    async def _flush_loop(self):
+        """Periodically flush batched torrents."""
+        while self._running:
+            try:
+                await asyncio.sleep(self.batch_interval)
+                async with self._lock:
+                    if self.pending_torrents:
+                        await self._flush_batch()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Error in CometNet receive limiter flush loop: {e}")
+
+    async def _flush_batch(self):
+        """Flush all pending torrents to the queue."""
+        if not self.pending_torrents:
+            return
+
+        count = len(self.pending_torrents)
+        logger.log("COMETNET", f"Flushing {count} batched torrents to queue")
+
+        for metadata in self.pending_torrents:
+            await torrent_update_queue.add_torrent_info(
+                {
+                    "info_hash": metadata.info_hash,
+                    "index": metadata.file_index,
+                    "season": metadata.season,
+                    "episode": metadata.episode,
+                    "title": metadata.title,
+                    "seeders": metadata.seeders,
+                    "size": metadata.size,
+                    "tracker": metadata.tracker,
+                    "sources": metadata.sources,
+                    "parsed": metadata.parsed,
+                },
+                media_id=metadata.imdb_id,
+                from_cometnet=True,
+            )
+
+        self.pending_torrents.clear()
+
+
+cometnet_receive_limiter = CometNetReceiveLimiter(
+    batch_interval=settings.COMETNET_RECEIVE_BATCH_INTERVAL
+)
 
 
 async def save_torrent_from_network(metadata: TorrentMetadata):
@@ -816,24 +907,10 @@ async def save_torrent_from_network(metadata: TorrentMetadata):
     Save a torrent received from the CometNet P2P network.
 
     This function processes torrent metadata received from other peers
-    and queues it for insertion into the database.
+    and batches them via the rate limiter to reduce database pressure.
     """
     if not isinstance(metadata, TorrentMetadata):
         return
 
-    await torrent_update_queue.add_torrent_info(
-        {
-            "info_hash": metadata.info_hash,
-            "index": metadata.file_index,
-            "season": metadata.season,
-            "episode": metadata.episode,
-            "title": metadata.title,
-            "seeders": metadata.seeders,
-            "size": metadata.size,
-            "tracker": metadata.tracker,
-            "sources": metadata.sources,
-            "parsed": metadata.parsed,
-        },
-        media_id=metadata.imdb_id,
-        from_cometnet=True,
-    )
+    # Use rate limiter to batch incoming torrents
+    await cometnet_receive_limiter.add_torrent(metadata)

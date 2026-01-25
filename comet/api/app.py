@@ -25,9 +25,11 @@ from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
 from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
+                                            cometnet_receive_limiter,
                                             save_torrent_from_network,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
+from comet.services.metrics import metrics_service
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -74,6 +76,12 @@ async def lifespan(app: FastAPI):
     background_scraper_task = None
     if settings.BACKGROUND_SCRAPER_ENABLED:
         background_scraper_task = asyncio.create_task(background_scraper.start())
+
+    # Start metrics service
+    await metrics_service.start()
+
+    # Start CometNet receive rate limiter
+    await cometnet_receive_limiter.start()
 
     # Initialize CometNet
     cometnet_service = None
@@ -138,6 +146,9 @@ async def lifespan(app: FastAPI):
         if cometnet_relay:
             await stop_relay()
 
+        await metrics_service.stop()
+
+        await cometnet_receive_limiter.stop()
         await add_torrent_queue.stop()
         await torrent_update_queue.stop()
 

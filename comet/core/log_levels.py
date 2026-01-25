@@ -80,6 +80,12 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #00BFFF>",
         "no": 40,
     },
+    "METRICS": {
+        "color": "#FF69B4",
+        "icon": "📊",
+        "loguru_color": "<fg #FF69B4>",
+        "no": 35,
+    },
 }
 
 ALL_LOG_LEVELS = {**STANDARD_LOG_LEVELS, **CUSTOM_LOG_LEVELS}

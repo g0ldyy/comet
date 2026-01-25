@@ -41,6 +41,10 @@ class AppSettings(BaseSettings):
     DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
     DATABASE_FORCE_IPV4_RESOLUTION: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
+    DATABASE_POOL_MIN_SIZE: Optional[int] = 5
+    DATABASE_POOL_MAX_SIZE: Optional[int] = 20
+    TORRENT_QUEUE_FLUSH_INTERVAL: Optional[float] = 15.0  # Seconds between DB flushes
+    COMETNET_RECEIVE_BATCH_INTERVAL: Optional[float] = 10.0  # Seconds to batch incoming torrents
     TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days
     LIVE_TORRENT_CACHE_TTL: Optional[int] = 604800  # 7 days
     DEBRID_CACHE_TTL: Optional[int] = 86400  # 1 day
@@ -173,11 +177,16 @@ class AppSettings(BaseSettings):
         300  # Periodic state save interval in seconds (5 minutes)
     )
 
+    # CometNet Redis Configuration (Shared Message Queue)
+    COMETNET_REDIS_URL: Optional[str] = None
+    COMETNET_REDIS_STREAM: Optional[str] = "cometnet:broadcast"
+    COMETNET_REDIS_GROUP: Optional[str] = "cometnet_group"
+
     # CometNet Gossip Tuning
     COMETNET_GOSSIP_FANOUT: Optional[int] = 3
-    COMETNET_GOSSIP_INTERVAL: Optional[float] = 1.0
+    COMETNET_GOSSIP_INTERVAL: Optional[float] = 10.0
     COMETNET_GOSSIP_MESSAGE_TTL: Optional[int] = 5
-    COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE: Optional[int] = 1000
+    COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE: Optional[int] = 10000
 
     COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE: Optional[int] = 60
     COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE: Optional[int] = 300
@@ -912,7 +921,11 @@ def _build_database_instance(raw_url: str):
             raw_url = raw_url[len(scheme) :]
             break
 
-    return Database(f"postgresql+asyncpg://{raw_url}")
+    return Database(
+        f"postgresql+asyncpg://{raw_url}",
+        min_size=settings.DATABASE_POOL_MIN_SIZE,
+        max_size=settings.DATABASE_POOL_MAX_SIZE,
+    )
 
 
 replica_instances: List[Database] = []
