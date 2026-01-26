@@ -83,6 +83,11 @@ class AppSettings(BaseSettings):
     ZILEAN_URL: Union[str, List[str]] = "https://zileanfortheweebs.midnightignite.me"
     SCRAPE_STREMTHRU: Union[bool, str] = False
     STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
+    SCRAPE_DMM: Union[bool, str] = False
+    DMM_INGEST_ENABLED: Optional[bool] = False
+    DMM_INGEST_INTERVAL: Optional[int] = 86400
+    DMM_INGEST_CONCURRENT_WORKERS: Optional[int] = 4
+    DMM_INGEST_BATCH_SIZE: Optional[int] = 100
     SCRAPE_BITMAGNET: Union[bool, str] = False
     BITMAGNET_URL: Union[str, List[str]] = (
         "https://bitmagnetfortheweebs.midnightignite.me"

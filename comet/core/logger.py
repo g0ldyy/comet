@@ -442,6 +442,19 @@ def log_startup_info(settings):
         "COMET",
         f"Peerflix Scraper: {settings.format_scraper_mode(settings.SCRAPE_PEERFLIX)}",
     )
+    logger.log(
+        "COMET",
+        f"DMM Scraper: {settings.format_scraper_mode(settings.SCRAPE_DMM)}",
+    )
+    dmm_ingest_info = (
+        f" - Interval: {settings.DMM_INGEST_INTERVAL}s - Workers: {settings.DMM_INGEST_CONCURRENT_WORKERS} - Batch Size: {settings.DMM_INGEST_BATCH_SIZE}"
+        if settings.DMM_INGEST_ENABLED
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"DMM Ingester: {bool(settings.DMM_INGEST_ENABLED)}{dmm_ingest_info}",
+    )
 
     proxy_stream_password = settings.PROXY_DEBRID_STREAM_PASSWORD
     if "PROXY_DEBRID_STREAM_PASSWORD" in settings.model_fields_set:
