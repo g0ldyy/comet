@@ -23,6 +23,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
+from comet.services.dmm_ingester import dmm_ingester
 from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
                                             save_torrent_from_network,
@@ -75,6 +76,11 @@ async def lifespan(app: FastAPI):
     if settings.BACKGROUND_SCRAPER_ENABLED:
         background_scraper_task = asyncio.create_task(background_scraper.start())
 
+    # Start DMM Ingester if enabled
+    dmm_ingester_task = None
+    if settings.DMM_INGEST_ENABLED:
+        dmm_ingester_task = asyncio.create_task(dmm_ingester.start())
+
     # Initialize CometNet
     cometnet_service = None
     cometnet_relay = None
@@ -115,6 +121,14 @@ async def lifespan(app: FastAPI):
             background_scraper_task.cancel()
             try:
                 await background_scraper_task
+            except asyncio.CancelledError:
+                pass
+
+        if dmm_ingester_task:
+            await dmm_ingester.stop()
+            dmm_ingester_task.cancel()
+            try:
+                await dmm_ingester_task
             except asyncio.CancelledError:
                 pass
 

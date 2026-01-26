@@ -392,6 +392,28 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS dmm_entries (
+                    info_hash TEXT PRIMARY KEY,
+                    filename TEXT,
+                    size BIGINT,
+                    parsed_title TEXT,
+                    parsed_year INTEGER,
+                    created_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS dmm_ingested_files (
+                    filename TEXT PRIMARY KEY,
+                    timestamp INTEGER
+                )
+            """
+        )
+
         # =============================================================================
         # TORRENTS TABLE INDEXES
         # =============================================================================
@@ -558,6 +580,26 @@ async def setup_database():
 
             CREATE INDEX IF NOT EXISTS idx_digital_release_timestamp
             ON digital_release_cache (timestamp)
+            """
+        )
+
+        # =============================================================================
+        # DMM_ENTRIES TABLE INDEXES
+        # =============================================================================
+
+        # Optimize search by parsed title
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dmm_parsed_title
+            ON dmm_entries (parsed_title)
+            """
+        )
+
+        # Optimize filtering by year
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dmm_parsed_year
+            ON dmm_entries (parsed_year)
             """
         )
 

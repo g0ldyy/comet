@@ -80,6 +80,12 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #00BFFF>",
         "no": 40,
     },
+    "DMM_INGEST": {
+        "color": "#71d6d6",
+        "icon": "📥",
+        "loguru_color": "<fg #71d6d6>",
+        "no": 20,
+    },
 }
 
 ALL_LOG_LEVELS = {**STANDARD_LOG_LEVELS, **CUSTOM_LOG_LEVELS}
