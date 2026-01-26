@@ -49,7 +49,7 @@ async def playback(
     season: str,
     episode: str,
     torrent_name: str,
-    name_query: str = Query(None, alias="name"),
+    name_query: str = Query("", alias="name"),
 ):
     config = config_check(b64config)
 
@@ -193,7 +193,7 @@ async def playback_legacy(
     season: str,
     episode: str,
     torrent_name: str,
-    name_query: str = Query(None, alias="name"),
+    name_query: str = Query("", alias="name"),
 ):
     # Call the new playback with service_index="n" (will use first service)
     return await playback(
