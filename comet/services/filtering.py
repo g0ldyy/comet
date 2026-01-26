@@ -1,7 +1,10 @@
+from collections import defaultdict
+
 from RTN import normalize_title, parse, title_match
 
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.languages import COUNTRY_TO_LANGUAGE
 from comet.utils.parsing import ensure_multi_language
 
 if settings.RTN_FILTER_DEBUG:
@@ -18,14 +21,55 @@ def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
     return any(alias in text_normalized for alias in ez_aliases_normalized)
 
 
+def scrub(t: str):
+    return " ".join(normalize_title(t).split())
+
+
 def filter_worker(
     torrents, title, year, year_end, media_type, aliases, remove_adult_content
 ):
     results = []
 
-    ez_aliases = aliases.get("ez", [])
-    if ez_aliases:
-        ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
+    tz_aliases = set()
+    country_aliases = {}
+    alias_to_langs = defaultdict(set)
+
+    if settings.SMART_LANGUAGE_DETECTION:
+        main_title_scrubbed = scrub(title)
+
+        for country, titles in aliases.items():
+            if country == "ez":
+                for t in titles:
+                    scrubbed_t = scrub(t)
+                    tz_aliases.add(scrubbed_t)
+                    alias_to_langs[scrubbed_t].add("neutral")
+                continue
+
+            lang = COUNTRY_TO_LANGUAGE.get(country)
+            for t in titles:
+                scrubbed_t = scrub(t)
+                tz_aliases.add(scrubbed_t)
+                if lang:
+                    alias_to_langs[scrubbed_t].add(lang)
+                else:
+                    alias_to_langs[scrubbed_t].add("neutral")
+
+        # Only trust aliases that map to exactly one non-english language
+        # and are not the main title itself.
+        for scrubbed_t, langs in alias_to_langs.items():
+            if scrubbed_t == main_title_scrubbed:
+                continue
+
+            if len(langs) == 1:
+                lang = list(langs)[0]
+                if lang not in ("neutral", "en"):
+                    country_aliases[scrubbed_t] = lang
+    else:
+        for country, titles in aliases.items():
+            for t in titles:
+                tz_aliases.add(scrub(t))
+
+    ez_aliases_normalized = list(tz_aliases)
 
     min_year = 0
     max_year = float("inf")
@@ -49,6 +93,15 @@ def filter_worker(
             continue
 
         parsed = parse(torrent_title)
+
+        if parsed.parsed_title and country_aliases:
+            language = country_aliases.get(scrub(parsed.parsed_title))
+            if language and language not in parsed.languages:
+                _log_exclusion(
+                    f"🏷️ Added Language (Alias) | {torrent_title} | {language}"
+                )
+                parsed.languages.append(language)
+
         ensure_multi_language(parsed)
 
         if remove_adult_content and parsed.adult:
@@ -59,8 +112,8 @@ def filter_worker(
             _log_exclusion(f"❌ Rejected (No Parsed Title) | {torrent_title}")
             continue
 
-        alias_matched = ez_aliases and quick_alias_match(
-            normalize_title(torrent_title), ez_aliases_normalized
+        alias_matched = ez_aliases_normalized and quick_alias_match(
+            scrub(torrent_title), ez_aliases_normalized
         )
         if not alias_matched:
             if not title_match(title, parsed.parsed_title, aliases=aliases):

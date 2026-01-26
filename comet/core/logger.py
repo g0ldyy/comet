@@ -470,6 +470,9 @@ def log_startup_info(settings):
     )
 
     logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
+    logger.log(
+        "COMET", f"Smart Language Detection: {bool(settings.SMART_LANGUAGE_DETECTION)}"
+    )
     logger.log("COMET", f"RTN Filter Debug: {bool(settings.RTN_FILTER_DEBUG)}")
     logger.log(
         "COMET", f"Digital Release Filter: {bool(settings.DIGITAL_RELEASE_FILTER)}"

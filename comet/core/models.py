@@ -146,6 +146,7 @@ class AppSettings(BaseSettings):
     HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400
     HTTP_CACHE_CONFIGURE_TTL: Optional[int] = 86400
     DOWNLOAD_GENERIC_TRACKERS: Optional[bool] = False
+    SMART_LANGUAGE_DETECTION: Optional[bool] = False
 
     # CometNet P2P Network Configuration
     COMETNET_ENABLED: Optional[bool] = False
