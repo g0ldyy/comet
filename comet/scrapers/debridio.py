@@ -14,6 +14,8 @@ DATA_PATTERN = re.compile(
 
 
 class DebridioScraper(BaseScraper):
+    impersonate = "chrome"
+
     def __init__(self, manager, session):
         super().__init__(manager, session)
 
