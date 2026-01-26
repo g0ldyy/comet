@@ -245,9 +245,14 @@
 
       .stat-card {
         background-color: #374151;
-        padding: 20px;
+        padding: 24px 20px;
         border-radius: 0.5rem;
         text-align: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-height: 120px;
       }
 
       .stat-number {
@@ -748,6 +753,143 @@
           grid-template-columns: repeat(2, 1fr);
         }
       }
+
+      .pools-container {
+        display: flex;
+        gap: 20px;
+        height: 600px;
+      }
+
+      .pools-sidebar {
+        width: 300px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        flex-shrink: 0;
+      }
+
+      .pools-content {
+        flex: 1;
+        background-color: #0f1419;
+        border-radius: 0.375rem;
+        border: 1px solid #374151;
+        overflow-y: auto;
+        padding: 15px;
+      }
+
+      .pool-filter-btn {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .pool-filter-btn::part(base) {
+        justify-content: flex-start;
+      }
+
+      .pool-card {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        transition: background-color 0.2s ease;
+      }
+
+      .pool-card:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .pool-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+      }
+
+      .pool-name-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .pool-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #fff;
+      }
+
+      .pool-id-pill {
+        font-family: monospace;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        color: #aaa;
+      }
+
+      .pool-description {
+        color: #bbb;
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .pool-stats-row {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .pool-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .pool-stat-val {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #fff;
+      }
+
+      .pool-stat-lbl {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #888;
+      }
+
+      .pool-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .pool-filter-btn.active::part(base) {
+        background-color: var(--sl-color-primary-600);
+        border-color: var(--sl-color-primary-500);
+        color: white;
+      }
+
+      @media (max-width: 800px) {
+        .pools-container {
+          flex-direction: column;
+          height: auto;
+        }
+        .pools-sidebar {
+          width: 100%;
+        }
+        .pools-content {
+          height: 500px;
+        }
+      }
     </style>
   </head>
 
@@ -836,7 +978,7 @@
       </div>
 
       <div class="dashboard-container">
-        <sl-tab-group>
+        <sl-tab-group id="main-tabs">
           <sl-tab slot="nav" panel="connections">
             <sl-icon name="wifi"></sl-icon>
             &nbsp;Active Connections
@@ -848,6 +990,10 @@
           <sl-tab slot="nav" panel="metrics">
             <sl-icon name="bar-chart"></sl-icon>
             &nbsp;Metrics
+          </sl-tab>
+          <sl-tab slot="nav" panel="cometnet">
+            <sl-icon name="share"></sl-icon>
+            &nbsp;CometNet P2P
           </sl-tab>
 
           <sl-tab-panel name="connections">
@@ -931,7 +1077,6 @@
 
           <sl-tab-panel name="metrics">
             <div class="tab-content">
-              <!-- Overview Cards -->
               <div class="stats-cards">
                 <div class="stat-card">
                   <div class="stat-number" id="total-torrents">0</div>
@@ -947,9 +1092,7 @@
                 </div>
               </div>
 
-              <!-- Metrics Sections -->
               <div class="metrics-grid">
-                <!-- Media Distribution -->
                 <div class="metric-section metric-section-compact">
                   <h3><sl-icon name="film"></sl-icon> Media Distribution</h3>
                   <div class="metric-content">
@@ -962,7 +1105,6 @@
                   </div>
                 </div>
 
-                <!-- Torrents Section -->
                 <div class="metric-section">
                   <h3><sl-icon name="download"></sl-icon> Torrents Analysis</h3>
                   <div class="metric-content">
@@ -1031,7 +1173,6 @@
                   </div>
                 </div>
 
-                <!-- Debrid Cache Distribution -->
                 <div class="metric-section">
                   <h3>
                     <sl-icon name="cloud-arrow-down"></sl-icon> Debrid Cache
@@ -1060,7 +1201,6 @@
                   </div>
                 </div>
 
-                <!-- Search Analytics -->
                 <div class="metric-section metric-section-compact">
                   <h3><sl-icon name="search"></sl-icon> Search Analytics</h3>
                   <div class="metric-content">
@@ -1083,6 +1223,351 @@
               </div>
             </div>
           </sl-tab-panel>
+
+          <sl-tab-panel name="cometnet">
+            <div class="tab-content">
+              <div class="stats-cards">
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-node-id">-</div>
+                  <div class="stat-label">Node ID</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-peers">0</div>
+                  <div class="stat-label">Peers</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-pools">0</div>
+                  <div class="stat-label">Pools</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-torrents">0</div>
+                  <div class="stat-label">Torrents Received</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-sent">0</div>
+                  <div class="stat-label">Torrents Propagated</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-repropagated">0</div>
+                  <div class="stat-label">Torrents Repropagated</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="cnet-private-network">-</div>
+                  <div class="stat-label">Private Network</div>
+                </div>
+              </div>
+
+              <div class="metrics-grid">
+                <div class="metric-section">
+                  <h3><sl-icon name="shield-lock"></sl-icon> Trust Pools</h3>
+
+                  <div class="pools-container">
+                    <!-- Left Sidebar -->
+                    <div class="pools-sidebar">
+                      <sl-input
+                        id="pool-search"
+                        placeholder="Search pools..."
+                        clearable
+                        size="medium"
+                      >
+                        <sl-icon slot="prefix" name="search"></sl-icon>
+                      </sl-input>
+
+                      <div
+                        style="display: flex; flex-direction: column; gap: 5px"
+                      >
+                        <sl-button
+                          class="pool-filter-btn active"
+                          variant="default"
+                          outline
+                          id="filter-subscribed"
+                          onclick="setPoolFilter('subscribed')"
+                        >
+                          <sl-icon slot="prefix" name="check-circle"></sl-icon>
+                          Subscribed
+                          <sl-badge
+                            pill
+                            variant="primary"
+                            style="margin-left: auto"
+                            id="count-subscribed"
+                            >0</sl-badge
+                          >
+                        </sl-button>
+                        <sl-button
+                          class="pool-filter-btn"
+                          variant="default"
+                          outline
+                          id="filter-discover"
+                          onclick="setPoolFilter('discover')"
+                        >
+                          <sl-icon slot="prefix" name="globe"></sl-icon>
+                          Discover
+                          <sl-badge
+                            pill
+                            variant="neutral"
+                            style="margin-left: auto"
+                            id="count-discover"
+                            >0</sl-badge
+                          >
+                        </sl-button>
+                        <sl-button
+                          class="pool-filter-btn"
+                          variant="default"
+                          outline
+                          id="filter-my-pools"
+                          onclick="setPoolFilter('my-pools')"
+                        >
+                          <sl-icon slot="prefix" name="person"></sl-icon>
+                          My Pools
+                          <sl-badge
+                            pill
+                            variant="neutral"
+                            style="margin-left: auto"
+                            id="count-my-pools"
+                            >0</sl-badge
+                          >
+                        </sl-button>
+                      </div>
+
+                      <div
+                        style="
+                          margin-top: auto;
+                          padding-top: 15px;
+                          border-top: 1px solid rgba(255, 255, 255, 0.1);
+                          display: flex;
+                          flex-direction: column;
+                          gap: 8px;
+                        "
+                      >
+                        <sl-button
+                          variant="primary"
+                          onclick="openCreatePoolDialog()"
+                          style="width: 100%"
+                        >
+                          <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+                          Create Pool
+                        </sl-button>
+                        <sl-button
+                          variant="neutral"
+                          onclick="openJoinPoolDialog()"
+                          style="width: 100%"
+                        >
+                          <sl-icon
+                            slot="prefix"
+                            name="box-arrow-in-right"
+                          ></sl-icon>
+                          Join Pool
+                        </sl-button>
+                      </div>
+                    </div>
+
+                    <!-- Right Content -->
+                    <div class="pools-content" id="pools-list">
+                      <div class="loading-state">
+                        <sl-spinner></sl-spinner>
+                        <span>Loading pools...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="metric-section">
+                  <h3><sl-icon name="globe"></sl-icon> Connected Peers</h3>
+                  <div class="metric-content">
+                    <div id="cnet-peers-list" class="data-list">
+                      <div class="loading-state">
+                        <sl-spinner></sl-spinner>
+                        <span>Loading peers...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sl-tab-panel>
+
+          <sl-dialog label="Create Trust Pool" id="create-pool-dialog">
+            <sl-input
+              label="Pool ID"
+              id="create-pool-id"
+              help-text="Unique identifier (alphanumeric)"
+            ></sl-input>
+            <br />
+            <sl-input label="Display Name" id="create-pool-name"></sl-input>
+            <br />
+            <sl-textarea
+              label="Description"
+              id="create-pool-desc"
+            ></sl-textarea>
+
+            <sl-button
+              slot="footer"
+              variant="primary"
+              onclick="submitCreatePool()"
+              >Create</sl-button
+            >
+          </sl-dialog>
+
+          <sl-dialog label="Invite Created" id="new-invite-dialog">
+            <p style="margin-bottom: 10px">
+              Your invite link has been created and copied to clipboard:
+            </p>
+            <div style="display: flex; gap: 10px; align-items: stretch">
+              <sl-input
+                id="new-invite-link-input"
+                readonly
+                style="flex: 1"
+              ></sl-input>
+              <sl-button variant="primary" onclick="copyFromInviteDialog()">
+                <sl-icon slot="prefix" name="copy"></sl-icon> Copy
+              </sl-button>
+            </div>
+          </sl-dialog>
+
+          <sl-dialog label="Create Invite" id="create-invite-dialog">
+            <sl-input
+              id="create-invite-expires"
+              type="number"
+              label="Expires in (seconds)"
+              value="3600"
+              help-text="Leave empty for no expiration"
+            ></sl-input>
+            <br />
+            <sl-input
+              id="create-invite-uses"
+              type="number"
+              label="Max uses"
+              value="1"
+              help-text="Leave empty for unlimited uses"
+            ></sl-input>
+            <sl-button
+              slot="footer"
+              variant="primary"
+              onclick="submitCreateInvite()"
+              >Create</sl-button
+            >
+          </sl-dialog>
+
+          <sl-alert id="copy-toast" variant="success" duration="2000" closable>
+            <sl-icon slot="icon" name="clipboard2-check"></sl-icon>
+            <strong>Copied to clipboard!</strong>
+          </sl-alert>
+
+          <div
+            id="toast-container"
+            style="position: fixed; top: 20px; right: 20px; z-index: 10000"
+          ></div>
+
+          <sl-dialog
+            label="Confirm"
+            id="confirm-dialog"
+            style="--sl-z-index-dialog: 10001"
+          >
+            <p id="confirm-dialog-message"></p>
+            <sl-button
+              slot="footer"
+              variant="neutral"
+              onclick="document.getElementById('confirm-dialog').hide()"
+              >Cancel</sl-button
+            >
+            <sl-button slot="footer" variant="danger" id="confirm-dialog-ok"
+              >Confirm</sl-button
+            >
+          </sl-dialog>
+
+          <sl-dialog label="Join Trust Pool" id="join-pool-dialog">
+            <sl-tab-group>
+              <sl-tab slot="nav" panel="invite-link">Invite Link</sl-tab>
+              <sl-tab slot="nav" panel="invite-manual">Manual</sl-tab>
+
+              <sl-tab-panel name="invite-link">
+                <br />
+                <sl-input
+                  label="Paste Invite Link"
+                  id="join-pool-link"
+                  placeholder="cometnet://join?pool=...&code=...&node=..."
+                  help-text="Paste the full invite link you received"
+                ></sl-input>
+              </sl-tab-panel>
+              <sl-tab-panel name="invite-manual">
+                <br />
+                <sl-input label="Pool ID" id="join-pool-id"></sl-input>
+                <br />
+                <sl-input label="Invite Code" id="join-pool-invite"></sl-input>
+                <br />
+                <sl-input
+                  label="Node URL (optional)"
+                  id="join-pool-node-url"
+                  placeholder="wss://example.com:8765"
+                  help-text="URL of the pool admin's node (for remote joining)"
+                ></sl-input>
+              </sl-tab-panel>
+            </sl-tab-group>
+            <sl-button
+              slot="footer"
+              variant="primary"
+              onclick="submitJoinPool()"
+              >Join</sl-button
+            >
+          </sl-dialog>
+
+          <sl-dialog
+            label="Pool Details"
+            id="pool-members-dialog"
+            style="--width: 700px"
+          >
+            <div id="pool-members-header" style="margin-bottom: 20px">
+              <h3
+                id="pool-members-title"
+                style="margin: 0 0 5px 0; color: #fff"
+              ></h3>
+              <p
+                id="pool-members-description"
+                style="margin: 0; color: #9ca3af; font-size: 0.9rem"
+              ></p>
+            </div>
+            <sl-tab-group id="pool-details-tabs">
+              <sl-tab slot="nav" panel="members">Members</sl-tab>
+              <sl-tab slot="nav" panel="invites" id="pool-invites-tab-nav"
+                >Invites</sl-tab
+              >
+
+              <sl-tab-panel name="members">
+                <div
+                  id="pool-members-list"
+                  class="data-list"
+                  style="margin-top: 20px"
+                >
+                  <div class="loading-state">
+                    <sl-spinner></sl-spinner>
+                    <span>Loading members...</span>
+                  </div>
+                </div>
+              </sl-tab-panel>
+
+              <sl-tab-panel name="invites">
+                <div
+                  style="
+                    margin: 20px 0 15px 0;
+                    display: flex;
+                    justify-content: flex-end;
+                  "
+                >
+                  <sl-button
+                    size="small"
+                    onclick="createPoolInvite(currentPoolId)"
+                    ><sl-icon slot="prefix" name="plus-lg"></sl-icon> Create New
+                    Invite</sl-button
+                  >
+                </div>
+                <div id="pool-invites-list" class="data-list">
+                  <div class="empty-state">
+                    <p>Select a pool to view invites</p>
+                  </div>
+                </div>
+              </sl-tab-panel>
+            </sl-tab-group>
+          </sl-dialog>
         </sl-tab-group>
       </div>
     </div>
@@ -1103,24 +1588,29 @@
 
         document.body.classList.add("ready");
 
-        // Initialize dashboard
         initializeDashboard();
       });
 
       let currentMetricsData = null;
-      let connectionsInterval;
-      let logsInterval;
+      let connectionsInterval = null;
+      let logsInterval = null;
+      let cometnetInterval = null;
       let lastLogTimestamp = 0;
+      let currentTab = "connections"; // Track current active tab
+
+      // Pools state
+      let poolsCache = [];
+      let currentPoolFilter = "subscribed";
+      let poolSearchTerm = "";
+
+      // Peer cache for cross-referencing
+      let peersCache = [];
 
       function initializeDashboard() {
-        // Load initial data
         loadConnections();
-        loadLogs();
 
-        // Set up auto-refresh
-        setupAutoRefresh();
+        setupAutoRefreshForTab("connections");
 
-        // Event listeners
         document
           .getElementById("clear-logs")
           .addEventListener("click", clearLogsDisplay);
@@ -1144,35 +1634,70 @@
             }
           });
 
-        // Tab change handler
         document
           .querySelector("sl-tab-group")
           .addEventListener("sl-tab-show", handleTabChange);
+
+        const poolSearch = document.getElementById("pool-search");
+        if (poolSearch) {
+          poolSearch.addEventListener("sl-input", () => {
+            poolSearchTerm = poolSearch.value.trim().toLowerCase();
+            renderPoolsList();
+          });
+        }
       }
 
-      function setupAutoRefresh() {
-        // Connections refresh every 5 seconds
-        connectionsInterval = setInterval(loadConnections, 5000);
+      function stopAllIntervals() {
+        if (connectionsInterval) {
+          clearInterval(connectionsInterval);
+          connectionsInterval = null;
+        }
+        if (logsInterval) {
+          clearInterval(logsInterval);
+          logsInterval = null;
+        }
+        if (cometnetInterval) {
+          clearInterval(cometnetInterval);
+          cometnetInterval = null;
+        }
+      }
 
-        // Logs refresh based on selected interval
+      function setupAutoRefreshForTab(tab) {
+        if (!document.getElementById("auto-refresh").checked) return;
+
+        stopAllIntervals();
+
         const interval = parseInt(
           document.getElementById("refresh-interval").value,
         );
-        logsInterval = setInterval(loadLogs, interval);
+
+        switch (tab) {
+          case "connections":
+            connectionsInterval = setInterval(loadConnections, 5000);
+            break;
+          case "logs":
+            logsInterval = setInterval(loadLogs, interval);
+            break;
+          case "cometnet":
+            cometnetInterval = setInterval(loadCometNetStats, 10000);
+            break;
+        }
       }
 
       function toggleAutoRefresh(e) {
         if (e.target.checked) {
-          setupAutoRefresh();
+          setupAutoRefreshForTab(currentTab);
         } else {
-          clearInterval(connectionsInterval);
-          clearInterval(logsInterval);
+          stopAllIntervals();
         }
       }
 
       function updateRefreshInterval() {
-        if (document.getElementById("auto-refresh").checked) {
-          clearInterval(logsInterval);
+        if (
+          document.getElementById("auto-refresh").checked &&
+          currentTab === "logs"
+        ) {
+          if (logsInterval) clearInterval(logsInterval);
           const interval = parseInt(
             document.getElementById("refresh-interval").value,
           );
@@ -1182,12 +1707,23 @@
 
       function handleTabChange(e) {
         const activePanel = e.detail.name;
-        if (activePanel === "connections") {
-          loadConnections();
-        } else if (activePanel === "logs") {
-          loadLogs();
-        } else if (activePanel === "metrics") {
-          loadMetrics();
+        currentTab = activePanel;
+
+        setupAutoRefreshForTab(activePanel);
+
+        switch (activePanel) {
+          case "connections":
+            loadConnections();
+            break;
+          case "logs":
+            loadLogs();
+            break;
+          case "metrics":
+            loadMetrics();
+            break;
+          case "cometnet":
+            loadCometNetStats();
+            break;
         }
       }
 
@@ -1338,13 +1874,11 @@
         const container = document.getElementById("logs-container");
         const hideApiLogs = document.getElementById("hide-api-logs").checked;
 
-        // Remove empty state if present
         if (container.querySelector(".empty-state")) {
           container.innerHTML = "";
         }
 
         logs.forEach((log) => {
-          // Filter out API logs if hideApiLogs is enabled
           if (hideApiLogs && isApiLog(log)) {
             return;
           }
@@ -1352,7 +1886,6 @@
           const logEntry = document.createElement("div");
           logEntry.className = "log-entry";
 
-          // Add data attribute to identify API logs for toggling
           if (isApiLog(log)) {
             logEntry.setAttribute("data-api-log", "true");
           }
@@ -1370,10 +1903,8 @@
           container.appendChild(logEntry);
         });
 
-        // Auto-scroll to bottom
         container.scrollTop = container.scrollHeight;
 
-        // Limit number of log entries to prevent memory issues
         const maxEntries = 500;
         while (container.children.length > maxEntries) {
           container.removeChild(container.firstChild);
@@ -1425,7 +1956,1045 @@
         return div.innerHTML;
       }
 
-      // 📊 METRICS FUNCTIONS
+      let myPublicKey = null;
+
+      async function loadCometNetStats() {
+        try {
+          const [statsRes, poolsRes, peersRes] = await Promise.all([
+            fetch("/admin/api/cometnet/stats"),
+            fetch("/admin/api/cometnet/pools"),
+            fetch("/admin/api/cometnet/peers"),
+          ]);
+
+          if (!statsRes.ok) {
+            showCometNetDisabled();
+            return;
+          }
+
+          const stats = await statsRes.json();
+          const poolsData = poolsRes.ok
+            ? await poolsRes.json()
+            : { pools: {}, memberships: [], subscriptions: [] };
+          const peersData = peersRes.ok
+            ? await peersRes.json()
+            : { peers: [], count: 0 };
+
+          myPublicKey = stats.public_key;
+
+          // Update caches
+          peersCache = peersData.peers || [];
+
+          if (poolsData.pools) {
+            const pools = Object.values(poolsData.pools);
+            poolsCache = pools.map((p) => {
+              const isSub = new Set(poolsData.subscriptions || []).has(
+                p.pool_id,
+              );
+              const isMem = new Set(poolsData.memberships || []).has(p.pool_id);
+              const members = new Set(p.members.map((m) => m.public_key));
+              const activePeers = peersCache.filter((peer) => {
+                return p.members.some((m) => m.node_id === peer.node_id);
+              }).length;
+
+              return {
+                ...p,
+                isSubscribed: isSub,
+                isMember: isMem,
+                activePeersCount: activePeers,
+              };
+            });
+          } else {
+            poolsCache = [];
+          }
+
+          updateCometNetOverview(stats);
+          updatePoolsUI();
+          updateCometNetPeers(peersData.peers);
+        } catch (e) {
+          console.error("CometNet load error", e);
+          showCometNetDisabled();
+        }
+      }
+
+      function showCometNetDisabled() {
+        document.getElementById("pools-list").innerHTML =
+          '<div class="empty-state"><sl-icon name="wifi-off"></sl-icon><p>CometNet is not enabled</p></div>';
+      }
+
+      function updateCometNetOverview(stats) {
+        document.getElementById("cnet-node-id").textContent = stats.node_id
+          ? stats.node_id.substring(0, 8)
+          : "-";
+        document.getElementById("cnet-peers").textContent =
+          stats.connection_stats?.connected_peers || 0;
+        document.getElementById("cnet-pools").textContent = stats.pool_stats
+          ? stats.pool_stats.pools_known
+          : 0;
+        document.getElementById("cnet-torrents").textContent =
+          stats.gossip_stats
+            ? stats.gossip_stats.torrents_received.toLocaleString()
+            : 0;
+        document.getElementById("cnet-sent").textContent = stats.gossip_stats
+          ? (stats.gossip_stats.torrents_propagated || 0).toLocaleString()
+          : 0;
+        document.getElementById("cnet-repropagated").textContent =
+          stats.gossip_stats
+            ? (stats.gossip_stats.torrents_repropagated || 0).toLocaleString()
+            : 0;
+
+        // Private network status
+        const privateNetEl = document.getElementById("cnet-private-network");
+        if (stats.private_network && stats.network_id) {
+          privateNetEl.innerHTML = `<sl-badge variant="warning" style="font-size: 0.7rem;">${escapeHtml(stats.network_id)}</sl-badge>`;
+        } else {
+          privateNetEl.innerHTML =
+            '<sl-badge variant="neutral" style="font-size: 0.7rem;">Public</sl-badge>';
+        }
+
+        let modeHtml = '<sl-badge variant="success">P2P Node</sl-badge>';
+        if (stats.relay) {
+          if (stats.relay.last_error) {
+            modeHtml = `<sl-badge variant="danger">Relay Error</sl-badge> <span style="font-size: 0.8rem; color: #ef4444; margin-left: 5px;">${escapeHtml(stats.relay.last_error)}</span>`;
+          } else {
+            modeHtml = `<sl-badge variant="primary">Relay Mode</sl-badge> <span style="font-size: 0.8rem; color: #9ca3af; margin-left: 5px;">Relaying to ${escapeHtml(stats.relay.relay_url)}</span>`;
+          }
+        }
+        const nodeIdLabel =
+          document.getElementById("cnet-node-id").nextElementSibling;
+        if (nodeIdLabel && !document.getElementById("cnet-mode-indicator")) {
+          const modeDiv = document.createElement("div");
+          modeDiv.id = "cnet-mode-indicator";
+          modeDiv.style.marginTop = "10px";
+          modeDiv.innerHTML = modeHtml;
+          nodeIdLabel.parentElement.appendChild(modeDiv);
+        } else if (document.getElementById("cnet-mode-indicator")) {
+          document.getElementById("cnet-mode-indicator").innerHTML = modeHtml;
+        }
+      }
+
+      function updateCometNetPeers(peers) {
+        const container = document.getElementById("cnet-peers-list");
+        if (!peers || peers.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state"><sl-icon name="globe"></sl-icon><p>No peers connected</p></div>';
+          return;
+        }
+
+        container.innerHTML = peers
+          .map((peer) => {
+            const latencyColor =
+              peer.latency_ms < 100
+                ? "#10b981"
+                : peer.latency_ms < 300
+                  ? "#f59e0b"
+                  : "#ef4444";
+            const lastActive = new Date(
+              peer.last_activity * 1000,
+            ).toLocaleTimeString();
+            const type = peer.is_outbound ? "Outbound" : "Inbound";
+
+            return `
+             <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
+                 <div>
+                     <div class="tracker-name" style="display: flex; align-items: center; gap: 8px;">
+                         ${peer.alias ? `<strong>${escapeHtml(peer.alias)}</strong>` : peer.address}
+                         <span class="connection-id" title="${peer.node_id}">${peer.node_id.substring(0, 8)}</span>
+                         <sl-badge variant="${peer.is_outbound ? "neutral" : "primary"}" pill>${type}</sl-badge>
+                     </div>
+                     <div class="tracker-stats" style="margin-top: 4px;">
+                        <span>Last active: ${lastActive}</span>
+                        <span>Torrents: ${peer.torrents_received || 0}</span>
+                     </div>
+                 </div>
+                 <div style="text-align: right;">
+                     <div style="color: ${latencyColor}; font-weight: 700;">${peer.latency_ms} ms</div>
+                 </div>
+             </div>
+             `;
+          })
+          .join("");
+      }
+
+      function setPoolFilter(filter) {
+        currentPoolFilter = filter;
+
+        document.querySelectorAll(".pool-filter-btn").forEach((btn) => {
+          btn.classList.remove("active");
+          btn.variant = "default";
+          const badge = btn.querySelector("sl-badge");
+          if (badge) badge.variant = "neutral";
+        });
+
+        const activeBtn = document.getElementById(`filter-${filter}`);
+        if (activeBtn) {
+          activeBtn.classList.add("active");
+          const badge = activeBtn.querySelector("sl-badge");
+          if (badge) badge.variant = "primary";
+        }
+
+        renderPoolsList();
+      }
+
+      function updatePoolsUI() {
+        const subCount = poolsCache.filter((p) => p.isSubscribed).length;
+        const myCount = poolsCache.filter((p) => p.isMember).length;
+        const discoverCount = poolsCache.length;
+
+        document.getElementById("count-subscribed").textContent = subCount;
+        document.getElementById("count-discover").textContent = discoverCount;
+        document.getElementById("count-my-pools").textContent = myCount;
+
+        renderPoolsList();
+      }
+
+      function renderPoolsList() {
+        const container = document.getElementById("pools-list");
+
+        let filtered = poolsCache;
+
+        if (currentPoolFilter === "subscribed") {
+          filtered = filtered.filter((p) => p.isSubscribed);
+        } else if (currentPoolFilter === "my-pools") {
+          filtered = filtered.filter((p) => p.isMember);
+        } else if (currentPoolFilter === "discover") {
+          filtered = filtered.filter((p) => !p.isMember && !p.isSubscribed);
+        }
+
+        if (poolSearchTerm) {
+          filtered = filtered.filter(
+            (p) =>
+              p.display_name.toLowerCase().includes(poolSearchTerm) ||
+              p.pool_id.toLowerCase().includes(poolSearchTerm),
+          );
+        }
+
+        if (filtered.length === 0) {
+          container.innerHTML = `
+                <div class="empty-state">
+                    <sl-icon name="search"></sl-icon>
+                    <p>No pools found matching your criteria</p>
+                    ${currentPoolFilter === "subscribed" ? '<sl-button size="small" variant="neutral" outline onclick="setPoolFilter(\'discover\')">Discover Pools</sl-button>' : ""}
+                </div>`;
+          return;
+        }
+
+        container.innerHTML = filtered
+          .map((pool) => {
+            const myMembership = pool.members.find(
+              (m) => m.public_key === myPublicKey,
+            );
+            const isAdmin =
+              myMembership &&
+              (myMembership.role === "admin" ||
+                myMembership.role === "creator");
+            const isCreator = myMembership && myMembership.role === "creator";
+
+            let roleBadge = "";
+            if (isCreator)
+              roleBadge = '<sl-badge variant="success" pill>Creator</sl-badge>';
+            else if (isAdmin)
+              roleBadge = '<sl-badge variant="warning" pill>Admin</sl-badge>';
+            else if (pool.isMember)
+              roleBadge = '<sl-badge variant="neutral" pill>Member</sl-badge>';
+
+            return `
+            <div class="pool-card">
+                <div class="pool-header">
+                    <div class="pool-name-row">
+                        <span class="pool-title">${escapeHtml(pool.display_name)}</span>
+                        ${pool.isSubscribed ? '<sl-icon name="check-circle-fill" style="color: var(--sl-color-primary-500)"></sl-icon>' : ""}
+                        <span class="pool-id-pill">${pool.pool_id}</span>
+                        ${roleBadge}
+                    </div>
+                </div>
+                
+                <div class="pool-description" title="${escapeHtml(pool.description)}">
+                    ${pool.description ? escapeHtml(pool.description) : '<span style="color: #666; font-style: italic">No description</span>'}
+                </div>
+                
+                <div class="pool-stats-row">
+                    <div class="pool-stat">
+                        <span class="pool-stat-val">${pool.members.length}</span>
+                        <span class="pool-stat-lbl">Members</span>
+                    </div>
+                    <div class="pool-stat">
+                        <span class="pool-stat-val">${pool.activePeersCount}</span>
+                        <span class="pool-stat-lbl">Active Peers</span>
+                    </div>
+                    <div class="pool-stat">
+                        <span class="pool-stat-val">${pool.version}</span>
+                        <span class="pool-stat-lbl">Revision</span>
+                    </div>
+                </div>
+                
+                <div class="pool-actions">
+                     <sl-button size="small" variant="neutral" outline onclick="openPoolMembersDialog('${pool.pool_id}')">
+                        <sl-icon slot="prefix" name="people"></sl-icon> Members
+                     </sl-button>
+                     
+                     ${
+                       isAdmin
+                         ? `<sl-button size="small" variant="neutral" outline onclick="createPoolInvite('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="link-45deg"></sl-icon> Invite
+                         </sl-button>`
+                         : ""
+                     }
+                         
+                     ${
+                       pool.isMember && !isCreator
+                         ? `<sl-button size="small" variant="warning" outline onclick="leavePool('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="box-arrow-right"></sl-icon> Leave
+                         </sl-button>`
+                         : ""
+                     }
+                         
+                     ${
+                       isCreator
+                         ? `<sl-button size="small" variant="danger" outline onclick="deletePool('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="trash"></sl-icon> Delete
+                         </sl-button>`
+                         : ""
+                     }
+                         
+                     ${
+                       !pool.isSubscribed
+                         ? `<sl-button size="small" variant="success" onclick="subscribePool('${pool.pool_id}')">
+                            <sl-icon slot="prefix" name="plus"></sl-icon> Subscribe
+                         </sl-button>`
+                         : `<sl-button size="small" variant="danger" outline onclick="unsubscribePool('${pool.pool_id}')">
+                            Unsubscribe
+                         </sl-button>`
+                     }
+                </div>
+            </div>
+            `;
+          })
+          .join("");
+      }
+
+      const createPoolDialog = document.getElementById("create-pool-dialog");
+      const joinPoolDialog = document.getElementById("join-pool-dialog");
+
+      function openCreatePoolDialog() {
+        createPoolDialog.show();
+      }
+      function openJoinPoolDialog() {
+        joinPoolDialog.show();
+      }
+
+      async function submitCreatePool() {
+        const id = document.getElementById("create-pool-id").value;
+        const name = document.getElementById("create-pool-name").value;
+        const desc = document.getElementById("create-pool-desc").value;
+
+        if (!id || id.length < 2) {
+          showToast("Pool ID must be at least 2 characters long.", "danger");
+          return;
+        }
+        if (!/^[a-zA-Z0-9-_]+$/.test(id)) {
+          showToast(
+            "Pool ID must be alphanumeric (only - and _ allowed).",
+            "danger",
+          );
+          return;
+        }
+        if (!name || name.length === 0) {
+          showToast("Display Name is required.", "danger");
+          return;
+        }
+
+        try {
+          const res = await fetch("/admin/api/cometnet/pools", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              pool_id: id,
+              display_name: name,
+              description: desc,
+              join_mode: "invite",
+            }),
+          });
+          if (res.ok) {
+            createPoolDialog.hide();
+            loadCometNetStats();
+            showToast("Pool created successfully!", "success");
+          } else {
+            showToast("Failed to create pool: " + (await res.text()), "danger");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error creating pool", "danger");
+        }
+      }
+
+      function parseInviteLink(link) {
+        /**
+         * Parse a cometnet invite link.
+         * Format: cometnet://join?pool=X&code=Y&node=Z
+         */
+        if (!link) return null;
+
+        if (link.startsWith("cometnet://join?")) {
+          const params = new URLSearchParams(link.split("?")[1]);
+          return {
+            pool: params.get("pool"),
+            code: params.get("code"),
+            node: params.get("node") || null,
+          };
+        }
+
+        return null;
+      }
+
+      async function submitJoinPool() {
+        const tabs = document.querySelector("#join-pool-dialog sl-tab-group");
+        const panel = tabs.activeTab.panel;
+
+        let poolId, body;
+
+        if (panel === "invite-link") {
+          const link = document.getElementById("join-pool-link").value.trim();
+          const parsed = parseInviteLink(link);
+
+          if (!parsed || !parsed.pool || !parsed.code) {
+            showToast(
+              "Invalid invite link. Please paste a valid cometnet:// link.",
+              "danger",
+            );
+            return;
+          }
+
+          poolId = parsed.pool;
+          body = {
+            invite_code: parsed.code,
+            node_url: parsed.node,
+          };
+        } else if (panel === "invite-manual") {
+          poolId = document.getElementById("join-pool-id").value.trim();
+          const inviteCode = document
+            .getElementById("join-pool-invite")
+            .value.trim();
+          const nodeUrl = document
+            .getElementById("join-pool-node-url")
+            .value.trim();
+
+          if (!poolId || !inviteCode) {
+            showToast("Pool ID and Invite Code are required.", "danger");
+            return;
+          }
+
+          body = {
+            invite_code: inviteCode,
+            node_url: nodeUrl || null,
+          };
+        } else {
+          showToast("Please select a join method.", "danger");
+          return;
+        }
+
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}/join`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          if (res.ok) {
+            joinPoolDialog.hide();
+            loadCometNetStats();
+            showToast("Joined pool successfully!", "success");
+          } else {
+            const errText = await res.text();
+            showToast("Failed to join: " + errText, "danger");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error joining pool", "danger");
+        }
+      }
+
+      async function subscribePool(id) {
+        if (
+          !(await showConfirm(
+            "Subscribe to this pool? You will trust all members.",
+            "Subscribe",
+          ))
+        )
+          return;
+        await fetch(`/admin/api/cometnet/pools/${id}/subscribe`, {
+          method: "POST",
+        });
+        loadCometNetStats();
+      }
+
+      async function unsubscribePool(id) {
+        if (!(await showConfirm("Unsubscribe from this pool?", "Unsubscribe")))
+          return;
+        await fetch(`/admin/api/cometnet/pools/${id}/subscribe`, {
+          method: "DELETE",
+        });
+        loadCometNetStats();
+      }
+
+      async function deletePool(id) {
+        if (
+          !(await showConfirm(
+            `Are you sure you want to delete pool '${id}'? This action cannot be undone.`,
+            "Delete Pool",
+          ))
+        )
+          return;
+        try {
+          const res = await fetch(`/admin/api/cometnet/pools/${id}`, {
+            method: "DELETE",
+          });
+          if (res.ok) {
+            showToast("Pool deleted", "success");
+            loadCometNetStats();
+          } else {
+            showToast("Failed to delete pool", "danger");
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      async function leavePool(id) {
+        if (
+          !(await showConfirm(
+            `Are you sure you want to leave pool '${id}'? You will need a new invite to rejoin.`,
+            "Leave Pool",
+          ))
+        )
+          return;
+        try {
+          const res = await fetch(`/admin/api/cometnet/pools/${id}/leave`, {
+            method: "POST",
+          });
+          if (res.ok) {
+            showToast("Successfully left the pool", "success");
+            loadCometNetStats();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            showToast(data.detail || "Failed to leave pool", "danger");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error leaving pool", "danger");
+        }
+      }
+
+      function copyFromInviteDialog() {
+        const link = document.getElementById("new-invite-link-input").value;
+        copyInviteLink(link);
+      }
+
+      function showToast(message, variant = "primary") {
+        const container = document.getElementById("toast-container");
+        const icons = {
+          success: "check-circle",
+          danger: "exclamation-triangle",
+          warning: "exclamation-circle",
+          primary: "info-circle",
+        };
+        const alert = document.createElement("sl-alert");
+        alert.variant = variant;
+        alert.closable = true;
+        alert.duration = 3000;
+        alert.innerHTML = `
+          <sl-icon name="${icons[variant] || "info-circle"}" slot="icon"></sl-icon>
+          ${message}
+        `;
+        container.appendChild(alert);
+        alert.toast();
+        alert.addEventListener("sl-after-hide", () => alert.remove());
+      }
+
+      function showConfirm(message, title = "Confirm") {
+        return new Promise((resolve) => {
+          const dialog = document.getElementById("confirm-dialog");
+          dialog.label = title;
+          document.getElementById("confirm-dialog-message").textContent =
+            message;
+
+          const okBtn = document.getElementById("confirm-dialog-ok");
+
+          const newOkBtn = okBtn.cloneNode(true);
+          okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+
+          newOkBtn.addEventListener("click", () => {
+            dialog.hide();
+            resolve(true);
+          });
+
+          dialog.addEventListener(
+            "sl-after-hide",
+            () => {
+              resolve(false);
+            },
+            { once: true },
+          );
+
+          dialog.show();
+        });
+      }
+
+      async function copyInviteLink(text) {
+        const isInsecure =
+          window.location.protocol === "http:" &&
+          window.location.hostname !== "localhost";
+
+        const fallbackCopy = () => {
+          const textArea = document.createElement("textarea");
+          textArea.value = text;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-9999px";
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+
+          const success = document.execCommand("copy");
+          document.body.removeChild(textArea);
+          if (!success) throw new Error("execCommand copy failed");
+        };
+
+        try {
+          if (!isInsecure && navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            showToast("Copied to clipboard!", "success");
+            return;
+          }
+
+          try {
+            fallbackCopy();
+            if (isInsecure) {
+              showToast(
+                "Copy may be blocked on HTTP. Please paste to confirm or copy manually.",
+                "warning",
+              );
+            } else {
+              showToast("Copied to clipboard!", "success");
+            }
+          } catch (fallbackErr) {
+            if (isInsecure) {
+              showToast(
+                "Clipboard not available over HTTP. Please copy manually.",
+                "warning",
+              );
+            } else {
+              console.error("Fallback copy failed:", fallbackErr);
+              showToast(
+                "Could not copy to clipboard. Please copy manually.",
+                "warning",
+              );
+            }
+          }
+        } catch (err) {
+          console.warn("Clipboard copy failed, retrying with fallback:", err);
+          if (!isInsecure) {
+            try {
+              fallbackCopy();
+              showToast("Copied to clipboard!", "success");
+              return;
+            } catch (fallbackErr) {
+              console.error("Fallback copy failed:", fallbackErr);
+            }
+          }
+
+          showToast(
+            isInsecure
+              ? "Clipboard not available over HTTP. Please copy manually."
+              : "Could not copy to clipboard. Please copy manually.",
+            "warning",
+          );
+        }
+      }
+
+      let pendingInvitePoolId = null;
+
+      function createPoolInvite(id) {
+        const poolDialog = document.getElementById("pool-members-dialog");
+        if (poolDialog && poolDialog.open) {
+          poolDialog.hide();
+        }
+
+        pendingInvitePoolId = id;
+        const dialog = document.getElementById("create-invite-dialog");
+        document.getElementById("create-invite-expires").value = "3600";
+        document.getElementById("create-invite-uses").value = "1";
+        dialog.show();
+      }
+
+      async function submitCreateInvite() {
+        const id = pendingInvitePoolId;
+        if (!id) return;
+
+        const expiresInput = document.getElementById(
+          "create-invite-expires",
+        ).value;
+        const usesInput = document.getElementById("create-invite-uses").value;
+
+        const body = {};
+        if (expiresInput) body.expires_in = parseInt(expiresInput);
+        if (usesInput) body.max_uses = parseInt(usesInput);
+
+        try {
+          const res = await fetch(`/admin/api/cometnet/pools/${id}/invite`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+
+          document.getElementById("create-invite-dialog").hide();
+
+          if (data.invite_link) {
+            if (
+              currentPoolId === id &&
+              document.getElementById("pool-members-dialog").open
+            ) {
+              loadPoolInvites(id);
+            }
+
+            copyInviteLink(data.invite_link);
+
+            const resultDialog = document.getElementById("new-invite-dialog");
+            document.getElementById("new-invite-link-input").value =
+              data.invite_link;
+            resultDialog.show();
+          } else {
+            showToast("Failed to create invite", "danger");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error creating invite", "danger");
+        }
+      }
+
+      const poolMembersDialog = document.getElementById("pool-members-dialog");
+      let currentPoolId = null;
+
+      async function openPoolMembersDialog(poolId) {
+        currentPoolId = poolId;
+        poolMembersDialog.show();
+
+        if (document.getElementById("pool-members-list")) {
+          document.getElementById("pool-members-list").innerHTML =
+            '<div class="loading-state"><sl-spinner></sl-spinner><span>Loading members...</span></div>';
+        }
+
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}`,
+          );
+          if (!res.ok) {
+            throw new Error("Failed to load pool details");
+          }
+
+          const pool = await res.json();
+          renderPoolMembers(pool);
+
+          const myMember = pool.members.find((m) => m.is_self);
+          const isAdmin =
+            myMember &&
+            (myMember.role === "admin" || myMember.role === "creator");
+
+          const invitesTab = document.getElementById("pool-invites-tab-nav");
+          if (invitesTab) {
+            invitesTab.style.display = isAdmin ? "inline-block" : "none";
+            invitesTab.disabled = !isAdmin;
+          }
+
+          const tabGroup = document.getElementById("pool-details-tabs");
+          if (tabGroup) tabGroup.show("members");
+
+          if (isAdmin) {
+            loadPoolInvites(poolId);
+          }
+        } catch (e) {
+          console.error(e);
+          const list = document.getElementById("pool-members-list");
+          if (list)
+            list.innerHTML =
+              '<div class="empty-state"><sl-icon name="exclamation-triangle"></sl-icon><p>Failed to load pool details</p></div>';
+        }
+      }
+
+      async function loadPoolInvites(poolId) {
+        const container = document.getElementById("pool-invites-list");
+        if (!container) return;
+
+        container.innerHTML =
+          '<div class="loading-state"><sl-spinner></sl-spinner><span>Loading invites...</span></div>';
+
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}/invites`,
+          );
+          if (!res.ok) throw new Error("Failed to load invites");
+          const invites = await res.json();
+
+          if (Object.keys(invites).length === 0) {
+            container.innerHTML =
+              '<div class="empty-state"><p>No active invites</p></div>';
+            return;
+          }
+
+          container.innerHTML = Object.values(invites)
+            .map((invite) => {
+              const expires = invite.expires_at
+                ? new Date(invite.expires_at * 1000).toLocaleString()
+                : "Never";
+              const uses = invite.max_uses
+                ? `${invite.uses || 0}/${invite.max_uses}`
+                : "Unlimited";
+              const link = `${window.location.origin}/admin/cometnet/join?code=${invite.invite_code}`;
+
+              return `
+                <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex: 1; min-width: 0; margin-right: 15px;">
+                        <div style="font-family: monospace; font-weight: bold; font-size: 1.1em; overflow: hidden; text-overflow: ellipsis;">${invite.invite_code}</div>
+                        <div class="tracker-stats">
+                            <span>Expires: ${expires}</span>
+                            <span>Uses: ${uses}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 5px; flex-shrink: 0;">
+                        <sl-button size="small" variant="neutral" outline onclick="copyInviteLink('${link}')">
+                            <sl-icon slot="prefix" name="copy"></sl-icon> Copy
+                        </sl-button>
+                        <sl-button size="small" variant="danger" outline onclick="deletePoolInvite('${poolId}', '${invite.invite_code}')">
+                            <sl-icon slot="prefix" name="trash"></sl-icon>
+                        </sl-button>
+                    </div>
+                </div>
+                `;
+            })
+            .join("");
+        } catch (e) {
+          console.error(e);
+          container.innerHTML =
+            '<div class="empty-state"><p>Error loading invites</p></div>';
+        }
+      }
+
+      async function deletePoolInvite(poolId, code) {
+        if (!(await showConfirm("Delete this invite?", "Delete Invite")))
+          return;
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}/invites/${encodeURIComponent(code)}`,
+            { method: "DELETE" },
+          );
+          if (res.ok) {
+            loadPoolInvites(poolId);
+          } else {
+            showToast("Failed to delete invite", "danger");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error deleting invite", "danger");
+        }
+      }
+
+      function renderPoolMembers(pool) {
+        document.getElementById("pool-members-title").textContent =
+          pool.display_name;
+        document.getElementById("pool-members-description").textContent =
+          pool.description || "No description";
+
+        const container = document.getElementById("pool-members-list");
+
+        if (!pool.members || pool.members.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state"><sl-icon name="people"></sl-icon><p>No members in this pool</p></div>';
+          return;
+        }
+
+        const sortedMembers = [...pool.members].sort((a, b) => {
+          const roleOrder = { creator: 0, admin: 1, member: 2 };
+          const aOrder = roleOrder[a.role] ?? 3;
+          const bOrder = roleOrder[b.role] ?? 3;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return a.added_at - b.added_at;
+        });
+
+        const adminCount = pool.members.filter(
+          (m) => m.role === "admin" || m.role === "creator",
+        ).length;
+
+        container.innerHTML = sortedMembers
+          .map((member) => {
+            const isCreator = member.role === "creator";
+            const isAdmin = member.role === "admin";
+            const isSelf = member.is_self;
+            const canDemote = isAdmin && adminCount > 1 && !isSelf;
+            const canRemove = !isSelf && !isCreator && (canDemote || !isAdmin);
+
+            const addedDate = new Date(
+              member.added_at * 1000,
+            ).toLocaleDateString();
+            const lastSeen = member.last_seen
+              ? new Date(member.last_seen * 1000).toLocaleString()
+              : "Never";
+
+            let roleBadge =
+              '<sl-badge variant="neutral" pill>Member</sl-badge>';
+            if (isCreator) {
+              roleBadge = '<sl-badge variant="success" pill>Creator</sl-badge>';
+            } else if (isAdmin) {
+              roleBadge = '<sl-badge variant="warning" pill>Admin</sl-badge>';
+            }
+
+            return `
+            <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  ${member.alias ? `<span style="font-weight: 600; color: #fff;">${escapeHtml(member.alias)}</span>` : ""}
+                  <span class="connection-id" style="font-size: 0.85rem;" title="${member.node_id}">${member.node_id.substring(0, 8)}</span>
+                  ${roleBadge}
+                  ${isSelf ? '<sl-badge variant="primary" pill>You</sl-badge>' : ""}
+                </div>
+                <div class="tracker-stats" style="margin-top: 6px;">
+                  <span>Added: ${addedDate}</span>
+                  <span>Contributions: ${member.contribution_count || 0}</span>
+                  ${member.last_seen ? `<span>Last seen: ${lastSeen}</span>` : ""}
+                </div>
+              </div>
+              <div style="display: flex; gap: 5px; flex-shrink: 0; margin-left: 10px;">
+                ${
+                  !isAdmin && !isCreator && pool.is_admin
+                    ? `<sl-button size="small" variant="success" outline onclick="promoteMember('${currentPoolId}', '${member.public_key}')">
+                        <sl-icon slot="prefix" name="arrow-up-circle"></sl-icon> Promote
+                      </sl-button>`
+                    : ""
+                }
+                ${
+                  canDemote && pool.is_admin
+                    ? `<sl-button size="small" variant="warning" outline onclick="demoteMember('${currentPoolId}', '${member.public_key}')">
+                        <sl-icon slot="prefix" name="arrow-down-circle"></sl-icon> Demote
+                      </sl-button>`
+                    : ""
+                }
+                ${
+                  canRemove && pool.is_admin
+                    ? `<sl-button size="small" variant="danger" outline onclick="removeMember('${currentPoolId}', '${member.public_key}')">
+                        <sl-icon slot="prefix" name="person-dash"></sl-icon>
+                      </sl-button>`
+                    : ""
+                }
+              </div>
+            </div>
+            `;
+          })
+          .join("");
+      }
+
+      async function promoteMember(poolId, memberKey) {
+        if (
+          !(await showConfirm(
+            "Promote this member to admin? They will have full control over the pool.",
+            "Promote to Admin",
+          ))
+        )
+          return;
+
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}/members/${encodeURIComponent(memberKey)}/role`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ role: "admin" }),
+            },
+          );
+
+          if (res.ok) {
+            await openPoolMembersDialog(poolId); // Refresh
+            loadCometNetStats(); // Refresh main list too
+          } else {
+            const data = await res.json();
+            showToast(
+              "Failed to promote member: " + (data.detail || "Unknown error"),
+              "danger",
+            );
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error promoting member", "danger");
+        }
+      }
+
+      async function demoteMember(poolId, memberKey) {
+        if (
+          !(await showConfirm(
+            "Demote this admin to regular member?",
+            "Demote Member",
+          ))
+        )
+          return;
+
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}/members/${encodeURIComponent(memberKey)}/role`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ role: "member" }),
+            },
+          );
+
+          if (res.ok) {
+            await openPoolMembersDialog(poolId); // Refresh
+            loadCometNetStats(); // Refresh main list too
+          } else {
+            const data = await res.json();
+            showToast(
+              "Failed to demote member: " + (data.detail || "Unknown error"),
+              "danger",
+            );
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error demoting member", "danger");
+        }
+      }
+
+      async function removeMember(poolId, memberKey) {
+        if (
+          !(await showConfirm(
+            "Remove this member from the pool? This action cannot be undone.",
+            "Remove Member",
+          ))
+        )
+          return;
+
+        try {
+          const res = await fetch(
+            `/admin/api/cometnet/pools/${encodeURIComponent(poolId)}/members/${encodeURIComponent(memberKey)}`,
+            {
+              method: "DELETE",
+            },
+          );
+
+          if (res.ok) {
+            await openPoolMembersDialog(poolId); // Refresh
+            loadCometNetStats(); // Refresh main list too
+          } else {
+            const data = await res.json();
+            showToast(
+              "Failed to remove member: " + (data.detail || "Unknown error"),
+              "danger",
+            );
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Error removing member", "danger");
+        }
+      }
+
       async function loadMetrics() {
         try {
           const response = await fetch("/admin/api/metrics");
@@ -1453,7 +3022,6 @@
       }
 
       function updateTorrentsSection(torrentsData) {
-        // Update tracker statistics
         const trackerContainer = document.getElementById("tracker-stats");
         const limitSelect = document.getElementById("tracker-limit");
         const limit = limitSelect ? limitSelect.value : "5";
@@ -1489,10 +3057,8 @@
             .join("");
         }
 
-        // Update size distribution chart
         updateSizeDistribution(torrentsData.size_distribution);
 
-        // Update quality metrics
         document.getElementById("avg-seeders").textContent =
           torrentsData.quality.avg_seeders;
         document.getElementById("max-seeders").textContent =
@@ -1584,11 +3150,9 @@
       }
 
       function updateDebridCacheSection(debridData) {
-        // Update performance stats
         document.getElementById("debrid-total").textContent =
           debridData.total.toLocaleString();
 
-        // Update services list
         const servicesContainer = document.getElementById("debrid-services");
         if (debridData.by_service.length === 0) {
           servicesContainer.innerHTML =

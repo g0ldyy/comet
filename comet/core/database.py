@@ -392,6 +392,28 @@ async def setup_database():
             """
         )
 
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS dmm_entries (
+                    info_hash TEXT PRIMARY KEY,
+                    filename TEXT,
+                    size BIGINT,
+                    parsed_title TEXT,
+                    parsed_year INTEGER,
+                    created_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS dmm_ingested_files (
+                    filename TEXT PRIMARY KEY,
+                    timestamp INTEGER
+                )
+            """
+        )
+
         # =============================================================================
         # TORRENTS TABLE INDEXES
         # =============================================================================
@@ -561,6 +583,26 @@ async def setup_database():
             """
         )
 
+        # =============================================================================
+        # DMM_ENTRIES TABLE INDEXES
+        # =============================================================================
+
+        # Optimize search by parsed title
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dmm_parsed_title
+            ON dmm_entries (parsed_title)
+            """
+        )
+
+        # Optimize filtering by year
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dmm_parsed_year
+            ON dmm_entries (parsed_year)
+            """
+        )
+
         if settings.DATABASE_TYPE == "sqlite":
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
@@ -616,13 +658,17 @@ async def _run_startup_cleanup():
 
             logger.log("DATABASE", "Running startup cleanup sweep")
 
-            await database.execute(
-                """
-                DELETE FROM first_searches 
-                WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
-                """,
-                {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
-            )
+            if settings.TORRENT_CACHE_TTL >= 0:
+                await database.execute(
+                    """
+                    DELETE FROM first_searches 
+                    WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
+                    """,
+                    {
+                        "cache_ttl": settings.TORRENT_CACHE_TTL,
+                        "current_time": current_time,
+                    },
+                )
 
             await database.execute(
                 """

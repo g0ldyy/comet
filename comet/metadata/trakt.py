@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import aiohttp
 
 
@@ -10,15 +12,16 @@ async def get_trakt_aliases(
         ) as response:
             data = await response.json()
 
-        seen = {}
+        result = defaultdict(set)
         for alias_entry in data:
             title = alias_entry.get("title")
-            if title and title not in seen:
-                seen[title] = None
+            country = alias_entry.get("country")
 
-        if seen:
-            aliases_list = list(seen.keys())
-            return {"ez": aliases_list}
+            if title:
+                key = country if country else "ez"
+                result[key].add(title)
+
+        return {k: list(v) for k, v in result.items()}
     except Exception:
         pass
 
