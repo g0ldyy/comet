@@ -616,13 +616,17 @@ async def _run_startup_cleanup():
 
             logger.log("DATABASE", "Running startup cleanup sweep")
 
-            await database.execute(
-                """
-                DELETE FROM first_searches 
-                WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
-                """,
-                {"cache_ttl": settings.TORRENT_CACHE_TTL, "current_time": current_time},
-            )
+            if settings.TORRENT_CACHE_TTL >= 0:
+                await database.execute(
+                    """
+                    DELETE FROM first_searches 
+                    WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
+                    """,
+                    {
+                        "cache_ttl": settings.TORRENT_CACHE_TTL,
+                        "current_time": current_time,
+                    },
+                )
 
             await database.execute(
                 """

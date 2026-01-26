@@ -213,9 +213,10 @@ class MetadataScraper:
 
         trakt_aliases = await get_trakt_aliases(self.session, media_type, media_id)
         if trakt_aliases:
+            total_aliases = sum(len(titles) for titles in trakt_aliases.values())
             logger.log(
                 "SCRAPER",
-                f"📜 Found {len(trakt_aliases['ez'])} Trakt title aliases for {media_id}",
+                f"📜 Found {total_aliases} Trakt title aliases for {media_id}",
             )
         else:
             logger.log("SCRAPER", f"📜 No Trakt title aliases found for {media_id}")

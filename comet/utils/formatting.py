@@ -1,4 +1,30 @@
+import base64
+
 from RTN import ParsedData
+
+from comet.core.models import settings
+
+
+def normalize_info_hash(info_hash: str) -> str:
+    if len(info_hash) == 32:
+        try:
+            info_hash = base64.b16encode(base64.b32decode(info_hash.upper())).decode(
+                "utf-8"
+            )
+        except Exception:
+            pass
+
+    if len(info_hash) == 80:
+        try:
+            decoded_bytes = bytes.fromhex(info_hash)
+            decoded_str = decoded_bytes.decode("ascii")
+            if len(decoded_str) == 40:
+                int(decoded_str, 16)  # Validate it's hex
+                info_hash = decoded_str
+        except (ValueError, UnicodeDecodeError):
+            pass
+
+    return info_hash
 
 
 def format_bytes(bytes_value):
@@ -180,6 +206,9 @@ def format_group_info(data: ParsedData):
     return " • ".join(group_parts) if group_parts else ""
 
 
+comet_clean_tracker = settings.COMET_CLEAN_TRACKER
+
+
 def get_formatted_components(
     data: ParsedData,
     ttitle: str,
@@ -220,8 +249,11 @@ def get_formatted_components(
     if (has_all or "size" in result_format) and size is not None:
         components["size"] = f"💾 {format_bytes(size)}"
 
-    if has_all or "tracker" in result_format:
-        components["tracker"] = f"🔎 {tracker}"
+    if (has_all or "tracker" in result_format) and tracker:
+        if comet_clean_tracker and tracker[:6] == "Comet|":
+            components["tracker"] = f"🔎 Comet|{tracker.rsplit('|', 1)[-1]}"
+        else:
+            components["tracker"] = f"🔎 {tracker}"
 
     if (
         (has_all or "languages" in result_format)

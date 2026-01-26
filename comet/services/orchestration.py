@@ -7,6 +7,7 @@ from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import CometSettingsModel, database
 from comet.scrapers.manager import scraper_manager
+from comet.scrapers.models import ScrapeRequest
 from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
@@ -54,8 +55,6 @@ class TorrentManager:
     async def scrape_torrents(
         self,
     ):
-        from comet.scrapers.models import ScrapeRequest
-
         request = ScrapeRequest(
             media_type=self.media_type,
             media_id=self.media_id,
