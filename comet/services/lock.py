@@ -32,7 +32,7 @@ class DistributedLock:
 
                 # If already acquired, refresh the lock
                 if self.acquired:
-                    await database.execute(
+                    result = await database.execute(
                         "UPDATE scrape_locks SET expires_at = :expires_at, timestamp = :timestamp WHERE lock_key = :lock_key AND instance_id = :instance_id",
                         {
                             "lock_key": self.lock_key,
@@ -41,7 +41,10 @@ class DistributedLock:
                             "expires_at": expires_at,
                         },
                     )
-                    return True
+                    if result > 0:
+                        return True
+
+                    self.acquired = False
 
                 # Attempt to acquire the lock
                 result = await database.execute(

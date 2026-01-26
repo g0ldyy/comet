@@ -71,7 +71,8 @@ class DMMIngester:
 
         try:
             logger.log("DMM_INGEST", "Downloading DMM hashlists...")
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=None, sock_read=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(DMM_URL) as response:
                     if response.status != 200:
                         logger.warning(
