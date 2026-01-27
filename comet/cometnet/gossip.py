@@ -13,7 +13,9 @@ from typing import Awaitable, Callable, Deque, Dict, List, Optional, Set
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import TorrentAnnounce, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
-from comet.cometnet.validation import validate_message_security
+from comet.cometnet.utils import run_in_executor
+from comet.cometnet.validation import (validate_message_security,
+                                       verify_torrent_signature_sync)
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -239,9 +241,10 @@ class GossipEngine:
                 except Exception:
                     pass
 
+        torrents_to_verify = []
+
         for torrent in announce.torrents:
             # Skip torrents with invalid size (0) without penalizing the peer
-            # This handles cases where scrapers might send incomplete metadata
             if torrent.size == 0:
                 self.stats["invalid_messages"] += 1
                 continue
@@ -273,47 +276,45 @@ class GossipEngine:
                 self.stats["invalid_messages"] += 1
                 continue
 
-            # Verify that public key matches contributor_id
-            derived_id = NodeIdentity.node_id_from_public_key(
-                torrent.contributor_public_key
+            torrents_to_verify.append(torrent)
+
+        # Batch verify signatures in executor
+        if torrents_to_verify:
+            verification_results = await asyncio.gather(
+                *[
+                    run_in_executor(verify_torrent_signature_sync, t)
+                    for t in torrents_to_verify
+                ]
             )
-            if derived_id != torrent.contributor_id:
-                peer_rep.add_invalid_contribution()
-                self.stats["invalid_messages"] += 1
-                continue
 
-            # Verify contributor signature using the provided public key
-            if not await NodeIdentity.verify_hex_async(
-                torrent.to_signable_bytes(),
-                torrent.contributor_signature,
-                torrent.contributor_public_key,
-            ):
-                peer_rep.add_invalid_contribution()
-                self.stats["invalid_messages"] += 1
-                continue
-
-            # Check if contributor is trusted (pool-based filtering)
-            if self._pool_store:
-                if not self._pool_store.is_contributor_trusted(
-                    torrent.contributor_public_key, torrent.pool_id
-                ):
-                    self.stats["torrents_filtered_untrusted"] += 1
+            for torrent, is_valid in zip(torrents_to_verify, verification_results):
+                if not is_valid:
+                    peer_rep.add_invalid_contribution()
+                    self.stats["invalid_messages"] += 1
                     continue
 
-            # Store the contributor key in our keystore for future reference (optional)
-            if self._keystore:
-                self._keystore.store_key(
-                    node_id=torrent.contributor_id,
-                    public_key_hex=torrent.contributor_public_key,
-                    verified=True,
-                )
+                # Check if contributor is trusted (pool-based filtering)
+                if self._pool_store:
+                    if not self._pool_store.is_contributor_trusted(
+                        torrent.contributor_public_key, torrent.pool_id
+                    ):
+                        self.stats["torrents_filtered_untrusted"] += 1
+                        continue
 
-            valid_torrents.append(torrent)
+                # Store the contributor key in our keystore for future reference (optional)
+                if self._keystore:
+                    self._keystore.store_key(
+                        node_id=torrent.contributor_id,
+                        public_key_hex=torrent.contributor_public_key,
+                        verified=True,
+                    )
 
-            # Add to re-propagation list if TTL allows
-            # Only repropagate if contribution mode allows (full or consumer)
-            if announce.ttl > 1 and self.contribution_mode in ("full", "consumer"):
-                torrents_to_repropagate.append(torrent)
+                valid_torrents.append(torrent)
+
+                # Add to re-propagation list if TTL allows
+                # Only repropagate if contribution mode allows (full or consumer)
+                if announce.ttl > 1 and self.contribution_mode in ("full", "consumer"):
+                    torrents_to_repropagate.append(torrent)
 
         # Update reputation for valid contributions
         if valid_torrents:

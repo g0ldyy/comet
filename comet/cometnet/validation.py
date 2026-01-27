@@ -3,7 +3,7 @@ from typing import Optional
 
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.keystore import PublicKeyStore
-from comet.cometnet.protocol import BaseMessage
+from comet.cometnet.protocol import BaseMessage, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -65,3 +65,34 @@ async def validate_message_security(
                 return False
 
     return True
+
+
+def verify_torrent_signature_sync(torrent: TorrentMetadata) -> bool:
+    """
+    Verify a torrent signature synchronously.
+    Intended to be run in an executor to offload CPU work.
+    """
+    try:
+        if (
+            not torrent.contributor_id
+            or not torrent.contributor_signature
+            or not torrent.contributor_public_key
+        ):
+            return False
+
+        # Verify that public key matches contributor_id
+        derived_id = NodeIdentity.node_id_from_public_key(
+            torrent.contributor_public_key
+        )
+        if derived_id != torrent.contributor_id:
+            return False
+
+        data_to_sign = torrent.to_signable_bytes()
+
+        return NodeIdentity.verify_hex(
+            data_to_sign,
+            torrent.contributor_signature,
+            torrent.contributor_public_key,
+        )
+    except Exception:
+        return False
