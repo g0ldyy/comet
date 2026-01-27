@@ -260,6 +260,11 @@ def process_file_sync(file_path):
             if not filename or not info_hash:
                 continue
 
+            try:
+                filename.encode("utf-8")
+            except UnicodeEncodeError:
+                filename = filename.encode("utf-8", "ignore").decode("utf-8")
+
             parsed = RTN.parse(filename)
 
             results.append(
