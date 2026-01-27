@@ -7,8 +7,9 @@ import time
 import aiohttp
 import orjson
 
+from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.logger import logger
-from comet.core.models import database, settings
+from comet.core.models import settings
 
 _PROVIDER_URL_PATTERNS = (
     ("anilist.co/anime/", "anilist"),
@@ -329,10 +330,10 @@ class AnimeMapper:
         total_entries = 0
 
         entries_query = "INSERT INTO anime_entries (id, data) VALUES (:id, :data)"
-        ids_query = """
-            INSERT INTO anime_ids (provider, provider_id, entry_id) 
+        ids_query = f"""
+            INSERT {OR_IGNORE} INTO anime_ids (provider, provider_id, entry_id) 
             VALUES (:provider, :provider_id, :entry_id)
-            ON CONFLICT (provider, provider_id) DO NOTHING
+            {ON_CONFLICT_DO_NOTHING}
         """
 
         try:

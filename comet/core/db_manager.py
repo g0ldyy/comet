@@ -11,6 +11,7 @@ import aiofiles
 import orjson
 from databases import Database
 
+from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, OR_IGNORE
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -46,12 +47,11 @@ class ExportStats:
 class DatabaseManager:
     def __init__(self, database: Database):
         self.database = database
-        self.db_type = settings.DATABASE_TYPE
         self.batch_size = settings.DATABASE_BATCH_SIZE
         self._lock_retry_count = 0
 
     async def get_table_info(self, table_name: str):
-        if self.db_type == "sqlite":
+        if IS_SQLITE:
             # Get column information
             columns_result = await self.database.fetch_all(
                 f"PRAGMA table_info({table_name})"
@@ -190,7 +190,7 @@ class DatabaseManager:
         )
 
     async def list_tables(self):
-        if self.db_type == "sqlite":
+        if IS_SQLITE:
             result = await self.database.fetch_all("""
                 SELECT name FROM sqlite_master 
                 WHERE type='table' AND name != 'sqlite_sequence'
@@ -238,7 +238,7 @@ class DatabaseManager:
                     # Export data in batches
                     offset = 0
                     while True:
-                        if self.db_type == "sqlite":
+                        if IS_SQLITE:
                             query = f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
                         else:
                             if table_info.primary_key:
@@ -264,7 +264,7 @@ class DatabaseManager:
 
                 offset = 0
                 while True:
-                    if self.db_type == "sqlite":
+                    if IS_SQLITE:
                         query = f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
                     else:
                         if table_info.primary_key:
@@ -301,19 +301,11 @@ class DatabaseManager:
         table_name = table_info.name
         placeholders = ", ".join([":" + col for col in columns])
 
-        if self.db_type == "sqlite":
-            return f"""
-                INSERT OR IGNORE INTO {table_name} ({", ".join(columns)})
-                VALUES ({placeholders})
-            """
-        else:
-            conflict_clause = "ON CONFLICT DO NOTHING"
-
-            return f"""
-                INSERT INTO {table_name} ({", ".join(columns)})
-                VALUES ({placeholders})
-                {conflict_clause}
-            """
+        return f"""
+            INSERT {OR_IGNORE} INTO {table_name} ({", ".join(columns)})
+            VALUES ({placeholders})
+            {ON_CONFLICT_DO_NOTHING}
+        """
 
     async def import_table(
         self,
@@ -588,7 +580,7 @@ class DatabaseManager:
             "DB_IMPORT", f"Importing {len(export_files)} tables from {input_dir}"
         )
 
-        if parallel and self.db_type == "sqlite":
+        if parallel and IS_SQLITE:
             logger.log(
                 "DB_IMPORT",
                 "SQLite detected, forcing sequential processing to prevent lock contention",
