@@ -9,6 +9,9 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+
+from comet.cometnet.crypto import NodeIdentity
 from comet.core.logger import logger
 
 
@@ -21,6 +24,13 @@ class PeerKey:
     first_seen: float = field(default_factory=time.time)
     last_seen: float = field(default_factory=time.time)
     verified: bool = False  # True if we've verified this key in a handshake
+    _cached_key: Optional[EllipticCurvePublicKey] = None
+
+    def get_key_obj(self) -> Optional[EllipticCurvePublicKey]:
+        """Get the cached key object, loading it if necessary."""
+        if self._cached_key is None:
+            self._cached_key = NodeIdentity.load_public_key(self.public_key_hex)
+        return self._cached_key
 
     def update_seen(self) -> None:
         """Update the last seen timestamp."""
@@ -78,6 +88,16 @@ class PublicKeyStore:
             self._keys[node_id].update_seen()
             self._keys.move_to_end(node_id)
             return self._keys[node_id].public_key_hex
+        return None
+
+    def get_key_obj(self, node_id: str) -> Optional[EllipticCurvePublicKey]:
+        """
+        Get a peer's public key object.
+        """
+        if node_id in self._keys:
+            self._keys[node_id].update_seen()
+            self._keys.move_to_end(node_id)
+            return self._keys[node_id].get_key_obj()
         return None
 
     def is_verified(self, node_id: str) -> bool:
