@@ -183,7 +183,6 @@ class GossipEngine:
             self.stats["torrents_skipped_mode"] += len(metadata_list)
             return
 
-        # Filter out invalid torrents first
         valid_list = []
         for metadata in metadata_list:
             # Sign the torrent with our identity
