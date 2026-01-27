@@ -281,6 +281,7 @@ class PoolStore:
             str, Dict[str, PoolInvite]
         ] = {}  # pool_id -> {code -> invite}
         self._pool_peers: Dict[str, Set[str]] = {}  # pool_id -> set of peer addresses
+        self._dirty_manifests: Set[str] = set()  # Manifests that need saving
 
         # Ensure directories exist
         self.manifests_dir.mkdir(parents=True, exist_ok=True)
@@ -306,7 +307,7 @@ class PoolStore:
         await self._save_memberships()
         await self._save_subscriptions()
         await self._save_pool_peers()
-        # Manifests and invites are saved individually
+        await self.flush_dirty_manifests()
 
     # ==================== Manifest Operations ====================
 
@@ -997,7 +998,7 @@ class PoolStore:
                 if member:
                     member.contribution_count += count
                     member.last_seen = time.time()
-                    await self._save_manifest_async(manifest)
+                    self._dirty_manifests.add(manifest.pool_id)
                     return True
             return False
 
@@ -1008,7 +1009,7 @@ class PoolStore:
             if member:
                 member.contribution_count += count
                 member.last_seen = time.time()
-                await self._save_manifest_async(manifest)
+                self._dirty_manifests.add(manifest.pool_id)
                 recorded = True
 
         return recorded
@@ -1021,6 +1022,24 @@ class PoolStore:
                 await f.write(json.dumps(manifest.model_dump(), indent=2))
         except Exception as e:
             logger.warning(f"Failed to save pool manifest {manifest.pool_id}: {e}")
+
+    async def flush_dirty_manifests(self) -> None:
+        """Save all modified manifests to disk."""
+        if not self._dirty_manifests:
+            return
+
+        to_save = list(self._dirty_manifests)
+        self._dirty_manifests.clear()
+
+        count = 0
+        for pool_id in to_save:
+            manifest = self._manifests.get(pool_id)
+            if manifest:
+                await self._save_manifest_async(manifest)
+                count += 1
+
+        if count > 0:
+            logger.debug(f"Flushed {count} dirty pool manifests")
 
     # ==================== Validation ====================
 
