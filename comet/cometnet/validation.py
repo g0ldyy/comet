@@ -60,6 +60,10 @@ async def validate_message_security(
                     return False
             except ValueError:
                 logger.warning(f"Invalid hex signature from {sender_id[:8]}")
+                if reputation:
+                    reputation.get_or_create(
+                        sender_id
+                    ).add_signature_failure_penalty()
                 return False
 
     return True
