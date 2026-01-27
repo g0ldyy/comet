@@ -41,18 +41,25 @@ async def validate_message_security(
 
     # 3. Verify signature if we have the key
     if message.signature and keystore:
-        sender_key = keystore.get_key(sender_id)
+        sender_key = keystore.get_key_obj(sender_id)
         if sender_key:
-            if not await NodeIdentity.verify_hex_async(
-                message.to_signable_bytes(),
-                message.signature,
-                sender_key,
-            ):
-                logger.warning(
-                    f"Invalid signature from {sender_id[:8]} on {message.type}"
-                )
-                if reputation:
-                    reputation.get_or_create(sender_id).add_signature_failure_penalty()
+            try:
+                signature_bytes = bytes.fromhex(message.signature)
+                if not await NodeIdentity.verify_with_key_async(
+                    message.to_signable_bytes(),
+                    signature_bytes,
+                    sender_key,
+                ):
+                    logger.warning(
+                        f"Invalid signature from {sender_id[:8]} on {message.type}"
+                    )
+                    if reputation:
+                        reputation.get_or_create(
+                            sender_id
+                        ).add_signature_failure_penalty()
+                    return False
+            except ValueError:
+                logger.warning(f"Invalid hex signature from {sender_id[:8]}")
                 return False
 
     return True

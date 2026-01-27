@@ -257,3 +257,38 @@ class NodeIdentity:
         return await run_in_executor(
             NodeIdentity.verify_hex, data, signature_hex, public_key_hex
         )
+
+    @staticmethod
+    def load_public_key(public_key_hex: str) -> Optional[EllipticCurvePublicKey]:
+        """Load a public key object from a hex string."""
+        try:
+            public_key_bytes = bytes.fromhex(public_key_hex)
+            return serialization.load_der_public_key(public_key_bytes)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def verify_with_key(
+        data: bytes, signature: bytes, public_key: EllipticCurvePublicKey
+    ) -> bool:
+        """
+        Verify a signature using a pre-loaded public key object.
+        Avoids re-parsing the public key bytes every time.
+        """
+        try:
+            if not isinstance(public_key, EllipticCurvePublicKey):
+                return False
+
+            public_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
+            return True
+        except (InvalidSignature, ValueError, TypeError):
+            return False
+
+    @staticmethod
+    async def verify_with_key_async(
+        data: bytes, signature: bytes, public_key: EllipticCurvePublicKey
+    ) -> bool:
+        """Verify signature using key object asynchronously."""
+        return await run_in_executor(
+            NodeIdentity.verify_with_key, data, signature, public_key
+        )
