@@ -26,6 +26,7 @@ from comet.services.bandwidth import bandwidth_monitor
 from comet.services.dmm_ingester import dmm_ingester
 from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (add_torrent_queue,
+                                            check_torrent_exists,
                                             save_torrent_from_network,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI):
 
         # Set callback to save torrents received from the network
         cometnet_service.set_save_torrent_callback(save_torrent_from_network)
+        cometnet_service.set_check_torrent_exists_callback(check_torrent_exists)
         await cometnet_service.start()
 
     # Start indexer manager

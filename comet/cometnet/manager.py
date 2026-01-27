@@ -87,6 +87,8 @@ class CometNetService(CometNetBackend):
 
         # Callback for saving torrents to database
         self._save_torrent_callback = None
+        # Callback for checking if torrent exists
+        self._check_torrent_exists_callback = None
 
         # Running state
         self._running = False
@@ -106,6 +108,15 @@ class CometNetService(CometNetBackend):
         and saves it to the database.
         """
         self._save_torrent_callback = callback
+
+    def set_check_torrent_exists_callback(self, callback) -> None:
+        """
+        Set the callback for checking if a torrent exists locally.
+
+        The callback should be an async function that takes an info_hash (str)
+        and returns a boolean.
+        """
+        self._check_torrent_exists_callback = callback
 
     async def start(self) -> None:
         """Start the CometNet service."""
@@ -721,6 +732,7 @@ class CometNetService(CometNetBackend):
             broadcast=self._broadcast_gossip,
             save_torrent=self._handle_received_torrent,
             disconnect_peer=self.transport.disconnect_peer,
+            check_torrent_exists=self._handle_check_torrent_exists,
         )
 
         # Transport message handlers
@@ -758,6 +770,15 @@ class CometNetService(CometNetBackend):
     ) -> None:
         """Broadcast a gossip message to all peers."""
         await self.transport.broadcast(message, exclude)
+
+    async def _handle_check_torrent_exists(self, info_hash: str) -> bool:
+        """Check if a torrent exists locally (delegates to callback)."""
+        if self._check_torrent_exists_callback:
+            try:
+                return await self._check_torrent_exists_callback(info_hash)
+            except Exception:
+                return False
+        return False
 
     async def _handle_received_torrent(self, metadata: TorrentMetadata) -> None:
         """Handle a torrent received from the network."""

@@ -225,6 +225,16 @@ class TorrentBroadcastQueue:
 torrent_broadcast_queue = TorrentBroadcastQueue()
 
 
+async def check_torrent_exists(info_hash: str) -> bool:
+    try:
+        query = "SELECT 1 FROM torrents WHERE info_hash = :info_hash LIMIT 1"
+        result = await database.fetch_val(query, {"info_hash": info_hash})
+        return bool(result)
+    except Exception as e:
+        logger.warning(f"Error checking torrent existence for {info_hash}: {e}")
+        return False
+
+
 async def add_torrent(
     info_hash: str,
     seeders: int,

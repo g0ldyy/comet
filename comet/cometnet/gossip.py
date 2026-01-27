@@ -32,6 +32,9 @@ BroadcastCallback = Callable[[TorrentAnnounce, Optional[Set[str]]], Awaitable[No
 # Type for disconnecting a peer
 DisconnectPeerCallback = Callable[[str], Awaitable[None]]
 
+# Type for checking if a torrent exists locally
+CheckTorrentExistsCallback = Callable[[str], Awaitable[bool]]
+
 
 class GossipEngine:
     """
@@ -86,6 +89,7 @@ class GossipEngine:
         self._broadcast: Optional[BroadcastCallback] = None
         self._save_torrent: Optional[SaveTorrentCallback] = None
         self._disconnect_peer: Optional[DisconnectPeerCallback] = None
+        self._check_torrent_exists: Optional[CheckTorrentExistsCallback] = None
 
         # Running state
         self._running = False
@@ -101,6 +105,7 @@ class GossipEngine:
             "messages_received": 0,
             "invalid_messages": 0,
             "duplicates_ignored": 0,
+            "validation_skipped_exists": 0,
             # stats
             "torrents_filtered_untrusted": 0,
             "torrents_filtered_blacklisted": 0,
@@ -114,6 +119,7 @@ class GossipEngine:
         broadcast: BroadcastCallback,
         save_torrent: SaveTorrentCallback,
         disconnect_peer: Optional[DisconnectPeerCallback] = None,
+        check_torrent_exists: Optional[CheckTorrentExistsCallback] = None,
     ) -> None:
         """Set the callbacks for network operations."""
         self._get_random_peers = get_random_peers
@@ -121,6 +127,7 @@ class GossipEngine:
         self._broadcast = broadcast
         self._save_torrent = save_torrent
         self._disconnect_peer = disconnect_peer
+        self._check_torrent_exists = check_torrent_exists
 
     async def start(self) -> None:
         """Start the gossip engine."""
@@ -229,6 +236,19 @@ class GossipEngine:
                 self.stats["invalid_messages"] += 1
                 continue
 
+            # Check if we already have this torrent
+            # If so, we can skip expensive cryptographic validation
+            if self._check_torrent_exists:
+                exists = await self._check_torrent_exists(torrent.info_hash)
+                if exists:
+                    self.stats["validation_skipped_exists"] += 1
+                    if announce.ttl > 1 and self.contribution_mode in (
+                        "full",
+                        "consumer",
+                    ):
+                        torrents_to_repropagate.append(torrent)
+                    continue
+
             # Validate torrent structure
             if not self._validate_torrent(torrent):
                 peer_rep.add_invalid_contribution()
@@ -327,8 +347,19 @@ class GossipEngine:
 
         # Re-propagate to other peers (with reduced TTL)
         if torrents_to_repropagate and self._get_random_peers and self._send_message:
+            # Add sender and self to visited/exclude list
+            current_visited = set(announce.visited_nodes)
+            current_visited.add(sender_id)
+            current_visited.add(self.identity.node_id)
+
+            # Combine visited nodes with the explicit exclude set
+            exclude_set = {sender_id}.union(current_visited)
+
             peers_reached = await self._repropagate(
-                torrents_to_repropagate, announce.ttl - 1, exclude={sender_id}
+                torrents_to_repropagate,
+                announce.ttl - 1,
+                exclude=exclude_set,
+                visited_history=list(current_visited),
             )
             # Track re-propagations separately from original contributions
             if peers_reached > 0:
@@ -385,12 +416,18 @@ class GossipEngine:
         torrents: List[TorrentMetadata],
         ttl: int,
         exclude: Optional[Set[str]] = None,
+        visited_history: Optional[List[str]] = None,
     ) -> int:
         """Re-propagate torrents to random peers. Returns the number of peers reached."""
         if not self._get_random_peers or not self._send_message:
             return 0
 
         # Select random peers
+        # Check visited history to avoid loops
+        exclude = exclude or set()
+        if visited_history:
+            exclude.update(visited_history)
+
         peers = self._get_random_peers(self.fanout, exclude)
 
         if not peers:
@@ -401,6 +438,7 @@ class GossipEngine:
             sender_id=self.identity.node_id,
             torrents=torrents,
             ttl=ttl,
+            visited_nodes=visited_history or [self.identity.node_id],
         )
         announce.signature = await self.identity.sign_hex_async(
             announce.to_signable_bytes()
