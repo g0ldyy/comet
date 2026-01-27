@@ -1014,14 +1014,16 @@ class PoolStore:
 
         return recorded
 
-    async def _save_manifest_async(self, manifest: PoolManifest) -> None:
+    async def _save_manifest_async(self, manifest: PoolManifest) -> bool:
         """Save a manifest to disk (without re-signing)."""
         manifest_path = self.manifests_dir / f"{manifest.pool_id}.json"
         try:
             async with aiofiles.open(manifest_path, "w") as f:
                 await f.write(json.dumps(manifest.model_dump(), indent=2))
+            return True
         except Exception as e:
             logger.warning(f"Failed to save pool manifest {manifest.pool_id}: {e}")
+            return False
 
     async def flush_dirty_manifests(self) -> None:
         """Save all modified manifests to disk."""
@@ -1032,11 +1034,17 @@ class PoolStore:
         self._dirty_manifests.clear()
 
         count = 0
+        failed: Set[str] = set()
         for pool_id in to_save:
             manifest = self._manifests.get(pool_id)
             if manifest:
-                await self._save_manifest_async(manifest)
-                count += 1
+                if await self._save_manifest_async(manifest):
+                    count += 1
+                else:
+                    failed.add(pool_id)
+
+        if failed:
+            self._dirty_manifests.update(failed)
 
         if count > 0:
             logger.debug(f"Flushed {count} dirty pool manifests")
