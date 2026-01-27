@@ -396,7 +396,6 @@ class TorrentUpdateQueue:
         "_event",
         "upserts",
         "_is_postgresql",
-        "_grouped_upserts",
     )
 
     def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
@@ -408,7 +407,6 @@ class TorrentUpdateQueue:
         self._event = asyncio.Event()
         self.upserts = {}
         self._is_postgresql = settings.DATABASE_TYPE == "postgresql"
-        self._grouped_upserts = defaultdict(list)
 
     async def add_torrent_info(
         self, file_info: dict, media_id: str = None, from_cometnet: bool = False
@@ -504,7 +502,7 @@ class TorrentUpdateQueue:
         self.upserts = {}
 
         try:
-            grouped = self._grouped_upserts
+            grouped = defaultdict(list)
             for params in upserts_to_flush.values():
                 key = _determine_conflict_key(params["season"], params["episode"])
                 grouped[key].append(params)
@@ -536,8 +534,6 @@ class TorrentUpdateQueue:
 
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
-        finally:
-            grouped.clear()
 
     def _process_file_info(
         self, file_info: dict, media_id: str = None, current_time: float = None
