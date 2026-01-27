@@ -3,8 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from comet.core.database import (IS_SQLITE, ON_CONFLICT_DO_NOTHING, OR_IGNORE,
-                                 database)
+from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, database
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
 
@@ -142,7 +141,7 @@ class CacheStateManager:
             if IS_SQLITE:
                 try:
                     await database.execute(
-                        f"INSERT {OR_IGNORE} INTO first_searches VALUES (:media_id, :timestamp)",
+                        "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
                         params,
                     )
                     return True
