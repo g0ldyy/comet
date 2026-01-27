@@ -528,8 +528,12 @@ class CometNetRelay(CometNetBackend):
             else:
                 continue
 
+            info_hash = data.get("info_hash")
+            if not info_hash or len(info_hash) != 40:
+                continue
+
             torrent_data = {
-                "info_hash": data.get("info_hash"),
+                "info_hash": info_hash,
                 "title": data.get("title", ""),
                 "size": data.get("size", 0),
                 "tracker": data.get("tracker", ""),
@@ -554,30 +558,7 @@ class CometNetRelay(CometNetBackend):
 
     async def broadcast_torrent(self, metadata) -> None:
         """Broadcast a torrent to the network (via relay)."""
-        # Unwrap TorrentMetadata if necessary
-        if hasattr(metadata, "model_dump"):
-            data = metadata.model_dump()
-        elif isinstance(metadata, dict):
-            data = metadata
-        else:
-            logger.warning(
-                f"Invalid metadata type passed to broadcast_torrent: {type(metadata)}"
-            )
-            return
-
-        await self.relay_torrent(
-            info_hash=data.get("info_hash"),
-            title=data.get("title", ""),
-            size=data.get("size", 0),
-            tracker=data.get("tracker", ""),
-            imdb_id=data.get("imdb_id"),
-            file_index=data.get("file_index"),
-            seeders=data.get("seeders"),
-            season=data.get("season"),
-            episode=data.get("episode"),
-            sources=data.get("sources"),
-            parsed=data.get("parsed"),
-        )
+        await self.broadcast_torrents([metadata])
 
 
 _relay_instance: Optional[CometNetRelay] = None

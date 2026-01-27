@@ -41,6 +41,8 @@ class NodeIdentity:
         self._keys_dir = keys_dir or self.KEYS_DIR
         self._private_key: Optional[EllipticCurvePrivateKey] = None
         self._public_key: Optional[EllipticCurvePublicKey] = None
+        self._public_key_bytes: Optional[bytes] = None
+        self._public_key_hex: Optional[str] = None
         self._node_id: Optional[str] = None
 
     @property

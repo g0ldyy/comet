@@ -26,7 +26,7 @@ SaveTorrentCallback = Callable[[TorrentMetadata], Awaitable[None]]
 GetRandomPeersCallback = Callable[[int, Optional[Set[str]]], List[str]]
 
 # Type for sending a message to peers
-SendMessageCallback = Callable[[str, TorrentAnnounce], Awaitable[None]]
+SendMessageCallback = Callable[[str, TorrentAnnounce | bytes], Awaitable[None]]
 
 # Type for broadcasting a message
 BroadcastCallback = Callable[[TorrentAnnounce, Optional[Set[str]]], Awaitable[None]]
