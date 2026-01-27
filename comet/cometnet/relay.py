@@ -26,7 +26,7 @@ class CometNetRelay(CometNetBackend):
     """
 
     def __init__(
-        self, relay_url: str, timeout: float = 5.0, api_key: Optional[str] = None
+        self, relay_url: str, timeout: float = 30.0, api_key: Optional[str] = None
     ):
         """
         Initialize the relay client.
@@ -64,7 +64,6 @@ class CometNetRelay(CometNetBackend):
 
         self._running = True
 
-        # Build headers with optional API key
         headers = {}
         if self.api_key:
             headers["X-API-Key"] = self.api_key
@@ -173,6 +172,12 @@ class CometNetRelay(CometNetBackend):
                 await self._send_single(batch_to_send[0])
             else:
                 await self._send_batch(batch_to_send)
+        except asyncio.TimeoutError:
+            self._total_errors += len(batch_to_send)
+            logger.warning(
+                f"Relay batch send timed out after {self.timeout}s - "
+                f"Remote is likely overloaded ({len(batch_to_send)} torrents dropped)"
+            )
         except Exception as e:
             self._total_errors += len(batch_to_send)
             logger.debug(f"Relay batch send failed: {e}")
