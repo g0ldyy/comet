@@ -398,12 +398,12 @@ class ConnectionManager:
             await self._server.wait_closed()
 
         # Cancel background tasks
-        for task in self._tasks:
+        tasks = list(self._tasks)
+        for task in tasks:
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
 
         # Close all connections
