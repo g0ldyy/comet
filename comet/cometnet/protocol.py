@@ -200,6 +200,10 @@ class TorrentAnnounce(BaseMessage):
             raise ValueError("Maximum 1000 torrents per announce message")
         return v
 
+    visited_nodes: List[str] = Field(
+        default_factory=list
+    )  # List of nodes that have seen this message
+
 
 class TorrentQuery(BaseMessage):
     """Query for specific torrents (by info_hash or media ID)."""
