@@ -8,7 +8,7 @@ dedicated CometNet standalone service.
 
 import asyncio
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import aiohttp
 
@@ -43,6 +43,7 @@ class CometNetRelay(CometNetBackend):
         self._batch: List[Dict] = []
         self._batch_lock = asyncio.Lock()
         self._batch_task: Optional[asyncio.Task] = None
+        self._flush_tasks: Set[asyncio.Task] = set()
         self._running = False
 
         self.batch_size = 50
@@ -90,6 +91,14 @@ class CometNetRelay(CometNetBackend):
                 await self._batch_task
             except asyncio.CancelledError:
                 pass
+
+        if self._flush_tasks:
+            for task in list(self._flush_tasks):
+                task.cancel()
+
+            if self._flush_tasks:
+                await asyncio.gather(*self._flush_tasks, return_exceptions=True)
+            self._flush_tasks.clear()
 
         if self._session:
             await self._session.close()
@@ -140,7 +149,9 @@ class CometNetRelay(CometNetBackend):
             self._batch.append(torrent_data)
 
             if len(self._batch) >= self.batch_size:
-                asyncio.create_task(self._flush_batch())
+                task = asyncio.create_task(self._flush_batch())
+                self._flush_tasks.add(task)
+                task.add_done_callback(self._flush_tasks.discard)
 
         return True
 
@@ -514,32 +525,53 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def broadcast_torrent(self, metadata) -> None:
-        """Broadcast a torrent to the network (via relay)."""
-        # Unwrap TorrentMetadata if necessary
-        if hasattr(metadata, "model_dump"):
-            data = metadata.model_dump()
-        elif isinstance(metadata, dict):
-            data = metadata
-        else:
-            logger.warning(
-                f"Invalid metadata type passed to broadcast_torrent: {type(metadata)}"
-            )
+    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+        """Broadcast multiple torrents to the network (via relay)."""
+        if not self._running:
             return
 
-        await self.relay_torrent(
-            info_hash=data.get("info_hash"),
-            title=data.get("title", ""),
-            size=data.get("size", 0),
-            tracker=data.get("tracker", ""),
-            imdb_id=data.get("imdb_id"),
-            file_index=data.get("file_index"),
-            seeders=data.get("seeders"),
-            season=data.get("season"),
-            episode=data.get("episode"),
-            sources=data.get("sources"),
-            parsed=data.get("parsed"),
-        )
+        batch_data = []
+        for metadata in metadata_list:
+            if hasattr(metadata, "model_dump"):
+                data = metadata.model_dump()
+            elif isinstance(metadata, dict):
+                data = metadata
+            else:
+                continue
+
+            info_hash = data.get("info_hash")
+            if not info_hash or len(info_hash) != 40:
+                continue
+
+            torrent_data = {
+                "info_hash": info_hash,
+                "title": data.get("title", ""),
+                "size": data.get("size", 0),
+                "tracker": data.get("tracker", ""),
+                "imdb_id": data.get("imdb_id"),
+                "file_index": data.get("file_index"),
+                "seeders": data.get("seeders"),
+                "season": data.get("season"),
+                "episode": data.get("episode"),
+                "sources": data.get("sources"),
+                "parsed": data.get("parsed"),
+            }
+            batch_data.append(torrent_data)
+
+        if not batch_data:
+            return
+
+        async with self._batch_lock:
+            self._batch.extend(batch_data)
+
+            if len(self._batch) >= self.batch_size:
+                task = asyncio.create_task(self._flush_batch())
+                self._flush_tasks.add(task)
+                task.add_done_callback(self._flush_tasks.discard)
+
+    async def broadcast_torrent(self, metadata) -> None:
+        """Broadcast a torrent to the network (via relay)."""
+        await self.broadcast_torrents([metadata])
 
 
 _relay_instance: Optional[CometNetRelay] = None

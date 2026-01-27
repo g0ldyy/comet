@@ -34,6 +34,11 @@ class CometNetBackend(ABC):
         """Broadcast a torrent to the network."""
         pass
 
+    @abstractmethod
+    async def broadcast_torrents(self, metadata_list: list[Any]) -> None:
+        """Broadcast multiple torrents to the network."""
+        pass
+
     # --- Pool Management ---
 
     @abstractmethod

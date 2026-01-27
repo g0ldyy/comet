@@ -26,7 +26,7 @@ SaveTorrentCallback = Callable[[TorrentMetadata], Awaitable[None]]
 GetRandomPeersCallback = Callable[[int, Optional[Set[str]]], List[str]]
 
 # Type for sending a message to peers
-SendMessageCallback = Callable[[str, TorrentAnnounce], Awaitable[None]]
+SendMessageCallback = Callable[[str, TorrentAnnounce | bytes], Awaitable[None]]
 
 # Type for broadcasting a message
 BroadcastCallback = Callable[[TorrentAnnounce, Optional[Set[str]]], Awaitable[None]]
@@ -36,6 +36,21 @@ DisconnectPeerCallback = Callable[[str], Awaitable[None]]
 
 # Type for checking if torrents exist locally (batch)
 CheckTorrentsExistCallback = Callable[[List[str]], Awaitable[Set[str]]]
+
+
+def sign_object_sync(identity: NodeIdentity, obj: object) -> str:
+    """
+    Helper to serialize and sign an object synchronously.
+    Intended to be run in an executor to offload CPU work.
+    """
+    return identity.sign_hex(obj.to_signable_bytes())
+
+
+def batch_sign_objects_sync(identity: NodeIdentity, objects: List[object]) -> List[str]:
+    """
+    Helper to sign a list of objects in a single executor call.
+    """
+    return [identity.sign_hex(obj.to_signable_bytes()) for obj in objects]
 
 
 class GossipEngine:
@@ -158,47 +173,63 @@ class GossipEngine:
 
         logger.log("COMETNET", "Gossip engine stopped")
 
+    async def queue_torrents(
+        self, metadata_list: List[TorrentMetadata], pool_id: Optional[str] = None
+    ) -> None:
+        """
+        Queue multiple torrents for gossiping.
+        """
+        if self.contribution_mode not in ("full", "source"):
+            self.stats["torrents_skipped_mode"] += len(metadata_list)
+            return
+
+        valid_list = []
+        for metadata in metadata_list:
+            # Sign the torrent with our identity
+            metadata.contributor_id = self.identity.node_id
+            metadata.contributor_public_key = self.identity.public_key_hex
+
+            # Set pool_id if provided and we're a member
+            if pool_id and self._pool_store:
+                if self._pool_store.is_member_of(pool_id):
+                    metadata.pool_id = pool_id
+
+            valid_list.append(metadata)
+
+        if not valid_list:
+            return
+
+        signatures = await run_in_executor(
+            batch_sign_objects_sync, self.identity, valid_list
+        )
+
+        for metadata, signature in zip(valid_list, signatures):
+            metadata.contributor_signature = signature
+
+        # Record contributions
+        if self._pool_store:
+            # Group by pool_id
+            pool_counts = {}
+            for metadata in valid_list:
+                pool_counts[metadata.pool_id] = pool_counts.get(metadata.pool_id, 0) + 1
+
+            for pid, count in pool_counts.items():
+                await self._pool_store.record_contribution(
+                    contributor_public_key=self.identity.public_key_hex,
+                    pool_id=pid,
+                    count=count,
+                )
+
+        # Add to outgoing queue
+        self._outgoing_queue.extend(valid_list)
+
     async def queue_torrent(
         self, metadata: TorrentMetadata, pool_id: Optional[str] = None
     ) -> None:
         """
         Queue a torrent for gossiping.
-
-        This is called when a new torrent is discovered locally
-        (e.g., from a scraper).
-
-        Args:
-            metadata: The torrent metadata to broadcast
-            pool_id: Optional pool to associate with this torrent
         """
-        # Check contribution mode - only 'full' and 'source' can share
-        if self.contribution_mode not in ("full", "source"):
-            self.stats["torrents_skipped_mode"] += 1
-            return
-
-        # Sign the torrent with our identity
-        metadata.contributor_id = self.identity.node_id
-        metadata.contributor_public_key = self.identity.public_key_hex
-
-        # Set pool_id if provided and we're a member
-        if pool_id and self._pool_store:
-            if self._pool_store.is_member_of(pool_id):
-                metadata.pool_id = pool_id
-
-        metadata.contributor_signature = await self.identity.sign_hex_async(
-            metadata.to_signable_bytes()
-        )
-
-        # Record our own contribution
-        if self._pool_store:
-            await self._pool_store.record_contribution(
-                contributor_public_key=self.identity.public_key_hex,
-                pool_id=metadata.pool_id,
-                count=1,
-            )
-
-        # Add to outgoing queue
-        self._outgoing_queue.append(metadata)
+        await self.queue_torrents([metadata], pool_id)
 
     async def handle_announce(
         self, sender_id: str, announce: TorrentAnnounce, sender_ip: str = None
@@ -449,14 +480,18 @@ class GossipEngine:
             ttl=ttl,
             visited_nodes=visited_history or [self.identity.node_id],
         )
-        announce.signature = await self.identity.sign_hex_async(
-            announce.to_signable_bytes()
+
+        announce.signature = await run_in_executor(
+            sign_object_sync, self.identity, announce
         )
+
+        # Serialize once
+        announce_bytes = announce.to_bytes()
 
         # Send to all selected peers
         async def send_to_peer(peer_id: str) -> bool:
             try:
-                await self._send_message(peer_id, announce)
+                await self._send_message(peer_id, announce_bytes)
                 return True
             except Exception:
                 return False
