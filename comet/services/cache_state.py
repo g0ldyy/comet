@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from comet.core.models import database, settings
+from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, database
+from comet.core.models import settings
 from comet.services.lock import DistributedLock
 
 
@@ -137,7 +138,7 @@ class CacheStateManager:
         params = {"media_id": self.media_id, "timestamp": time.time()}
 
         try:
-            if settings.DATABASE_TYPE == "sqlite":
+            if IS_SQLITE:
                 try:
                     await database.execute(
                         "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
@@ -148,10 +149,10 @@ class CacheStateManager:
                     return False
 
             inserted = await database.fetch_val(
-                """
+                f"""
                 INSERT INTO first_searches (media_id, timestamp)
                 VALUES (:media_id, :timestamp)
-                ON CONFLICT (media_id) DO NOTHING
+                {ON_CONFLICT_DO_NOTHING}
                 RETURNING 1
                 """,
                 params,

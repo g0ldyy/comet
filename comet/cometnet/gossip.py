@@ -32,8 +32,8 @@ BroadcastCallback = Callable[[TorrentAnnounce, Optional[Set[str]]], Awaitable[No
 # Type for disconnecting a peer
 DisconnectPeerCallback = Callable[[str], Awaitable[None]]
 
-# Type for checking if a torrent exists locally
-CheckTorrentExistsCallback = Callable[[str], Awaitable[bool]]
+# Type for checking if torrents exist locally (batch)
+CheckTorrentsExistCallback = Callable[[List[str]], Awaitable[Set[str]]]
 
 
 class GossipEngine:
@@ -89,7 +89,7 @@ class GossipEngine:
         self._broadcast: Optional[BroadcastCallback] = None
         self._save_torrent: Optional[SaveTorrentCallback] = None
         self._disconnect_peer: Optional[DisconnectPeerCallback] = None
-        self._check_torrent_exists: Optional[CheckTorrentExistsCallback] = None
+        self._check_torrents_exist: Optional[CheckTorrentsExistCallback] = None
 
         # Running state
         self._running = False
@@ -119,7 +119,7 @@ class GossipEngine:
         broadcast: BroadcastCallback,
         save_torrent: SaveTorrentCallback,
         disconnect_peer: Optional[DisconnectPeerCallback] = None,
-        check_torrent_exists: Optional[CheckTorrentExistsCallback] = None,
+        check_torrents_exist: Optional[CheckTorrentsExistCallback] = None,
     ) -> None:
         """Set the callbacks for network operations."""
         self._get_random_peers = get_random_peers
@@ -127,7 +127,7 @@ class GossipEngine:
         self._broadcast = broadcast
         self._save_torrent = save_torrent
         self._disconnect_peer = disconnect_peer
-        self._check_torrent_exists = check_torrent_exists
+        self._check_torrents_exist = check_torrents_exist
 
     async def start(self) -> None:
         """Start the gossip engine."""
@@ -229,6 +229,16 @@ class GossipEngine:
         valid_torrents = []
         torrents_to_repropagate = []
 
+        # Batch check for existence
+        existing_hashes = set()
+        if self._check_torrents_exist and announce.torrents:
+            hashes = [t.info_hash for t in announce.torrents]
+            if hashes:
+                try:
+                    existing_hashes = await self._check_torrents_exist(hashes)
+                except Exception:
+                    pass
+
         for torrent in announce.torrents:
             # Skip torrents with invalid size (0) without penalizing the peer
             # This handles cases where scrapers might send incomplete metadata
@@ -238,16 +248,14 @@ class GossipEngine:
 
             # Check if we already have this torrent
             # If so, we can skip expensive cryptographic validation
-            if self._check_torrent_exists:
-                exists = await self._check_torrent_exists(torrent.info_hash)
-                if exists:
-                    self.stats["validation_skipped_exists"] += 1
-                    if announce.ttl > 1 and self.contribution_mode in (
-                        "full",
-                        "consumer",
-                    ):
-                        torrents_to_repropagate.append(torrent)
-                    continue
+            if torrent.info_hash in existing_hashes:
+                self.stats["validation_skipped_exists"] += 1
+                if announce.ttl > 1 and self.contribution_mode in (
+                    "full",
+                    "consumer",
+                ):
+                    torrents_to_repropagate.append(torrent)
+                continue
 
             # Validate torrent structure
             if not self._validate_torrent(torrent):

@@ -89,6 +89,7 @@ class CometNetService(CometNetBackend):
         self._save_torrent_callback = None
         # Callback for checking if torrent exists
         self._check_torrent_exists_callback = None
+        self._check_torrents_exist_callback = None
 
         # Running state
         self._running = False
@@ -117,6 +118,15 @@ class CometNetService(CometNetBackend):
         and returns a boolean.
         """
         self._check_torrent_exists_callback = callback
+
+    def set_check_torrents_exist_callback(self, callback) -> None:
+        """
+        Set the callback for checking if multiple torrents exist locally.
+
+        The callback should be an async function that takes a list of info_hashes
+        and returns a set of existing info_hashes.
+        """
+        self._check_torrents_exist_callback = callback
 
     async def start(self) -> None:
         """Start the CometNet service."""
@@ -732,7 +742,7 @@ class CometNetService(CometNetBackend):
             broadcast=self._broadcast_gossip,
             save_torrent=self._handle_received_torrent,
             disconnect_peer=self.transport.disconnect_peer,
-            check_torrent_exists=self._handle_check_torrent_exists,
+            check_torrents_exist=self._handle_check_torrents_exist,
         )
 
         # Transport message handlers
@@ -771,14 +781,27 @@ class CometNetService(CometNetBackend):
         """Broadcast a gossip message to all peers."""
         await self.transport.broadcast(message, exclude)
 
-    async def _handle_check_torrent_exists(self, info_hash: str) -> bool:
-        """Check if a torrent exists locally (delegates to callback)."""
-        if self._check_torrent_exists_callback:
+    async def _handle_check_torrents_exist(self, info_hashes: List[str]) -> Set[str]:
+        """Check if torrents exist locally."""
+        # Prefer batch callback
+        if self._check_torrents_exist_callback:
             try:
-                return await self._check_torrent_exists_callback(info_hash)
+                return await self._check_torrents_exist_callback(info_hashes)
             except Exception:
-                return False
-        return False
+                return set()
+
+        # Fallback to legacy single callback loop if batch not set
+        if self._check_torrent_exists_callback:
+            existing = set()
+            for ih in info_hashes:
+                try:
+                    if await self._check_torrent_exists_callback(ih):
+                        existing.add(ih)
+                except Exception:
+                    pass
+            return existing
+
+        return set()
 
     async def _handle_received_torrent(self, metadata: TorrentMetadata) -> None:
         """Handle a torrent received from the network."""

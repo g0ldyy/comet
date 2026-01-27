@@ -14,6 +14,7 @@ from functools import partial
 from typing import Any, Callable, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
 
+import orjson
 import websockets
 from websockets.exceptions import InvalidHandshake, InvalidStatusCode
 
@@ -51,11 +52,7 @@ def canonicalize_data(data: Any) -> Any:
     Recursively sort dict keys for deterministic serialization.
     Used for creating stable signatures.
     """
-    if isinstance(data, dict):
-        return {k: canonicalize_data(v) for k, v in sorted(data.items())}
-    elif isinstance(data, list):
-        return [canonicalize_data(i) for i in data]
-    return data
+    return orjson.loads(orjson.dumps(data, option=orjson.OPT_SORT_KEYS))
 
 
 # --- Network Utilities ---

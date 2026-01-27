@@ -4,8 +4,9 @@ from dataclasses import dataclass
 
 import aiohttp
 
+from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.logger import logger
-from comet.core.models import database, settings
+from comet.core.models import settings
 from comet.metadata.manager import MetadataScraper
 from comet.services.orchestration import TorrentManager
 
@@ -311,10 +312,10 @@ class BackgroundScraperWorker:
             if torrents_found > 0:
                 await database.execute(
                     f"""
-                    INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                    INSERT {OR_IGNORE}
                     INTO first_searches 
                     VALUES (:media_id, :timestamp)
-                    {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+                    {ON_CONFLICT_DO_NOTHING}
                     """,
                     {"media_id": media_id, "timestamp": time.time()},
                 )
@@ -386,10 +387,10 @@ class BackgroundScraperWorker:
             if episode_torrents > 0:
                 await database.execute(
                     f"""
-                    INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                    INSERT {OR_IGNORE}
                     INTO first_searches
                     VALUES (:media_id, :timestamp)
-                    {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+                    {ON_CONFLICT_DO_NOTHING}
                     """,
                     {"media_id": episode_media_id, "timestamp": time.time()},
                 )

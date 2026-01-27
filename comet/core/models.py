@@ -367,6 +367,13 @@ class AppSettings(BaseSettings):
 
 settings = AppSettings()
 
+IS_POSTGRES = settings.DATABASE_TYPE == "postgresql"
+IS_SQLITE = settings.DATABASE_TYPE == "sqlite"
+
+JSON_FUNC = "json_array_elements_text" if IS_POSTGRES else "json_each"
+OR_IGNORE = "" if IS_POSTGRES else "OR IGNORE"
+ON_CONFLICT_DO_NOTHING = "ON CONFLICT DO NOTHING" if IS_POSTGRES else ""
+
 
 class CometSettingsModel(SettingsModel):
     model_config = SettingsConfigDict()
@@ -910,7 +917,7 @@ web_config = {
 
 
 def _build_database_instance(raw_url: str):
-    if settings.DATABASE_TYPE == "sqlite":
+    if IS_SQLITE:
         return Database(f"sqlite:///{raw_url}")
 
     for scheme in ["postgresql://", "postgres://"]:
@@ -924,7 +931,7 @@ def _build_database_instance(raw_url: str):
 replica_instances: List[Database] = []
 force_ipv4 = False
 
-if settings.DATABASE_TYPE == "sqlite":
+if IS_SQLITE:
     database_url = settings.DATABASE_PATH
     if settings.DATABASE_READ_REPLICA_URLS:
         logger.log("DATABASE", "Read replicas are ignored for sqlite deployments")
@@ -935,10 +942,8 @@ else:
         for url in settings.DATABASE_READ_REPLICA_URLS
         if url
     ]
-    force_ipv4 = (
-        settings.DATABASE_FORCE_IPV4_RESOLUTION
-        and settings.DATABASE_TYPE == "postgresql"
-    )
+    force_ipv4 = settings.DATABASE_FORCE_IPV4_RESOLUTION and IS_POSTGRES
+
 
 database = ReplicaAwareDatabase(
     _build_database_instance(database_url),
