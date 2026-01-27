@@ -1,12 +1,29 @@
 import time
 from typing import Optional
 
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.keystore import PublicKeyStore
 from comet.cometnet.protocol import BaseMessage, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
+from comet.cometnet.utils import run_in_executor
 from comet.core.logger import logger
 from comet.core.models import settings
+
+
+def verify_message_signature_sync(
+    message: BaseMessage, signature_bytes: bytes, public_key: EllipticCurvePublicKey
+) -> bool:
+    """
+    Verify message signature synchronously.
+    Intended to be run in an executor.
+    """
+    try:
+        data = message.to_signable_bytes()
+        return NodeIdentity.verify_with_key(data, signature_bytes, public_key)
+    except Exception:
+        return False
 
 
 async def validate_message_security(
@@ -45,11 +62,12 @@ async def validate_message_security(
         if sender_key:
             try:
                 signature_bytes = bytes.fromhex(message.signature)
-                if not await NodeIdentity.verify_with_key_async(
-                    message.to_signable_bytes(),
-                    signature_bytes,
-                    sender_key,
-                ):
+
+                is_valid = await run_in_executor(
+                    verify_message_signature_sync, message, signature_bytes, sender_key
+                )
+
+                if not is_valid:
                     logger.warning(
                         f"Invalid signature from {sender_id[:8]} on {message.type}"
                     )

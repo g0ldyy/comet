@@ -145,9 +145,13 @@ async def broadcast_torrents(torrents_params: list[dict]):
             if not (isinstance(imdb_id, str) and imdb_id.startswith("tt")):
                 imdb_id = None
 
+            info_hash = params.get("info_hash")
+            if not info_hash or len(info_hash) != 40:
+                continue
+
             clean_torrents.append(
                 {
-                    "info_hash": params["info_hash"],
+                    "info_hash": info_hash,
                     "title": params["title"],
                     "size": params["size"],
                     "tracker": params["tracker"],
@@ -196,9 +200,7 @@ class TorrentBroadcastQueue:
                 torrents = await self.queue.get()
 
                 if torrents:
-                    tasks = [backend.broadcast_torrent(t) for t in torrents]
-                    if tasks:
-                        await asyncio.gather(*tasks)
+                    await backend.broadcast_torrents(torrents)
 
                     logger.log(
                         "COMETNET",

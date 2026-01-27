@@ -514,6 +514,44 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
+    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+        """Broadcast multiple torrents to the network (via relay)."""
+        if not self._running:
+            return
+
+        batch_data = []
+        for metadata in metadata_list:
+            if hasattr(metadata, "model_dump"):
+                data = metadata.model_dump()
+            elif isinstance(metadata, dict):
+                data = metadata
+            else:
+                continue
+
+            torrent_data = {
+                "info_hash": data.get("info_hash"),
+                "title": data.get("title", ""),
+                "size": data.get("size", 0),
+                "tracker": data.get("tracker", ""),
+                "imdb_id": data.get("imdb_id"),
+                "file_index": data.get("file_index"),
+                "seeders": data.get("seeders"),
+                "season": data.get("season"),
+                "episode": data.get("episode"),
+                "sources": data.get("sources"),
+                "parsed": data.get("parsed"),
+            }
+            batch_data.append(torrent_data)
+
+        if not batch_data:
+            return
+
+        async with self._batch_lock:
+            self._batch.extend(batch_data)
+
+            if len(self._batch) >= self.batch_size:
+                asyncio.create_task(self._flush_batch())
+
     async def broadcast_torrent(self, metadata) -> None:
         """Broadcast a torrent to the network (via relay)."""
         # Unwrap TorrentMetadata if necessary

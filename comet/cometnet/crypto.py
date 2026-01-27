@@ -55,19 +55,23 @@ class NodeIdentity:
     @property
     def public_key_bytes(self) -> bytes:
         """Returns the public key as DER-encoded bytes."""
-        if self._public_key is None:
-            raise RuntimeError(
-                "Node identity not initialized. Call load_or_generate() first."
+        if self._public_key_bytes is None:
+            if self._public_key is None:
+                raise RuntimeError(
+                    "Node identity not initialized. Call load_or_generate() first."
+                )
+            self._public_key_bytes = self._public_key.public_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-        return self._public_key.public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
+        return self._public_key_bytes
 
     @property
     def public_key_hex(self) -> str:
         """Returns the public key as a hex string."""
-        return self.public_key_bytes.hex()
+        if self._public_key_hex is None:
+            self._public_key_hex = self.public_key_bytes.hex()
+        return self._public_key_hex
 
     async def load_or_generate(self) -> None:
         """
@@ -90,6 +94,8 @@ class NodeIdentity:
         # Generate new key pair
         self._private_key = ec.generate_private_key(ec.SECP256K1())
         self._public_key = self._private_key.public_key()
+        self._public_key_bytes = None
+        self._public_key_hex = None
 
         # Derive node ID from public key
         self._node_id = self._derive_node_id(self._public_key)
@@ -159,6 +165,8 @@ class NodeIdentity:
             raise ValueError("Invalid key type: expected ECDSA private key")
 
         self._public_key = self._private_key.public_key()
+        self._public_key_bytes = None
+        self._public_key_hex = None
         self._node_id = self._derive_node_id(self._public_key)
 
     def _derive_node_id(self, public_key: EllipticCurvePublicKey) -> str:

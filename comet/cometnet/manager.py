@@ -1286,6 +1286,42 @@ class CometNetService(CometNetBackend):
         msg.signature = await self.identity.sign_hex_async(msg.to_signable_bytes())
         await self.transport.broadcast(msg, exclude)
 
+    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+        """
+        Broadcast multiple torrents to the network.
+        Accepts both TorrentMetadata objects and dicts.
+        """
+        if not self._running or not self.gossip:
+            return
+
+        valid_torrents = []
+        for metadata in metadata_list:
+            # Convert dict to TorrentMetadata if needed
+            if isinstance(metadata, dict):
+                try:
+                    metadata = TorrentMetadata(
+                        info_hash=metadata.get("info_hash", "").lower(),
+                        title=metadata.get("title", ""),
+                        size=int(metadata.get("size") or 0),
+                        tracker=metadata.get("tracker", ""),
+                        imdb_id=metadata.get("imdb_id"),
+                        file_index=metadata.get("file_index"),
+                        seeders=metadata.get("seeders"),
+                        season=metadata.get("season"),
+                        episode=metadata.get("episode"),
+                        sources=metadata.get("sources") or [],
+                        parsed=metadata.get("parsed"),
+                        updated_at=metadata.get("updated_at", time.time()),
+                    )
+                except Exception:
+                    continue
+
+            if isinstance(metadata, TorrentMetadata):
+                valid_torrents.append(metadata)
+
+        if valid_torrents:
+            await self.gossip.queue_torrents(valid_torrents)
+
     async def broadcast_torrent(self, metadata) -> None:
         """
         Broadcast a torrent to the network.
@@ -1294,32 +1330,7 @@ class CometNetService(CometNetBackend):
         Should be called when a scraper discovers a new torrent.
         Accepts both TorrentMetadata objects and dicts.
         """
-        if not self._running or not self.gossip:
-            return
-
-        # Convert dict to TorrentMetadata if needed
-        if isinstance(metadata, dict):
-            metadata = TorrentMetadata(
-                info_hash=metadata.get("info_hash", "").lower(),
-                title=metadata.get("title", ""),
-                size=int(metadata.get("size") or 0),
-                tracker=metadata.get("tracker", ""),
-                imdb_id=metadata.get("imdb_id"),
-                file_index=metadata.get("file_index"),
-                seeders=metadata.get("seeders"),
-                season=metadata.get("season"),
-                episode=metadata.get("episode"),
-                sources=metadata.get("sources") or [],
-                parsed=metadata.get("parsed"),
-                updated_at=metadata.get("updated_at", time.time()),
-            )
-        elif not isinstance(metadata, TorrentMetadata):
-            logger.warning(
-                f"Invalid metadata type passed to broadcast_torrent: {type(metadata)}"
-            )
-            return
-
-        await self.gossip.queue_torrent(metadata)
+        await self.broadcast_torrents([metadata])
 
     async def handle_websocket_connection(self, websocket, path: str = "") -> None:
         """
