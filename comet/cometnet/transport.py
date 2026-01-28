@@ -406,7 +406,6 @@ class ConnectionManager:
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
-
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()

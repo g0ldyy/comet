@@ -149,7 +149,15 @@ class BackgroundScraperWorker:
                         "BACKGROUND_SCRAPER",
                         "Lost lock during scraping cycle, stopping.",
                     )
-                    break
+                    for task in tasks:
+                        task.cancel()
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    logger.log(
+                        "BACKGROUND_SCRAPER",
+                        f"Cancelled and drained {len(tasks)} in-flight tasks after lock loss.",
+                    )
+                    return
 
                 if await self._should_skip_media(media_item["imdb_id"]):
                     continue
