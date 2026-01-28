@@ -36,6 +36,7 @@ class BackgroundScraperWorker:
         self.metadata_scraper = None
         self.semaphore = None
         self.stats = ScrapingStats()
+        self.last_lock_refresh = 0.0
 
     async def start(self):
         if self.is_running:
@@ -84,6 +85,7 @@ class BackgroundScraperWorker:
     async def _run_scraping_cycle(self, lock: DistributedLock):
         self.stats = ScrapingStats()
         self.stats.start_time = time.time()
+        self.last_lock_refresh = time.time()
 
         try:
             self.current_session = aiohttp.ClientSession()
@@ -121,18 +123,38 @@ class BackgroundScraperWorker:
                 self.current_session = None
 
     async def _gather_with_lock_refresh(self, tasks, lock: DistributedLock) -> bool:
+        if time.time() - self.last_lock_refresh > LOCK_TTL / 2:
+            if not await lock.acquire():
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                logger.log(
+                    "BACKGROUND_SCRAPER",
+                    "Lost lock during proactive refresh; cancelled pending work.",
+                )
+                return False
+            self.last_lock_refresh = time.time()
+
         pending = set(tasks)
         while pending:
             done, pending = await asyncio.wait(pending, timeout=LOCK_TTL / 2)
-            if not await lock.acquire():
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    "Lost lock while awaiting tasks; cancelled pending work.",
-                )
-                return False
+
+            results = await asyncio.gather(*done, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    logger.error(f"Error in background task: {res}")
+
+            if pending:
+                if not await lock.acquire():
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True)
+                    logger.log(
+                        "BACKGROUND_SCRAPER",
+                        "Lost lock while awaiting tasks; cancelled pending work.",
+                    )
+                    return False
+                self.last_lock_refresh = time.time()
         return True
 
     async def _scrape_media_type(
@@ -175,7 +197,8 @@ class BackgroundScraperWorker:
                     tasks.clear()
 
             if tasks:
-                await self._gather_with_lock_refresh(tasks, lock)
+                if not await self._gather_with_lock_refresh(tasks, lock):
+                    return
 
         logger.log(
             "BACKGROUND_SCRAPER",
