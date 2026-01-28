@@ -1568,6 +1568,99 @@
               </sl-tab-panel>
             </sl-tab-group>
           </sl-dialog>
+          <sl-tab slot="nav" panel="system">
+            <sl-icon name="info-circle"></sl-icon>
+            &nbsp;System
+          </sl-tab>
+
+          <sl-tab-panel name="system">
+            <div class="tab-content">
+              <div class="metrics-grid">
+                <div class="metric-section">
+                  <h3>
+                    <sl-icon name="info-circle"></sl-icon> Version Information
+                  </h3>
+                  <div class="metric-content">
+                    <div
+                      style="display: flex; flex-direction: column; gap: 15px"
+                    >
+                      <div
+                        style="
+                          display: flex;
+                          justify-content: space-between;
+                          align-items: center;
+                          padding: 10px;
+                          background: rgba(255, 255, 255, 0.05);
+                          border-radius: 8px;
+                        "
+                      >
+                        <span style="color: #ccc; font-weight: 500"
+                          >Commit Hash</span
+                        >
+                        <span>
+                          {% if version_info.commit_hash %}
+                          <a
+                            href="https://github.com/g0ldyy/comet/commit/{{ version_info.commit_hash }}"
+                            target="_blank"
+                            style="
+                              text-decoration: none;
+                              color: var(--sl-color-primary-400);
+                              font-family: monospace;
+                            "
+                          >
+                            <sl-icon
+                              name="git"
+                              style="vertical-align: middle; margin-right: 4px"
+                            ></sl-icon
+                            >{{ version_info.commit_hash[:7] }}
+                          </a>
+                          {% else %}
+                          <span style="color: var(--sl-color-neutral-500)"
+                            >Unknown</span
+                          >
+                          {% endif %}
+                        </span>
+                      </div>
+
+                      {% if version_info.build_date %}
+                      <div
+                        style="
+                          display: flex;
+                          justify-content: space-between;
+                          align-items: center;
+                          padding: 10px;
+                          background: rgba(255, 255, 255, 0.05);
+                          border-radius: 8px;
+                        "
+                      >
+                        <span style="color: #ccc; font-weight: 500"
+                          >Build Date</span
+                        >
+                        <span style="color: #ccc; font-family: monospace"
+                          >{{ version_info.build_date.split('T')[0] }}</span
+                        >
+                      </div>
+                      {% endif %}
+
+                      <sl-divider></sl-divider>
+
+                      <div id="system-update-status">
+                        <div
+                          style="
+                            text-align: center;
+                            color: var(--sl-color-neutral-500);
+                            padding: 20px;
+                          "
+                        >
+                          <sl-spinner></sl-spinner> Checking for updates...
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sl-tab-panel>
         </sl-tab-group>
       </div>
     </div>
@@ -1724,6 +1817,59 @@
           case "cometnet":
             loadCometNetStats();
             break;
+          case "system":
+            checkUpdateStatus();
+            break;
+        }
+      }
+
+      async function checkUpdateStatus() {
+        try {
+          const container = document.getElementById("system-update-status");
+          const response = await fetch("/admin/api/update-check");
+          if (!response.ok) throw new Error("Failed to check");
+          const status = await response.json();
+
+          if (status.has_update) {
+            let msg = `
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; background: rgba(234, 179, 8, 0.1); padding: 15px; border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.2);">
+                        <div style="display: flex; align-items: center; gap: 8px; color: var(--sl-color-warning-500); font-weight: 600;">
+                            <sl-icon name="exclamation-circle"></sl-icon>
+                            Update Available
+                        </div>
+                        <div style="font-size: 0.9rem; color: #e0e0e0;">
+                            Latest Commit: <span style="font-weight: bold; color: white;">${status.latest_commit_hash}</span>
+                        </div>
+                `;
+
+            if (status.latest_url) {
+              msg += `
+                        <sl-button href="${status.latest_url}" target="_blank" variant="warning" size="small" outline>
+                            <sl-icon slot="prefix" name="github"></sl-icon>
+                            View Release
+                        </sl-button>
+                    `;
+            }
+
+            msg += `</div>`;
+            container.innerHTML = msg;
+          } else if (status.error) {
+            container.innerHTML = `<div style="text-align: center; color: var(--sl-color-warning-500); font-size: 0.9rem;">
+                    <sl-icon name="exclamation-triangle" style="margin-right: 5px; vertical-align: middle;"></sl-icon>
+                    Could not check for updates
+                 </div>`;
+          } else {
+            container.innerHTML = `
+                    <div style="text-align: center; color: var(--sl-color-success-500); display: flex; align-items: center; justify-content: center; gap: 6px;">
+                        <sl-icon name="check-circle-fill"></sl-icon>
+                        <span style="font-weight: 500;">Up to date</span>
+                    </div>
+                `;
+          }
+        } catch (e) {
+          const container = document.getElementById("system-update-status");
+          container.innerHTML = `<div style="text-align: center; color: var(--sl-color-danger-500);">Error checking updates.</div>`;
+          console.error(e);
         }
       }
 
