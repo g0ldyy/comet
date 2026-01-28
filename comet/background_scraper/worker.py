@@ -36,7 +36,6 @@ class BackgroundScraperWorker:
         self.metadata_scraper = None
         self.semaphore = None
         self.stats = ScrapingStats()
-        self.last_lock_refresh = 0.0
 
     async def start(self):
         if self.is_running:
@@ -63,7 +62,33 @@ class BackgroundScraperWorker:
                 lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
                 if await lock.acquire(wait_timeout=None):
                     try:
-                        await self._run_scraping_cycle(lock)
+                        lock_task = asyncio.create_task(self._maintain_lock(lock))
+                        scrape_task = asyncio.create_task(self._run_scraping_cycle())
+
+                        done, pending = await asyncio.wait(
+                            [lock_task, scrape_task],
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+
+                        if lock_task in done:
+                            logger.log(
+                                "BACKGROUND_SCRAPER",
+                                "Lock lost during processing. Stopping current cycle.",
+                            )
+                            scrape_task.cancel()
+                            try:
+                                await scrape_task
+                            except asyncio.CancelledError:
+                                pass
+                        else:
+                            lock_task.cancel()
+                            try:
+                                await lock_task
+                            except asyncio.CancelledError:
+                                pass
+
+                            if scrape_task.exception():
+                                raise scrape_task.exception()
                     finally:
                         await lock.release()
                 else:
@@ -78,14 +103,28 @@ class BackgroundScraperWorker:
                         f"Waiting {interval_seconds}s until next run",
                     )
                     await asyncio.sleep(interval_seconds)
+            except asyncio.CancelledError:
+                self.is_running = False
             except Exception as e:
                 logger.error(f"Error in background scraper cycle: {e}")
                 await asyncio.sleep(300)
 
-    async def _run_scraping_cycle(self, lock: DistributedLock):
+    async def _maintain_lock(self, lock: DistributedLock):
+        try:
+            while True:
+                await asyncio.sleep(LOCK_TTL / 2)
+                if not await lock.acquire():
+                    logger.warning("BACKGROUND_SCRAPER: Failed to renew lock")
+                    return
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in lock maintenance: {e}")
+            return
+
+    async def _run_scraping_cycle(self):
         self.stats = ScrapingStats()
         self.stats.start_time = time.time()
-        self.last_lock_refresh = time.time()
 
         try:
             self.current_session = aiohttp.ClientSession()
@@ -99,15 +138,13 @@ class BackgroundScraperWorker:
                 f"Starting scraping cycle with {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} concurrent workers",
             )
 
-            if not await self._scrape_media_type(
-                "movie", settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN, lock
-            ):
-                return
+            await self._scrape_media_type(
+                "movie", settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN
+            )
 
-            if not await self._scrape_media_type(
-                "series", settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN, lock
-            ):
-                return
+            await self._scrape_media_type(
+                "series", settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN
+            )
 
             logger.log(
                 "BACKGROUND_SCRAPER",
@@ -124,50 +161,13 @@ class BackgroundScraperWorker:
                 await self.current_session.close()
                 self.current_session = None
 
-    async def _gather_with_lock_refresh(self, tasks, lock: DistributedLock) -> bool:
-        if time.time() - self.last_lock_refresh > LOCK_TTL / 2:
-            if not await lock.acquire():
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    "Lost lock during proactive refresh; cancelled pending work.",
-                )
-                return False
-            self.last_lock_refresh = time.time()
-
-        pending = set(tasks)
-        while pending:
-            done, pending = await asyncio.wait(pending, timeout=LOCK_TTL / 2)
-
-            results = await asyncio.gather(*done, return_exceptions=True)
-            for res in results:
-                if isinstance(res, Exception):
-                    logger.error(f"Error in background task: {res}")
-
-            if pending:
-                if not await lock.acquire():
-                    for task in pending:
-                        task.cancel()
-                    await asyncio.gather(*pending, return_exceptions=True)
-                    logger.log(
-                        "BACKGROUND_SCRAPER",
-                        "Lost lock while awaiting tasks; cancelled pending work.",
-                    )
-                    return False
-                self.last_lock_refresh = time.time()
-        return True
-
-    async def _scrape_media_type(
-        self, media_type: str, max_items: int, lock: DistributedLock
-    ) -> bool:
+    async def _scrape_media_type(self, media_type: str, max_items: int) -> None:
         if max_items <= 0:
             logger.log(
                 "BACKGROUND_SCRAPER",
                 f"Skipping {media_type} scraping (max_items={max_items})",
             )
-            return True
+            return
 
         logger.log(
             "BACKGROUND_SCRAPER", f"Starting {media_type} scraping (max: {max_items})"
@@ -194,19 +194,16 @@ class BackgroundScraperWorker:
                 processed_count += 1
 
                 if len(tasks) >= settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS * 2:
-                    if not await self._gather_with_lock_refresh(tasks, lock):
-                        return False
+                    await asyncio.gather(*tasks, return_exceptions=True)
                     tasks.clear()
 
             if tasks:
-                if not await self._gather_with_lock_refresh(tasks, lock):
-                    return False
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.log(
             "BACKGROUND_SCRAPER",
             f"Completed {media_type} scraping. Processed: {processed_count} unique items",
         )
-        return True
 
     async def _should_skip_media(self, media_id: str):
         """Check if media should be skipped (recently scraped or too many failures)."""
