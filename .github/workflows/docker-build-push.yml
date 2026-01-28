@@ -57,3 +57,4 @@ jobs:
           build-args: |
             COMET_COMMIT_HASH=${{ github.sha }}
             COMET_BUILD_DATE=${{ steps.date.outputs.date }}
+            COMET_BRANCH=${{ github.ref_name }}
