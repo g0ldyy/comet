@@ -11,6 +11,7 @@ from comet.core.logger import log_capture
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.utils.formatting import format_bytes
+from comet.utils.update import UpdateManager
 
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
@@ -98,6 +99,19 @@ async def admin_login(
 
 
 @router.get(
+    "/admin/api/update-check",
+    tags=["Admin"],
+    summary="Check for Updates",
+    description="Checks if a new version of Comet is available.",
+)
+async def update_check(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    return await UpdateManager.check_for_updates()
+
+
+@router.get(
     "/admin/dashboard",
     tags=["Admin"],
     summary="Admin Dashboard",
@@ -108,7 +122,10 @@ async def admin_dashboard(
 ):
     try:
         await require_admin_auth(admin_session)
-        return templates.TemplateResponse("admin_dashboard.html", {"request": request})
+        return templates.TemplateResponse(
+            "admin_dashboard.html",
+            {"request": request, "version_info": UpdateManager.get_version_info()},
+        )
     except HTTPException:
         return RedirectResponse("/admin", status_code=303)
 
