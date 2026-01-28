@@ -52,7 +52,14 @@ def canonicalize_data(data: Any) -> Any:
     Used for creating stable signatures.
     """
     if isinstance(data, dict):
-        return {k: canonicalize_data(v) for k, v in sorted(data.items())}
+        try:
+            return {k: canonicalize_data(v) for k, v in sorted(data.items())}
+        except TypeError:
+            # Fallback for mixed types that cannot be compared directly
+            return {
+                k: canonicalize_data(v)
+                for k, v in sorted(data.items(), key=lambda x: str(x[0]))
+            }
     elif isinstance(data, list):
         return [canonicalize_data(i) for i in data]
     else:
