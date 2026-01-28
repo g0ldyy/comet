@@ -478,7 +478,7 @@ class GossipEngine:
             sender_id=self.identity.node_id,
             torrents=torrents,
             ttl=ttl,
-            visited_nodes=visited_history or [self.identity.node_id],
+            visited_nodes=sorted(visited_history or [self.identity.node_id]),
         )
 
         announce.signature = await run_in_executor(

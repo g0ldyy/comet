@@ -22,7 +22,8 @@ def verify_message_signature_sync(
     try:
         data = message.to_signable_bytes()
         return NodeIdentity.verify_with_key(data, signature_bytes, public_key)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Signature verification error: {e}")
         return False
 
 
