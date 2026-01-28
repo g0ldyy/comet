@@ -4,16 +4,29 @@ import time
 import traceback
 
 from comet.core.logger import logger
-from comet.core.models import database, settings
+from comet.core.models import (IS_POSTGRES, IS_SQLITE, JSON_FUNC,
+                               ON_CONFLICT_DO_NOTHING, OR_IGNORE, database,
+                               settings)
+
+__all__ = [
+    "IS_POSTGRES",
+    "IS_SQLITE",
+    "JSON_FUNC",
+    "ON_CONFLICT_DO_NOTHING",
+    "OR_IGNORE",
+    "database",
+    "settings",
+]
 
 STARTUP_CLEANUP_LOCK_ID = 0xC0FFEE
+
 
 DATABASE_VERSION = "1.0"
 
 
 async def setup_database():
     try:
-        if settings.DATABASE_TYPE == "sqlite":
+        if IS_SQLITE:
             os.makedirs(os.path.dirname(settings.DATABASE_PATH), exist_ok=True)
 
             if not os.path.exists(settings.DATABASE_PATH):
@@ -44,7 +57,7 @@ async def setup_database():
                 f"Database: Migration from {current_version} to {DATABASE_VERSION} version",
             )
 
-            if settings.DATABASE_TYPE == "sqlite":
+            if IS_SQLITE:
                 tables = await database.fetch_all(
                     """
                     SELECT name FROM sqlite_master 
@@ -292,20 +305,6 @@ async def setup_database():
                     id INTEGER PRIMARY KEY, 
                     total_bytes BIGINT, 
                     last_updated INTEGER
-                )
-            """
-        )
-
-        await database.execute(
-            """
-                CREATE TABLE IF NOT EXISTS background_scraper_progress (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    current_run_started_at INTEGER,
-                    last_completed_run_at INTEGER,
-                    is_running BOOLEAN DEFAULT FALSE,
-                    current_phase TEXT,
-                    total_movies_processed INTEGER,
-                    total_series_processed INTEGER
                 )
             """
         )
@@ -603,7 +602,7 @@ async def setup_database():
             """
         )
 
-        if settings.DATABASE_TYPE == "sqlite":
+        if IS_SQLITE:
             await database.execute("PRAGMA busy_timeout=30000")  # 30 seconds timeout
             await database.execute("PRAGMA journal_mode=WAL")
             await database.execute("PRAGMA synchronous=OFF")
@@ -643,7 +642,7 @@ async def _run_startup_cleanup():
 
     try:
         async with database.transaction():
-            if settings.DATABASE_TYPE == "postgresql":
+            if IS_POSTGRES:
                 acquired = await database.fetch_val(
                     "SELECT pg_try_advisory_xact_lock(:lock_id)",
                     {"lock_id": STARTUP_CLEANUP_LOCK_ID},
@@ -804,7 +803,7 @@ async def _migrate_indexes():
 
         dropped_count = 0
         for index_name in old_indexes:
-            if settings.DATABASE_TYPE == "sqlite":
+            if IS_SQLITE:
                 exists = await database.fetch_val(
                     f"SELECT 1 FROM sqlite_master WHERE type='index' AND name='{index_name}'"
                 )

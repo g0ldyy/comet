@@ -182,6 +182,7 @@ def log_scraper_error(
 
 
 def log_startup_info(settings):
+    from comet.core.database import IS_SQLITE
     from comet.core.execution import max_workers
 
     def get_urls_with_passwords(urls, passwords):
@@ -222,19 +223,20 @@ def log_startup_info(settings):
     )
 
     replicas = ""
-    if settings.DATABASE_TYPE != "sqlite":
+    if not IS_SQLITE:
         replicas = f" - Read Replicas: {settings.DATABASE_READ_REPLICA_URLS}"
     force_ipv4_info = (
         f" - Force IPv4: {settings.DATABASE_FORCE_IPV4_RESOLUTION}"
-        if settings.DATABASE_TYPE != "sqlite"
+        if not IS_SQLITE
         else ""
     )
+
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if settings.DATABASE_TYPE == 'sqlite' else censor_url(settings.DATABASE_URL)} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{force_ipv4_info}{replicas}",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if IS_SQLITE else censor_url(settings.DATABASE_URL)} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{force_ipv4_info}{replicas}",
     )
 
-    if settings.DATABASE_TYPE == "sqlite":
+    if IS_SQLITE:
         logger.warning(
             "⚠️  SQLite has poor concurrency support and is NOT recommended for production. "
             "Consider using PostgreSQL for better performance and reliability."

@@ -11,7 +11,7 @@ import zipfile
 import aiohttp
 import RTN
 
-from comet.core.database import database
+from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -162,10 +162,10 @@ class DMMIngester:
 
                             if processed_files_batch:
                                 query_files = f"""
-                                    INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                                    INSERT {OR_IGNORE}
                                     INTO dmm_ingested_files (filename, timestamp) 
                                     VALUES (:filename, :timestamp)
-                                    {" ON CONFLICT (filename) DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+                                    {ON_CONFLICT_DO_NOTHING}
                                 """
                                 await database.execute_many(
                                     query_files,
@@ -215,10 +215,10 @@ class DMMIngester:
                     }
                 )
 
-            query = """
-                INSERT INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year, created_at)
+            query = f"""
+                INSERT {OR_IGNORE} INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year, created_at)
                 VALUES (:info_hash, :filename, :size, :parsed_title, :parsed_year, :created_at)
-                ON CONFLICT (info_hash) DO NOTHING
+                {ON_CONFLICT_DO_NOTHING}
             """
 
             await database.execute_many(query, values)
@@ -259,6 +259,11 @@ def process_file_sync(file_path):
 
             if not filename or not info_hash:
                 continue
+
+            try:
+                filename.encode("utf-8")
+            except UnicodeEncodeError:
+                filename = filename.encode("utf-8", "ignore").decode("utf-8")
 
             parsed = RTN.parse(filename)
 

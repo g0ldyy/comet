@@ -41,6 +41,8 @@ class NodeIdentity:
         self._keys_dir = keys_dir or self.KEYS_DIR
         self._private_key: Optional[EllipticCurvePrivateKey] = None
         self._public_key: Optional[EllipticCurvePublicKey] = None
+        self._public_key_bytes: Optional[bytes] = None
+        self._public_key_hex: Optional[str] = None
         self._node_id: Optional[str] = None
 
     @property
@@ -55,19 +57,23 @@ class NodeIdentity:
     @property
     def public_key_bytes(self) -> bytes:
         """Returns the public key as DER-encoded bytes."""
-        if self._public_key is None:
-            raise RuntimeError(
-                "Node identity not initialized. Call load_or_generate() first."
+        if self._public_key_bytes is None:
+            if self._public_key is None:
+                raise RuntimeError(
+                    "Node identity not initialized. Call load_or_generate() first."
+                )
+            self._public_key_bytes = self._public_key.public_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-        return self._public_key.public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
+        return self._public_key_bytes
 
     @property
     def public_key_hex(self) -> str:
         """Returns the public key as a hex string."""
-        return self.public_key_bytes.hex()
+        if self._public_key_hex is None:
+            self._public_key_hex = self.public_key_bytes.hex()
+        return self._public_key_hex
 
     async def load_or_generate(self) -> None:
         """
@@ -90,6 +96,8 @@ class NodeIdentity:
         # Generate new key pair
         self._private_key = ec.generate_private_key(ec.SECP256K1())
         self._public_key = self._private_key.public_key()
+        self._public_key_bytes = None
+        self._public_key_hex = None
 
         # Derive node ID from public key
         self._node_id = self._derive_node_id(self._public_key)
@@ -159,6 +167,8 @@ class NodeIdentity:
             raise ValueError("Invalid key type: expected ECDSA private key")
 
         self._public_key = self._private_key.public_key()
+        self._public_key_bytes = None
+        self._public_key_hex = None
         self._node_id = self._derive_node_id(self._public_key)
 
     def _derive_node_id(self, public_key: EllipticCurvePublicKey) -> str:
@@ -256,4 +266,39 @@ class NodeIdentity:
         """Verify hex signature asynchronously."""
         return await run_in_executor(
             NodeIdentity.verify_hex, data, signature_hex, public_key_hex
+        )
+
+    @staticmethod
+    def load_public_key(public_key_hex: str) -> Optional[EllipticCurvePublicKey]:
+        """Load a public key object from a hex string."""
+        try:
+            public_key_bytes = bytes.fromhex(public_key_hex)
+            return serialization.load_der_public_key(public_key_bytes)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def verify_with_key(
+        data: bytes, signature: bytes, public_key: EllipticCurvePublicKey
+    ) -> bool:
+        """
+        Verify a signature using a pre-loaded public key object.
+        Avoids re-parsing the public key bytes every time.
+        """
+        try:
+            if not isinstance(public_key, EllipticCurvePublicKey):
+                return False
+
+            public_key.verify(signature, data, ec.ECDSA(hashes.SHA256()))
+            return True
+        except (InvalidSignature, ValueError, TypeError):
+            return False
+
+    @staticmethod
+    async def verify_with_key_async(
+        data: bytes, signature: bytes, public_key: EllipticCurvePublicKey
+    ) -> bool:
+        """Verify signature using key object asynchronously."""
+        return await run_in_executor(
+            NodeIdentity.verify_with_key, data, signature, public_key
         )

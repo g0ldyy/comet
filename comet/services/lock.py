@@ -2,6 +2,8 @@ import asyncio
 import time
 import uuid
 
+from comet.core.database import (IS_POSTGRES, IS_SQLITE,
+                                 ON_CONFLICT_DO_NOTHING, OR_IGNORE)
 from comet.core.logger import logger
 from comet.core.models import database, settings
 
@@ -32,27 +34,31 @@ class DistributedLock:
 
                 # If already acquired, refresh the lock
                 if self.acquired:
-                    result = await database.execute(
-                        "UPDATE scrape_locks SET expires_at = :expires_at, timestamp = :timestamp WHERE lock_key = :lock_key AND instance_id = :instance_id",
-                        {
-                            "lock_key": self.lock_key,
-                            "instance_id": self.instance_id,
-                            "timestamp": time.time(),
-                            "expires_at": expires_at,
-                        },
-                    )
-                    if result > 0:
-                        return True
+                    query = "UPDATE scrape_locks SET expires_at = :expires_at, timestamp = :timestamp WHERE lock_key = :lock_key AND instance_id = :instance_id"
+                    params = {
+                        "lock_key": self.lock_key,
+                        "instance_id": self.instance_id,
+                        "timestamp": time.time(),
+                        "expires_at": expires_at,
+                    }
+
+                    if IS_POSTGRES:
+                        if await database.fetch_val(query + " RETURNING 1", params):
+                            return True
+                    else:
+                        result = await database.execute(query, params)
+                        if result > 0:
+                            return True
 
                     self.acquired = False
 
                 # Attempt to acquire the lock
                 result = await database.execute(
                     f"""
-                    INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                    INSERT {OR_IGNORE}
                     INTO scrape_locks (lock_key, instance_id, timestamp, expires_at)
                     VALUES (:lock_key, :instance_id, :timestamp, :expires_at)
-                    {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+                    {ON_CONFLICT_DO_NOTHING}
                     """,
                     {
                         "lock_key": self.lock_key,
@@ -63,7 +69,7 @@ class DistributedLock:
                 )
 
                 # Check if we successfully acquired the lock
-                if settings.DATABASE_TYPE == "sqlite":
+                if IS_SQLITE:
                     success = result > 0
                 else:
                     # For PostgreSQL, check if our instance owns the lock

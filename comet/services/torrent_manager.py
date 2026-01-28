@@ -17,6 +17,7 @@ from torf import Magnet
 from comet.cometnet import get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
+from comet.core.database import IS_POSTGRES, IS_SQLITE, JSON_FUNC
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.utils.formatting import normalize_info_hash
@@ -144,9 +145,13 @@ async def broadcast_torrents(torrents_params: list[dict]):
             if not (isinstance(imdb_id, str) and imdb_id.startswith("tt")):
                 imdb_id = None
 
+            info_hash = params.get("info_hash")
+            if not info_hash or len(info_hash) != 40:
+                continue
+
             clean_torrents.append(
                 {
-                    "info_hash": params["info_hash"],
+                    "info_hash": info_hash,
                     "title": params["title"],
                     "size": params["size"],
                     "tracker": params["tracker"],
@@ -195,9 +200,7 @@ class TorrentBroadcastQueue:
                 torrents = await self.queue.get()
 
                 if torrents:
-                    tasks = [backend.broadcast_torrent(t) for t in torrents]
-                    if tasks:
-                        await asyncio.gather(*tasks)
+                    await backend.broadcast_torrents(torrents)
 
                     logger.log(
                         "COMETNET",
@@ -223,6 +226,45 @@ class TorrentBroadcastQueue:
 
 
 torrent_broadcast_queue = TorrentBroadcastQueue()
+
+
+async def check_torrent_exists(info_hash: str) -> bool:
+    try:
+        query = "SELECT 1 FROM torrents WHERE info_hash = :info_hash LIMIT 1"
+        result = await database.fetch_val(query, {"info_hash": info_hash})
+        return bool(result)
+    except Exception as e:
+        logger.warning(f"Error checking torrent existence for {info_hash}: {e}")
+        return False
+
+
+async def check_torrents_exist(info_hashes: list[str]) -> set[str]:
+    """
+    Check existence of multiple torrents in a single query using JSON array expansion.
+    Returns a set of info_hashes that exist in the database.
+    """
+    if not info_hashes:
+        return set()
+
+    # Deduplicate
+    unique_hashes = list(set(info_hashes))
+
+    try:
+        query = f"""
+            SELECT info_hash FROM torrents 
+            WHERE info_hash IN (
+                SELECT CAST(value as TEXT) 
+                FROM {JSON_FUNC}(:info_hashes)
+            )
+        """
+
+        params = {"info_hashes": orjson.dumps(unique_hashes).decode("utf-8")}
+        rows = await database.fetch_all(query, params)
+
+        return {row["info_hash"] for row in rows}
+    except Exception as e:
+        logger.warning(f"Error checking batch torrent persistence: {e}")
+        return set()
 
 
 async def add_torrent(
@@ -386,7 +428,6 @@ class TorrentUpdateQueue:
         "_event",
         "upserts",
         "_is_postgresql",
-        "_grouped_upserts",
     )
 
     def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
@@ -397,8 +438,7 @@ class TorrentUpdateQueue:
         self._lock = asyncio.Lock()
         self._event = asyncio.Event()
         self.upserts = {}
-        self._is_postgresql = settings.DATABASE_TYPE == "postgresql"
-        self._grouped_upserts = defaultdict(list)
+        self._is_postgresql = IS_POSTGRES
 
     async def add_torrent_info(
         self, file_info: dict, media_id: str = None, from_cometnet: bool = False
@@ -494,7 +534,7 @@ class TorrentUpdateQueue:
         self.upserts = {}
 
         try:
-            grouped = self._grouped_upserts
+            grouped = defaultdict(list)
             for params in upserts_to_flush.values():
                 key = _determine_conflict_key(params["season"], params["episode"])
                 grouped[key].append(params)
@@ -526,8 +566,6 @@ class TorrentUpdateQueue:
 
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
-        finally:
-            grouped.clear()
 
     def _process_file_info(
         self, file_info: dict, media_id: str = None, current_time: float = None
@@ -648,7 +686,9 @@ POSTGRES_CONFLICT_TARGETS = {
 _POSTGRES_UPSERT_CACHE: dict[str, str] = {}
 
 
-def _determine_conflict_key(season, episode):
+def _determine_conflict_key(season: int | None, episode: int | None):
+    if IS_SQLITE:
+        return "sqlite"
     if season is not None:
         return "series" if episode is not None else "season_only"
     return "episode_only" if episode is not None else "none"
@@ -744,7 +784,7 @@ async def _execute_batched_upsert(query: str, rows):
     if not rows:
         return
 
-    if settings.DATABASE_TYPE == "sqlite":
+    if IS_SQLITE:
         await _execute_sqlite_batched_upsert(rows)
         return
 
@@ -783,7 +823,7 @@ async def _execute_batched_upsert(query: str, rows):
 
 
 def _get_torrent_upsert_query(conflict_key: str):
-    if settings.DATABASE_TYPE == "sqlite":
+    if IS_SQLITE:
         return SQLITE_UPSERT_QUERY
 
     target = POSTGRES_CONFLICT_TARGETS[conflict_key]
@@ -795,7 +835,7 @@ def _get_torrent_upsert_query(conflict_key: str):
 
 
 async def _upsert_torrent_record(params: dict):
-    if settings.DATABASE_TYPE == "sqlite":
+    if IS_SQLITE:
         await _execute_sqlite_batched_upsert([params])
         return
 

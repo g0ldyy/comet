@@ -102,10 +102,15 @@ class PeerConnection:
         """Update the last activity timestamp."""
         self.last_activity = time.time()
 
-    async def send(self, message: AnyMessage) -> bool:
+    async def send(self, message: AnyMessage | bytes) -> bool:
         """Send a message to this peer. Returns True on success."""
         try:
-            await self.websocket.send(message.to_bytes())
+            if isinstance(message, bytes):
+                data = message
+            else:
+                data = message.to_bytes()
+
+            await self.websocket.send(data)
             self.update_activity()
             return True
         except ConnectionClosed:
@@ -398,12 +403,11 @@ class ConnectionManager:
             await self._server.wait_closed()
 
         # Cancel background tasks
-        for task in self._tasks:
+        tasks = list(self._tasks)
+        for task in tasks:
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
 
         # Close all connections

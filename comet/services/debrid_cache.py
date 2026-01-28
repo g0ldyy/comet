@@ -2,6 +2,7 @@ import time
 
 import orjson
 
+from comet.core.database import IS_SQLITE, JSON_FUNC
 from comet.core.models import database, settings
 from comet.utils.parsing import default_dump
 
@@ -46,7 +47,7 @@ async def cache_availability(debrid_service: str, availability: list):
         for file in availability
     ]
 
-    if settings.DATABASE_TYPE == "sqlite":
+    if IS_SQLITE:
         query = """
             INSERT OR REPLACE
             INTO debrid_availability
@@ -117,14 +118,14 @@ async def get_cached_availability(
     debrid_service: str, info_hashes: list, season: int = None, episode: int = None
 ):
     select_clause = "SELECT info_hash, file_index, title, size, parsed"
-    if debrid_service == "torrent" and settings.DATABASE_TYPE == "postgresql":
+    if debrid_service == "torrent" and not IS_SQLITE:
         select_clause = (
             "SELECT DISTINCT ON (info_hash) info_hash, file_index, title, size, parsed"
         )
 
     base_from_where = f"""
         FROM debrid_availability
-        WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {"json_array_elements_text" if settings.DATABASE_TYPE == "postgresql" else "json_each"}(:info_hashes))
+        WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {JSON_FUNC}(:info_hashes))
         AND timestamp + :cache_ttl >= :current_time
     """
 
@@ -141,7 +142,7 @@ async def get_cached_availability(
         params["debrid_service"] = debrid_service
 
     group_by_clause = ""
-    if debrid_service == "torrent" and settings.DATABASE_TYPE == "sqlite":
+    if debrid_service == "torrent" and IS_SQLITE:
         group_by_clause = " GROUP BY info_hash"
 
     if debrid_service == "offcloud":

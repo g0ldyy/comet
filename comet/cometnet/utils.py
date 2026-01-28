@@ -55,7 +55,8 @@ def canonicalize_data(data: Any) -> Any:
         return {k: canonicalize_data(v) for k, v in sorted(data.items())}
     elif isinstance(data, list):
         return [canonicalize_data(i) for i in data]
-    return data
+    else:
+        return data
 
 
 # --- Network Utilities ---

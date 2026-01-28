@@ -7,7 +7,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
 from comet.core.config_validation import config_check
-from comet.core.models import database, settings
+from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.models import settings
 from comet.debrid.manager import get_debrid
 from comet.metadata.manager import MetadataScraper
 from comet.services.streaming.manager import custom_handle_stream_request
@@ -89,9 +90,8 @@ async def playback(
         should_proxy = (
             settings.PROXY_DEBRID_STREAM
             and settings.PROXY_DEBRID_STREAM_PASSWORD
-            == config["debridStreamProxyPassword"]
+            == config.get("debridStreamProxyPassword")
         )
-
         if download_url is None:
             # Retrieve torrent sources from database for private trackers
             torrent_data = await database.fetch_one(
@@ -151,10 +151,10 @@ async def playback(
 
             await database.execute(
                 f"""
-                    INSERT {"OR IGNORE " if settings.DATABASE_TYPE == "sqlite" else ""}
+                    INSERT {OR_IGNORE}
                     INTO download_links_cache
                     VALUES (:debrid_key, :info_hash, :season, :episode, :download_url, :timestamp)
-                    {" ON CONFLICT DO NOTHING" if settings.DATABASE_TYPE == "postgresql" else ""}
+                    {ON_CONFLICT_DO_NOTHING}
                 """,
                 {
                     "debrid_key": debrid_api_key,

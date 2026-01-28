@@ -87,6 +87,9 @@ class CometNetService(CometNetBackend):
 
         # Callback for saving torrents to database
         self._save_torrent_callback = None
+        # Callback for checking if torrent exists
+        self._check_torrent_exists_callback = None
+        self._check_torrents_exist_callback = None
 
         # Running state
         self._running = False
@@ -106,6 +109,24 @@ class CometNetService(CometNetBackend):
         and saves it to the database.
         """
         self._save_torrent_callback = callback
+
+    def set_check_torrent_exists_callback(self, callback) -> None:
+        """
+        Set the callback for checking if a torrent exists locally.
+
+        The callback should be an async function that takes an info_hash (str)
+        and returns a boolean.
+        """
+        self._check_torrent_exists_callback = callback
+
+    def set_check_torrents_exist_callback(self, callback) -> None:
+        """
+        Set the callback for checking if multiple torrents exist locally.
+
+        The callback should be an async function that takes a list of info_hashes
+        and returns a set of existing info_hashes.
+        """
+        self._check_torrents_exist_callback = callback
 
     async def start(self) -> None:
         """Start the CometNet service."""
@@ -721,6 +742,7 @@ class CometNetService(CometNetBackend):
             broadcast=self._broadcast_gossip,
             save_torrent=self._handle_received_torrent,
             disconnect_peer=self.transport.disconnect_peer,
+            check_torrents_exist=self._handle_check_torrents_exist,
         )
 
         # Transport message handlers
@@ -758,6 +780,28 @@ class CometNetService(CometNetBackend):
     ) -> None:
         """Broadcast a gossip message to all peers."""
         await self.transport.broadcast(message, exclude)
+
+    async def _handle_check_torrents_exist(self, info_hashes: List[str]) -> Set[str]:
+        """Check if torrents exist locally."""
+        # Prefer batch callback
+        if self._check_torrents_exist_callback:
+            try:
+                return await self._check_torrents_exist_callback(info_hashes)
+            except Exception:
+                return set()
+
+        # Fallback to legacy single callback loop if batch not set
+        if self._check_torrent_exists_callback:
+            existing = set()
+            for ih in info_hashes:
+                try:
+                    if await self._check_torrent_exists_callback(ih):
+                        existing.add(ih)
+                except Exception:
+                    pass
+            return existing
+
+        return set()
 
     async def _handle_received_torrent(self, metadata: TorrentMetadata) -> None:
         """Handle a torrent received from the network."""
@@ -1242,6 +1286,42 @@ class CometNetService(CometNetBackend):
         msg.signature = await self.identity.sign_hex_async(msg.to_signable_bytes())
         await self.transport.broadcast(msg, exclude)
 
+    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+        """
+        Broadcast multiple torrents to the network.
+        Accepts both TorrentMetadata objects and dicts.
+        """
+        if not self._running or not self.gossip:
+            return
+
+        valid_torrents = []
+        for metadata in metadata_list:
+            # Convert dict to TorrentMetadata if needed
+            if isinstance(metadata, dict):
+                try:
+                    metadata = TorrentMetadata(
+                        info_hash=metadata.get("info_hash", "").lower(),
+                        title=metadata.get("title", ""),
+                        size=int(metadata.get("size") or 0),
+                        tracker=metadata.get("tracker", ""),
+                        imdb_id=metadata.get("imdb_id"),
+                        file_index=metadata.get("file_index"),
+                        seeders=metadata.get("seeders"),
+                        season=metadata.get("season"),
+                        episode=metadata.get("episode"),
+                        sources=metadata.get("sources") or [],
+                        parsed=metadata.get("parsed"),
+                        updated_at=metadata.get("updated_at", time.time()),
+                    )
+                except Exception:
+                    continue
+
+            if isinstance(metadata, TorrentMetadata):
+                valid_torrents.append(metadata)
+
+        if valid_torrents:
+            await self.gossip.queue_torrents(valid_torrents)
+
     async def broadcast_torrent(self, metadata) -> None:
         """
         Broadcast a torrent to the network.
@@ -1250,32 +1330,7 @@ class CometNetService(CometNetBackend):
         Should be called when a scraper discovers a new torrent.
         Accepts both TorrentMetadata objects and dicts.
         """
-        if not self._running or not self.gossip:
-            return
-
-        # Convert dict to TorrentMetadata if needed
-        if isinstance(metadata, dict):
-            metadata = TorrentMetadata(
-                info_hash=metadata.get("info_hash", "").lower(),
-                title=metadata.get("title", ""),
-                size=int(metadata.get("size") or 0),
-                tracker=metadata.get("tracker", ""),
-                imdb_id=metadata.get("imdb_id"),
-                file_index=metadata.get("file_index"),
-                seeders=metadata.get("seeders"),
-                season=metadata.get("season"),
-                episode=metadata.get("episode"),
-                sources=metadata.get("sources") or [],
-                parsed=metadata.get("parsed"),
-                updated_at=metadata.get("updated_at", time.time()),
-            )
-        elif not isinstance(metadata, TorrentMetadata):
-            logger.warning(
-                f"Invalid metadata type passed to broadcast_torrent: {type(metadata)}"
-            )
-            return
-
-        await self.gossip.queue_torrent(metadata)
+        await self.broadcast_torrents([metadata])
 
     async def handle_websocket_connection(self, websocket, path: str = "") -> None:
         """
