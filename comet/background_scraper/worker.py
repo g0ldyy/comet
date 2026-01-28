@@ -8,9 +8,13 @@ from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.metadata.manager import MetadataScraper
+from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 
 from .cinemata_client import CinemataClient
+
+LOCK_KEY = "background_scraper_lock"
+LOCK_TTL = 60
 
 
 @dataclass
@@ -45,10 +49,6 @@ class BackgroundScraperWorker:
         logger.log("BACKGROUND_SCRAPER", "Stopping background scraper")
         self.is_running = False
 
-        await database.execute(
-            "UPDATE background_scraper_progress SET is_running = FALSE, current_phase = 'stopped' WHERE id = 1"
-        )
-
         if self.current_session:
             await self.current_session.close()
 
@@ -59,7 +59,17 @@ class BackgroundScraperWorker:
 
         while self.is_running:
             try:
-                await self._run_scraping_cycle()
+                lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
+                if await lock.acquire(wait_timeout=None):
+                    try:
+                        await self._run_scraping_cycle(lock)
+                    finally:
+                        await lock.release()
+                else:
+                    logger.log(
+                        "BACKGROUND_SCRAPER",
+                        "Another instance is running. Skipping.",
+                    )
 
                 if self.is_running:
                     logger.log(
@@ -67,50 +77,11 @@ class BackgroundScraperWorker:
                         f"Waiting {interval_seconds}s until next run",
                     )
                     await asyncio.sleep(interval_seconds)
-
             except Exception as e:
                 logger.error(f"Error in background scraper cycle: {e}")
                 await asyncio.sleep(300)
 
-    async def _run_scraping_cycle(self):
-        # Clean up potentially stale state from previous crashes
-        current_time = time.time()
-        progress_row = await database.fetch_one(
-            "SELECT current_run_started_at, is_running FROM background_scraper_progress WHERE id = 1"
-        )
-
-        if progress_row and progress_row["is_running"]:
-            # If the last run started more than 6 hours ago, consider it crashed
-            time_since_start = current_time - (
-                progress_row["current_run_started_at"] or 0
-            )
-            if time_since_start > 21600:  # 6 hours
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    f"⚠️ Cleaning up stale state from previous run ({time_since_start / 3600:.1f}h ago)",
-                )
-                await database.execute(
-                    "UPDATE background_scraper_progress SET is_running = FALSE WHERE id = 1"
-                )
-            else:
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    "Another scraper instance is already running, skipping",
-                )
-                return
-
-        await database.execute(
-            """
-            INSERT INTO background_scraper_progress (id, current_run_started_at, is_running, current_phase)
-            VALUES (1, :start_time, TRUE, 'starting')
-            ON CONFLICT (id) DO UPDATE SET
-                current_run_started_at = :start_time,
-                is_running = TRUE,
-                current_phase = 'starting'
-            """,
-            {"start_time": time.time()},
-        )
-
+    async def _run_scraping_cycle(self, lock: DistributedLock):
         self.stats = ScrapingStats()
         self.stats.start_time = time.time()
 
@@ -127,22 +98,11 @@ class BackgroundScraperWorker:
             )
 
             await self._scrape_media_type(
-                "movie", settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN
+                "movie", settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN, lock
             )
 
             await self._scrape_media_type(
-                "series", settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN
-            )
-
-            await database.execute(
-                """
-                UPDATE background_scraper_progress 
-                SET last_completed_run_at = :end_time,
-                    is_running = FALSE,
-                    current_phase = 'completed'
-                WHERE id = 1
-                """,
-                {"end_time": time.time()},
+                "series", settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN, lock
             )
 
             logger.log(
@@ -155,15 +115,14 @@ class BackgroundScraperWorker:
 
         except Exception as e:
             logger.error(f"Error in scraping cycle: {e}")
-            await database.execute(
-                "UPDATE background_scraper_progress SET is_running = FALSE, current_phase = 'error' WHERE id = 1"
-            )
         finally:
             if self.current_session:
                 await self.current_session.close()
                 self.current_session = None
 
-    async def _scrape_media_type(self, media_type: str, max_items: int):
+    async def _scrape_media_type(
+        self, media_type: str, max_items: int, lock: DistributedLock
+    ):
         if max_items <= 0:
             logger.log(
                 "BACKGROUND_SCRAPER",
@@ -175,10 +134,6 @@ class BackgroundScraperWorker:
             "BACKGROUND_SCRAPER", f"Starting {media_type} scraping (max: {max_items})"
         )
 
-        await database.execute(
-            f"UPDATE background_scraper_progress SET current_phase = 'scraping_{media_type}' WHERE id = 1"
-        )
-
         async with CinemataClient() as cinemata_client:
             processed_count = 0
             tasks = []
@@ -187,6 +142,13 @@ class BackgroundScraperWorker:
 
             async for media_item in media_generator:
                 if not self.is_running or processed_count >= max_items:
+                    break
+
+                if not await lock.acquire():
+                    logger.log(
+                        "BACKGROUND_SCRAPER",
+                        "Lost lock during scraping cycle, stopping.",
+                    )
                     break
 
                 if await self._should_skip_media(media_item["imdb_id"]):
@@ -205,17 +167,6 @@ class BackgroundScraperWorker:
 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
-
-        if media_type == "movie":
-            await database.execute(
-                "UPDATE background_scraper_progress SET total_movies_processed = total_movies_processed + :count WHERE id = 1",
-                {"count": processed_count},
-            )
-        else:
-            await database.execute(
-                "UPDATE background_scraper_progress SET total_series_processed = total_series_processed + :count WHERE id = 1",
-                {"count": processed_count},
-            )
 
         logger.log(
             "BACKGROUND_SCRAPER",

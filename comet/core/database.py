@@ -311,20 +311,6 @@ async def setup_database():
 
         await database.execute(
             """
-                CREATE TABLE IF NOT EXISTS background_scraper_progress (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    current_run_started_at INTEGER,
-                    last_completed_run_at INTEGER,
-                    is_running BOOLEAN DEFAULT FALSE,
-                    current_phase TEXT,
-                    total_movies_processed INTEGER,
-                    total_series_processed INTEGER
-                )
-            """
-        )
-
-        await database.execute(
-            """
                 CREATE TABLE IF NOT EXISTS background_scraper_state (
                     media_id TEXT PRIMARY KEY,
                     media_type TEXT,
