@@ -45,6 +45,7 @@ class UpdateManager:
 
         docker_commit = os.getenv("COMET_COMMIT_HASH")
         docker_date = os.getenv("COMET_BUILD_DATE")
+        docker_branch = os.getenv("COMET_BRANCH", "main")
 
         if docker_commit:
             cls._version_info = VersionInfo(
@@ -52,6 +53,7 @@ class UpdateManager:
                 if len(docker_commit) > 7
                 else docker_commit,
                 build_date=docker_date,
+                branch=docker_branch,
                 is_docker=True,
             )
             return cls._version_info

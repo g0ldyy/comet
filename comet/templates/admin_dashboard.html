@@ -1262,7 +1262,6 @@
                   <h3><sl-icon name="shield-lock"></sl-icon> Trust Pools</h3>
 
                   <div class="pools-container">
-                    <!-- Left Sidebar -->
                     <div class="pools-sidebar">
                       <sl-input
                         id="pool-search"
@@ -1361,7 +1360,6 @@
                       </div>
                     </div>
 
-                    <!-- Right Content -->
                     <div class="pools-content" id="pools-list">
                       <div class="loading-state">
                         <sl-spinner></sl-spinner>
@@ -1580,80 +1578,176 @@
                   <h3>
                     <sl-icon name="info-circle"></sl-icon> Version Information
                   </h3>
-                  <div class="metric-content">
+                  <div style="display: flex; flex-direction: column; gap: 10px">
                     <div
-                      style="display: flex; flex-direction: column; gap: 15px"
+                      style="
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 12px 14px;
+                        background: linear-gradient(
+                          135deg,
+                          rgba(16, 185, 129, 0.15),
+                          rgba(5, 150, 105, 0.08)
+                        );
+                        border: 1px solid rgba(16, 185, 129, 0.3);
+                        border-radius: 10px;
+                      "
                     >
-                      <div
+                      <span
                         style="
+                          color: #6ee7b7;
+                          font-weight: 500;
                           display: flex;
-                          justify-content: space-between;
                           align-items: center;
-                          padding: 10px;
-                          background: rgba(255, 255, 255, 0.05);
-                          border-radius: 8px;
+                          gap: 6px;
                         "
                       >
-                        <span style="color: #ccc; font-weight: 500"
-                          >Commit Hash</span
-                        >
-                        <span>
-                          {% if version_info.commit_hash %}
-                          <a
-                            href="https://github.com/g0ldyy/comet/commit/{{ version_info.commit_hash }}"
-                            target="_blank"
-                            style="
-                              text-decoration: none;
-                              color: var(--sl-color-primary-400);
-                              font-family: monospace;
-                            "
-                          >
-                            <sl-icon
-                              name="git"
-                              style="vertical-align: middle; margin-right: 4px"
-                            ></sl-icon
-                            >{{ version_info.commit_hash[:7] }}
-                          </a>
-                          {% else %}
-                          <span style="color: var(--sl-color-neutral-500)"
-                            >Unknown</span
-                          >
-                          {% endif %}
-                        </span>
-                      </div>
+                        <sl-icon
+                          name="signpost-split"
+                          style="font-size: 1rem"
+                        ></sl-icon>
+                        Branch
+                      </span>
+                      <span
+                        style="
+                          background: linear-gradient(135deg, #10b981, #059669);
+                          color: white;
+                          padding: 4px 12px;
+                          border-radius: 14px;
+                          font-size: 0.8rem;
+                          font-weight: 600;
+                          font-family: monospace;
+                          letter-spacing: 0.3px;
+                          box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+                        "
+                        >{{ version_info.branch }}</span
+                      >
+                    </div>
 
-                      {% if version_info.build_date %}
-                      <div
+                    <div
+                      style="
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 12px 14px;
+                        background: linear-gradient(
+                          135deg,
+                          rgba(139, 92, 246, 0.15),
+                          rgba(109, 40, 217, 0.08)
+                        );
+                        border: 1px solid rgba(139, 92, 246, 0.3);
+                        border-radius: 10px;
+                      "
+                    >
+                      <span
                         style="
+                          color: #c4b5fd;
+                          font-weight: 500;
                           display: flex;
-                          justify-content: space-between;
                           align-items: center;
-                          padding: 10px;
-                          background: rgba(255, 255, 255, 0.05);
-                          border-radius: 8px;
+                          gap: 6px;
                         "
                       >
-                        <span style="color: #ccc; font-weight: 500"
-                          >Build Date</span
-                        >
-                        <span style="color: #ccc; font-family: monospace"
-                          >{{ version_info.build_date.split('T')[0] }}</span
-                        >
-                      </div>
+                        <sl-icon name="git" style="font-size: 1rem"></sl-icon>
+                        Commit
+                      </span>
+                      {% if version_info.commit_hash %}
+                      <a
+                        href="https://github.com/g0ldyy/comet/commit/{{ version_info.commit_hash }}"
+                        target="_blank"
+                        style="
+                          background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+                          color: white;
+                          padding: 4px 12px;
+                          border-radius: 14px;
+                          font-size: 0.8rem;
+                          font-weight: 600;
+                          font-family: monospace;
+                          letter-spacing: 0.5px;
+                          text-decoration: none;
+                          box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+                          transition:
+                            transform 0.15s ease,
+                            box-shadow 0.15s ease;
+                        "
+                        onmouseover="
+                          this.style.transform = 'scale(1.05)';
+                          this.style.boxShadow =
+                            '0 4px 12px rgba(139, 92, 246, 0.5)';
+                        "
+                        onmouseout="
+                          this.style.transform = 'scale(1)';
+                          this.style.boxShadow =
+                            '0 2px 8px rgba(139, 92, 246, 0.3)';
+                        "
+                        >{{ version_info.commit_hash[:7] }}</a
+                      >
+                      {% else %}
+                      <span
+                        style="
+                          color: var(--sl-color-neutral-500);
+                          font-style: italic;
+                        "
+                        >Unknown</span
+                      >
                       {% endif %}
+                    </div>
 
-                      <sl-divider></sl-divider>
+                    {% if version_info.build_date %}
+                    <div
+                      style="
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 12px 14px;
+                        background: linear-gradient(
+                          135deg,
+                          rgba(245, 158, 11, 0.12),
+                          rgba(217, 119, 6, 0.06)
+                        );
+                        border: 1px solid rgba(245, 158, 11, 0.25);
+                        border-radius: 10px;
+                      "
+                    >
+                      <span
+                        style="
+                          color: #fcd34d;
+                          font-weight: 500;
+                          display: flex;
+                          align-items: center;
+                          gap: 6px;
+                        "
+                      >
+                        <sl-icon
+                          name="calendar3"
+                          style="font-size: 1rem"
+                        ></sl-icon>
+                        Build Date
+                      </span>
+                      <span
+                        style="
+                          color: #fbbf24;
+                          font-family: monospace;
+                          font-weight: 500;
+                          font-size: 0.85rem;
+                        "
+                        >{{ version_info.build_date.split('T')[0] }}</span
+                      >
+                    </div>
+                    {% endif %}
 
-                      <div id="system-update-status">
-                        <div
-                          style="
-                            text-align: center;
-                            color: var(--sl-color-neutral-500);
-                            padding: 20px;
-                          "
-                        >
-                          <sl-spinner></sl-spinner> Checking for updates...
-                        </div>
+                    <sl-divider></sl-divider>
+
+                    <div id="system-update-status">
+                      <div
+                        style="
+                          text-align: center;
+                          color: var(--sl-color-neutral-500);
+                          padding: 20px;
+                        "
+                      >
+                        <sl-spinner></sl-spinner> Checking for updates...
                       </div>
                     </div>
                   </div>
