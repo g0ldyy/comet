@@ -11,7 +11,7 @@ services:
     env_file:
       - .env
     volumes:
-      - comet_data:/data
+      - comet_data:/app/data
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health"]
       interval: 5s
