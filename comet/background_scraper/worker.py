@@ -120,6 +120,21 @@ class BackgroundScraperWorker:
                 await self.current_session.close()
                 self.current_session = None
 
+    async def _gather_with_lock_refresh(self, tasks, lock: DistributedLock) -> bool:
+        pending = set(tasks)
+        while pending:
+            done, pending = await asyncio.wait(pending, timeout=LOCK_TTL / 2)
+            if not await lock.acquire():
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                logger.log(
+                    "BACKGROUND_SCRAPER",
+                    "Lost lock while awaiting tasks; cancelled pending work.",
+                )
+                return False
+        return True
+
     async def _scrape_media_type(
         self, media_type: str, max_items: int, lock: DistributedLock
     ):
@@ -144,21 +159,6 @@ class BackgroundScraperWorker:
                 if not self.is_running or processed_count >= max_items:
                     break
 
-                if not await lock.acquire():
-                    logger.log(
-                        "BACKGROUND_SCRAPER",
-                        "Lost lock during scraping cycle, stopping.",
-                    )
-                    for task in tasks:
-                        task.cancel()
-                    if tasks:
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                    logger.log(
-                        "BACKGROUND_SCRAPER",
-                        f"Cancelled and drained {len(tasks)} in-flight tasks after lock loss.",
-                    )
-                    return
-
                 if await self._should_skip_media(media_item["imdb_id"]):
                     continue
 
@@ -170,11 +170,12 @@ class BackgroundScraperWorker:
                 processed_count += 1
 
                 if len(tasks) >= settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS * 2:
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                    if not await self._gather_with_lock_refresh(tasks, lock):
+                        return
                     tasks.clear()
 
             if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+                await self._gather_with_lock_refresh(tasks, lock)
 
         logger.log(
             "BACKGROUND_SCRAPER",
