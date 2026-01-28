@@ -99,13 +99,15 @@ class BackgroundScraperWorker:
                 f"Starting scraping cycle with {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} concurrent workers",
             )
 
-            await self._scrape_media_type(
+            if not await self._scrape_media_type(
                 "movie", settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN, lock
-            )
+            ):
+                return
 
-            await self._scrape_media_type(
+            if not await self._scrape_media_type(
                 "series", settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN, lock
-            )
+            ):
+                return
 
             logger.log(
                 "BACKGROUND_SCRAPER",
@@ -159,13 +161,13 @@ class BackgroundScraperWorker:
 
     async def _scrape_media_type(
         self, media_type: str, max_items: int, lock: DistributedLock
-    ):
+    ) -> bool:
         if max_items <= 0:
             logger.log(
                 "BACKGROUND_SCRAPER",
                 f"Skipping {media_type} scraping (max_items={max_items})",
             )
-            return
+            return True
 
         logger.log(
             "BACKGROUND_SCRAPER", f"Starting {media_type} scraping (max: {max_items})"
@@ -193,17 +195,18 @@ class BackgroundScraperWorker:
 
                 if len(tasks) >= settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS * 2:
                     if not await self._gather_with_lock_refresh(tasks, lock):
-                        return
+                        return False
                     tasks.clear()
 
             if tasks:
                 if not await self._gather_with_lock_refresh(tasks, lock):
-                    return
+                    return False
 
         logger.log(
             "BACKGROUND_SCRAPER",
             f"Completed {media_type} scraping. Processed: {processed_count} unique items",
         )
+        return True
 
     async def _should_skip_media(self, media_id: str):
         """Check if media should be skipped (recently scraped or too many failures)."""
