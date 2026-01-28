@@ -9,7 +9,6 @@ from loguru import logger
 
 GITHUB_API_TIMEOUT = 10
 GITHUB_REPO = "g0ldyy/comet"
-UPDATE_CHECK_INTERVAL = 3600
 
 
 @dataclass
@@ -33,7 +32,6 @@ class UpdateManager:
     _instance = None
     _version_info: Optional[VersionInfo] = None
     _update_status: Optional[UpdateStatus] = None
-    _last_check: float = 0
 
     def __new__(cls):
         if cls._instance is None:
@@ -113,15 +111,6 @@ class UpdateManager:
 
     @classmethod
     async def check_for_updates(cls) -> UpdateStatus:
-        current_time = datetime.now().timestamp()
-
-        if (
-            cls._update_status
-            and not cls._update_status.error
-            and (current_time - cls._last_check) < UPDATE_CHECK_INTERVAL
-        ):
-            return cls._update_status
-
         current_info = cls.get_version_info()
         branch = current_info.branch
 
@@ -166,7 +155,6 @@ class UpdateManager:
                 checked_at=datetime.now(),
             )
 
-        cls._last_check = current_time
         return cls._update_status
 
     @staticmethod
