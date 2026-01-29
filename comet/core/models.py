@@ -166,6 +166,9 @@ class AppSettings(BaseSettings):
     COMETNET_KEY_PASSWORD: Optional[str] = None
     COMETNET_ALLOW_PRIVATE_PEX: Optional[bool] = False
     COMETNET_SKIP_REACHABILITY_CHECK: Optional[bool] = False
+    COMETNET_SKIP_TIME_CHECK: Optional[bool] = False
+    COMETNET_TIME_CHECK_TOLERANCE: Optional[int] = 60
+    COMETNET_TIME_CHECK_TIMEOUT: Optional[int] = 5
     COMETNET_REACHABILITY_RETRIES: Optional[int] = 5
     COMETNET_REACHABILITY_RETRY_DELAY: Optional[int] = 10
     COMETNET_REACHABILITY_TIMEOUT: Optional[int] = 10

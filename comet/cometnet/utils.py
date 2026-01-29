@@ -6,14 +6,17 @@ and asynchronous execution.
 """
 
 import asyncio
+import email.utils
 import ipaddress
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from functools import partial
-from typing import Any, Callable, Optional, Tuple, TypeVar
+from typing import Any, Callable, List, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
 
+import aiohttp
 import websockets
 from websockets.exceptions import InvalidHandshake, InvalidStatusCode
 
@@ -288,3 +291,60 @@ async def check_advertise_url_reachability(
         return False, f"Connection failed: {e}"
     except Exception as e:
         return False, f"WebSocket error: {e}"
+
+
+async def check_system_clock_sync(
+    tolerance: float = 60.0,
+    timeout: float = 5.0,
+    endpoints: Optional[List[str]] = None,
+) -> Tuple[bool, str, float]:
+    """
+    Check if system clock is synchronized with external sources.
+    Iterates through endpoints until a successful check is performed.
+    Returns (is_synced, message, offset).
+    """
+    if not endpoints:
+        endpoints = [
+            "https://www.google.com",
+            "https://1.1.1.1",
+            "https://www.microsoft.com",
+            "https://www.apple.com",
+        ]
+
+    client_timeout = aiohttp.ClientTimeout(total=timeout)
+    errors = []
+
+    async with aiohttp.ClientSession(timeout=client_timeout) as session:
+        for url in endpoints:
+            try:
+                async with session.head(url) as resp:
+                    if "Date" not in resp.headers:
+                        errors.append(f"{url}: No Date header")
+                        continue
+
+                    server_date_str = resp.headers["Date"]
+                    server_time = email.utils.parsedate_to_datetime(server_date_str)
+                    local_time = datetime.now(timezone.utc)
+
+                    diff = (local_time - server_time).total_seconds()
+                    abs_diff = abs(diff)
+
+                    if abs_diff > tolerance:
+                        return (
+                            False,
+                            f"System clock offset {diff:.2f}s > {tolerance}s tolerance (verified via {url})",
+                            diff,
+                        )
+
+                    return (
+                        True,
+                        f"Clock in sync (offset: {diff:.2f}s, verified via {url})",
+                        diff,
+                    )
+            except asyncio.TimeoutError:
+                errors.append(f"{url}: Timed out")
+            except Exception as e:
+                errors.append(f"{url}: {str(e)}")
+
+    error_msg = " | ".join(errors)
+    return False, f"All time check endpoints failed: {error_msg}", 0.0

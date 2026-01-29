@@ -100,7 +100,7 @@ services:
     container_name: cometnet
     image: g0ldyy/comet
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"   # P2P WebSocket
       # - "8766:8766" # HTTP API (optional, only if needed externally)
@@ -200,7 +200,7 @@ services:
 
   cometnet:
     image: g0ldyy/comet
-    command: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
     environment:

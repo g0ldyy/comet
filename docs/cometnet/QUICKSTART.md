@@ -136,7 +136,7 @@ services:
     image: g0ldyy/comet
     container_name: cometnet
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
     environment:
@@ -254,6 +254,13 @@ CometNet verifies your advertise URL is accessible before joining the network. I
    COMETNET_REACHABILITY_TIMEOUT=15  # Default: 10 seconds
    ```
 4. For local testing only: `COMETNET_SKIP_REACHABILITY_CHECK=True`
+
+### "System clock is not synchronized" on startup
+
+CometNet requires an accurate clock for security. If this check fails:
+1. Sync your clock: `sudo timedatectl set-ntp true`
+2. Or increase tolerance: `COMETNET_TIME_CHECK_TOLERANCE=120`
+3. Or skip (local only): `COMETNET_SKIP_TIME_CHECK=True`
 
 ### Using relay but getting errors
 
