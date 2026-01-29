@@ -136,7 +136,7 @@ services:
     image: g0ldyy/comet
     container_name: cometnet
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
     environment:
