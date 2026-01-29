@@ -234,6 +234,9 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE` | `60` | Seconds tolerance for future timestamps (clock drift). |
 | `COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE` | `300` | Seconds tolerance for past timestamps. |
 | `COMETNET_GOSSIP_TORRENT_MAX_AGE` | `604800` | Maximum age (7 days) for accepting torrent updates. |
+| `COMETNET_SKIP_TIME_CHECK` | `False` | Skip the system clock synchronization check on startup. |
+| `COMETNET_TIME_CHECK_TOLERANCE` | `60` | Maximum allowed clock drift in seconds. |
+| `COMETNET_TIME_CHECK_TIMEOUT` | `5` | Timeout for the time check request. |
 
 #### Peer Discovery
 
@@ -420,6 +423,17 @@ On startup, CometNet verifies that your `COMETNET_ADVERTISE_URL` is actually rea
 6. **Testing locally?** Set `COMETNET_SKIP_REACHABILITY_CHECK=True` to bypass this check.
 
 The check makes multiple attempts to connect to your WebSocket URL with configurable retries and delays to accommodate slow-starting reverse proxies like Traefik.
+
+### System Clock Not Synchronized
+
+CometNet requires an accurate system clock for cryptographic signature validation and SSL/TLS connections. If the startup check fails:
+
+1. **Check Drift**: The error message will show the current drift. If it's more than 60s, your clock is too far off.
+2. **Synchronize**:
+   - Linux: `sudo ntpdate pool.ntp.org` or `sudo timedatectl set-ntp true`
+   - Docker: Ensure your host machine's clock is synchronized.
+3. **Increase Tolerance**: If you cannot perfectly sync the clock, increase `COMETNET_TIME_CHECK_TOLERANCE` (e.g., to 120).
+4. **Bypass**: Set `COMETNET_SKIP_TIME_CHECK=True` (not recommended for production).
 
 ### No Peers Connecting
 

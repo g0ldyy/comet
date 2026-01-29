@@ -255,6 +255,13 @@ CometNet verifies your advertise URL is accessible before joining the network. I
    ```
 4. For local testing only: `COMETNET_SKIP_REACHABILITY_CHECK=True`
 
+### "System clock is not synchronized" on startup
+
+CometNet requires an accurate clock for security. If this check fails:
+1. Sync your clock: `sudo timedatectl set-ntp true`
+2. Or increase tolerance: `COMETNET_TIME_CHECK_TOLERANCE=120`
+3. Or skip (local only): `COMETNET_SKIP_TIME_CHECK=True`
+
 ### Using relay but getting errors
 
 Make sure:

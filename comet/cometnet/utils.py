@@ -6,14 +6,17 @@ and asynchronous execution.
 """
 
 import asyncio
+import email.utils
 import ipaddress
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Callable, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
 
+import aiohttp
 import websockets
 from websockets.exceptions import InvalidHandshake, InvalidStatusCode
 
@@ -288,3 +291,38 @@ async def check_advertise_url_reachability(
         return False, f"Connection failed: {e}"
     except Exception as e:
         return False, f"WebSocket error: {e}"
+
+
+async def check_system_clock_sync(
+    tolerance: float = 60.0, timeout: float = 5.0
+) -> Tuple[bool, str, float]:
+    """
+    Check if system clock is synchronized with a reliable external source (Google).
+    Returns (is_synced, message, offset).
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.head("https://www.google.com", timeout=timeout) as resp:
+                if "Date" not in resp.headers:
+                    return False, "No Date header in response", 0.0
+
+                server_date_str = resp.headers["Date"]
+                server_time = email.utils.parsedate_to_datetime(server_date_str)
+
+                local_time = datetime.now(timezone.utc)
+
+                diff = (local_time - server_time).total_seconds()
+                abs_diff = abs(diff)
+
+                if abs_diff > tolerance:
+                    return (
+                        False,
+                        f"System clock offset {diff:.2f}s > {tolerance}s tolerance",
+                        diff,
+                    )
+
+                return True, f"Clock in sync (offset: {diff:.2f}s)", diff
+    except asyncio.TimeoutError:
+        return False, f"Time check timed out after {timeout}s", 0.0
+    except Exception as e:
+        return False, f"Time check failed: {e}", 0.0

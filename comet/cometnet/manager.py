@@ -34,7 +34,7 @@ from comet.cometnet.protocol import (AnyMessage, MessageType, PeerRequest,
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.transport import ConnectionManager
 from comet.cometnet.utils import (check_advertise_url_reachability,
-                                  is_internal_domain,
+                                  check_system_clock_sync, is_internal_domain,
                                   is_private_or_internal_ip, run_in_executor,
                                   shutdown_crypto_executor)
 from comet.cometnet.validation import validate_message_security
@@ -173,6 +173,7 @@ class CometNetService(CometNetBackend):
             f" - Key Encrypted: {key_encrypted}"
             f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
             f" - Skip Reachability Check: {settings.COMETNET_SKIP_REACHABILITY_CHECK}"
+            f" - Skip Time Check: {settings.COMETNET_SKIP_TIME_CHECK} (Tolerance: {settings.COMETNET_TIME_CHECK_TOLERANCE}s)"
             f" - State Save Interval: {settings.COMETNET_STATE_SAVE_INTERVAL}s"
             f"{private_mode}",
         )
@@ -358,6 +359,31 @@ class CometNetService(CometNetBackend):
                     "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
                     f"{upnp_hint}"
                     "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
+                )
+                await logger.complete()
+                sys.exit(1)
+
+        # System Clock Sync Check
+        if not settings.COMETNET_SKIP_TIME_CHECK:
+            logger.log("COMETNET", "Verifying system clock synchronization...")
+            is_synced, msg, offset = await check_system_clock_sync(
+                tolerance=settings.COMETNET_TIME_CHECK_TOLERANCE,
+                timeout=settings.COMETNET_TIME_CHECK_TIMEOUT,
+            )
+
+            if is_synced:
+                logger.log("COMETNET", f"✓ System clock is synchronized ({msg})")
+            else:
+                logger.critical(
+                    f"\nCometNet failed to start: System clock is not synchronized.\n"
+                    f"Status: {msg}\n"
+                    f"Drift: {offset:.2f}s (Tolerance: {settings.COMETNET_TIME_CHECK_TOLERANCE}s)\n\n"
+                    "Accurate system time is critical for:\n"
+                    "1. Validating message signatures\n"
+                    "2. SSL/TLS connections\n"
+                    "3. Distributed consensus\n\n"
+                    "Please synchronize your clock (e.g. sudo ntpdate pool.ntp.org)\n"
+                    "To skip this check: COMETNET_SKIP_TIME_CHECK=true"
                 )
                 await logger.complete()
                 sys.exit(1)
