@@ -269,6 +269,36 @@ class CometNetService(CometNetBackend):
                 if changes:
                     await self.pool_store._save_memberships()
 
+        # System Clock Sync Check
+        if not settings.COMETNET_SKIP_TIME_CHECK:
+            logger.log("COMETNET", "Verifying system clock synchronization...")
+            is_synced, msg, offset = await check_system_clock_sync(
+                tolerance=settings.COMETNET_TIME_CHECK_TOLERANCE,
+                timeout=settings.COMETNET_TIME_CHECK_TIMEOUT,
+            )
+
+            if is_synced:
+                logger.log("COMETNET", f"✓ System clock is synchronized ({msg})")
+            else:
+                drift_info = (
+                    f"Drift: {offset:.2f}s (Tolerance: {settings.COMETNET_TIME_CHECK_TOLERANCE}s)\n"
+                    if abs(offset) > 0.001
+                    else ""
+                )
+                logger.critical(
+                    f"\nCometNet failed to start: System clock check failed.\n"
+                    f"Status: {msg}\n"
+                    f"{drift_info}\n"
+                    "Accurate system time is critical for:\n"
+                    "1. Validating message signatures\n"
+                    "2. SSL/TLS connections\n"
+                    "3. Distributed consensus\n\n"
+                    "Please synchronize your clock (e.g. sudo ntpdate pool.ntp.org)\n"
+                    "To skip this check: COMETNET_SKIP_TIME_CHECK=true"
+                )
+                await logger.complete()
+                sys.exit(1)
+
         # Start transport layer
         await self.transport.start()
 
@@ -294,9 +324,6 @@ class CometNetService(CometNetBackend):
                     logger.warning(
                         f"UPnP mapped to {external_ip} but COMETNET_ADVERTISE_URL is already set. Using configured URL.",
                     )
-
-        # Start discovery service
-        await self.discovery.start(self.identity.node_id, self.listen_port)
 
         # Custom check for unencrypted transport
         if self.advertise_url and self.advertise_url.startswith("ws://"):
@@ -363,31 +390,6 @@ class CometNetService(CometNetBackend):
                 await logger.complete()
                 sys.exit(1)
 
-        # System Clock Sync Check
-        if not settings.COMETNET_SKIP_TIME_CHECK:
-            logger.log("COMETNET", "Verifying system clock synchronization...")
-            is_synced, msg, offset = await check_system_clock_sync(
-                tolerance=settings.COMETNET_TIME_CHECK_TOLERANCE,
-                timeout=settings.COMETNET_TIME_CHECK_TIMEOUT,
-            )
-
-            if is_synced:
-                logger.log("COMETNET", f"✓ System clock is synchronized ({msg})")
-            else:
-                logger.critical(
-                    f"\nCometNet failed to start: System clock is not synchronized.\n"
-                    f"Status: {msg}\n"
-                    f"Drift: {offset:.2f}s (Tolerance: {settings.COMETNET_TIME_CHECK_TOLERANCE}s)\n\n"
-                    "Accurate system time is critical for:\n"
-                    "1. Validating message signatures\n"
-                    "2. SSL/TLS connections\n"
-                    "3. Distributed consensus\n\n"
-                    "Please synchronize your clock (e.g. sudo ntpdate pool.ntp.org)\n"
-                    "To skip this check: COMETNET_SKIP_TIME_CHECK=true"
-                )
-                await logger.complete()
-                sys.exit(1)
-
         # WebSocket reachability check
         # Verify we can connect to our own advertise URL (like a peer would)
         if self.advertise_url and not settings.COMETNET_SKIP_REACHABILITY_CHECK:
@@ -449,7 +451,8 @@ class CometNetService(CometNetBackend):
                 await logger.complete()
                 sys.exit(1)
 
-        # Start gossip engine
+        # Start discovery and gossip services
+        await self.discovery.start(self.identity.node_id, self.listen_port)
         await self.gossip.start()
 
         self._running = True
