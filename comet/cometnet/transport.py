@@ -19,7 +19,8 @@ from typing import Awaitable, Callable, Dict, List, Optional, Set
 
 import websockets
 from websockets.client import WebSocketClientProtocol
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import (ConnectionClosed, InvalidStatus,
+                                   WebSocketException)
 from websockets.http11 import Response
 
 from comet.cometnet.crypto import NodeIdentity
@@ -473,8 +474,19 @@ class ConnectionManager:
         except asyncio.TimeoutError:
             logger.debug(f"Connection timeout to {address}")
             return None
+        except InvalidStatus as e:
+            logger.debug(f"Invalid status from {address}: {e}")
+            return None
+        except (WebSocketException, ConnectionClosed) as e:
+            logger.debug(f"WebSocket error connecting to {address}: {type(e).__name__}")
+            return None
+        except (OSError, asyncio.CancelledError) as e:
+            logger.debug(f"Connection error to {address}: {type(e).__name__}")
+            return None
         except Exception as e:
-            logger.debug(f"Connection error to {address}: {type(e).__name__}: {e}")
+            logger.debug(
+                f"Unexpected error connecting to {address}: {type(e).__name__}: {e}"
+            )
             return None
         finally:
             self._connecting.discard(address)

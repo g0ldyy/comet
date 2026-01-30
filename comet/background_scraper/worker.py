@@ -1,5 +1,6 @@
 import asyncio
 import time
+import traceback
 from dataclasses import dataclass
 
 import aiohttp
@@ -156,6 +157,7 @@ class BackgroundScraperWorker:
 
         except Exception as e:
             logger.error(f"Error in scraping cycle: {e}")
+            traceback.print_exc()
         finally:
             if self.current_session:
                 await self.current_session.close()

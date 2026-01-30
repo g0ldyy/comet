@@ -2378,7 +2378,9 @@
       function updatePoolsUI() {
         const subCount = poolsCache.filter((p) => p.isSubscribed).length;
         const myCount = poolsCache.filter((p) => p.isMember).length;
-        const discoverCount = poolsCache.length;
+        const discoverCount = poolsCache.filter(
+          (p) => !p.isMember && !p.isSubscribed,
+        ).length;
 
         document.getElementById("count-subscribed").textContent = subCount;
         document.getElementById("count-discover").textContent = discoverCount;
