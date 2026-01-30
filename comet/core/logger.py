@@ -176,9 +176,17 @@ def log_scraper_error(
     if "MediaFusion" in scraper_name:
         api_password_missing = " or your API password could be wrong"
 
-    logger.warning(
-        f"Exception while getting torrents for {media_id} with {scraper_name} ({censor_url(scraper_url)}), you are most likely being ratelimited{api_password_missing}: {error}"
-    )
+    error_str = str(error).lower()
+    is_timeout = "timeout" in error_str or "timeout" in type(error).__name__.lower()
+
+    if is_timeout:
+        logger.warning(
+            f"Timeout while getting torrents for {media_id} with {scraper_name} ({censor_url(scraper_url)})"
+        )
+    else:
+        logger.warning(
+            f"Exception while getting torrents for {media_id} with {scraper_name} ({censor_url(scraper_url)}), you are most likely being ratelimited{api_password_missing}: {error}"
+        )
 
 
 def log_startup_info(settings):
