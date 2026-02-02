@@ -118,10 +118,6 @@ async def get_cached_availability(
     debrid_service: str, info_hashes: list, season: int = None, episode: int = None
 ):
     select_clause = "SELECT info_hash, file_index, title, size, parsed"
-    if debrid_service == "torrent" and not IS_SQLITE:
-        select_clause = (
-            "SELECT DISTINCT ON (info_hash) info_hash, file_index, title, size, parsed"
-        )
 
     min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
     base_from_where = f"""
@@ -137,22 +133,15 @@ async def get_cached_availability(
         "episode": episode,
     }
 
-    if debrid_service != "torrent":
-        base_from_where += " AND debrid_service = :debrid_service"
-        params["debrid_service"] = debrid_service
-
-    group_by_clause = ""
-    if debrid_service == "torrent" and IS_SQLITE:
-        group_by_clause = " GROUP BY info_hash"
+    base_from_where += " AND debrid_service = :debrid_service"
+    params["debrid_service"] = debrid_service
 
     if debrid_service == "offcloud":
         season_episode_filter = """
             AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
             AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         """
-        query = (
-            select_clause + base_from_where + season_episode_filter + group_by_clause
-        )
+        query = select_clause + base_from_where + season_episode_filter
 
         results = await database.fetch_all(query, params)
 
@@ -167,9 +156,7 @@ async def get_cached_availability(
             if debrid_service != "torrent":
                 null_title_params["debrid_service"] = debrid_service
 
-            null_title_query = (
-                select_clause + base_from_where + " AND title IS NULL" + group_by_clause
-            )
+            null_title_query = select_clause + base_from_where + " AND title IS NULL"
             null_results = await database.fetch_all(null_title_query, null_title_params)
             results.extend(null_results)
     else:
@@ -180,8 +167,45 @@ async def get_cached_availability(
             AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
             AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         """
-            + group_by_clause
         )
         results = await database.fetch_all(query, params)
 
     return results
+
+
+async def get_cached_availability_any_service(
+    info_hashes: list, season: int = None, episode: int = None
+):
+    min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
+    base_from_where = f"""
+        FROM debrid_availability
+        WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {JSON_FUNC}(:info_hashes))
+        AND timestamp >= :min_timestamp
+        AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
+        AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
+    """
+
+    params = {
+        "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
+        "min_timestamp": min_timestamp,
+        "season": season,
+        "episode": episode,
+    }
+
+    if IS_SQLITE:
+        query = f"""
+            SELECT info_hash, file_index, title, size, parsed
+            FROM (
+                SELECT info_hash, file_index, title, size, parsed,
+                       ROW_NUMBER() OVER (PARTITION BY info_hash ORDER BY timestamp DESC) AS rn
+                {base_from_where}
+            ) WHERE rn = 1
+        """
+    else:
+        query = (
+            "SELECT DISTINCT ON (info_hash) info_hash, file_index, title, size, parsed "
+            + base_from_where
+            + " ORDER BY info_hash, timestamp DESC"
+        )
+
+    return await database.fetch_all(query, params)

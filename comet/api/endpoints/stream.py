@@ -447,6 +447,13 @@ async def stream(
         service_cache_status = await check_multi_service_availability(
             debrid_entries, torrent_manager.torrents, season, episode
         )
+    elif enable_torrent:
+        await DebridService.apply_cached_availability_any_service(
+            list(torrent_manager.torrents.keys()),
+            season,
+            episode,
+            torrent_manager.torrents,
+        )
 
     total_cached_count = 0
     for info_hash in torrent_manager.torrents:

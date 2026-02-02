@@ -5,7 +5,8 @@ from RTN import ParsedData
 
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.services.debrid_cache import (cache_availability,
-                                         get_cached_availability)
+                                         get_cached_availability,
+                                         get_cached_availability_any_service)
 from comet.utils.parsing import ensure_multi_language
 
 
@@ -174,3 +175,34 @@ class DebridService:
                     torrent["title"] = row["title"]
 
         return cached_hashes
+
+    @classmethod
+    async def apply_cached_availability_any_service(
+        cls, info_hashes: list, season: int, episode: int, torrents: dict | None
+    ):
+        if len(info_hashes) == 0 or torrents is None:
+            return
+
+        rows = await get_cached_availability_any_service(info_hashes, season, episode)
+
+        for row in rows:
+            info_hash = row["info_hash"]
+            torrent = torrents.get(info_hash)
+            if torrent is None:
+                continue
+
+            file_index = cls._coerce_file_index(row["file_index"])
+            if file_index is not None:
+                torrent["fileIndex"] = file_index
+
+            if row["size"] is not None:
+                torrent["size"] = row["size"]
+
+            if row["parsed"] is not None:
+                cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
+                merged_parsed = cls._merge_parsed(torrent.get("parsed"), cached_parsed)
+                if merged_parsed is not None:
+                    torrent["parsed"] = merged_parsed
+
+            if row["title"] is not None:
+                torrent["title"] = row["title"]
