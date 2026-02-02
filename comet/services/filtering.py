@@ -1,5 +1,5 @@
 from collections import OrderedDict, defaultdict
-from threading import Lock
+from threading import Event, Lock
 
 from pydantic import ValidationError
 from RTN import normalize_title, parse, title_match
@@ -27,8 +27,40 @@ def scrub(t: str):
     return " ".join(normalize_title(t).split())
 
 
-_parse_cache = OrderedDict()
-_parse_cache_lock = Lock()
+class _ParseCacheShard:
+    __slots__ = ("lock", "data", "inflight")
+
+    def __init__(self):
+        self.lock = Lock()
+        self.data = OrderedDict()
+        self.inflight = {}
+
+
+_PARSE_CACHE_SIZE = settings.FILTER_PARSE_CACHE_SIZE or 0
+_PARSE_CACHE_SHARDS = max(int(settings.FILTER_PARSE_CACHE_SHARDS or 1), 1)
+_PARSE_CACHE_DEDUP_INFLIGHT = bool(settings.FILTER_PARSE_CACHE_DEDUP_INFLIGHT)
+_PARSE_CACHE_DEDUP_TIMEOUT = 5.0
+
+if _PARSE_CACHE_SIZE > 0:
+    _PARSE_CACHE_EFFECTIVE_SHARDS = min(_PARSE_CACHE_SHARDS, _PARSE_CACHE_SIZE)
+else:
+    _PARSE_CACHE_EFFECTIVE_SHARDS = 0
+
+if _PARSE_CACHE_EFFECTIVE_SHARDS > 0:
+    _PARSE_CACHE_SHARD_SIZES = [
+        (_PARSE_CACHE_SIZE // _PARSE_CACHE_EFFECTIVE_SHARDS)
+        + (1 if i < (_PARSE_CACHE_SIZE % _PARSE_CACHE_EFFECTIVE_SHARDS) else 0)
+        for i in range(_PARSE_CACHE_EFFECTIVE_SHARDS)
+    ]
+else:
+    _PARSE_CACHE_SHARD_SIZES = []
+
+_parse_cache = [_ParseCacheShard() for _ in range(_PARSE_CACHE_EFFECTIVE_SHARDS)]
+
+
+def _parse_cache_shard_for(title: str):
+    shard_idx = hash(title) % _PARSE_CACHE_EFFECTIVE_SHARDS
+    return shard_idx, _parse_cache[shard_idx], _PARSE_CACHE_SHARD_SIZES[shard_idx]
 
 
 def _clone_parsed(parsed):
@@ -38,24 +70,89 @@ def _clone_parsed(parsed):
 
 
 def _parse_with_cache(title: str):
-    cache_size = settings.FILTER_PARSE_CACHE_SIZE or 0
-    if cache_size <= 0:
+    if _PARSE_CACHE_SIZE <= 0 or _PARSE_CACHE_EFFECTIVE_SHARDS <= 0:
         return parse(title)
 
-    with _parse_cache_lock:
-        cached = _parse_cache.get(title)
+    _, shard, max_size = _parse_cache_shard_for(title)
+    if max_size <= 0:
+        return parse(title)
+
+    if _PARSE_CACHE_DEDUP_INFLIGHT:
+        return _parse_with_cache_dedup(title, shard, max_size)
+    else:
+        return _parse_with_cache_simple(title, shard, max_size)
+
+
+def _parse_with_cache_simple(title: str, shard: _ParseCacheShard, max_size: int):
+    with shard.lock:
+        cached = shard.data.get(title)
         if cached is not None:
-            _parse_cache.move_to_end(title)
+            shard.data.move_to_end(title)
             return _clone_parsed(cached)
 
     parsed = parse(title)
+    cached = _clone_parsed(parsed)
 
-    with _parse_cache_lock:
-        _parse_cache[title] = parsed
-        if len(_parse_cache) > cache_size:
-            _parse_cache.popitem(last=False)
+    with shard.lock:
+        shard.data[title] = cached
+        if len(shard.data) > max_size:
+            shard.data.popitem(last=False)
 
-    return _clone_parsed(parsed)
+    return parsed
+
+
+def _parse_with_cache_dedup(title: str, shard: _ParseCacheShard, max_size: int):
+    inflight_event = None
+    do_parse = False
+
+    with shard.lock:
+        cached = shard.data.get(title)
+        if cached is not None:
+            shard.data.move_to_end(title)
+            return _clone_parsed(cached)
+
+        inflight_event = shard.inflight.get(title)
+        if inflight_event is None:
+            inflight_event = Event()
+            shard.inflight[title] = inflight_event
+            do_parse = True
+
+    if not do_parse:
+        if not inflight_event.wait(timeout=_PARSE_CACHE_DEDUP_TIMEOUT):
+            return parse(title)
+
+        with shard.lock:
+            cached = shard.data.get(title)
+            if cached is not None:
+                shard.data.move_to_end(title)
+                return _clone_parsed(cached)
+
+        return parse(title)
+
+    return _do_parse_and_cache(title, shard, max_size, inflight_event)
+
+
+def _do_parse_and_cache(
+    title: str,
+    shard: _ParseCacheShard,
+    max_size: int,
+    inflight_event: Event,
+):
+    try:
+        parsed = parse(title)
+        cached = _clone_parsed(parsed)
+        with shard.lock:
+            shard.data[title] = cached
+            if len(shard.data) > max_size:
+                shard.data.popitem(last=False)
+            shard.inflight.pop(title, None)
+        return parsed
+    except BaseException:
+        with shard.lock:
+            shard.inflight.pop(title, None)
+        raise
+    finally:
+        inflight_event.set()
 
 
 def filter_worker(

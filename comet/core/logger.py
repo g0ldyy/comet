@@ -237,10 +237,6 @@ def log_startup_info(settings):
         "COMET",
         f"Admin Dashboard Password: {admin_password} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
-    logger.log(
-        "COMET",
-        f"Filter Parse Cache Size: {settings.FILTER_PARSE_CACHE_SIZE}",
-    )
 
     replicas = ""
     if not IS_SQLITE:
@@ -271,6 +267,14 @@ def log_startup_info(settings):
                 "⚠️  Background scraper with SQLite may cause database locking issues. "
                 "Use PostgreSQL for reliable background scraping."
             )
+
+    logger.log(
+        "COMET",
+        "Filter Parse Cache: "
+        f"size={settings.FILTER_PARSE_CACHE_SIZE} "
+        f"shards={settings.FILTER_PARSE_CACHE_SHARDS} "
+        f"dedup_inflight={bool(settings.FILTER_PARSE_CACHE_DEDUP_INFLIGHT)}",
+    )
 
     anime_mapping_refresh = (
         f" - Refresh Interval: {settings.ANIME_MAPPING_REFRESH_INTERVAL}s"
