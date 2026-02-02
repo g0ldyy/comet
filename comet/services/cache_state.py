@@ -90,14 +90,14 @@ class CacheStateManager:
 
     async def get_fresh_torrent_count(self) -> int:
         """
-        Get count of 'fresh' cached torrents based on LIVE_TORRENT_CACHE_TTL.
+        Check for at least one 'fresh' cached torrent based on LIVE_TORRENT_CACHE_TTL.
 
-        Returns the number of torrents that are within the TTL window.
-        If TTL is -1 (never expires), counts all torrents.
+        Returns 1 if any fresh torrent exists, otherwise 0.
+        If TTL is -1 (never expires), checks for any cached torrent.
         """
         if self.is_kitsu:
             base_query = """
-                SELECT COUNT(*)
+                SELECT 1
                 FROM torrents
                 WHERE media_id = :media_id
                 AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
@@ -108,7 +108,7 @@ class CacheStateManager:
             }
         else:
             base_query = """
-                SELECT COUNT(*)
+                SELECT 1
                 FROM torrents
                 WHERE media_id = :media_id
                 AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) 
@@ -122,14 +122,15 @@ class CacheStateManager:
             }
 
         if settings.LIVE_TORRENT_CACHE_TTL >= 0:
-            ttl_condition = " AND timestamp + :cache_ttl >= :current_time"
-            params["cache_ttl"] = settings.LIVE_TORRENT_CACHE_TTL
-            params["current_time"] = time.time()
+            min_timestamp = time.time() - settings.LIVE_TORRENT_CACHE_TTL
+            ttl_condition = " AND timestamp >= :min_timestamp"
+            params["min_timestamp"] = min_timestamp
             query = base_query + ttl_condition
         else:
             query = base_query
 
-        return await database.fetch_val(query, params) or 0
+        result = await database.fetch_one(query + " LIMIT 1", params)
+        return 1 if result else 0
 
     async def check_is_first_search(self) -> bool:
         """

@@ -1,4 +1,5 @@
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from threading import Lock
 
 from pydantic import ValidationError
 from RTN import normalize_title, parse, title_match
@@ -24,6 +25,37 @@ def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
 
 def scrub(t: str):
     return " ".join(normalize_title(t).split())
+
+
+_parse_cache = OrderedDict()
+_parse_cache_lock = Lock()
+
+
+def _clone_parsed(parsed):
+    if hasattr(parsed, "model_copy"):
+        return parsed.model_copy(deep=True)
+    return parsed.copy(deep=True)
+
+
+def _parse_with_cache(title: str):
+    cache_size = settings.FILTER_PARSE_CACHE_SIZE or 0
+    if cache_size <= 0:
+        return parse(title)
+
+    with _parse_cache_lock:
+        cached = _parse_cache.get(title)
+        if cached is not None:
+            _parse_cache.move_to_end(title)
+            return _clone_parsed(cached)
+
+    parsed = parse(title)
+
+    with _parse_cache_lock:
+        _parse_cache[title] = parsed
+        if len(_parse_cache) > cache_size:
+            _parse_cache.popitem(last=False)
+
+    return _clone_parsed(parsed)
 
 
 def filter_worker(
@@ -95,7 +127,7 @@ def filter_worker(
 
         # temp fix while waiting for RTN to fix their parsing
         try:
-            parsed = parse(torrent_title)
+            parsed = _parse_with_cache(torrent_title)
         except ValidationError:
             _log_exclusion(f"❌ Rejected (Parse Error) | {torrent_title}")
             continue

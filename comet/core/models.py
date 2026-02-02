@@ -147,7 +147,13 @@ class AppSettings(BaseSettings):
     RATELIMIT_MAX_RETRIES: Optional[int] = 3
     RATELIMIT_RETRY_BASE_DELAY: Optional[float] = 1.0
     RTN_FILTER_DEBUG: Optional[bool] = False
+    FILTER_PARSE_CACHE_SIZE: Optional[int] = 512
     HTTP_CACHE_ENABLED: Optional[bool] = False
+    HTTP_CLIENT_LIMIT: Optional[int] = 100
+    HTTP_CLIENT_LIMIT_PER_HOST: Optional[int] = 20
+    HTTP_CLIENT_TTL_DNS_CACHE: Optional[int] = 300
+    HTTP_CLIENT_KEEPALIVE_TIMEOUT: Optional[float] = 30.0
+    HTTP_CLIENT_TIMEOUT_TOTAL: Optional[float] = 30.0
     HTTP_CACHE_STREAMS_TTL: Optional[int] = 300
     HTTP_CACHE_STALE_WHILE_REVALIDATE: Optional[int] = 60
     HTTP_CACHE_MANIFEST_TTL: Optional[int] = 86400

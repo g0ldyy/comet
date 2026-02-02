@@ -123,16 +123,16 @@ async def get_cached_availability(
             "SELECT DISTINCT ON (info_hash) info_hash, file_index, title, size, parsed"
         )
 
+    min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
     base_from_where = f"""
         FROM debrid_availability
         WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {JSON_FUNC}(:info_hashes))
-        AND timestamp + :cache_ttl >= :current_time
+        AND timestamp >= :min_timestamp
     """
 
     params = {
         "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
-        "cache_ttl": settings.DEBRID_CACHE_TTL,
-        "current_time": time.time(),
+        "min_timestamp": min_timestamp,
         "season": season,
         "episode": episode,
     }
@@ -162,8 +162,7 @@ async def get_cached_availability(
         if remaining_hashes:
             null_title_params = {
                 "info_hashes": orjson.dumps(remaining_hashes).decode("utf-8"),
-                "cache_ttl": settings.DEBRID_CACHE_TTL,
-                "current_time": time.time(),
+                "min_timestamp": min_timestamp,
             }
             if debrid_service != "torrent":
                 null_title_params["debrid_service"] = debrid_service

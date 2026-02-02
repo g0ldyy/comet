@@ -215,6 +215,14 @@ def log_startup_info(settings):
         "COMET",
         f"ProcessPoolExecutor: {max_workers} workers",
     )
+    logger.log(
+        "COMET",
+        f"HTTP Client Pool: limit={settings.HTTP_CLIENT_LIMIT} "
+        f"per_host={settings.HTTP_CLIENT_LIMIT_PER_HOST} "
+        f"timeout={settings.HTTP_CLIENT_TIMEOUT_TOTAL}s "
+        f"keepalive={settings.HTTP_CLIENT_KEEPALIVE_TIMEOUT}s "
+        f"dns_ttl={settings.HTTP_CLIENT_TTL_DNS_CACHE}s ",
+    )
 
     if settings.PUBLIC_BASE_URL:
         logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
@@ -228,6 +236,10 @@ def log_startup_info(settings):
     logger.log(
         "COMET",
         f"Admin Dashboard Password: {admin_password} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
+    )
+    logger.log(
+        "COMET",
+        f"Filter Parse Cache Size: {settings.FILTER_PARSE_CACHE_SIZE}",
     )
 
     replicas = ""
