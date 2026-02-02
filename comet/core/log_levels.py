@@ -80,6 +80,12 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #00BFFF>",
         "no": 40,
     },
+    "DEBRID": {
+        "color": "#4dd4ff",
+        "icon": "⚡",
+        "loguru_color": "<fg #4dd4ff>",
+        "no": 38,
+    },
     "DMM_INGEST": {
         "color": "#71d6d6",
         "icon": "📥",

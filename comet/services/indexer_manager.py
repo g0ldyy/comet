@@ -24,6 +24,11 @@ class IndexerManager:
             self.session = aiohttp.ClientSession()
         return self.session
 
+    async def close(self):
+        if self.session and not self.session.closed:
+            await self.session.close()
+        self.session = None
+
     async def update_jackett(self):
         try:
             if (

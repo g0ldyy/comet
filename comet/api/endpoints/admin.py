@@ -381,11 +381,11 @@ async def admin_api_metrics(
         """
         SELECT debrid_service, COUNT(*) as count, AVG(size) as avg_size, SUM(size) as total_size
         FROM debrid_availability 
-        WHERE timestamp + :cache_ttl >= :current_time
+        WHERE timestamp >= :min_timestamp
         GROUP BY debrid_service 
         ORDER BY count DESC
     """,
-        {"cache_ttl": settings.DEBRID_CACHE_TTL, "current_time": current_time},
+        {"min_timestamp": current_time - settings.DEBRID_CACHE_TTL},
     )
 
     # Process quality stats
