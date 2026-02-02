@@ -120,7 +120,7 @@ async def check_multi_service_availability(
 
         debrid_instance = DebridService(service, api_key, "")
         cached_hashes = await debrid_instance.check_existing_availability(
-            info_hashes, season, episode
+            info_hashes, season, episode, torrents
         )
 
         return service, cached_hashes
@@ -179,6 +179,7 @@ async def get_and_cache_multi_service_availability(
                 seeders_map,
                 tracker_map,
                 sources_map,
+                torrents,
                 media_id,
                 media_only_id,
                 season,
