@@ -353,6 +353,16 @@ def log_startup_info(settings):
         f"AnimeTosho Scraper: {settings.format_scraper_mode(settings.SCRAPE_ANIMETOSHO)}{animetosho_anime_only}",
     )
 
+    seadex_anime_only = (
+        f" - Anime Only: {bool(settings.SEADEX_ANIME_ONLY)}"
+        if settings.is_any_context_enabled(settings.SCRAPE_SEADEX)
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"SeaDex Scraper: {settings.format_scraper_mode(settings.SCRAPE_SEADEX)}{seadex_anime_only}",
+    )
+
     zilean_url = (
         f" - {settings.ZILEAN_URL}"
         if settings.is_any_context_enabled(settings.SCRAPE_ZILEAN)
@@ -452,10 +462,7 @@ def log_startup_info(settings):
         "COMET",
         f"Peerflix Scraper: {settings.format_scraper_mode(settings.SCRAPE_PEERFLIX)}",
     )
-    logger.log(
-        "COMET",
-        f"SeaDex Scraper: {settings.format_scraper_mode(settings.SCRAPE_SEADEX)}",
-    )
+
     logger.log(
         "COMET",
         f"DMM Scraper: {settings.format_scraper_mode(settings.SCRAPE_DMM)}",
