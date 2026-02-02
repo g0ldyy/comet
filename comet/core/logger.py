@@ -454,6 +454,10 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
+        f"SeaDex Scraper: {settings.format_scraper_mode(settings.SCRAPE_SEADEX)}",
+    )
+    logger.log(
+        "COMET",
         f"DMM Scraper: {settings.format_scraper_mode(settings.SCRAPE_DMM)}",
     )
     dmm_ingest_info = (
