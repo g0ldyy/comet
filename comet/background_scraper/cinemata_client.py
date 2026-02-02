@@ -111,6 +111,9 @@ class CinemataClient:
                     imdb_id = item["imdb_id"]
                     if imdb_id not in seen_ids:
                         if "year" not in item:
+                            if "releaseInfo" not in item:
+                                continue
+
                             item["year"] = item["releaseInfo"]
 
                         seen_ids.add(imdb_id)
