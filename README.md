@@ -6,9 +6,10 @@
 - The first Stremio addon to Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
-- Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB and Peerflix
+- Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB, Peerflix and DMM
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper
+- [DMM](https://github.com/debridmediamanager/hashlists) Ingester: Automatically download and index Debrid Media Manager hashlists
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
 - Real-Debrid, All-Debrid, Premiumize, TorBox, Debrid-Link, Debrider, EasyDebrid, OffCloud and PikPak supported
