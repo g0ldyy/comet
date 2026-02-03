@@ -803,7 +803,7 @@ async def _execute_batched_upsert(query: str, rows):
                 lock_rows = await database.fetch_all(
                     """
                     SELECT lock_key
-                    FROM unnest(:lock_keys::bigint[]) AS lock_key
+                    FROM unnest(CAST(:lock_keys AS BIGINT[])) AS lock_key
                     WHERE pg_try_advisory_xact_lock(lock_key)
                     """,
                     {"lock_keys": unique_keys},
