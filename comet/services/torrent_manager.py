@@ -180,14 +180,11 @@ class TorrentBroadcastQueue:
     async def add(self, torrents: list[dict]):
         if not torrents:
             return
-
-        await self.queue.put(torrents)
-
-        if not self.is_running:
-            async with self._lock:
-                if not self.is_running:
-                    self.is_running = True
-                    asyncio.create_task(self._process_queue())
+        async with self._lock:
+            await self.queue.put(torrents)
+            if not self.is_running:
+                self.is_running = True
+                asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
         backend = get_active_backend()
@@ -207,11 +204,10 @@ class TorrentBroadcastQueue:
                     )
             except Exception as e:
                 if isinstance(e, asyncio.TimeoutError):
-                    if self.queue.empty():
-                        async with self._lock:
-                            if self.queue.empty():
-                                self.is_running = False
-                                return
+                    async with self._lock:
+                        if self.queue.empty():
+                            self.is_running = False
+                            return
                     continue
 
                 logger.warning(f"Error in broadcast queue: {e}")
