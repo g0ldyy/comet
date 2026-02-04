@@ -180,14 +180,11 @@ class TorrentBroadcastQueue:
     async def add(self, torrents: list[dict]):
         if not torrents:
             return
-
-        await self.queue.put(torrents)
-
-        if not self.is_running:
-            async with self._lock:
-                if not self.is_running:
-                    self.is_running = True
-                    asyncio.create_task(self._process_queue())
+        async with self._lock:
+            await self.queue.put(torrents)
+            if not self.is_running:
+                self.is_running = True
+                asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
         backend = get_active_backend()
@@ -196,30 +193,28 @@ class TorrentBroadcastQueue:
             return
 
         while self.is_running:
+            torrents = None
             try:
-                torrents = await self.queue.get()
-
+                torrents = await asyncio.wait_for(self.queue.get(), timeout=1.0)
                 if torrents:
                     await backend.broadcast_torrents(torrents)
-
                     logger.log(
                         "COMETNET",
                         f"Queued {len(torrents)} torrents for broadcast via {backend.__class__.__name__}",
                     )
-
-                self.queue.task_done()
-
             except Exception as e:
-                logger.warning(f"Error in broadcast queue: {e}")
-                await asyncio.sleep(1)
-
-            if self.queue.empty():
-                await asyncio.sleep(1)
-                if self.queue.empty():
+                if isinstance(e, asyncio.TimeoutError):
                     async with self._lock:
                         if self.queue.empty():
                             self.is_running = False
                             return
+                    continue
+
+                logger.warning(f"Error in broadcast queue: {e}")
+                await asyncio.sleep(1)
+            finally:
+                if torrents is not None:
+                    self.queue.task_done()
 
     async def stop(self):
         self.is_running = False
@@ -793,17 +788,27 @@ async def _execute_batched_upsert(query: str, rows):
 
     try:
         async with database.transaction():
+            lock_keys = [
+                row["lock_key"]
+                for row in ordered_rows
+                if row.get("lock_key") is not None
+            ]
+            acquired_keys = set()
+            if lock_keys:
+                unique_keys = list(dict.fromkeys(lock_keys))
+                lock_rows = await database.fetch_all(
+                    """
+                    SELECT lock_key
+                    FROM unnest(CAST(:lock_keys AS BIGINT[])) AS lock_key
+                    WHERE pg_try_advisory_xact_lock(lock_key)
+                    """,
+                    {"lock_keys": unique_keys},
+                )
+                acquired_keys = {row["lock_key"] for row in lock_rows}
+
             for row in ordered_rows:
                 lock_key = row.get("lock_key")
-                if lock_key is None:
-                    rows_to_insert.append(row)
-                    continue
-
-                acquired = await database.fetch_val(
-                    "SELECT pg_try_advisory_xact_lock(CAST(:lock_key AS BIGINT))",
-                    {"lock_key": lock_key},
-                )
-                if acquired:
+                if lock_key is None or lock_key in acquired_keys:
                     rows_to_insert.append(row)
 
             if rows_to_insert:

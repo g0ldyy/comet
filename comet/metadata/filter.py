@@ -23,12 +23,11 @@ class DigitalReleaseFilter:
                 """
                 SELECT release_date FROM digital_release_cache 
                 WHERE media_id = :media_id
-                AND timestamp + :cache_ttl >= :current_time
+                AND timestamp >= :min_timestamp
                 """,
                 {
                     "media_id": media_id,
-                    "cache_ttl": settings.METADATA_CACHE_TTL,
-                    "current_time": time.time(),
+                    "min_timestamp": time.time() - settings.METADATA_CACHE_TTL,
                 },
             )
 

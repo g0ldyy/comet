@@ -5,7 +5,8 @@ from RTN import ParsedData
 
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.services.debrid_cache import (cache_availability,
-                                         get_cached_availability)
+                                         get_cached_availability,
+                                         get_cached_availability_any_service)
 from comet.utils.parsing import ensure_multi_language
 
 
@@ -15,21 +16,75 @@ class DebridService:
         self.debrid_api_key = debrid_api_key
         self.ip = ip
 
+    @staticmethod
+    def _coerce_file_index(value):
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _backfill_attr(merged: ParsedData, original: ParsedData, attr: str):
+        if not hasattr(merged, attr) or not hasattr(original, attr):
+            return
+        merged_value = getattr(merged, attr)
+        original_value = getattr(original, attr)
+        if not merged_value and original_value:
+            setattr(merged, attr, original_value)
+
+    @staticmethod
+    def _merge_parsed(
+        original: ParsedData | None, incoming: ParsedData | None
+    ) -> ParsedData | None:
+        if incoming is None:
+            return original
+        if original is None:
+            ensure_multi_language(incoming)
+            return incoming
+
+        merged = incoming
+
+        incoming_resolution = getattr(incoming, "resolution", None)
+        original_resolution = getattr(original, "resolution", None)
+        if incoming_resolution in (None, "unknown") and original_resolution not in (
+            None,
+            "unknown",
+        ):
+            merged.resolution = original_resolution
+
+        for attr in (
+            "quality",
+            "languages",
+            "audio",
+            "channels",
+            "codec",
+            "hdr",
+            "bitDepth",
+            "bit_depth",
+            "group",
+        ):
+            DebridService._backfill_attr(merged, original, attr)
+
+        ensure_multi_language(merged)
+        return merged
+
     async def get_and_cache_availability(
         self,
         session,
-        torrents: dict,
+        info_hashes: list[str],
+        seeders_map: dict,
+        tracker_map: dict,
+        sources_map: dict,
+        torrents: dict | None,
         media_id: str,
         media_only_id: str,
         season: int,
         episode: int,
-    ):
-        info_hashes = list(torrents.keys())
-
-        seeders_map = {hash: torrents[hash]["seeders"] for hash in info_hashes}
-        tracker_map = {hash: torrents[hash]["tracker"] for hash in info_hashes}
-        sources_map = {hash: torrents[hash]["sources"] for hash in info_hashes}
-
+    ) -> set[str]:
         availability = await retrieve_debrid_availability(
             session,
             media_id,
@@ -44,8 +99,10 @@ class DebridService:
         )
 
         if len(availability) == 0:
-            return
+            return set()
 
+        info_hash_set = set(info_hashes)
+        cached_hashes = set()
         for file in availability:
             file_season = file["season"]
             file_episode = file["episode"]
@@ -55,74 +112,97 @@ class DebridService:
                 continue
 
             info_hash = file["info_hash"]
-            if info_hash not in torrents:
+            if info_hash not in info_hash_set:
                 continue
-            torrents[info_hash]["cached"] = True
+            cached_hashes.add(info_hash)
+            if torrents is not None:
+                torrent = torrents.get(info_hash)
+                if torrent is None:
+                    continue
 
-            debrid_parsed = file["parsed"]
-            if debrid_parsed is not None:
-                original_parsed = torrents[info_hash]["parsed"]
-                # Preserve quality from original if debrid parsed doesn't have it
-                if (
-                    debrid_parsed.quality is None
-                    and original_parsed.quality is not None
-                ):
-                    debrid_parsed.quality = original_parsed.quality
-                # Preserve languages from original if debrid parsed doesn't have them
-                if not debrid_parsed.languages and original_parsed.languages:
-                    debrid_parsed.languages = original_parsed.languages
-                torrents[info_hash]["parsed"] = debrid_parsed
-            if file["index"] is not None:
-                torrents[info_hash]["fileIndex"] = file["index"]
-            if file["title"] is not None:
-                torrents[info_hash]["title"] = file["title"]
-            if file["size"] is not None:
-                torrents[info_hash]["size"] = file["size"]
+                merged_parsed = self._merge_parsed(
+                    torrent.get("parsed"), file["parsed"]
+                )
+                if merged_parsed is not None:
+                    torrent["parsed"] = merged_parsed
+
+                file_index = self._coerce_file_index(file["index"])
+                if file_index is not None:
+                    torrent["fileIndex"] = file_index
+                if file["title"] is not None:
+                    torrent["title"] = file["title"]
+                if file["size"] is not None:
+                    torrent["size"] = file["size"]
 
         asyncio.create_task(cache_availability(self.debrid_service, availability))
+        return cached_hashes
 
     async def check_existing_availability(
-        self, torrents: dict, season: int, episode: int
-    ):
-        info_hashes = list(torrents.keys())
-        for hash in info_hashes:
-            torrents[hash]["cached"] = False
-
-        if len(torrents) == 0:
-            return
+        self, info_hashes: list, season: int, episode: int, torrents: dict | None
+    ) -> set[str]:
+        if len(info_hashes) == 0:
+            return set()
 
         rows = await get_cached_availability(
             self.debrid_service, info_hashes, season, episode
         )
 
+        cached_hashes = set()
         for row in rows:
             info_hash = row["info_hash"]
-            torrents[info_hash]["cached"] = True
+            cached_hashes.add(info_hash)
+            if torrents is not None:
+                torrent = torrents.get(info_hash)
+                if torrent is None:
+                    continue
 
-            if row["file_index"] is not None:
-                try:
-                    torrents[info_hash]["fileIndex"] = int(row["file_index"])
-                except ValueError:
-                    pass
+                file_index = self._coerce_file_index(row["file_index"])
+                if file_index is not None:
+                    torrent["fileIndex"] = file_index
+
+                if row["size"] is not None:
+                    torrent["size"] = row["size"]
+
+                if row["parsed"] is not None:
+                    cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
+                    merged_parsed = self._merge_parsed(
+                        torrent.get("parsed"), cached_parsed
+                    )
+                    if merged_parsed is not None:
+                        torrent["parsed"] = merged_parsed
+
+                if row["title"] is not None:
+                    torrent["title"] = row["title"]
+
+        return cached_hashes
+
+    @classmethod
+    async def apply_cached_availability_any_service(
+        cls, info_hashes: list, season: int, episode: int, torrents: dict | None
+    ):
+        if len(info_hashes) == 0 or torrents is None:
+            return
+
+        rows = await get_cached_availability_any_service(info_hashes, season, episode)
+
+        for row in rows:
+            info_hash = row["info_hash"]
+            torrent = torrents.get(info_hash)
+            if torrent is None:
+                continue
+
+            file_index = cls._coerce_file_index(row["file_index"])
+            if file_index is not None:
+                torrent["fileIndex"] = file_index
 
             if row["size"] is not None:
-                torrents[info_hash]["size"] = row["size"]
+                torrent["size"] = row["size"]
 
-            # Only update title/parsed if the cached file has resolution info
-            # Otherwise keep the original torrent info which may have better quality data
-            # E.g. torrent "[Group] Show S01 1080p" vs file "Show - 02.mkv"
             if row["parsed"] is not None:
                 cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
-                ensure_multi_language(cached_parsed)
+                merged_parsed = cls._merge_parsed(torrent.get("parsed"), cached_parsed)
+                if merged_parsed is not None:
+                    torrent["parsed"] = merged_parsed
 
-                if (
-                    cached_parsed.resolution != "unknown"
-                    or torrents[info_hash]["parsed"].resolution == "unknown"
-                ):
-                    original_parsed = torrents[info_hash]["parsed"]
-                    # Preserve languages from original if cached parsed doesn't have them
-                    if not cached_parsed.languages and original_parsed.languages:
-                        cached_parsed.languages = original_parsed.languages
-                    torrents[info_hash]["parsed"] = cached_parsed
-                    if row["title"] is not None:
-                        torrents[info_hash]["title"] = row["title"]
+            if row["title"] is not None:
+                torrent["title"] = row["title"]

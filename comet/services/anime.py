@@ -161,6 +161,28 @@ class AnimeMapper:
 
         return val
 
+    async def get_anilist_id(self, media_id: str):
+        if not self.loaded:
+            return None
+
+        provider, provider_id = self._parse_media_id(media_id)
+
+        if provider is None:
+            return None
+
+        query = """
+            SELECT i2.provider_id
+            FROM anime_ids i1
+            JOIN anime_ids i2 ON i1.entry_id = i2.entry_id
+            WHERE i1.provider = :provider AND i1.provider_id = :provider_id
+            AND i2.provider = 'anilist'
+            LIMIT 1
+        """
+
+        return await database.fetch_val(
+            query, {"provider": provider, "provider_id": provider_id}
+        )
+
     def get_kitsu_episode_mapping(self, kitsu_id: str | int):
         if not self.loaded:
             return None
@@ -172,9 +194,17 @@ class AnimeMapper:
 
     @staticmethod
     def _parse_media_id(media_id: str):
+        if media_id.startswith("tt"):
+            return "imdb", media_id.split(":")[0]
+
+        if media_id.startswith("kitsu"):
+            return "kitsu", media_id.split(":")[1]
+
         provider, sep, provider_id = media_id.partition(":")
+
         if not sep:
             return None, None
+
         return provider, provider_id
 
     async def _is_cache_stale(self):

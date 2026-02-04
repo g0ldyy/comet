@@ -215,6 +215,14 @@ def log_startup_info(settings):
         "COMET",
         f"ProcessPoolExecutor: {max_workers} workers",
     )
+    logger.log(
+        "COMET",
+        f"HTTP Client Pool: limit={settings.HTTP_CLIENT_LIMIT} "
+        f"per_host={settings.HTTP_CLIENT_LIMIT_PER_HOST} "
+        f"timeout={settings.HTTP_CLIENT_TIMEOUT_TOTAL}s "
+        f"keepalive={settings.HTTP_CLIENT_KEEPALIVE_TIMEOUT}s "
+        f"dns_ttl={settings.HTTP_CLIENT_TTL_DNS_CACHE}s ",
+    )
 
     if settings.PUBLIC_BASE_URL:
         logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
@@ -259,6 +267,14 @@ def log_startup_info(settings):
                 "⚠️  Background scraper with SQLite may cause database locking issues. "
                 "Use PostgreSQL for reliable background scraping."
             )
+
+    logger.log(
+        "COMET",
+        "Filter Parse Cache: "
+        f"size={settings.FILTER_PARSE_CACHE_SIZE} "
+        f"shards={settings.FILTER_PARSE_CACHE_SHARDS} "
+        f"dedup_inflight={bool(settings.FILTER_PARSE_CACHE_DEDUP_INFLIGHT)}",
+    )
 
     anime_mapping_refresh = (
         f" - Refresh Interval: {settings.ANIME_MAPPING_REFRESH_INTERVAL}s"
@@ -351,6 +367,16 @@ def log_startup_info(settings):
     logger.log(
         "COMET",
         f"AnimeTosho Scraper: {settings.format_scraper_mode(settings.SCRAPE_ANIMETOSHO)}{animetosho_anime_only}",
+    )
+
+    seadex_anime_only = (
+        f" - Anime Only: {bool(settings.SEADEX_ANIME_ONLY)}"
+        if settings.is_any_context_enabled(settings.SCRAPE_SEADEX)
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"SeaDex Scraper: {settings.format_scraper_mode(settings.SCRAPE_SEADEX)}{seadex_anime_only}",
     )
 
     zilean_url = (
@@ -452,6 +478,7 @@ def log_startup_info(settings):
         "COMET",
         f"Peerflix Scraper: {settings.format_scraper_mode(settings.SCRAPE_PEERFLIX)}",
     )
+
     logger.log(
         "COMET",
         f"DMM Scraper: {settings.format_scraper_mode(settings.SCRAPE_DMM)}",
