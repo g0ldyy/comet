@@ -57,6 +57,7 @@ class TorrentManager:
         self.torrents = {}
         self.ready_to_cache = []
         self.ranked_torrents = {}
+        self.primary_cached = False
 
     async def scrape_torrents(
         self,
@@ -139,7 +140,10 @@ class TorrentManager:
     async def get_cached_torrents(self):
         rows = []
         for cache_media_id, cache_is_kitsu in self.cache_media_ids:
-            rows.extend(await self._fetch_cached_rows(cache_media_id, cache_is_kitsu))
+            cache_rows = await self._fetch_cached_rows(cache_media_id, cache_is_kitsu)
+            if cache_rows and cache_media_id == self.media_only_id:
+                self.primary_cached = True
+            rows.extend(cache_rows)
 
         rows = sorted(rows, key=lambda r: (r["episode"] is not None, r["episode"]))
 

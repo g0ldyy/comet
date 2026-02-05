@@ -386,6 +386,7 @@ async def stream(
     await torrent_manager.get_cached_torrents()
     torrent_count = len(torrent_manager.torrents)
     logger.log("SCRAPER", f"📦 Found cached torrents: {torrent_count}")
+    primary_cached = torrent_manager.primary_cached
 
     cache_manager = CacheStateManager(
         media_id=media_id,
@@ -398,8 +399,7 @@ async def stream(
         cache_media_ids=cache_media_ids,
     )
     cache_result = await cache_manager.check_and_decide(torrent_count)
-    provider_cached_count = await cache_manager.get_provider_cached_count()
-    force_scrape_now = provider_cached_count == 0
+    force_scrape_now = not primary_cached
     lock_acquired = cache_result.lock_acquired
     debrid_season = search_season if is_kitsu else season
     debrid_episode = search_episode if is_kitsu else episode

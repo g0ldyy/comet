@@ -187,42 +187,6 @@ class CacheStateManager:
         """Public wrapper to acquire the distributed lock if needed."""
         return await self._try_acquire_lock()
 
-    async def get_provider_cached_count(self) -> int:
-        """
-        Check if current provider has any cached torrents (no TTL applied).
-        Returns 1 if any cached torrent exists, otherwise 0.
-        """
-        if self.is_kitsu:
-            query = """
-                SELECT 1
-                FROM torrents
-                WHERE media_id = :media_id
-                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-                LIMIT 1
-            """
-            params = {
-                "media_id": self.media_only_id,
-                "episode": self.search_episode,
-            }
-        else:
-            query = """
-                SELECT 1
-                FROM torrents
-                WHERE media_id = :media_id
-                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) 
-                     OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
-                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-                LIMIT 1
-            """
-            params = {
-                "media_id": self.media_only_id,
-                "season": self.search_season,
-                "episode": self.search_episode,
-            }
-
-        result = await database.fetch_one(query, params)
-        return 1 if result else 0
-
     async def release_lock(self) -> None:
         """Release the lock if it was acquired."""
         if self._lock_acquired and self._lock:
