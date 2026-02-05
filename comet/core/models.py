@@ -81,6 +81,8 @@ class AppSettings(BaseSettings):
     ANIMETOSHO_MAX_CONCURRENT_PAGES: Optional[int] = 10
     SCRAPE_SEADEX: Union[bool, str] = False
     SEADEX_ANIME_ONLY: Optional[bool] = True
+    SCRAPE_NEKOBT: Union[bool, str] = False
+    NEKOBT_ANIME_ONLY: Optional[bool] = True
     SCRAPE_ZILEAN: Union[bool, str] = False
     ZILEAN_URL: Union[str, List[str]] = "https://zileanfortheweebs.midnightignite.me"
     SCRAPE_STREMTHRU: Union[bool, str] = False

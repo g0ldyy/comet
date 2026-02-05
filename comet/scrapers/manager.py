@@ -94,6 +94,15 @@ class ScraperManager:
             ):
                 continue
 
+            if (
+                scraper_name == "NekoBTScraper"
+                and settings.NEKOBT_ANIME_ONLY
+                and not anime_mapper.is_anime_content(
+                    request.media_id, request.media_only_id
+                )
+            ):
+                continue
+
             # Get client wrapper
             client = network_manager.get_client(
                 scraper_name=scraper_name_clean, impersonate=scraper_class.impersonate

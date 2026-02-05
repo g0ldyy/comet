@@ -379,6 +379,16 @@ def log_startup_info(settings):
         f"SeaDex Scraper: {settings.format_scraper_mode(settings.SCRAPE_SEADEX)}{seadex_anime_only}",
     )
 
+    nekobt_anime_only = (
+        f" - Anime Only: {bool(settings.NEKOBT_ANIME_ONLY)}"
+        if settings.is_any_context_enabled(settings.SCRAPE_NEKOBT)
+        else ""
+    )
+    logger.log(
+        "COMET",
+        f"NekoBT Scraper: {settings.format_scraper_mode(settings.SCRAPE_NEKOBT)}{nekobt_anime_only}",
+    )
+
     zilean_url = (
         f" - {settings.ZILEAN_URL}"
         if settings.is_any_context_enabled(settings.SCRAPE_ZILEAN)
