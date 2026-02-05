@@ -490,7 +490,7 @@ class AnimeMapper:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
             return 0
 
-    async def _persist_kitsu_imdb_mapping(self, kitsu_imdb_data: dict):
+    async def _persist_kitsu_imdb_mapping(self, kitsu_imdb_data: list):
         total_count = 0
         batch = []
         batch_size = 1000
@@ -510,9 +510,8 @@ class AnimeMapper:
                         from_episode = :from_episode
                 """
 
-                for kitsu_id, entry in kitsu_imdb_data.items():
-                    if not isinstance(entry, dict):
-                        continue
+                for entry in kitsu_imdb_data:
+                    kitsu_id = entry["kitsu_id"]
 
                     imdb_id = entry.get("imdb_id")
                     if not imdb_id:
