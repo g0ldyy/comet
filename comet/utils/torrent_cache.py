@@ -26,9 +26,15 @@ def build_torrent_cache_where(
     where_clause = """
         FROM torrents
         WHERE media_id = :media_id
+    """
+    params = {"media_id": media_id, "episode": episode}
+    if season is not None:
+        where_clause += """
         AND ((season IS NOT NULL AND season = CAST(:season as INTEGER))
              OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+        """
+        params["season"] = season
+    where_clause += """
         AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
     """
-    params = {"media_id": media_id, "season": season, "episode": episode}
     return where_clause, params
