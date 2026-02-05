@@ -4,7 +4,7 @@ from comet.scrapers.models import ScrapeRequest
 from comet.services.anime import anime_mapper
 
 
-class SeadexScraper(BaseScraper):
+class SeaDexScraper(BaseScraper):
     BASE_URL = "https://releases.moe"
 
     async def scrape(self, request: ScrapeRequest):

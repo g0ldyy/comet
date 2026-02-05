@@ -86,7 +86,7 @@ class ScraperManager:
                 continue
 
             if (
-                scraper_name == "SeadexScraper"
+                scraper_name == "SeaDexScraper"
                 and settings.SEADEX_ANIME_ONLY
                 and not anime_mapper.is_anime_content(
                     request.media_id, request.media_only_id

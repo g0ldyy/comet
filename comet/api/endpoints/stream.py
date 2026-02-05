@@ -337,34 +337,44 @@ async def stream(
     search_episode = episode
     search_season = season
 
-    if is_kitsu and episode is not None:
+    if is_kitsu:
         kitsu_mapping = anime_mapper.get_kitsu_episode_mapping(id)
         if kitsu_mapping:
             from_episode = kitsu_mapping.get("from_episode")
             from_season = kitsu_mapping.get("from_season")
-            if from_episode:
+            if from_season and from_season != season:
+                search_season = from_season
+            if episode is not None and from_episode:
                 new_episode = from_episode + episode - 1
                 if new_episode != episode:
                     search_episode = new_episode
 
-            if from_season and from_season != season:
-                search_season = from_season
             if search_season != season or search_episode != episode:
-                logger.log(
-                    "SCRAPER",
-                    f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
-                )
+                if episode is not None and search_season is not None:
+                    logger.log(
+                        "SCRAPER",
+                        f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
+                    )
+                elif search_season is not None and season is not None:
+                    logger.log(
+                        "SCRAPER",
+                        f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d} instead of S{season:02d}",
+                    )
 
-    cache_media_ids = [(media_only_id, is_kitsu)]
+    cache_media_ids = [media_only_id]
     if anime_mapper.is_loaded():
         if is_kitsu:
             imdb_id = await anime_mapper.get_imdb_from_kitsu(id)
             if imdb_id:
-                cache_media_ids.append((imdb_id, False))
+                cache_media_ids.append(imdb_id)
         elif anime_mapper.is_anime_content(media_id, media_only_id):
-            kitsu_id = await anime_mapper.get_kitsu_from_imdb(id)
-            if kitsu_id:
-                cache_media_ids.append((kitsu_id, True))
+            kitsu_ids = anime_mapper.get_kitsu_ids_from_imdb(id)
+            if kitsu_ids:
+                cache_media_ids.extend(kitsu_ids)
+            else:
+                kitsu_id = await anime_mapper.get_kitsu_from_imdb(id)
+                if kitsu_id:
+                    cache_media_ids.append(kitsu_id)
 
     torrent_manager = TorrentManager(
         media_type,
@@ -401,8 +411,6 @@ async def stream(
     cache_result = await cache_manager.check_and_decide(torrent_count)
     force_scrape_now = not primary_cached
     lock_acquired = cache_result.lock_acquired
-    debrid_season = search_season if is_kitsu else season
-    debrid_episode = search_episode if is_kitsu else episode
 
     sort_mixed = is_torrent_only or config["sortCachedUncachedTogether"]
     cached_results = []
@@ -473,13 +481,13 @@ async def stream(
     service_cache_status = {}
     if debrid_entries:
         service_cache_status = await check_multi_service_availability(
-            debrid_entries, torrent_manager.torrents, debrid_season, debrid_episode
+            debrid_entries, torrent_manager.torrents, search_season, search_episode
         )
     elif enable_torrent:
         await DebridService.apply_cached_availability_any_service(
             list(torrent_manager.torrents.keys()),
-            debrid_season,
-            debrid_episode,
+            search_season,
+            search_episode,
             torrent_manager.torrents,
         )
 
@@ -518,8 +526,8 @@ async def stream(
             torrent_manager.torrents,
             media_id,
             media_only_id,
-            debrid_season,
-            debrid_episode,
+            search_season,
+            search_episode,
             ip,
         )
 
@@ -572,8 +580,8 @@ async def stream(
             }
         )
 
-    result_season = search_season if is_kitsu else season
-    result_episode = search_episode if is_kitsu else episode
+    result_season = search_season
+    result_episode = search_episode
     result_season = result_season if result_season is not None else "n"
     result_episode = result_episode if result_episode is not None else "n"
 

@@ -47,6 +47,7 @@ class AnimeMapper:
 
         self.anime_imdb_ids = set()
         self._kitsu_mapping_cache = {}
+        self._imdb_kitsu_mapping_cache = {}
 
         self._aod_url = "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json"
         self._fribb_url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
@@ -147,7 +148,7 @@ class AnimeMapper:
         if not self.loaded:
             return None
 
-        val = await database.fetch_val(
+        imdb_id = await database.fetch_val(
             """
             SELECT i2.provider_id
             FROM anime_ids i1
@@ -159,13 +160,20 @@ class AnimeMapper:
             {"kitsu_id": str(kitsu_id)},
         )
 
-        return val
+        if imdb_id:
+            return imdb_id
+
+        mapping = self._kitsu_mapping_cache.get(str(kitsu_id))
+        if mapping:
+            return mapping.get("imdb_id")
+
+        return None
 
     async def get_kitsu_from_imdb(self, imdb_id: str | int):
         if not self.loaded:
             return None
 
-        val = await database.fetch_val(
+        kitsu_id = await database.fetch_val(
             """
             SELECT i2.provider_id
             FROM anime_ids i1
@@ -177,7 +185,18 @@ class AnimeMapper:
             {"imdb_id": str(imdb_id)},
         )
 
-        return val
+        if kitsu_id:
+            return kitsu_id
+
+        kitsu_ids = self._imdb_kitsu_mapping_cache.get(str(imdb_id)) or []
+        return kitsu_ids[0] if kitsu_ids else None
+
+    def get_kitsu_ids_from_imdb(self, imdb_id: str | int) -> list[str]:
+        if not self.loaded:
+            return []
+
+        kitsu_ids = self._imdb_kitsu_mapping_cache.get(str(imdb_id))
+        return list(kitsu_ids) if kitsu_ids else []
 
     async def get_anilist_id(self, media_id: str):
         if not self.loaded:
@@ -266,14 +285,21 @@ class AnimeMapper:
             )
 
             self._kitsu_mapping_cache.clear()
+            self._imdb_kitsu_mapping_cache.clear()
+
             for row in rows:
                 kitsu_id = row["kitsu_id"]
+                imdb_id = row["imdb_id"]
 
                 self._kitsu_mapping_cache[str(kitsu_id)] = {
-                    "imdb_id": row["imdb_id"],
+                    "imdb_id": imdb_id,
                     "from_season": row["from_season"],
                     "from_episode": row["from_episode"],
                 }
+
+                self._imdb_kitsu_mapping_cache.setdefault(str(imdb_id), []).append(
+                    str(kitsu_id)
+                )
         except Exception as e:
             logger.warning(f"Failed to load Kitsu-IMDB mapping cache: {e}")
 
