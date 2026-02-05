@@ -161,6 +161,24 @@ class AnimeMapper:
 
         return val
 
+    async def get_kitsu_from_imdb(self, imdb_id: str | int):
+        if not self.loaded:
+            return None
+
+        val = await database.fetch_val(
+            """
+            SELECT i2.provider_id
+            FROM anime_ids i1
+            JOIN anime_ids i2 ON i1.entry_id = i2.entry_id
+            WHERE i1.provider = 'imdb' AND i1.provider_id = :imdb_id
+            AND i2.provider = 'kitsu'
+            LIMIT 1
+            """,
+            {"imdb_id": str(imdb_id)},
+        )
+
+        return val
+
     async def get_anilist_id(self, media_id: str):
         if not self.loaded:
             return None

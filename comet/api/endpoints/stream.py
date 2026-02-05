@@ -355,6 +355,17 @@ async def stream(
                     f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
                 )
 
+    cache_media_ids = [(media_only_id, is_kitsu)]
+    if anime_mapper.is_loaded():
+        if is_kitsu:
+            imdb_id = await anime_mapper.get_imdb_from_kitsu(id)
+            if imdb_id:
+                cache_media_ids.append((imdb_id, False))
+        elif anime_mapper.is_anime_content(media_id, media_only_id):
+            kitsu_id = await anime_mapper.get_kitsu_from_imdb(id)
+            if kitsu_id:
+                cache_media_ids.append((kitsu_id, True))
+
     torrent_manager = TorrentManager(
         media_type,
         media_id,
@@ -369,6 +380,7 @@ async def stream(
         is_kitsu=is_kitsu,
         search_episode=search_episode,
         search_season=search_season,
+        cache_media_ids=cache_media_ids,
     )
 
     await torrent_manager.get_cached_torrents()
@@ -382,14 +394,21 @@ async def stream(
         episode=episode,
         is_kitsu=is_kitsu,
         search_episode=search_episode,
+        search_season=search_season,
+        cache_media_ids=cache_media_ids,
     )
     cache_result = await cache_manager.check_and_decide(torrent_count)
+    provider_cached_count = await cache_manager.get_provider_cached_count()
+    force_scrape_now = provider_cached_count == 0
+    lock_acquired = cache_result.lock_acquired
+    debrid_season = search_season if is_kitsu else season
+    debrid_episode = search_episode if is_kitsu else episode
 
     sort_mixed = is_torrent_only or config["sortCachedUncachedTogether"]
     cached_results = []
     non_cached_results = []
 
-    if cache_result.should_return_wait_message:
+    def _wait_response():
         logger.log(
             "SCRAPER",
             f"🔄 Another instance is scraping {log_title}, returning early",
@@ -408,6 +427,15 @@ async def stream(
             is_empty=True,
         )
 
+    if force_scrape_now and not lock_acquired:
+        lock_acquired = await cache_manager.try_acquire_lock()
+
+    if force_scrape_now and not lock_acquired:
+        return _wait_response()
+
+    if cache_result.should_return_wait_message and not force_scrape_now:
+        return _wait_response()
+
     if cache_result.should_show_first_search_message:
         cached_results.append(
             {
@@ -417,7 +445,7 @@ async def stream(
             }
         )
 
-    if cache_result.should_scrape_background:
+    if cache_result.should_scrape_background and not force_scrape_now:
         logger.log(
             "SCRAPER",
             f"🔄 Starting background scrape for {log_title} (state={cache_result.state.value})",
@@ -431,7 +459,7 @@ async def stream(
             session,
         )
 
-    if cache_result.should_scrape_now:
+    if cache_result.should_scrape_now or force_scrape_now:
         logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
         try:
             await torrent_manager.scrape_torrents()
@@ -445,13 +473,13 @@ async def stream(
     service_cache_status = {}
     if debrid_entries:
         service_cache_status = await check_multi_service_availability(
-            debrid_entries, torrent_manager.torrents, season, episode
+            debrid_entries, torrent_manager.torrents, debrid_season, debrid_episode
         )
     elif enable_torrent:
         await DebridService.apply_cached_availability_any_service(
             list(torrent_manager.torrents.keys()),
-            season,
-            episode,
+            debrid_season,
+            debrid_episode,
             torrent_manager.torrents,
         )
 
@@ -490,8 +518,8 @@ async def stream(
             torrent_manager.torrents,
             media_id,
             media_only_id,
-            season,
-            episode,
+            debrid_season,
+            debrid_episode,
             ip,
         )
 
@@ -544,8 +572,10 @@ async def stream(
             }
         )
 
-    result_season = season if season is not None else "n"
-    result_episode = episode if episode is not None else "n"
+    result_season = search_season if is_kitsu else season
+    result_episode = search_episode if is_kitsu else episode
+    result_season = result_season if result_season is not None else "n"
+    result_episode = result_episode if result_episode is not None else "n"
 
     torrents = torrent_manager.torrents
     base_playback_host = (

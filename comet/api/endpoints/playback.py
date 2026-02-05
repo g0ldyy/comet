@@ -143,7 +143,14 @@ async def playback(
             ip if not should_proxy else "",
         )
         download_url = await debrid.generate_download_link(
-            hash, index, name_query, torrent_name, season, episode, sources, aliases
+            hash,
+            index,
+            name_query,
+            torrent_name,
+            season,
+            episode,
+            sources,
+            aliases,
         )
         if not download_url:
             return FileResponse("comet/assets/uncached.mp4", headers=NO_CACHE_HEADERS)

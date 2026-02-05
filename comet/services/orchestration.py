@@ -11,6 +11,7 @@ from comet.scrapers.models import ScrapeRequest
 from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
+from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.parsing import ensure_multi_language
 
 
@@ -31,6 +32,7 @@ class TorrentManager:
         context: str = "live",
         search_episode: int | None = None,
         search_season: int | None = None,
+        cache_media_ids: list[tuple[str, bool]] | None = None,
     ):
         self.media_type = media_type
         self.media_id = media_full_id
@@ -46,6 +48,10 @@ class TorrentManager:
         self.remove_adult_content = remove_adult_content
         self.is_kitsu = is_kitsu
         self.context = context
+
+        self.cache_media_ids = normalize_cache_media_ids(
+            self.media_only_id, self.is_kitsu, cache_media_ids
+        )
 
         self.seen_hashes = set()
         self.torrents = {}
@@ -79,7 +85,9 @@ class TorrentManager:
             )
 
             if self.is_kitsu:
-                if episode is not None and episode != self.search_episode:
+                if (season is not None and season != self.search_season) or (
+                    episode is not None and episode != self.search_episode
+                ):
                     continue
             else:
                 if (season is not None and season != self.season) or (
@@ -98,9 +106,9 @@ class TorrentManager:
                 "parsed": torrent["parsed"],
             }
 
-    async def get_cached_torrents(self):
-        if self.is_kitsu:
-            rows = await database.fetch_all(
+    async def _fetch_cached_rows(self, media_id: str, is_kitsu: bool):
+        if is_kitsu:
+            return await database.fetch_all(
                 """
                     SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed, episode
                     FROM torrents
@@ -108,25 +116,30 @@ class TorrentManager:
                     AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
                 """,
                 {
-                    "media_id": self.media_only_id,
+                    "media_id": media_id,
                     "episode": self.search_episode,
                 },
             )
-        else:
-            rows = await database.fetch_all(
-                """
-                    SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed, episode
-                    FROM torrents
-                    WHERE media_id = :media_id
-                    AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
-                    AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-                """,
-                {
-                    "media_id": self.media_only_id,
-                    "season": self.season,
-                    "episode": self.episode,
-                },
-            )
+
+        return await database.fetch_all(
+            """
+                SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed, episode
+                FROM torrents
+                WHERE media_id = :media_id
+                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
+                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
+            """,
+            {
+                "media_id": media_id,
+                "season": self.search_season,
+                "episode": self.search_episode,
+            },
+        )
+
+    async def get_cached_torrents(self):
+        rows = []
+        for cache_media_id, cache_is_kitsu in self.cache_media_ids:
+            rows.extend(await self._fetch_cached_rows(cache_media_id, cache_is_kitsu))
 
         rows = sorted(rows, key=lambda r: (r["episode"] is not None, r["episode"]))
 
@@ -134,9 +147,16 @@ class TorrentManager:
             parsed_data = ParsedData(**orjson.loads(row["parsed"]))
             ensure_multi_language(parsed_data)
 
+            target_season = self.search_season if self.is_kitsu else self.season
+            if (
+                target_season is not None
+                and parsed_data.seasons
+                and target_season not in parsed_data.seasons
+            ):
+                continue
+
             if row["episode"] is None and parsed_data.episodes:
-                target_episode = self.search_episode if self.is_kitsu else self.episode
-                if target_episode not in parsed_data.episodes:
+                if self.search_episode not in parsed_data.episodes:
                     continue
 
             info_hash = row["info_hash"]
@@ -152,14 +172,18 @@ class TorrentManager:
 
     async def cache_torrents(self):
         for torrent in self.ready_to_cache:
-            if self.is_kitsu:
-                cache_seasons = [self.season]
-            else:
-                cache_seasons = (
-                    torrent["parsed"].seasons
-                    if torrent["parsed"].seasons
-                    else [self.season]
+            parsed_seasons = torrent["parsed"].seasons
+            if parsed_seasons:
+                cache_seasons = parsed_seasons
+            elif self.is_kitsu:
+                cache_season = (
+                    self.search_season
+                    if self.search_season is not None
+                    else self.season
                 )
+                cache_seasons = [cache_season]
+            else:
+                cache_seasons = [self.season]
 
             parsed_episodes = (
                 torrent["parsed"].episodes if torrent["parsed"].episodes else [None]
