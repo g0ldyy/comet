@@ -277,6 +277,7 @@ async def add_torrent(
     try:
         seasons_to_process = parsed.seasons if parsed.seasons else [search_season]
         parsed_episodes = parsed.episodes if parsed.episodes else [None]
+        insert_timestamp = time.time()
 
         episode_to_insert = parsed_episodes[0] if len(parsed_episodes) == 1 else None
 
@@ -294,7 +295,7 @@ async def add_torrent(
                     "tracker": tracker,
                     "sources": orjson.dumps(sources).decode("utf-8"),
                     "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-                    "timestamp": time.time(),
+                    "timestamp": insert_timestamp,
                 }
             )
 

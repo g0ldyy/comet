@@ -215,14 +215,15 @@ class ReputationStore:
     def from_dict(self, data: Dict) -> None:
         """Load the store from a dictionary."""
         self._blacklist = set(data.get("blacklist", []))
+        default_seen_time = time.time()
         for node_id, peer_data in data.get("peers", {}).items():
             peer = PeerReputation(
                 node_id=node_id,
                 reputation=peer_data.get(
                     "reputation", settings.COMETNET_REPUTATION_INITIAL
                 ),
-                first_seen=peer_data.get("first_seen", time.time()),
-                last_seen=peer_data.get("last_seen", time.time()),
+                first_seen=peer_data.get("first_seen", default_seen_time),
+                last_seen=peer_data.get("last_seen", default_seen_time),
                 valid_contributions=peer_data.get("valid_contributions", 0),
                 invalid_contributions=peer_data.get("invalid_contributions", 0),
                 is_blacklisted=peer_data.get("is_blacklisted", False),

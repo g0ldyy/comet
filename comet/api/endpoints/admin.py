@@ -167,6 +167,7 @@ async def admin_api_connections(
 
     bandwidth_metrics = bandwidth_monitor.get_all_active_connections()
     global_stats = bandwidth_monitor.get_global_stats()
+    current_time = time.time()
 
     connections = []
     for row in rows:
@@ -176,7 +177,7 @@ async def admin_api_connections(
             "ip": row["ip"],
             "content": row["content"],
             "timestamp": row["timestamp"],
-            "duration": time.time() - row["timestamp"],
+            "duration": current_time - row["timestamp"],
             "formatted_time": time.strftime(
                 "%Y-%m-%d %H:%M:%S", time.localtime(row["timestamp"])
             ),
