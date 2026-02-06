@@ -4,7 +4,7 @@ from comet.scrapers.models import ScrapeRequest
 from comet.services.anime import anime_mapper
 
 
-class SeadexScraper(BaseScraper):
+class SeaDexScraper(BaseScraper):
     BASE_URL = "https://releases.moe"
 
     async def scrape(self, request: ScrapeRequest):
@@ -30,9 +30,6 @@ class SeadexScraper(BaseScraper):
                     if not info_hash or info_hash == "<redacted>":
                         continue
 
-                    release_group = torrent.get("releaseGroup")
-                    tracker = f"SeaDex|{release_group}" if release_group else "SeaDex"
-
                     for idx, file in enumerate(torrent.get("files", [])):
                         torrents.append(
                             {
@@ -41,7 +38,7 @@ class SeadexScraper(BaseScraper):
                                 "fileIndex": idx,
                                 "seeders": None,
                                 "size": file["length"],
-                                "tracker": tracker,
+                                "tracker": "SeaDex",
                                 "sources": [],
                             }
                         )

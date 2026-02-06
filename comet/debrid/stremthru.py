@@ -390,7 +390,9 @@ class StremThru:
                             "index": f["index"],
                             "title": f["title"],
                             "size": f["size"],
-                            "season": f["season"] or season,
+                            "season": f["season"]
+                            if f["season"] is not None
+                            else season,
                             "episode": f["episode"],
                             "parsed": f["parsed"],
                         }

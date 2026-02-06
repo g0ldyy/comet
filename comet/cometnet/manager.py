@@ -1324,6 +1324,7 @@ class CometNetService(CometNetBackend):
             return
 
         valid_torrents = []
+        default_updated_at = time.time()
         for metadata in metadata_list:
             # Convert dict to TorrentMetadata if needed
             if isinstance(metadata, dict):
@@ -1340,7 +1341,7 @@ class CometNetService(CometNetBackend):
                         episode=metadata.get("episode"),
                         sources=metadata.get("sources") or [],
                         parsed=metadata.get("parsed"),
-                        updated_at=metadata.get("updated_at", time.time()),
+                        updated_at=metadata.get("updated_at", default_updated_at),
                     )
                 except Exception:
                     continue
