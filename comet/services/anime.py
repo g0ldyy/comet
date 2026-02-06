@@ -319,39 +319,41 @@ class AnimeMapper:
                 session = aiohttp.ClientSession()
 
             try:
-                logger.log(
-                    "COMET",
-                    "Downloading anime mapping (Source 1/3: Anime Offline Database)...",
-                )
-                async with session.get(self._aod_url) as response_aod:
-                    if response_aod.status != 200:
-                        logger.error(f"Failed to load AOD: HTTP {response_aod.status}")
-                        return False
-                    data_aod = orjson.loads(await response_aod.read())
 
-                logger.log(
-                    "COMET",
-                    "Downloading anime mapping (Source 2/3: Fribb Anime List)...",
-                )
-                async with session.get(self._fribb_url) as response_fribb:
-                    if response_fribb.status != 200:
-                        logger.error(
-                            f"Failed to load Fribb List: HTTP {response_fribb.status}"
-                        )
-                        return False
-                    data_fribb = orjson.loads(await response_fribb.read())
+                async def _download_json(url: str, label: str):
+                    logger.log("COMET", f"Downloading anime mapping ({label})...")
+                    async with session.get(url) as response:
+                        return response.status, await response.read()
 
-                logger.log(
-                    "COMET",
-                    "Downloading anime mapping (Source 3/3: Kitsu-IMDB Mapping)...",
+                (
+                    (aod_status, aod_payload),
+                    (fribb_status, fribb_payload),
+                    (kitsu_status, kitsu_payload),
+                ) = await asyncio.gather(
+                    _download_json(self._aod_url, "Source 1/3: Anime Offline Database"),
+                    _download_json(self._fribb_url, "Source 2/3: Fribb Anime List"),
+                    _download_json(
+                        self._kitsu_imdb_url, "Source 3/3: Kitsu-IMDB Mapping"
+                    ),
                 )
-                async with session.get(self._kitsu_imdb_url) as response_kitsu:
-                    if response_kitsu.status != 200:
-                        logger.warning(
-                            f"Failed to load Kitsu-IMDB mapping: HTTP {response_kitsu.status}"
-                        )
-                        return False
-                    data_kitsu_imdb = orjson.loads(await response_kitsu.read())
+
+                if aod_status != 200:
+                    logger.error(f"Failed to load AOD: HTTP {aod_status}")
+                    return False
+
+                if fribb_status != 200:
+                    logger.error(f"Failed to load Fribb List: HTTP {fribb_status}")
+                    return False
+
+                if kitsu_status != 200:
+                    logger.warning(
+                        f"Failed to load Kitsu-IMDB mapping: HTTP {kitsu_status}"
+                    )
+                    return False
+
+                data_aod = orjson.loads(aod_payload)
+                data_fribb = orjson.loads(fribb_payload)
+                data_kitsu_imdb = orjson.loads(kitsu_payload)
 
                 anime_list = data_aod.get("data", [])
                 total_entries = await self._persist_mapping(anime_list, data_fribb)
@@ -418,7 +420,10 @@ class AnimeMapper:
                 for idx, entry in enumerate(anime_list):
                     entry_id = idx + 1
                     entries_batch.append(
-                        {"id": entry_id, "data": orjson.dumps(entry).decode("utf-8")}
+                        {
+                            "id": entry_id,
+                            "data": orjson.dumps(entry).decode("utf-8"),
+                        }
                     )
 
                     sources = entry.get("sources")
