@@ -106,14 +106,17 @@ class CacheStateManager:
         Returns 1 if any fresh torrent exists, otherwise 0.
         If TTL is -1 (never expires), checks for any cached torrent.
         """
+        min_timestamp = None
+        if settings.LIVE_TORRENT_CACHE_TTL >= 0:
+            min_timestamp = time.time() - settings.LIVE_TORRENT_CACHE_TTL
+
         for cache_media_id in self.cache_media_ids:
             where_clause, params = build_torrent_cache_where(
                 cache_media_id, self.search_season, self.search_episode
             )
             base_query = "SELECT 1 " + where_clause
 
-            if settings.LIVE_TORRENT_CACHE_TTL >= 0:
-                min_timestamp = time.time() - settings.LIVE_TORRENT_CACHE_TTL
+            if min_timestamp is not None:
                 ttl_condition = " AND timestamp >= :min_timestamp"
                 params["min_timestamp"] = min_timestamp
                 query = base_query + ttl_condition
