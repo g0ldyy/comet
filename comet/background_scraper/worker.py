@@ -347,7 +347,9 @@ class BackgroundScraperWorker:
 
         for episode in episodes:
             season = episode["season"]
-            episode_number = episode.get("episode") or episode.get("number")
+            episode_number = episode.get("episode")
+            if episode_number is None:
+                episode_number = episode.get("number")
             episode_media_id = f"{media_id}:{season}:{episode_number}"
 
             manager = TorrentManager(

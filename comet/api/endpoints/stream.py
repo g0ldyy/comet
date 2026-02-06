@@ -88,8 +88,8 @@ async def background_scrape(
                 torrent_manager.torrents,
                 torrent_manager.media_id,
                 torrent_manager.media_only_id,
-                torrent_manager.season,
-                torrent_manager.episode,
+                torrent_manager.search_season,
+                torrent_manager.search_episode,
                 ip,
             )
 
@@ -581,10 +581,8 @@ async def stream(
             }
         )
 
-    result_season = search_season
-    result_episode = search_episode
-    result_season = result_season if result_season is not None else "n"
-    result_episode = result_episode if result_episode is not None else "n"
+    result_season = search_season if search_season is not None else "n"
+    result_episode = search_episode if search_episode is not None else "n"
 
     torrents = torrent_manager.torrents
     base_playback_host = (
