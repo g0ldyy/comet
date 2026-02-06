@@ -371,10 +371,11 @@ async def stream(
             kitsu_ids = anime_mapper.get_kitsu_ids_from_imdb(id)
             if kitsu_ids:
                 cache_media_ids.extend(kitsu_ids)
-            else:
-                kitsu_id = await anime_mapper.get_kitsu_from_imdb(id)
-                if kitsu_id:
-                    cache_media_ids.append(kitsu_id)
+
+            # always include the base IMDb-Kitsu link if present
+            kitsu_id = await anime_mapper.get_kitsu_from_imdb(id)
+            if kitsu_id and kitsu_id not in cache_media_ids:
+                cache_media_ids.append(kitsu_id)
 
     torrent_manager = TorrentManager(
         media_type,
