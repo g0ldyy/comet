@@ -342,9 +342,9 @@ async def stream(
         if kitsu_mapping:
             from_episode = kitsu_mapping.get("from_episode")
             from_season = kitsu_mapping.get("from_season")
-            if from_season and from_season != season:
+            if from_season is not None and from_season != season:
                 search_season = from_season
-            if episode is not None and from_episode:
+            if episode is not None and from_episode is not None:
                 new_episode = from_episode + episode - 1
                 if new_episode != episode:
                     search_episode = new_episode
