@@ -125,9 +125,15 @@ async def check_multi_service_availability(
 
         return service, cached_hashes
 
-    if debrid_entries:
+    unique_services = {}
+    for entry in debrid_entries:
+        if entry["service"] not in unique_services:
+            unique_services[entry["service"]] = entry
+
+    if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in debrid_entries], return_exceptions=True
+            *[check_service(e) for e in unique_services.values()],
+            return_exceptions=True,
         )
 
         for result in results:

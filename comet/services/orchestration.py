@@ -123,6 +123,16 @@ class TorrentManager:
             rows.extend(cache_rows)
 
         rows = sorted(rows, key=lambda r: (r["episode"] is not None, r["episode"]))
+        if rows:
+            seen_info_hashes = set()
+            deduped_rows = []
+            for row in rows:
+                info_hash = row["info_hash"]
+                if info_hash in seen_info_hashes:
+                    continue
+                seen_info_hashes.add(info_hash)
+                deduped_rows.append(row)
+            rows = list(deduped_rows)
 
         for row in rows:
             parsed_data = ParsedData(**orjson.loads(row["parsed"]))
