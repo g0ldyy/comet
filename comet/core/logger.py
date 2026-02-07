@@ -554,7 +554,7 @@ def log_startup_info(settings):
     )
 
     background_scraper_display = (
-        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN}"
+        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN} - Success TTL: {settings.BACKGROUND_SCRAPER_SUCCESS_TTL}s - Episode Refresh TTL: {settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL}s - Retry Backoff: {settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF}s..{settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF}s - Max Retries: {settings.BACKGROUND_SCRAPER_MAX_RETRIES} - Runtime Budget: {settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET}s - Demand Priority: {bool(settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY)} - Min Priority: {settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE} - Priority Decay: {settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS} - Defer Cooldown: {settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN}s"
         if settings.BACKGROUND_SCRAPER_ENABLED
         else ""
     )

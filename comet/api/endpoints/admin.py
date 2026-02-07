@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 import time
 import uuid
@@ -7,6 +8,7 @@ from fastapi import APIRouter, Cookie, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from comet.background_scraper.worker import background_scraper
 from comet.core.logger import log_capture
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
@@ -463,3 +465,121 @@ async def admin_api_metrics(
     )
 
     return JSONResponse(metrics_data)
+
+
+@router.get(
+    "/admin/api/background-scraper/status",
+    tags=["Admin"],
+    summary="Background Scraper Status",
+    description="Returns background scraper runtime status, queue stats, and latest run data.",
+)
+async def admin_background_scraper_status(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    return JSONResponse(await background_scraper.get_status())
+
+
+@router.get(
+    "/admin/api/background-scraper/runs",
+    tags=["Admin"],
+    summary="Background Scraper Runs",
+    description="Returns recent background scraper runs.",
+)
+async def admin_background_scraper_runs(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+    limit: int = 20,
+):
+    await require_admin_auth(admin_session)
+    safe_limit = max(1, min(limit, 200))
+    return JSONResponse(
+        {"runs": await background_scraper.get_recent_runs(limit=safe_limit)}
+    )
+
+
+@router.post(
+    "/admin/api/background-scraper/start",
+    tags=["Admin"],
+    summary="Start Background Scraper",
+    description="Starts the background scraper orchestrator.",
+)
+async def admin_background_scraper_start(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    background_scraper.clear_finished_task()
+    if not background_scraper.task:
+        background_scraper.task = asyncio.create_task(background_scraper.start())
+    return JSONResponse({"success": True, "message": "Background scraper starting"})
+
+
+@router.post(
+    "/admin/api/background-scraper/stop",
+    tags=["Admin"],
+    summary="Stop Background Scraper",
+    description="Stops the background scraper orchestrator.",
+)
+async def admin_background_scraper_stop(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    await background_scraper.stop()
+    return JSONResponse({"success": True, "message": "Background scraper stopped"})
+
+
+@router.post(
+    "/admin/api/background-scraper/pause",
+    tags=["Admin"],
+    summary="Pause Background Scraper",
+    description="Pauses the background scraper orchestrator.",
+)
+async def admin_background_scraper_pause(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    paused = await background_scraper.pause()
+    if not paused:
+        return JSONResponse(
+            {"success": False, "message": "Background scraper is not running"},
+            status_code=400,
+        )
+    return JSONResponse({"success": True, "message": "Background scraper paused"})
+
+
+@router.post(
+    "/admin/api/background-scraper/resume",
+    tags=["Admin"],
+    summary="Resume Background Scraper",
+    description="Resumes the background scraper orchestrator.",
+)
+async def admin_background_scraper_resume(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    resumed = await background_scraper.resume()
+    if not resumed:
+        return JSONResponse(
+            {"success": False, "message": "Background scraper is not running"},
+            status_code=400,
+        )
+    return JSONResponse({"success": True, "message": "Background scraper resumed"})
+
+
+@router.post(
+    "/admin/api/background-scraper/requeue-dead",
+    tags=["Admin"],
+    summary="Requeue Dead Background Scraper Entries",
+    description="Requeues dead background scraper media items and episodes for retry.",
+)
+async def admin_background_scraper_requeue_dead(
+    admin_session: str = Cookie(None, description="Admin session ID"),
+):
+    await require_admin_auth(admin_session)
+    requeued = await background_scraper.requeue_dead_items()
+    return JSONResponse(
+        {
+            "success": True,
+            "message": "Dead background scraper entries requeued",
+            "requeued": requeued,
+        }
+    )
