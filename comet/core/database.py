@@ -629,7 +629,7 @@ async def setup_database():
             """
             CREATE INDEX IF NOT EXISTS idx_bg_episodes_plan_window
             ON background_scraper_episodes
-            (series_id, next_retry_at, last_success_at, status, consecutive_failures, season, episode)
+            (series_id, season, episode, next_retry_at, last_success_at, status, consecutive_failures)
             """
         )
 

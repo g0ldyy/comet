@@ -77,9 +77,10 @@ async def lifespan(app: FastAPI):
     cleanup_sessions_task = asyncio.create_task(cleanup_expired_sessions())
 
     # Start background scraper if enabled
-    background_scraper_task = None
     if settings.BACKGROUND_SCRAPER_ENABLED:
-        background_scraper_task = asyncio.create_task(background_scraper.start())
+        background_scraper.clear_finished_task()
+        if not background_scraper.task:
+            background_scraper.task = asyncio.create_task(background_scraper.start())
 
     # Start DMM Ingester if enabled
     dmm_ingester_task = None
@@ -125,12 +126,6 @@ async def lifespan(app: FastAPI):
         await indexer_manager.close()
 
         await background_scraper.stop()
-        if background_scraper_task:
-            background_scraper_task.cancel()
-            try:
-                await background_scraper_task
-            except asyncio.CancelledError:
-                pass
 
         if dmm_ingester_task:
             await dmm_ingester.stop()

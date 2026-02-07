@@ -507,7 +507,9 @@ async def admin_background_scraper_start(
     admin_session: str = Cookie(None, description="Admin session ID"),
 ):
     await require_admin_auth(admin_session)
-    asyncio.create_task(background_scraper.start())
+    background_scraper.clear_finished_task()
+    if not background_scraper.task:
+        background_scraper.task = asyncio.create_task(background_scraper.start())
     return JSONResponse({"success": True, "message": "Background scraper starting"})
 
 

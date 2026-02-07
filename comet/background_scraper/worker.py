@@ -49,7 +49,23 @@ class BackgroundScraperWorker:
         self.semaphore = None
         self.stats = ScrapingStats()
         self.metadata_scraper = None
+        self.task: asyncio.Task | None = None
         self._active_scrape_task = None
+
+    def clear_finished_task(self):
+        if not self.task or not self.task.done():
+            return
+
+        if not self.task.cancelled():
+            try:
+                error = self.task.exception()
+                if error:
+                    self.last_error = str(error)
+                    logger.error(f"Background scraper task failed: {error}")
+            except Exception as e:
+                self.last_error = str(e)
+                logger.error(f"Background scraper task failed: {e}")
+        self.task = None
 
     async def start(self):
         if self.is_running:
@@ -71,6 +87,20 @@ class BackgroundScraperWorker:
                 await self._active_scrape_task
             except asyncio.CancelledError:
                 pass
+
+        task = self.task
+        current_task = asyncio.current_task()
+        if task and task is not current_task:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self.last_error = str(e)
+                logger.error(f"Background scraper task stopped with error: {e}")
+        self.task = None
 
     async def pause(self):
         if not self.is_running:
