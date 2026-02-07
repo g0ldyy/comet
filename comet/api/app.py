@@ -32,6 +32,7 @@ from comet.services.torrent_manager import (add_torrent_queue,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
 from comet.utils.http_client import http_client_manager
+from comet.utils.network_manager import network_manager
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -123,8 +124,8 @@ async def lifespan(app: FastAPI):
             pass
         await indexer_manager.close()
 
+        await background_scraper.stop()
         if background_scraper_task:
-            await background_scraper.stop()
             background_scraper_task.cancel()
             try:
                 await background_scraper_task
@@ -162,6 +163,7 @@ async def lifespan(app: FastAPI):
         await add_torrent_queue.stop()
         await torrent_update_queue.stop()
 
+        await network_manager.close_all()
         await http_client_manager.close()
 
         await teardown_database()

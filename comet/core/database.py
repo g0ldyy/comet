@@ -311,17 +311,67 @@ async def setup_database():
 
         await database.execute(
             """
-                CREATE TABLE IF NOT EXISTS background_scraper_state (
+                CREATE TABLE IF NOT EXISTS background_scraper_items (
                     media_id TEXT PRIMARY KEY,
-                    media_type TEXT,
+                    media_type TEXT NOT NULL,
                     title TEXT,
                     year INTEGER,
-                    scraped_at INTEGER,
-                    total_torrents_found INTEGER,
-                    scrape_failed_attempts INTEGER
+                    year_end INTEGER,
+                    priority_score REAL DEFAULT 0,
+                    status TEXT DEFAULT 'discovered',
+                    source TEXT,
+                    consecutive_failures INTEGER DEFAULT 0,
+                    last_scraped_at REAL,
+                    last_success_at REAL,
+                    last_failure_at REAL,
+                    next_retry_at REAL,
+                    total_torrents_found INTEGER DEFAULT 0,
+                    created_at REAL,
+                    updated_at REAL
                 )
             """
         )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS background_scraper_episodes (
+                    episode_media_id TEXT PRIMARY KEY,
+                    series_id TEXT NOT NULL,
+                    season INTEGER,
+                    episode INTEGER,
+                    status TEXT DEFAULT 'discovered',
+                    consecutive_failures INTEGER DEFAULT 0,
+                    last_scraped_at REAL,
+                    last_success_at REAL,
+                    last_failure_at REAL,
+                    next_retry_at REAL,
+                    total_torrents_found INTEGER DEFAULT 0,
+                    created_at REAL,
+                    updated_at REAL
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS background_scraper_runs (
+                    run_id TEXT PRIMARY KEY,
+                    started_at REAL,
+                    finished_at REAL,
+                    status TEXT,
+                    processed INTEGER DEFAULT 0,
+                    success INTEGER DEFAULT 0,
+                    failed INTEGER DEFAULT 0,
+                    torrents_found INTEGER DEFAULT 0,
+                    duration_ms INTEGER DEFAULT 0,
+                    worker_count INTEGER DEFAULT 0,
+                    config_snapshot TEXT,
+                    last_error TEXT
+                )
+            """
+        )
+
+        await database.execute("DROP TABLE IF EXISTS background_scraper_state")
 
         await database.execute(
             """
@@ -546,31 +596,54 @@ async def setup_database():
             """
         )
 
-        # =============================================================================
-        # BACKGROUND_SCRAPER_STATE TABLE INDEXES
-        # =============================================================================
-
-        # Media type filtering for scraper analytics
         await database.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_scraper_state_media_type 
-            ON background_scraper_state (media_type, scraped_at)
+            CREATE INDEX IF NOT EXISTS idx_bg_items_media_retry_priority
+            ON background_scraper_items (media_type, next_retry_at, priority_score, last_scraped_at)
             """
         )
 
-        # Scraping timestamp for progress tracking
         await database.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_scraper_state_scraped_at 
-            ON background_scraper_state (scraped_at)
+            CREATE INDEX IF NOT EXISTS idx_bg_items_status
+            ON background_scraper_items (status, updated_at)
             """
         )
 
-        # Failed attempts monitoring
         await database.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_scraper_state_failures 
-            ON background_scraper_state (scrape_failed_attempts, scraped_at)
+            CREATE INDEX IF NOT EXISTS idx_bg_items_plan_window
+            ON background_scraper_items
+            (media_type, next_retry_at, last_success_at, status, consecutive_failures, priority_score DESC, last_scraped_at)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_bg_episodes_series_retry
+            ON background_scraper_episodes (series_id, next_retry_at, season, episode)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_bg_episodes_plan_window
+            ON background_scraper_episodes
+            (series_id, next_retry_at, last_success_at, status, consecutive_failures, season, episode)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_bg_runs_started
+            ON background_scraper_runs (started_at, status)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_bg_runs_status
+            ON background_scraper_runs (status)
             """
         )
 
@@ -712,6 +785,18 @@ async def _run_startup_cleanup():
             )
 
             await database.execute("DELETE FROM download_links_cache")
+
+            run_retention_days = settings.BACKGROUND_SCRAPER_RUN_RETENTION_DAYS
+            if run_retention_days > 0:
+                await database.execute(
+                    """
+                    DELETE FROM background_scraper_runs
+                    WHERE started_at < :min_timestamp
+                    """,
+                    {
+                        "min_timestamp": current_time - (run_retention_days * 86400),
+                    },
+                )
 
             await database.execute(
                 """
