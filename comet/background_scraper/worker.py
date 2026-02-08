@@ -67,6 +67,16 @@ class BackgroundScraperWorker:
                 logger.error(f"Background scraper task failed: {e}")
         self.task = None
 
+    async def _cancel_task(self, task: asyncio.Task | None):
+        if not task or task.done():
+            return
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     async def start(self):
         if self.is_running:
             logger.log("BACKGROUND_SCRAPER", "Background scraper is already running")
@@ -81,12 +91,8 @@ class BackgroundScraperWorker:
         self.is_paused = False
         self.pause_event.set()
 
-        if self._active_scrape_task and not self._active_scrape_task.done():
-            self._active_scrape_task.cancel()
-            try:
-                await self._active_scrape_task
-            except asyncio.CancelledError:
-                pass
+        await self._cancel_task(self._active_scrape_task)
+        self._active_scrape_task = None
 
         task = self.task
         current_task = asyncio.current_task()
@@ -322,6 +328,8 @@ class BackgroundScraperWorker:
             try:
                 lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
                 if await lock.acquire(wait_timeout=None):
+                    lock_task = None
+                    scrape_task = None
                     try:
                         lock_task = asyncio.create_task(self._maintain_lock(lock))
                         scrape_task = asyncio.create_task(self._run_scraping_cycle())
@@ -336,21 +344,12 @@ class BackgroundScraperWorker:
                             logger.warning(
                                 "BACKGROUND_SCRAPER: Lock lost during processing, aborting active cycle",
                             )
-                            scrape_task.cancel()
-                            try:
-                                await scrape_task
-                            except asyncio.CancelledError:
-                                pass
                         else:
-                            lock_task.cancel()
-                            try:
-                                await lock_task
-                            except asyncio.CancelledError:
-                                pass
-
                             if scrape_task.exception():
                                 raise scrape_task.exception()
                     finally:
+                        await self._cancel_task(lock_task)
+                        await self._cancel_task(scrape_task)
                         await lock.release()
                         self._active_scrape_task = None
                 else:

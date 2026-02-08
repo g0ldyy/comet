@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from comet.background_scraper.worker import background_scraper
-from comet.core.logger import log_capture
+from comet.core.logger import log_capture, logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.utils.formatting import format_bytes
@@ -17,6 +17,28 @@ from comet.utils.update import UpdateManager
 
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
+background_scraper_start_lock = asyncio.Lock()
+
+
+def _handle_background_scraper_task_done(task: asyncio.Task):
+    if task.cancelled():
+        return
+
+    try:
+        error = task.exception()
+    except asyncio.CancelledError:
+        return
+    except Exception as e:
+        background_scraper.last_error = str(e)
+        logger.error(f"Background scraper task completion handling failed: {e}")
+        return
+
+    if error:
+        background_scraper.last_error = str(error)
+        logger.error(f"Background scraper task failed: {error}")
+
+    if background_scraper.task is task:
+        background_scraper.task = None
 
 
 async def create_admin_session():
@@ -513,9 +535,12 @@ async def admin_background_scraper_start(
     admin_session: str = Cookie(None, description="Admin session ID"),
 ):
     await require_admin_auth(admin_session)
-    background_scraper.clear_finished_task()
-    if not background_scraper.task:
-        background_scraper.task = asyncio.create_task(background_scraper.start())
+    async with background_scraper_start_lock:
+        background_scraper.clear_finished_task()
+        if not background_scraper.task:
+            task = asyncio.create_task(background_scraper.start())
+            task.add_done_callback(_handle_background_scraper_task_done)
+            background_scraper.task = task
     return JSONResponse({"success": True, "message": "Background scraper starting"})
 
 

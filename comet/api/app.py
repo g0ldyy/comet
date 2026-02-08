@@ -125,7 +125,8 @@ async def lifespan(app: FastAPI):
             pass
         await indexer_manager.close()
 
-        await background_scraper.stop()
+        if background_scraper.task:
+            await background_scraper.stop()
 
         if dmm_ingester_task:
             await dmm_ingester.stop()
