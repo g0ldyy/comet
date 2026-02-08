@@ -61,6 +61,58 @@ def _build_stream_response(
     )
 
 
+def _select_info_hashes_by_resolution(
+    ranked_info_hashes,
+    torrents: dict,
+    service_cache_status: dict,
+    max_results: int,
+    cached_only: bool,
+    prioritize_cached: bool,
+):
+    if max_results <= 0:
+        return None
+
+    per_resolution_count = defaultdict(int)
+    selected_info_hashes = []
+
+    def try_select(info_hash: str):
+        resolution = str(torrents[info_hash]["parsed"].resolution)
+        if per_resolution_count[resolution] >= max_results:
+            return
+        selected_info_hashes.append(info_hash)
+        per_resolution_count[resolution] += 1
+
+    is_cached_by_hash = {}
+    if prioritize_cached or cached_only:
+        is_cached_by_hash = {
+            info_hash: any(service_cache_status.get(info_hash, {}).values())
+            for info_hash in ranked_info_hashes
+        }
+
+    if prioritize_cached:
+        for info_hash in ranked_info_hashes:
+            if not is_cached_by_hash[info_hash]:
+                continue
+            try_select(info_hash)
+
+        if cached_only:
+            return selected_info_hashes
+
+        for info_hash in ranked_info_hashes:
+            if is_cached_by_hash[info_hash]:
+                continue
+            try_select(info_hash)
+
+        return selected_info_hashes
+
+    for info_hash in ranked_info_hashes:
+        if cached_only and not is_cached_by_hash[info_hash]:
+            continue
+        try_select(info_hash)
+
+    return selected_info_hashes
+
+
 async def background_scrape(
     torrent_manager: TorrentManager,
     media_id: str,
@@ -565,7 +617,7 @@ async def stream(
     await torrent_manager.rank_torrents(
         config["rtnSettings"],
         config["rtnRanking"],
-        config["maxResultsPerResolution"],
+        0,
         config["maxSize"],
         config["removeTrash"],
     )
@@ -596,10 +648,25 @@ async def stream(
         if settings.PUBLIC_BASE_URL
         else f"{request.url.scheme}://{request.url.netloc}"
     )
+    selected_info_hashes = _select_info_hashes_by_resolution(
+        ranked_info_hashes=torrent_manager.ranked_torrents,
+        torrents=torrents,
+        service_cache_status=service_cache_status,
+        max_results=config["maxResultsPerResolution"],
+        cached_only=bool(
+            config["cachedOnly"] and debrid_entries and not enable_torrent
+        ),
+        prioritize_cached=bool(debrid_entries and not sort_mixed),
+    )
+    ranked_info_hashes = (
+        selected_info_hashes
+        if selected_info_hashes is not None
+        else torrent_manager.ranked_torrents
+    )
 
     added_hashes = set()
 
-    for info_hash in torrent_manager.ranked_torrents:
+    for info_hash in ranked_info_hashes:
         torrent = torrents[info_hash]
         rtn_data = torrent["parsed"]
         torrent_title = torrent["title"]
