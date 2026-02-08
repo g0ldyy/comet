@@ -126,7 +126,13 @@ async def admin_dashboard(
         await require_admin_auth(admin_session)
         return templates.TemplateResponse(
             "admin_dashboard.html",
-            {"request": request, "version_info": UpdateManager.get_version_info()},
+            {
+                "request": request,
+                "version_info": UpdateManager.get_version_info(),
+                "background_scraper_interval": max(
+                    1, settings.BACKGROUND_SCRAPER_INTERVAL
+                ),
+            },
         )
     except HTTPException:
         return RedirectResponse("/admin", status_code=303)

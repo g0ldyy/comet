@@ -752,6 +752,11 @@
         color: #9ca3af;
       }
 
+      .bg-next-cycle {
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        color: #9ca3af;
+      }
+
       .bg-scraper-stats-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -1446,9 +1451,16 @@
                           variant="success"
                           >Healthy</sl-badge
                         >
-                        <span class="bg-run-id" id="bg-scraper-current-run"
-                          >Run: -</span
-                        >
+                        <span
+                          class="bg-run-id"
+                          id="bg-scraper-current-run"
+                          style="display: none"
+                        ></span>
+                        <span
+                          class="bg-next-cycle"
+                          id="bg-scraper-next-cycle"
+                          style="display: none"
+                        ></span>
                       </div>
                     </div>
 
@@ -2115,6 +2127,12 @@
       let cometnetInterval = null;
       let metricsInterval = null;
       let backgroundScraperInterval = null;
+      let backgroundScraperNextCycleTicker = null;
+      let backgroundScraperNextCycleState = "stopped";
+      let backgroundScraperNextCycleTargetTs = null;
+      const backgroundScraperCycleIntervalSeconds = Number(
+        {{ background_scraper_interval }}
+      );
       let lastLogTimestamp = 0;
       let currentTab = "connections"; // Track current active tab
 
@@ -2128,6 +2146,8 @@
 
       function initializeDashboard() {
         loadConnections();
+        ensureBackgroundScraperNextCycleTicker();
+        renderBackgroundScraperNextCycle();
 
         setupAutoRefreshForTab("connections");
 
@@ -2165,6 +2185,55 @@
             renderPoolsList();
           });
         }
+      }
+
+      function ensureBackgroundScraperNextCycleTicker() {
+        if (backgroundScraperNextCycleTicker) {
+          return;
+        }
+
+        backgroundScraperNextCycleTicker = setInterval(
+          renderBackgroundScraperNextCycle,
+          1000,
+        );
+      }
+
+      function renderBackgroundScraperNextCycle() {
+        const nextCycleEl = document.getElementById("bg-scraper-next-cycle");
+        if (!nextCycleEl) {
+          return;
+        }
+
+        if (backgroundScraperNextCycleState !== "scheduled") {
+          nextCycleEl.textContent = "";
+          nextCycleEl.style.display = "none";
+          return;
+        }
+
+        if (
+          !backgroundScraperNextCycleTargetTs ||
+          backgroundScraperCycleIntervalSeconds <= 0
+        ) {
+          nextCycleEl.textContent = "";
+          nextCycleEl.style.display = "none";
+          return;
+        }
+
+        const now = Date.now() / 1000;
+        while (
+          backgroundScraperNextCycleTargetTs <= now &&
+          backgroundScraperCycleIntervalSeconds > 0
+        ) {
+          backgroundScraperNextCycleTargetTs +=
+            backgroundScraperCycleIntervalSeconds;
+        }
+
+        const remainingSeconds = Math.max(
+          0,
+          Math.ceil(backgroundScraperNextCycleTargetTs - now),
+        );
+        nextCycleEl.textContent = `Next: ${formatDurationSeconds(remainingSeconds)}`;
+        nextCycleEl.style.display = "";
       }
 
       function stopAllIntervals() {
@@ -2831,11 +2900,11 @@
                         ${roleBadge}
                     </div>
                 </div>
-                
+
                 <div class="pool-description" title="${escapeHtml(pool.description)}">
                     ${pool.description ? escapeHtml(pool.description) : '<span style="color: #666; font-style: italic">No description</span>'}
                 </div>
-                
+
                 <div class="pool-stats-row">
                     <div class="pool-stat">
                         <span class="pool-stat-val">${pool.members.length}</span>
@@ -2850,12 +2919,12 @@
                         <span class="pool-stat-lbl">Revision</span>
                     </div>
                 </div>
-                
+
                 <div class="pool-actions">
                      <sl-button size="small" variant="neutral" outline onclick="openPoolMembersDialog('${pool.pool_id}')">
                         <sl-icon slot="prefix" name="people"></sl-icon> Members
                      </sl-button>
-                     
+
                      ${
                        isAdmin
                          ? `<sl-button size="small" variant="neutral" outline onclick="createPoolInvite('${pool.pool_id}')">
@@ -2863,7 +2932,7 @@
                          </sl-button>`
                          : ""
                      }
-                         
+
                      ${
                        pool.isMember && !isCreator
                          ? `<sl-button size="small" variant="warning" outline onclick="leavePool('${pool.pool_id}')">
@@ -2871,7 +2940,7 @@
                          </sl-button>`
                          : ""
                      }
-                         
+
                      ${
                        isCreator
                          ? `<sl-button size="small" variant="danger" outline onclick="deletePool('${pool.pool_id}')">
@@ -2879,7 +2948,7 @@
                          </sl-button>`
                          : ""
                      }
-                         
+
                      ${
                        !pool.isSubscribed
                          ? `<sl-button size="small" variant="success" onclick="subscribePool('${pool.pool_id}')">
@@ -3772,8 +3841,14 @@
         document.getElementById("bg-stats-torrents").textContent = (
           stats.torrents_found || 0
         ).toLocaleString();
+        const orchestratorRunning = Boolean(status.running);
+        const cycleRunning = Boolean(status.current_run_id);
+        const latestRunStatus = String(latestRun.status || "").toLowerCase();
+        const latestRunFinishedAt = Number(latestRun.finished_at || 0);
+        const latestRunStartedAt = Number(latestRun.started_at || 0);
+
         document.getElementById("bg-stats-duration").textContent =
-          formatDurationSeconds(stats.duration_s || 0);
+          formatDurationSeconds(cycleRunning ? stats.duration_s || 0 : 0);
 
         const badge = document.getElementById("bg-scraper-running-badge");
         const startBtn = document.getElementById("bg-action-start");
@@ -3785,31 +3860,71 @@
         );
         const healthBadge = document.getElementById("bg-scraper-health-badge");
 
-        if (status.running && status.paused) {
+        if (orchestratorRunning && status.paused) {
           badge.variant = "warning";
           badge.textContent = "Paused";
-        } else if (status.running) {
+        } else if (cycleRunning) {
           badge.variant = "success";
           badge.textContent = "Running";
+        } else if (orchestratorRunning) {
+          if (latestRunStatus === "completed" || latestRunStatus === "success") {
+            badge.variant = "neutral";
+            badge.textContent = "Completed";
+          } else if (
+            latestRunStatus === "failed" ||
+            latestRunStatus === "dead" ||
+            latestRunStatus === "cancelled"
+          ) {
+            badge.variant = "danger";
+            badge.textContent =
+              latestRunStatus.charAt(0).toUpperCase() + latestRunStatus.slice(1);
+          } else {
+            badge.variant = "neutral";
+            badge.textContent = "Idle";
+          }
         } else {
           badge.variant = "neutral";
           badge.textContent = "Stopped";
         }
 
-        if (startBtn) startBtn.disabled = Boolean(status.running);
+        if (startBtn) startBtn.disabled = orchestratorRunning;
         if (pauseBtn)
           pauseBtn.disabled =
-            !Boolean(status.running) || Boolean(status.paused);
+            !orchestratorRunning || Boolean(status.paused);
         if (resumeBtn)
           resumeBtn.disabled =
-            !Boolean(status.running) || !Boolean(status.paused);
-        if (stopBtn) stopBtn.disabled = !Boolean(status.running);
+            !orchestratorRunning || !Boolean(status.paused);
+        if (stopBtn) stopBtn.disabled = !orchestratorRunning;
         if (requeueDeadBtn)
           requeueDeadBtn.disabled = !(
             Number(dead.movies || 0) > 0 ||
             Number(dead.series || 0) > 0 ||
             Number(dead.episodes || 0) > 0
           );
+
+        if (!orchestratorRunning) {
+          backgroundScraperNextCycleState = "stopped";
+          backgroundScraperNextCycleTargetTs = null;
+        } else if (Boolean(status.paused)) {
+          backgroundScraperNextCycleState = "paused";
+          backgroundScraperNextCycleTargetTs = null;
+        } else if (cycleRunning) {
+          backgroundScraperNextCycleState = "running";
+          backgroundScraperNextCycleTargetTs = null;
+        } else {
+          const nextBaseTs =
+            latestRunFinishedAt > 0 ? latestRunFinishedAt : latestRunStartedAt;
+
+          if (nextBaseTs > 0 && backgroundScraperCycleIntervalSeconds > 0) {
+            backgroundScraperNextCycleState = "scheduled";
+            backgroundScraperNextCycleTargetTs =
+              nextBaseTs + backgroundScraperCycleIntervalSeconds;
+          } else {
+            backgroundScraperNextCycleState = "idle";
+            backgroundScraperNextCycleTargetTs = null;
+          }
+        }
+        renderBackgroundScraperNextCycle();
 
         if (healthBadge) {
           if ((health.status || "").toLowerCase() === "degraded") {
@@ -3823,9 +3938,16 @@
           healthBadge.title = reasons.length ? reasons.join(", ") : "";
         }
 
-        const runId = status.current_run_id || latestRun.run_id || "-";
-        document.getElementById("bg-scraper-current-run").textContent =
-          `Run: ${runId}`;
+        const runIdEl = document.getElementById("bg-scraper-current-run");
+        if (runIdEl) {
+          if (status.current_run_id) {
+            runIdEl.textContent = `Run: ${status.current_run_id}`;
+            runIdEl.style.display = "";
+          } else {
+            runIdEl.textContent = "";
+            runIdEl.style.display = "none";
+          }
+        }
 
         document.getElementById("background-queue-overview").textContent = (
           (queue.movies || 0) +
