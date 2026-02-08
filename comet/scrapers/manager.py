@@ -13,6 +13,13 @@ from comet.services.anime import anime_mapper
 from comet.utils.network_manager import network_manager
 from comet.utils.parsing import associate_urls_credentials
 
+ANIME_ONLY_SETTING_BY_SCRAPER = {
+    "NyaaScraper": "NYAA_ANIME_ONLY",
+    "AnimeToshoScraper": "ANIMETOSHO_ANIME_ONLY",
+    "SeaDexScraper": "SEADEX_ANIME_ONLY",
+    "NekoBTScraper": "NEKOBT_ANIME_ONLY",
+}
+
 
 class ScraperManager:
     def __init__(self):
@@ -52,6 +59,7 @@ class ScraperManager:
 
     async def scrape_all(self, request: ScrapeRequest):
         tasks = []
+        is_anime_content = None
         for scraper_name, scraper_class in self.scrapers.items():
             # Determine if scraper should be enabled
             # Convention: Scraper class name "NyaaScraper" -> settings.SCRAPE_NYAA
@@ -67,41 +75,14 @@ class ScraperManager:
             else:
                 continue
 
-            if (
-                scraper_name == "NyaaScraper"
-                and settings.NYAA_ANIME_ONLY
-                and not anime_mapper.is_anime_content(
-                    request.media_id, request.media_only_id
-                )
-            ):
-                continue
-
-            if (
-                scraper_name == "AnimeToshoScraper"
-                and settings.ANIMETOSHO_ANIME_ONLY
-                and not anime_mapper.is_anime_content(
-                    request.media_id, request.media_only_id
-                )
-            ):
-                continue
-
-            if (
-                scraper_name == "SeadexScraper"
-                and settings.SEADEX_ANIME_ONLY
-                and not anime_mapper.is_anime_content(
-                    request.media_id, request.media_only_id
-                )
-            ):
-                continue
-
-            if (
-                scraper_name == "NekoBTScraper"
-                and settings.NEKOBT_ANIME_ONLY
-                and not anime_mapper.is_anime_content(
-                    request.media_id, request.media_only_id
-                )
-            ):
-                continue
+            anime_only_setting = ANIME_ONLY_SETTING_BY_SCRAPER.get(scraper_name)
+            if anime_only_setting and getattr(settings, anime_only_setting, False):
+                if is_anime_content is None:
+                    is_anime_content = anime_mapper.is_anime_content(
+                        request.media_id, request.media_only_id
+                    )
+                if not is_anime_content:
+                    continue
 
             # Get client wrapper
             client = network_manager.get_client(

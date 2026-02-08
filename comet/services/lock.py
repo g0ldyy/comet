@@ -26,11 +26,12 @@ class DistributedLock:
 
     async def acquire(self, wait_timeout: int = None):
         start_time = time.time()
-        expires_at = int(time.time() + self.timeout)
 
         while True:
             try:
                 await self._cleanup_expired_locks()
+                loop_time = time.time()
+                expires_at = int(loop_time + self.timeout)
 
                 # If already acquired, refresh the lock
                 if self.acquired:
@@ -38,7 +39,7 @@ class DistributedLock:
                     params = {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": time.time(),
+                        "timestamp": loop_time,
                         "expires_at": expires_at,
                     }
 
@@ -63,7 +64,7 @@ class DistributedLock:
                     {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": time.time(),
+                        "timestamp": loop_time,
                         "expires_at": expires_at,
                     },
                 )
@@ -89,7 +90,7 @@ class DistributedLock:
                     return False
 
                 # Check if wait timeout is exceeded
-                if wait_timeout > 0 and (time.time() - start_time) >= wait_timeout:
+                if wait_timeout > 0 and (loop_time - start_time) >= wait_timeout:
                     logger.log(
                         "LOCK", f"⏰ Lock acquisition timeout for {self.lock_key}"
                     )

@@ -201,6 +201,7 @@ class DMMIngester:
         chunk_size = 500
         for i in range(0, len(entries), chunk_size):
             chunk = entries[i : i + chunk_size]
+            chunk_timestamp = int(time.time())
 
             values = []
             for entry in chunk:
@@ -211,7 +212,7 @@ class DMMIngester:
                         "size": entry["size"],
                         "parsed_title": entry["parsed_title"],
                         "parsed_year": entry["parsed_year"],
-                        "created_at": int(time.time()),
+                        "created_at": chunk_timestamp,
                     }
                 )
 
