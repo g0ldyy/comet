@@ -164,7 +164,10 @@ class PublicKeyStore:
         default_seen_time = time.time()
 
         # Sort by last_seen to preserve LRU order when reloading
-        sorted_items = sorted(keys_data.items(), key=lambda x: x[1].get("last_seen", 0))
+        sorted_items = sorted(
+            keys_data.items(),
+            key=lambda x: x[1].get("last_seen", default_seen_time),
+        )
 
         for node_id, key_info in sorted_items:
             self._keys[node_id] = PeerKey(
