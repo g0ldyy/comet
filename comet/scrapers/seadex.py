@@ -44,6 +44,6 @@ class SeaDexScraper(BaseScraper):
                         )
 
         except Exception as e:
-            log_scraper_error("Seadex", self.BASE_URL, request.media_id, e)
+            log_scraper_error("SeaDex", self.BASE_URL, request.media_id, e)
 
         return torrents

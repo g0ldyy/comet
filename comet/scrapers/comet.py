@@ -40,7 +40,9 @@ class CometScraper(BaseScraper):
                         "fileIndex": torrent.get("fileIdx", None),
                         "seeders": seeders,
                         "size": torrent["behaviorHints"]["videoSize"],
-                        "tracker": f"Comet|{tracker}" if tracker is not None else "Comet",
+                        "tracker": f"Comet|{tracker}"
+                        if tracker is not None
+                        else "Comet",
                         "sources": torrent.get("sources", []),
                     }
                 )
