@@ -2220,12 +2220,17 @@
         }
 
         const now = Date.now() / 1000;
-        while (
-          backgroundScraperNextCycleTargetTs <= now &&
+        if (
+          now > backgroundScraperNextCycleTargetTs &&
           backgroundScraperCycleIntervalSeconds > 0
         ) {
+          const missedCycles =
+            Math.floor(
+              (now - backgroundScraperNextCycleTargetTs) /
+                backgroundScraperCycleIntervalSeconds,
+            ) + 1;
           backgroundScraperNextCycleTargetTs +=
-            backgroundScraperCycleIntervalSeconds;
+            missedCycles * backgroundScraperCycleIntervalSeconds;
         }
 
         const remainingSeconds = Math.max(
