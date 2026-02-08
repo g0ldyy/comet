@@ -419,6 +419,7 @@ class DiscoveryService:
     async def from_dict(self, data: Dict) -> None:
         """Load known peers from persisted data."""
         peers_data = data.get("known_peers", [])
+        default_last_seen = time.time()
         loaded_count = 0
         for peer_info in peers_data:
             address = peer_info.get("address", "")
@@ -433,7 +434,7 @@ class DiscoveryService:
                 node_id=peer_info.get("node_id", ""),
                 address=address,
                 source=peer_info.get("source", "pex"),
-                last_seen=peer_info.get("last_seen", time.time()),
+                last_seen=peer_info.get("last_seen", default_last_seen),
             )
             if peer_info.get("node_id"):
                 self._node_id_to_address[peer_info["node_id"]] = address

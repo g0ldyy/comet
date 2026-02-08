@@ -47,6 +47,7 @@ class AnimeMapper:
 
         self.anime_imdb_ids = set()
         self._kitsu_mapping_cache = {}
+        self._imdb_kitsu_mapping_cache = {}
 
         self._aod_url = "https://github.com/manami-project/anime-offline-database/releases/latest/download/anime-offline-database-minified.json"
         self._fribb_url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
@@ -147,7 +148,7 @@ class AnimeMapper:
         if not self.loaded:
             return None
 
-        val = await database.fetch_val(
+        imdb_id = await database.fetch_val(
             """
             SELECT i2.provider_id
             FROM anime_ids i1
@@ -159,7 +160,43 @@ class AnimeMapper:
             {"kitsu_id": str(kitsu_id)},
         )
 
-        return val
+        if imdb_id:
+            return imdb_id
+
+        mapping = self._kitsu_mapping_cache.get(str(kitsu_id))
+        if mapping:
+            return mapping.get("imdb_id")
+
+        return None
+
+    async def get_kitsu_from_imdb(self, imdb_id: str | int):
+        if not self.loaded:
+            return None
+
+        kitsu_id = await database.fetch_val(
+            """
+            SELECT i2.provider_id
+            FROM anime_ids i1
+            JOIN anime_ids i2 ON i1.entry_id = i2.entry_id
+            WHERE i1.provider = 'imdb' AND i1.provider_id = :imdb_id
+            AND i2.provider = 'kitsu'
+            LIMIT 1
+            """,
+            {"imdb_id": str(imdb_id)},
+        )
+
+        if kitsu_id:
+            return kitsu_id
+
+        kitsu_ids = self._imdb_kitsu_mapping_cache.get(str(imdb_id)) or []
+        return kitsu_ids[0] if kitsu_ids else None
+
+    def get_kitsu_ids_from_imdb(self, imdb_id: str | int) -> list[str]:
+        if not self.loaded:
+            return []
+
+        kitsu_ids = self._imdb_kitsu_mapping_cache.get(str(imdb_id))
+        return list(kitsu_ids) if kitsu_ids else []
 
     async def get_anilist_id(self, media_id: str):
         if not self.loaded:
@@ -248,14 +285,21 @@ class AnimeMapper:
             )
 
             self._kitsu_mapping_cache.clear()
+            self._imdb_kitsu_mapping_cache.clear()
+
             for row in rows:
                 kitsu_id = row["kitsu_id"]
+                imdb_id = row["imdb_id"]
 
                 self._kitsu_mapping_cache[str(kitsu_id)] = {
-                    "imdb_id": row["imdb_id"],
+                    "imdb_id": imdb_id,
                     "from_season": row["from_season"],
                     "from_episode": row["from_episode"],
                 }
+
+                self._imdb_kitsu_mapping_cache.setdefault(str(imdb_id), []).append(
+                    str(kitsu_id)
+                )
         except Exception as e:
             logger.warning(f"Failed to load Kitsu-IMDB mapping cache: {e}")
 
@@ -275,39 +319,41 @@ class AnimeMapper:
                 session = aiohttp.ClientSession()
 
             try:
-                logger.log(
-                    "COMET",
-                    "Downloading anime mapping (Source 1/3: Anime Offline Database)...",
-                )
-                async with session.get(self._aod_url) as response_aod:
-                    if response_aod.status != 200:
-                        logger.error(f"Failed to load AOD: HTTP {response_aod.status}")
-                        return False
-                    data_aod = orjson.loads(await response_aod.read())
 
-                logger.log(
-                    "COMET",
-                    "Downloading anime mapping (Source 2/3: Fribb Anime List)...",
-                )
-                async with session.get(self._fribb_url) as response_fribb:
-                    if response_fribb.status != 200:
-                        logger.error(
-                            f"Failed to load Fribb List: HTTP {response_fribb.status}"
-                        )
-                        return False
-                    data_fribb = orjson.loads(await response_fribb.read())
+                async def _download_json(url: str, label: str):
+                    logger.log("COMET", f"Downloading anime mapping ({label})...")
+                    async with session.get(url) as response:
+                        return response.status, await response.read()
 
-                logger.log(
-                    "COMET",
-                    "Downloading anime mapping (Source 3/3: Kitsu-IMDB Mapping)...",
+                (
+                    (aod_status, aod_payload),
+                    (fribb_status, fribb_payload),
+                    (kitsu_status, kitsu_payload),
+                ) = await asyncio.gather(
+                    _download_json(self._aod_url, "Source 1/3: Anime Offline Database"),
+                    _download_json(self._fribb_url, "Source 2/3: Fribb Anime List"),
+                    _download_json(
+                        self._kitsu_imdb_url, "Source 3/3: Kitsu-IMDB Mapping"
+                    ),
                 )
-                async with session.get(self._kitsu_imdb_url) as response_kitsu:
-                    if response_kitsu.status != 200:
-                        logger.warning(
-                            f"Failed to load Kitsu-IMDB mapping: HTTP {response_kitsu.status}"
-                        )
-                        return False
-                    data_kitsu_imdb = orjson.loads(await response_kitsu.read())
+
+                if aod_status != 200:
+                    logger.error(f"Failed to load AOD: HTTP {aod_status}")
+                    return False
+
+                if fribb_status != 200:
+                    logger.error(f"Failed to load Fribb List: HTTP {fribb_status}")
+                    return False
+
+                if kitsu_status != 200:
+                    logger.warning(
+                        f"Failed to load Kitsu-IMDB mapping: HTTP {kitsu_status}"
+                    )
+                    return False
+
+                data_aod = orjson.loads(aod_payload)
+                data_fribb = orjson.loads(fribb_payload)
+                data_kitsu_imdb = orjson.loads(kitsu_payload)
 
                 anime_list = data_aod.get("data", [])
                 total_entries = await self._persist_mapping(anime_list, data_fribb)
@@ -374,7 +420,10 @@ class AnimeMapper:
                 for idx, entry in enumerate(anime_list):
                     entry_id = idx + 1
                     entries_batch.append(
-                        {"id": entry_id, "data": orjson.dumps(entry).decode("utf-8")}
+                        {
+                            "id": entry_id,
+                            "data": orjson.dumps(entry).decode("utf-8"),
+                        }
                     )
 
                     sources = entry.get("sources")
@@ -472,7 +521,7 @@ class AnimeMapper:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
             return 0
 
-    async def _persist_kitsu_imdb_mapping(self, kitsu_imdb_data: dict):
+    async def _persist_kitsu_imdb_mapping(self, kitsu_imdb_data: list):
         total_count = 0
         batch = []
         batch_size = 1000
@@ -492,9 +541,8 @@ class AnimeMapper:
                         from_episode = :from_episode
                 """
 
-                for kitsu_id, entry in kitsu_imdb_data.items():
-                    if not isinstance(entry, dict):
-                        continue
+                for entry in kitsu_imdb_data:
+                    kitsu_id = entry["kitsu_id"]
 
                     imdb_id = entry.get("imdb_id")
                     if not imdb_id:

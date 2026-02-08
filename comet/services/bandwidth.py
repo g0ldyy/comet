@@ -213,17 +213,18 @@ class BandwidthMonitor:
                         continue
 
                 # Update database with alltime total
+                sync_timestamp = time.time()
                 try:
                     # Try to insert first
                     await database.execute(
                         "INSERT INTO bandwidth_stats (id, total_bytes, last_updated) VALUES (1, :total_bytes, :timestamp)",
-                        {"total_bytes": total_bytes, "timestamp": time.time()},
+                        {"total_bytes": total_bytes, "timestamp": sync_timestamp},
                     )
                 except Exception:
                     # If insert fails (record exists), update instead
                     await database.execute(
                         "UPDATE bandwidth_stats SET total_bytes = :total_bytes, last_updated = :timestamp WHERE id = 1",
-                        {"total_bytes": total_bytes, "timestamp": time.time()},
+                        {"total_bytes": total_bytes, "timestamp": sync_timestamp},
                     )
 
                 with self._lock:

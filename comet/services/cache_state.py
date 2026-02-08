@@ -6,6 +6,9 @@ from typing import Optional
 from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, database
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
+from comet.utils.media_ids import normalize_cache_media_ids
+from comet.utils.torrent_cache import (build_torrent_cache_where,
+                                       normalize_search_params)
 
 
 class CacheState(Enum):
@@ -77,16 +80,24 @@ class CacheStateManager:
         episode: Optional[int],
         is_kitsu: bool = False,
         search_episode: Optional[int] = None,
+        search_season: Optional[int] = None,
+        cache_media_ids: list[str] | None = None,
     ):
         self.media_id = media_id
         self.media_only_id = media_only_id
         self.season = season
         self.episode = episode
         self.is_kitsu = is_kitsu
-        self.search_episode = search_episode if search_episode is not None else episode
+        search = normalize_search_params(season, episode, search_season, search_episode)
+        self.search_season = search.season
+        self.search_episode = search.episode
 
         self._lock: Optional[DistributedLock] = None
         self._lock_acquired: bool = False
+
+        self.cache_media_ids = normalize_cache_media_ids(
+            self.media_only_id, cache_media_ids
+        )
 
     async def get_fresh_torrent_count(self) -> int:
         """
@@ -95,42 +106,28 @@ class CacheStateManager:
         Returns 1 if any fresh torrent exists, otherwise 0.
         If TTL is -1 (never expires), checks for any cached torrent.
         """
-        if self.is_kitsu:
-            base_query = """
-                SELECT 1
-                FROM torrents
-                WHERE media_id = :media_id
-                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-            """
-            params = {
-                "media_id": self.media_only_id,
-                "episode": self.search_episode,
-            }
-        else:
-            base_query = """
-                SELECT 1
-                FROM torrents
-                WHERE media_id = :media_id
-                AND ((season IS NOT NULL AND season = CAST(:season as INTEGER)) 
-                     OR (season IS NULL AND CAST(:season as INTEGER) IS NULL))
-                AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-            """
-            params = {
-                "media_id": self.media_only_id,
-                "season": self.season,
-                "episode": self.episode,
-            }
-
+        min_timestamp = None
         if settings.LIVE_TORRENT_CACHE_TTL >= 0:
             min_timestamp = time.time() - settings.LIVE_TORRENT_CACHE_TTL
-            ttl_condition = " AND timestamp >= :min_timestamp"
-            params["min_timestamp"] = min_timestamp
-            query = base_query + ttl_condition
-        else:
-            query = base_query
 
-        result = await database.fetch_one(query + " LIMIT 1", params)
-        return 1 if result else 0
+        for cache_media_id in self.cache_media_ids:
+            where_clause, params = build_torrent_cache_where(
+                cache_media_id, self.search_season, self.search_episode
+            )
+            base_query = "SELECT 1 " + where_clause
+
+            if min_timestamp is not None:
+                ttl_condition = " AND timestamp >= :min_timestamp"
+                params["min_timestamp"] = min_timestamp
+                query = base_query + ttl_condition
+            else:
+                query = base_query
+
+            result = await database.fetch_one(query + " LIMIT 1", params)
+            if result:
+                return 1
+
+        return 0
 
     async def check_is_first_search(self) -> bool:
         """
@@ -170,6 +167,10 @@ class CacheStateManager:
 
         self._lock_acquired = await self._lock.acquire()
         return self._lock_acquired
+
+    async def try_acquire_lock(self) -> bool:
+        """Public wrapper to acquire the distributed lock if needed."""
+        return await self._try_acquire_lock()
 
     async def release_lock(self) -> None:
         """Release the lock if it was acquired."""

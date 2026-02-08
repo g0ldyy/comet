@@ -32,6 +32,7 @@ from comet.services.torrent_manager import (add_torrent_queue,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
 from comet.utils.http_client import http_client_manager
+from comet.utils.network_manager import network_manager
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
@@ -76,9 +77,10 @@ async def lifespan(app: FastAPI):
     cleanup_sessions_task = asyncio.create_task(cleanup_expired_sessions())
 
     # Start background scraper if enabled
-    background_scraper_task = None
     if settings.BACKGROUND_SCRAPER_ENABLED:
-        background_scraper_task = asyncio.create_task(background_scraper.start())
+        background_scraper.clear_finished_task()
+        if not background_scraper.task:
+            background_scraper.task = asyncio.create_task(background_scraper.start())
 
     # Start DMM Ingester if enabled
     dmm_ingester_task = None
@@ -123,13 +125,7 @@ async def lifespan(app: FastAPI):
             pass
         await indexer_manager.close()
 
-        if background_scraper_task:
-            await background_scraper.stop()
-            background_scraper_task.cancel()
-            try:
-                await background_scraper_task
-            except asyncio.CancelledError:
-                pass
+        await background_scraper.stop()
 
         if dmm_ingester_task:
             await dmm_ingester.stop()
@@ -162,6 +158,7 @@ async def lifespan(app: FastAPI):
         await add_torrent_queue.stop()
         await torrent_update_queue.stop()
 
+        await network_manager.close_all()
         await http_client_manager.close()
 
         await teardown_database()

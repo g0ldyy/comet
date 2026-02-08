@@ -417,7 +417,6 @@
         }
       }
 
-      /* 📊 METRICS STYLES */
       .metrics-grid {
         display: flex;
         flex-direction: column;
@@ -474,7 +473,6 @@
         margin-bottom: 0;
       }
 
-      /* Tracker Statistics */
       .data-list {
         margin: var(--sl-spacing-small) 0;
       }
@@ -513,7 +511,6 @@
         border-radius: 4px;
       }
 
-      /* Size Distribution Chart */
       .size-chart {
         margin: var(--sl-spacing-small) 0;
       }
@@ -559,7 +556,6 @@
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
       }
 
-      /* Quality Metrics Grid */
       .stats-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
@@ -590,7 +586,6 @@
         letter-spacing: 0.5px;
       }
 
-      /* Search Analytics */
       .search-timeline {
         display: flex;
         justify-content: space-around;
@@ -620,7 +615,6 @@
         color: var(--sl-color-primary-400);
       }
 
-      /* Media Distribution */
       .media-stats {
         display: flex;
         gap: 30px;
@@ -657,7 +651,6 @@
         color: var(--sl-color-primary-400);
       }
 
-      /* Loading States */
       .loading-state {
         display: flex;
         align-items: center;
@@ -668,7 +661,6 @@
         font-size: 0.9rem;
       }
 
-      /* Debrid Cache Styles */
       .debrid-performance {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -732,7 +724,129 @@
         border-radius: 4px;
       }
 
-      /* Responsive Design for Metrics */
+      .bg-scraper-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+
+      .bg-scraper-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .bg-scraper-status-line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #e5e7eb;
+        font-size: 0.85rem;
+      }
+
+      .bg-run-id {
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        color: #9ca3af;
+      }
+
+      .bg-scraper-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+      }
+
+      .bg-mini-stat {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .bg-mini-stat-label {
+        font-size: 0.72rem;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .bg-mini-stat-value {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #f3f4f6;
+        margin-top: 4px;
+      }
+
+      .bg-runs-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .bg-runs-table th,
+      .bg-runs-table td {
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 0.8rem;
+      }
+
+      .bg-runs-table th {
+        font-weight: 600;
+        color: #d1d5db;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .bg-runs-table td {
+        color: #e5e7eb;
+      }
+
+      .bg-runs-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .bg-status-pill {
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+      }
+
+      .bg-status-running {
+        background: rgba(16, 185, 129, 0.2);
+        color: #6ee7b7;
+      }
+
+      .bg-status-completed,
+      .bg-status-success {
+        background: rgba(59, 130, 246, 0.2);
+        color: #93c5fd;
+      }
+
+      .bg-status-failed,
+      .bg-status-dead,
+      .bg-status-cancelled {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+      }
+
+      .bg-status-paused {
+        background: rgba(245, 158, 11, 0.2);
+        color: #fcd34d;
+      }
+
+      .bg-status-default {
+        background: rgba(255, 255, 255, 0.15);
+        color: #d1d5db;
+      }
+
       @media (max-width: 768px) {
         .search-timeline {
           flex-direction: column;
@@ -751,6 +865,15 @@
 
         .stats-grid {
           grid-template-columns: repeat(2, 1fr);
+        }
+
+        .bg-scraper-toolbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .bg-scraper-actions {
+          width: 100%;
         }
       }
 
@@ -883,9 +1006,11 @@
           flex-direction: column;
           height: auto;
         }
+
         .pools-sidebar {
           width: 100%;
         }
+
         .pools-content {
           height: 500px;
         }
@@ -990,6 +1115,10 @@
           <sl-tab slot="nav" panel="metrics">
             <sl-icon name="bar-chart"></sl-icon>
             &nbsp;Metrics
+          </sl-tab>
+          <sl-tab slot="nav" panel="background-scraper">
+            <sl-icon name="rocket-takeoff"></sl-icon>
+            &nbsp;Background Scraper
           </sl-tab>
           <sl-tab slot="nav" panel="cometnet">
             <sl-icon name="share"></sl-icon>
@@ -1216,6 +1345,208 @@
                       <div class="timeline-item">
                         <div class="timeline-period">Last 30 days</div>
                         <div class="timeline-count" id="searches-30d">0</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sl-tab-panel>
+
+          <sl-tab-panel name="background-scraper">
+            <div class="tab-content">
+              <div class="stats-cards">
+                <div class="stat-card">
+                  <div class="stat-number" id="background-queue-overview">
+                    0
+                  </div>
+                  <div class="stat-label">BG Queue</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-number" id="background-runs-overview">0</div>
+                  <div class="stat-label">BG Recent Runs</div>
+                </div>
+              </div>
+
+              <div class="metrics-grid">
+                <div class="metric-section">
+                  <h3>
+                    <sl-icon name="rocket-takeoff"></sl-icon> Background Scraper
+                  </h3>
+                  <div class="metric-content">
+                    <div class="bg-scraper-toolbar">
+                      <div class="bg-scraper-actions">
+                        <sl-button
+                          id="bg-action-start"
+                          size="small"
+                          variant="success"
+                          onclick="startBackgroundScraper()"
+                        >
+                          <sl-icon slot="prefix" name="play-fill"></sl-icon>
+                          Start
+                        </sl-button>
+                        <sl-button
+                          id="bg-action-pause"
+                          size="small"
+                          variant="warning"
+                          onclick="pauseBackgroundScraper()"
+                        >
+                          <sl-icon slot="prefix" name="pause-fill"></sl-icon>
+                          Pause
+                        </sl-button>
+                        <sl-button
+                          id="bg-action-resume"
+                          size="small"
+                          variant="primary"
+                          onclick="resumeBackgroundScraper()"
+                        >
+                          <sl-icon slot="prefix" name="play"></sl-icon>
+                          Resume
+                        </sl-button>
+                        <sl-button
+                          id="bg-action-stop"
+                          size="small"
+                          variant="danger"
+                          onclick="stopBackgroundScraper()"
+                        >
+                          <sl-icon slot="prefix" name="stop-fill"></sl-icon>
+                          Stop
+                        </sl-button>
+                        <sl-button
+                          id="bg-action-requeue-dead"
+                          size="small"
+                          variant="primary"
+                          onclick="requeueDeadBackgroundScraper()"
+                        >
+                          <sl-icon
+                            slot="prefix"
+                            name="arrow-counterclockwise"
+                          ></sl-icon>
+                          Requeue Dead
+                        </sl-button>
+                        <sl-button
+                          size="small"
+                          variant="neutral"
+                          onclick="loadBackgroundScraperData()"
+                        >
+                          <sl-icon slot="prefix" name="arrow-repeat"></sl-icon>
+                          Refresh
+                        </sl-button>
+                      </div>
+                      <div class="bg-scraper-status-line">
+                        <sl-badge
+                          id="bg-scraper-running-badge"
+                          pill
+                          variant="neutral"
+                          >Stopped</sl-badge
+                        >
+                        <sl-badge
+                          id="bg-scraper-health-badge"
+                          pill
+                          variant="success"
+                          >Healthy</sl-badge
+                        >
+                        <span class="bg-run-id" id="bg-scraper-current-run"
+                          >Run: -</span
+                        >
+                      </div>
+                    </div>
+
+                    <div class="bg-scraper-stats-grid">
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Queue Movies</div>
+                        <div class="bg-mini-stat-value" id="bg-queue-movies">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Queue Series</div>
+                        <div class="bg-mini-stat-value" id="bg-queue-series">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Queue Episodes</div>
+                        <div class="bg-mini-stat-value" id="bg-queue-episodes">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Oldest Queue Age</div>
+                        <div
+                          class="bg-mini-stat-value"
+                          id="bg-queue-oldest-age"
+                        >
+                          0s
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Dead Movies</div>
+                        <div class="bg-mini-stat-value" id="bg-dead-movies">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Dead Series</div>
+                        <div class="bg-mini-stat-value" id="bg-dead-series">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Dead Episodes</div>
+                        <div class="bg-mini-stat-value" id="bg-dead-episodes">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Processed</div>
+                        <div class="bg-mini-stat-value" id="bg-stats-processed">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Success</div>
+                        <div class="bg-mini-stat-value" id="bg-stats-success">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Failed</div>
+                        <div class="bg-mini-stat-value" id="bg-stats-failed">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Torrents</div>
+                        <div class="bg-mini-stat-value" id="bg-stats-torrents">
+                          0
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">Duration</div>
+                        <div class="bg-mini-stat-value" id="bg-stats-duration">
+                          0s
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">24h Fail Rate</div>
+                        <div class="bg-mini-stat-value" id="bg-slo-fail-rate">
+                          0%
+                        </div>
+                      </div>
+                      <div class="bg-mini-stat">
+                        <div class="bg-mini-stat-label">24h Torrents/Item</div>
+                        <div class="bg-mini-stat-value" id="bg-slo-tpi">0</div>
+                      </div>
+                    </div>
+
+                    <div class="metric-subsection" style="margin-top: 16px">
+                      <h4>Recent Runs</h4>
+                      <div id="background-runs" class="data-list">
+                        <div class="loading-state">
+                          <sl-spinner></sl-spinner>
+                          <span>Loading background scraper runs...</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1782,6 +2113,8 @@
       let connectionsInterval = null;
       let logsInterval = null;
       let cometnetInterval = null;
+      let metricsInterval = null;
+      let backgroundScraperInterval = null;
       let lastLogTimestamp = 0;
       let currentTab = "connections"; // Track current active tab
 
@@ -1847,6 +2180,14 @@
           clearInterval(cometnetInterval);
           cometnetInterval = null;
         }
+        if (metricsInterval) {
+          clearInterval(metricsInterval);
+          metricsInterval = null;
+        }
+        if (backgroundScraperInterval) {
+          clearInterval(backgroundScraperInterval);
+          backgroundScraperInterval = null;
+        }
       }
 
       function setupAutoRefreshForTab(tab) {
@@ -1864,6 +2205,18 @@
             break;
           case "logs":
             logsInterval = setInterval(loadLogs, interval);
+            break;
+          case "metrics":
+            metricsInterval = setInterval(
+              loadMetrics,
+              Math.max(5000, interval),
+            );
+            break;
+          case "background-scraper":
+            backgroundScraperInterval = setInterval(
+              loadBackgroundScraperData,
+              Math.max(5000, interval),
+            );
             break;
           case "cometnet":
             cometnetInterval = setInterval(loadCometNetStats, 10000);
@@ -1890,6 +2243,32 @@
           );
           logsInterval = setInterval(loadLogs, interval);
         }
+
+        if (
+          document.getElementById("auto-refresh").checked &&
+          currentTab === "metrics"
+        ) {
+          if (metricsInterval) clearInterval(metricsInterval);
+          const interval = parseInt(
+            document.getElementById("refresh-interval").value,
+          );
+          metricsInterval = setInterval(loadMetrics, Math.max(5000, interval));
+        }
+
+        if (
+          document.getElementById("auto-refresh").checked &&
+          currentTab === "background-scraper"
+        ) {
+          if (backgroundScraperInterval)
+            clearInterval(backgroundScraperInterval);
+          const interval = parseInt(
+            document.getElementById("refresh-interval").value,
+          );
+          backgroundScraperInterval = setInterval(
+            loadBackgroundScraperData,
+            Math.max(5000, interval),
+          );
+        }
       }
 
       function handleTabChange(e) {
@@ -1907,6 +2286,9 @@
             break;
           case "metrics":
             loadMetrics();
+            break;
+          case "background-scraper":
+            loadBackgroundScraperData();
             break;
           case "cometnet":
             loadCometNetStats();
@@ -3235,6 +3617,318 @@
           console.error(e);
           showToast("Error removing member", "danger");
         }
+      }
+
+      async function loadBackgroundScraperData() {
+        try {
+          const [statusResponse, runsResponse] = await Promise.all([
+            fetch("/admin/api/background-scraper/status"),
+            fetch("/admin/api/background-scraper/runs?limit=12"),
+          ]);
+
+          if (!statusResponse.ok) {
+            throw new Error("Failed to load background scraper status");
+          }
+          if (!runsResponse.ok) {
+            throw new Error("Failed to load background scraper runs");
+          }
+
+          const status = await statusResponse.json();
+          const runsPayload = await runsResponse.json();
+          updateBackgroundScraperStatus(status);
+          updateBackgroundScraperRuns(runsPayload.runs || []);
+        } catch (error) {
+          console.error("Failed to load background scraper data:", error);
+          const runsContainer = document.getElementById("background-runs");
+          if (runsContainer) {
+            runsContainer.innerHTML =
+              '<div class="empty-state"><sl-icon name="exclamation-triangle"></sl-icon><p>Failed to load background scraper data</p></div>';
+          }
+        }
+      }
+
+      async function startBackgroundScraper() {
+        await triggerBackgroundScraperAction(
+          "start",
+          "Background scraper starting",
+        );
+      }
+
+      async function stopBackgroundScraper() {
+        await triggerBackgroundScraperAction(
+          "stop",
+          "Background scraper stopped",
+        );
+      }
+
+      async function pauseBackgroundScraper() {
+        await triggerBackgroundScraperAction(
+          "pause",
+          "Background scraper paused",
+        );
+      }
+
+      async function resumeBackgroundScraper() {
+        await triggerBackgroundScraperAction(
+          "resume",
+          "Background scraper resumed",
+        );
+      }
+
+      async function requeueDeadBackgroundScraper() {
+        try {
+          const response = await fetch(
+            "/admin/api/background-scraper/requeue-dead",
+            { method: "POST" },
+          );
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok || data.success === false) {
+            throw new Error(data.message || data.detail || "Request failed");
+          }
+
+          const requeued = data.requeued || {};
+          showToast(
+            `Requeued dead entries: items=${requeued.items || 0}, episodes=${requeued.episodes || 0}`,
+            "success",
+          );
+          await loadBackgroundScraperData();
+        } catch (error) {
+          console.error("Background scraper requeue-dead failed:", error);
+          showToast(
+            `Background scraper requeue-dead failed: ${error.message}`,
+            "danger",
+          );
+        }
+      }
+
+      async function triggerBackgroundScraperAction(action, successMessage) {
+        try {
+          const response = await fetch(
+            `/admin/api/background-scraper/${action}`,
+            { method: "POST" },
+          );
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok || data.success === false) {
+            throw new Error(data.message || data.detail || "Request failed");
+          }
+
+          showToast(successMessage, "success");
+          await loadBackgroundScraperData();
+        } catch (error) {
+          console.error(`Background scraper ${action} failed:`, error);
+          showToast(
+            `Background scraper ${action} failed: ${error.message}`,
+            "danger",
+          );
+        }
+      }
+
+      function updateBackgroundScraperStatus(status) {
+        const queue = status.queue || {};
+        const dead = status.dead || {};
+        const slo = status.slo || {};
+        const health = status.health || {};
+        const stats = status.stats || {};
+        const latestRun = status.latest_run || {};
+
+        document.getElementById("bg-queue-movies").textContent = (
+          queue.movies || 0
+        ).toLocaleString();
+        document.getElementById("bg-queue-series").textContent = (
+          queue.series || 0
+        ).toLocaleString();
+        document.getElementById("bg-queue-episodes").textContent = (
+          queue.episodes || 0
+        ).toLocaleString();
+        document.getElementById("bg-queue-oldest-age").textContent =
+          formatDurationSeconds(queue.oldest_age_s || 0);
+        document.getElementById("bg-dead-movies").textContent = (
+          dead.movies || 0
+        ).toLocaleString();
+        document.getElementById("bg-dead-series").textContent = (
+          dead.series || 0
+        ).toLocaleString();
+        document.getElementById("bg-dead-episodes").textContent = (
+          dead.episodes || 0
+        ).toLocaleString();
+        document.getElementById("bg-slo-fail-rate").textContent = `${(
+          (slo.fail_rate || 0) * 100
+        ).toFixed(1)}%`;
+        document.getElementById("bg-slo-tpi").textContent = Number(
+          slo.torrents_per_processed || 0,
+        ).toFixed(2);
+
+        document.getElementById("bg-stats-processed").textContent = (
+          stats.processed || 0
+        ).toLocaleString();
+        document.getElementById("bg-stats-success").textContent = (
+          stats.success || 0
+        ).toLocaleString();
+        document.getElementById("bg-stats-failed").textContent = (
+          stats.failed || 0
+        ).toLocaleString();
+        document.getElementById("bg-stats-torrents").textContent = (
+          stats.torrents_found || 0
+        ).toLocaleString();
+        document.getElementById("bg-stats-duration").textContent =
+          formatDurationSeconds(stats.duration_s || 0);
+
+        const badge = document.getElementById("bg-scraper-running-badge");
+        const startBtn = document.getElementById("bg-action-start");
+        const pauseBtn = document.getElementById("bg-action-pause");
+        const resumeBtn = document.getElementById("bg-action-resume");
+        const stopBtn = document.getElementById("bg-action-stop");
+        const requeueDeadBtn = document.getElementById(
+          "bg-action-requeue-dead",
+        );
+        const healthBadge = document.getElementById("bg-scraper-health-badge");
+
+        if (status.running && status.paused) {
+          badge.variant = "warning";
+          badge.textContent = "Paused";
+        } else if (status.running) {
+          badge.variant = "success";
+          badge.textContent = "Running";
+        } else {
+          badge.variant = "neutral";
+          badge.textContent = "Stopped";
+        }
+
+        if (startBtn) startBtn.disabled = Boolean(status.running);
+        if (pauseBtn)
+          pauseBtn.disabled =
+            !Boolean(status.running) || Boolean(status.paused);
+        if (resumeBtn)
+          resumeBtn.disabled =
+            !Boolean(status.running) || !Boolean(status.paused);
+        if (stopBtn) stopBtn.disabled = !Boolean(status.running);
+        if (requeueDeadBtn)
+          requeueDeadBtn.disabled = !(
+            Number(dead.movies || 0) > 0 ||
+            Number(dead.series || 0) > 0 ||
+            Number(dead.episodes || 0) > 0
+          );
+
+        if (healthBadge) {
+          if ((health.status || "").toLowerCase() === "degraded") {
+            healthBadge.variant = "danger";
+            healthBadge.textContent = "Degraded";
+          } else {
+            healthBadge.variant = "success";
+            healthBadge.textContent = "Healthy";
+          }
+          const reasons = Array.isArray(health.reasons) ? health.reasons : [];
+          healthBadge.title = reasons.length ? reasons.join(", ") : "";
+        }
+
+        const runId = status.current_run_id || latestRun.run_id || "-";
+        document.getElementById("bg-scraper-current-run").textContent =
+          `Run: ${runId}`;
+
+        document.getElementById("background-queue-overview").textContent = (
+          (queue.movies || 0) +
+          (queue.series || 0) +
+          (queue.episodes || 0)
+        ).toLocaleString();
+      }
+
+      function updateBackgroundScraperRuns(runs) {
+        const container = document.getElementById("background-runs");
+        if (!runs || runs.length === 0) {
+          container.innerHTML =
+            '<div class="empty-state"><sl-icon name="clock-history"></sl-icon><p>No background runs yet</p></div>';
+          return;
+        }
+
+        document.getElementById("background-runs-overview").textContent =
+          runs.length.toLocaleString();
+
+        container.innerHTML = `
+          <table class="bg-runs-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Processed</th>
+                <th>Success</th>
+                <th>Failed</th>
+                <th>Torrents</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${runs
+                .map((run) => {
+                  const startedAt = formatTimestamp(run.started_at);
+                  const duration =
+                    run.duration_ms && run.duration_ms > 0
+                      ? formatDurationSeconds(run.duration_ms / 1000)
+                      : "-";
+                  return `
+                    <tr>
+                      <td title="${escapeHtml(run.run_id || "-")}">${escapeHtml((run.run_id || "-").slice(0, 8))}</td>
+                      <td><span class="bg-status-pill ${bgStatusClass(run.status)}">${escapeHtml(run.status || "unknown")}</span></td>
+                      <td>${startedAt}</td>
+                      <td>${(run.processed || 0).toLocaleString()}</td>
+                      <td>${(run.success || 0).toLocaleString()}</td>
+                      <td>${(run.failed || 0).toLocaleString()}</td>
+                      <td>${(run.torrents_found || 0).toLocaleString()}</td>
+                      <td>${duration}</td>
+                    </tr>
+                  `;
+                })
+                .join("")}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function bgStatusClass(status) {
+        switch ((status || "").toLowerCase()) {
+          case "running":
+            return "bg-status-running";
+          case "completed":
+          case "success":
+            return "bg-status-completed";
+          case "failed":
+          case "dead":
+          case "cancelled":
+            return "bg-status-failed";
+          case "paused":
+            return "bg-status-paused";
+          default:
+            return "bg-status-default";
+        }
+      }
+
+      function formatTimestamp(timestamp) {
+        if (!timestamp) {
+          return "-";
+        }
+
+        const date = new Date(timestamp * 1000);
+        if (Number.isNaN(date.getTime())) {
+          return "-";
+        }
+        return date.toLocaleString();
+      }
+
+      function formatDurationSeconds(seconds) {
+        const safeSeconds = Math.max(0, Math.floor(seconds || 0));
+        const h = Math.floor(safeSeconds / 3600);
+        const m = Math.floor((safeSeconds % 3600) / 60);
+        const s = safeSeconds % 60;
+
+        if (h > 0) {
+          return `${h}h ${m}m ${s}s`;
+        }
+        if (m > 0) {
+          return `${m}m ${s}s`;
+        }
+        return `${s}s`;
       }
 
       async function loadMetrics() {

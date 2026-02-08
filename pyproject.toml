@@ -19,7 +19,7 @@ dependencies = [
     "gunicorn",
     "jinja2",
     "loguru",
-    "mediaflow-proxy",
+    "mediaflow-proxy==2.4.1",
     "orjson",
     "pydantic-settings",
     "python-multipart",

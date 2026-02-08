@@ -274,8 +274,10 @@ class AsyncClientWrapper:
     async def close(self):
         if self._aiohttp_session:
             await self._aiohttp_session.close()
+            self._aiohttp_session = None
         if self._curl_session:
             await self._curl_session.close()
+            self._curl_session = None
 
     def request(self, method: str, url: str, **kwargs):
         return _RequestContextManager(self, method, url, **kwargs)
@@ -314,8 +316,11 @@ class NetworkManager:
         return self._clients[key]
 
     async def close_all(self):
-        for client in self._clients.values():
-            await client.close()
+        for key, client in list(self._clients.items()):
+            try:
+                await client.close()
+            except Exception as e:
+                logger.warning(f"Failed to close network client {key}: {e}")
         self._clients.clear()
 
 

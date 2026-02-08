@@ -61,6 +61,58 @@ def _build_stream_response(
     )
 
 
+def _select_info_hashes_by_resolution(
+    ranked_info_hashes,
+    torrents: dict,
+    service_cache_status: dict,
+    max_results: int,
+    cached_only: bool,
+    prioritize_cached: bool,
+):
+    if max_results <= 0:
+        return None
+
+    per_resolution_count = defaultdict(int)
+    selected_info_hashes = []
+
+    def try_select(info_hash: str):
+        resolution = str(torrents[info_hash]["parsed"].resolution)
+        if per_resolution_count[resolution] >= max_results:
+            return
+        selected_info_hashes.append(info_hash)
+        per_resolution_count[resolution] += 1
+
+    is_cached_by_hash = {}
+    if prioritize_cached or cached_only:
+        is_cached_by_hash = {
+            info_hash: any(service_cache_status.get(info_hash, {}).values())
+            for info_hash in ranked_info_hashes
+        }
+
+    if prioritize_cached:
+        for info_hash in ranked_info_hashes:
+            if not is_cached_by_hash[info_hash]:
+                continue
+            try_select(info_hash)
+
+        if cached_only:
+            return selected_info_hashes
+
+        for info_hash in ranked_info_hashes:
+            if is_cached_by_hash[info_hash]:
+                continue
+            try_select(info_hash)
+
+        return selected_info_hashes
+
+    for info_hash in ranked_info_hashes:
+        if cached_only and not is_cached_by_hash[info_hash]:
+            continue
+        try_select(info_hash)
+
+    return selected_info_hashes
+
+
 async def background_scrape(
     torrent_manager: TorrentManager,
     media_id: str,
@@ -88,8 +140,8 @@ async def background_scrape(
                 torrent_manager.torrents,
                 torrent_manager.media_id,
                 torrent_manager.media_only_id,
-                torrent_manager.season,
-                torrent_manager.episode,
+                torrent_manager.search_season,
+                torrent_manager.search_episode,
                 ip,
             )
 
@@ -125,9 +177,15 @@ async def check_multi_service_availability(
 
         return service, cached_hashes
 
-    if debrid_entries:
+    unique_services = {}
+    for entry in debrid_entries:
+        if entry["service"] not in unique_services:
+            unique_services[entry["service"]] = entry
+
+    if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in debrid_entries], return_exceptions=True
+            *[check_service(e) for e in unique_services.values()],
+            return_exceptions=True,
         )
 
         for result in results:
@@ -337,23 +395,45 @@ async def stream(
     search_episode = episode
     search_season = season
 
-    if is_kitsu and episode is not None:
+    if is_kitsu:
         kitsu_mapping = anime_mapper.get_kitsu_episode_mapping(id)
         if kitsu_mapping:
             from_episode = kitsu_mapping.get("from_episode")
             from_season = kitsu_mapping.get("from_season")
-            if from_episode:
+            if from_season is not None and from_season != season:
+                search_season = from_season
+            if episode is not None and from_episode is not None:
                 new_episode = from_episode + episode - 1
                 if new_episode != episode:
                     search_episode = new_episode
 
-            if from_season and from_season != season:
-                search_season = from_season
             if search_season != season or search_episode != episode:
-                logger.log(
-                    "SCRAPER",
-                    f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
-                )
+                if episode is not None and search_season is not None:
+                    logger.log(
+                        "SCRAPER",
+                        f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d}E{search_episode:02d} instead of S{season:02d}E{episode:02d}",
+                    )
+                elif search_season is not None and season is not None:
+                    logger.log(
+                        "SCRAPER",
+                        f"📺 Multi-part anime detected (kitsu:{id}): searching for S{search_season:02d} instead of S{season:02d}",
+                    )
+
+    cache_media_ids = [media_only_id]
+    if anime_mapper.is_loaded():
+        if is_kitsu:
+            imdb_id = await anime_mapper.get_imdb_from_kitsu(id)
+            if imdb_id:
+                cache_media_ids.append(imdb_id)
+        elif anime_mapper.is_anime_content(media_id, media_only_id):
+            kitsu_ids = anime_mapper.get_kitsu_ids_from_imdb(id)
+            if kitsu_ids:
+                cache_media_ids.extend(kitsu_ids)
+
+            # always include the base IMDb-Kitsu link if present
+            kitsu_id = await anime_mapper.get_kitsu_from_imdb(id)
+            if kitsu_id and kitsu_id not in cache_media_ids:
+                cache_media_ids.append(kitsu_id)
 
     torrent_manager = TorrentManager(
         media_type,
@@ -369,11 +449,13 @@ async def stream(
         is_kitsu=is_kitsu,
         search_episode=search_episode,
         search_season=search_season,
+        cache_media_ids=cache_media_ids,
     )
 
     await torrent_manager.get_cached_torrents()
     torrent_count = len(torrent_manager.torrents)
     logger.log("SCRAPER", f"📦 Found cached torrents: {torrent_count}")
+    primary_cached = torrent_manager.primary_cached
 
     cache_manager = CacheStateManager(
         media_id=media_id,
@@ -382,14 +464,18 @@ async def stream(
         episode=episode,
         is_kitsu=is_kitsu,
         search_episode=search_episode,
+        search_season=search_season,
+        cache_media_ids=cache_media_ids,
     )
     cache_result = await cache_manager.check_and_decide(torrent_count)
+    force_scrape_now = not primary_cached
+    lock_acquired = cache_result.lock_acquired
 
     sort_mixed = is_torrent_only or config["sortCachedUncachedTogether"]
     cached_results = []
     non_cached_results = []
 
-    if cache_result.should_return_wait_message:
+    def _wait_response():
         logger.log(
             "SCRAPER",
             f"🔄 Another instance is scraping {log_title}, returning early",
@@ -408,6 +494,15 @@ async def stream(
             is_empty=True,
         )
 
+    if force_scrape_now and not lock_acquired:
+        lock_acquired = await cache_manager.try_acquire_lock()
+
+    if force_scrape_now and not lock_acquired:
+        return _wait_response()
+
+    if cache_result.should_return_wait_message and not force_scrape_now:
+        return _wait_response()
+
     if cache_result.should_show_first_search_message:
         cached_results.append(
             {
@@ -417,7 +512,7 @@ async def stream(
             }
         )
 
-    if cache_result.should_scrape_background:
+    if cache_result.should_scrape_background and not force_scrape_now:
         logger.log(
             "SCRAPER",
             f"🔄 Starting background scrape for {log_title} (state={cache_result.state.value})",
@@ -431,7 +526,7 @@ async def stream(
             session,
         )
 
-    if cache_result.should_scrape_now:
+    if cache_result.should_scrape_now or force_scrape_now:
         logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
         try:
             await torrent_manager.scrape_torrents()
@@ -445,13 +540,13 @@ async def stream(
     service_cache_status = {}
     if debrid_entries:
         service_cache_status = await check_multi_service_availability(
-            debrid_entries, torrent_manager.torrents, season, episode
+            debrid_entries, torrent_manager.torrents, search_season, search_episode
         )
     elif enable_torrent:
         await DebridService.apply_cached_availability_any_service(
             list(torrent_manager.torrents.keys()),
-            season,
-            episode,
+            search_season,
+            search_episode,
             torrent_manager.torrents,
         )
 
@@ -490,8 +585,8 @@ async def stream(
             torrent_manager.torrents,
             media_id,
             media_only_id,
-            season,
-            episode,
+            search_season,
+            search_episode,
             ip,
         )
 
@@ -522,7 +617,7 @@ async def stream(
     await torrent_manager.rank_torrents(
         config["rtnSettings"],
         config["rtnRanking"],
-        config["maxResultsPerResolution"],
+        0,
         config["maxSize"],
         config["removeTrash"],
     )
@@ -544,8 +639,8 @@ async def stream(
             }
         )
 
-    result_season = season if season is not None else "n"
-    result_episode = episode if episode is not None else "n"
+    result_season = search_season if search_season is not None else "n"
+    result_episode = search_episode if search_episode is not None else "n"
 
     torrents = torrent_manager.torrents
     base_playback_host = (
@@ -553,10 +648,25 @@ async def stream(
         if settings.PUBLIC_BASE_URL
         else f"{request.url.scheme}://{request.url.netloc}"
     )
+    selected_info_hashes = _select_info_hashes_by_resolution(
+        ranked_info_hashes=torrent_manager.ranked_torrents,
+        torrents=torrents,
+        service_cache_status=service_cache_status,
+        max_results=config["maxResultsPerResolution"],
+        cached_only=bool(
+            config["cachedOnly"] and debrid_entries and not enable_torrent
+        ),
+        prioritize_cached=bool(debrid_entries and not sort_mixed),
+    )
+    ranked_info_hashes = (
+        selected_info_hashes
+        if selected_info_hashes is not None
+        else torrent_manager.ranked_torrents
+    )
 
     added_hashes = set()
 
-    for info_hash in torrent_manager.ranked_torrents:
+    for info_hash in ranked_info_hashes:
         torrent = torrents[info_hash]
         rtn_data = torrent["parsed"]
         torrent_title = torrent["title"]

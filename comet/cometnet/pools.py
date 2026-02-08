@@ -990,6 +990,8 @@ class PoolStore:
         Returns:
             True if contribution was recorded in at least one pool, False if member not found
         """
+        contribution_time = time.time()
+
         # If pool_id is specified, only update that specific pool
         if pool_id:
             manifest = self._manifests.get(pool_id)
@@ -997,7 +999,7 @@ class PoolStore:
                 member = manifest.get_member(contributor_public_key)
                 if member:
                     member.contribution_count += count
-                    member.last_seen = time.time()
+                    member.last_seen = contribution_time
                     self._dirty_manifests.add(manifest.pool_id)
                     return True
             return False
@@ -1008,7 +1010,7 @@ class PoolStore:
             member = manifest.get_member(contributor_public_key)
             if member:
                 member.contribution_count += count
-                member.last_seen = time.time()
+                member.last_seen = contribution_time
                 self._dirty_manifests.add(manifest.pool_id)
                 recorded = True
 
