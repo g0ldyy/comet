@@ -360,11 +360,12 @@ class BackgroundScraperWorker:
                         await _defer_remaining()
                         break
         except asyncio.CancelledError:
-            for task in in_flight:
-                task.cancel()
-            if in_flight:
-                await asyncio.gather(*in_flight, return_exceptions=True)
             raise
+        finally:
+            if in_flight:
+                for task in in_flight:
+                    task.cancel()
+                await asyncio.gather(*in_flight, return_exceptions=True)
 
     async def start(self):
         if self.is_running:
