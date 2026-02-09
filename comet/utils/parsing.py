@@ -99,16 +99,11 @@ def parsed_matches_target(
     parsed: ParsedData,
     season: int | None,
     episode: int | None,
-    require_episode_match_when_target_none: bool = False,
 ) -> bool:
-    if season is not None and parsed.seasons and season not in parsed.seasons:
+    if parsed.seasons and season not in parsed.seasons:
         return False
-    if parsed.episodes:
-        if episode is None:
-            if require_episode_match_when_target_none:
-                return False
-        elif episode not in parsed.episodes:
-            return False
+    if parsed.episodes and episode not in parsed.episodes:
+        return False
     return True
 
 

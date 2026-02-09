@@ -133,13 +133,17 @@ class TorrentManager:
             parsed_data = ParsedData(**orjson.loads(row["parsed"]))
             ensure_multi_language(parsed_data)
 
-            if not parsed_matches_target(
-                parsed_data,
-                self.search_season,
-                self.search_episode,
-                require_episode_match_when_target_none=row["episode"] is None,
+            target_season = self.search_season
+            if (
+                target_season is not None
+                and parsed_data.seasons
+                and target_season not in parsed_data.seasons
             ):
                 continue
+
+            if row["episode"] is None and parsed_data.episodes:
+                if self.search_episode not in parsed_data.episodes:
+                    continue
 
             info_hash = row["info_hash"]
             self.torrents[info_hash] = {
