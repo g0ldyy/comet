@@ -357,6 +357,11 @@ async def ensure_account_snapshot_ready(session, debrid_entries: list[dict], ip:
                     "SCRAPER",
                     "Debrid account warm sync timed out, continuing with partial data",
                 )
+        else:
+            for sync_task in sync_tasks:
+                task = asyncio.create_task(sync_task)
+                _background_tasks.add(task)
+                task.add_done_callback(_handle_sync_task_done)
 
     if waiting_targets:
         await _wait_for_snapshot_targets(waiting_targets, min_timestamp, deadline)
