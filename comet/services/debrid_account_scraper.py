@@ -4,7 +4,8 @@ from datetime import datetime
 
 import orjson
 
-from comet.core.database import IS_SQLITE, JSON_FUNC, database
+from comet.core.database import (IS_SQLITE, JSON_FUNC,
+                                 _debrid_account_snapshot_ttl, database)
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -37,13 +38,6 @@ def _dedupe_accounts(debrid_entries: list[dict]) -> list[tuple[str, str, str]]:
 
 def _sync_lock_key(service: str, account_key_hash: str) -> str:
     return f"{_SYNC_LOCK_PREFIX}:{service}:{account_key_hash}"
-
-
-def _snapshot_ttl() -> int:
-    return max(
-        settings.DEBRID_ACCOUNT_SCRAPE_CACHE_TTL,
-        settings.DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL,
-    )
 
 
 def _to_epoch(value) -> float:
@@ -325,7 +319,7 @@ async def ensure_account_snapshot_ready(session, debrid_entries: list[dict], ip:
     if not accounts:
         return
 
-    min_timestamp = time.time() - _snapshot_ttl()
+    min_timestamp = time.time() - _debrid_account_snapshot_ttl()
     missing = []
     for service, api_key, account_key_hash in accounts:
         has_snapshot = await _has_fresh_snapshot(
@@ -517,7 +511,7 @@ async def get_account_torrents_for_media(
     if not accounts:
         return account_torrents, service_cache_status
 
-    min_timestamp = time.time() - _snapshot_ttl()
+    min_timestamp = time.time() - _debrid_account_snapshot_ttl()
     aliases = aliases or {}
 
     async def fetch_rows(service: str, account_key_hash: str):
