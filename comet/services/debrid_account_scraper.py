@@ -14,6 +14,7 @@ from comet.debrid.stremthru import StremThru
 from comet.services.filtering import filter_worker
 from comet.services.lock import DistributedLock
 from comet.services.torrent_manager import torrent_update_queue
+from comet.utils.parsing import parsed_matches_target
 
 _SYNC_LOCK_PREFIX = "debrid-account-sync"
 _CACHED_STATUSES = frozenset({"cached", "downloaded"})
@@ -598,12 +599,7 @@ async def get_account_torrents_for_media(
 
         for torrent in filtered_torrents:
             parsed = torrent["parsed"]
-            parsed_season = parsed.seasons[0] if parsed.seasons else None
-            parsed_episode = parsed.episodes[0] if parsed.episodes else None
-
-            if (parsed_season is not None and parsed_season != season) or (
-                parsed_episode is not None and parsed_episode != episode
-            ):
+            if not parsed_matches_target(parsed, season, episode):
                 continue
 
             info_hash = torrent["infoHash"]
