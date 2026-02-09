@@ -50,6 +50,7 @@ class BackgroundScraperWorker:
         self.metadata_scraper = None
         self.task: asyncio.Task | None = None
         self._active_scrape_task = None
+        self._last_discovery_limit_normalization = None
         self._reset_discovery_hysteresis()
 
     def _reset_discovery_hysteresis(self):
@@ -92,47 +93,25 @@ class BackgroundScraperWorker:
     async def _fetch_queue_snapshot(self, now: float | None = None):
         current_now, query_context = self._queue_query_context(now=now)
 
-        item_counts_rows = await database.fetch_all(
+        item_snapshot = await database.fetch_one(
             """
-            SELECT media_type, COUNT(*) AS count
+            SELECT
+                COALESCE(SUM(CASE WHEN media_type = 'movie' THEN 1 ELSE 0 END), 0) AS movie_count,
+                COALESCE(SUM(CASE WHEN media_type = 'series' THEN 1 ELSE 0 END), 0) AS series_count,
+                MIN(created_at) AS oldest_item_ts
             FROM background_scraper_items
-            WHERE media_type IN ('movie', 'series')
-              AND (next_retry_at IS NULL OR next_retry_at <= :now)
-              AND (last_success_at IS NULL OR last_success_at <= :success_cutoff)
-              AND (status != 'dead' OR consecutive_failures < :max_retries)
-            GROUP BY media_type
-            """,
-            query_context,
-        )
-        item_counts = {"movie": 0, "series": 0}
-        for row in item_counts_rows:
-            media_type = row["media_type"]
-            if media_type in item_counts:
-                item_counts[media_type] = int(row["count"])
-
-        queue_episodes = await database.fetch_val(
-            """
-            SELECT COUNT(*) FROM background_scraper_episodes
-            WHERE season >= 1
-              AND episode >= 1
-              AND (next_retry_at IS NULL OR next_retry_at <= :now)
-              AND (last_success_at IS NULL OR last_success_at <= :success_cutoff)
-              AND (status != 'dead' OR consecutive_failures < :max_retries)
-            """,
-            query_context,
-        )
-        oldest_item_ts = await database.fetch_val(
-            """
-            SELECT MIN(created_at) FROM background_scraper_items
             WHERE (next_retry_at IS NULL OR next_retry_at <= :now)
               AND (last_success_at IS NULL OR last_success_at <= :success_cutoff)
               AND (status != 'dead' OR consecutive_failures < :max_retries)
             """,
             query_context,
         )
-        oldest_episode_ts = await database.fetch_val(
+        episode_snapshot = await database.fetch_one(
             """
-            SELECT MIN(created_at) FROM background_scraper_episodes
+            SELECT
+                COUNT(*) AS episode_count,
+                MIN(created_at) AS oldest_episode_ts
+            FROM background_scraper_episodes
             WHERE season >= 1
               AND episode >= 1
               AND (next_retry_at IS NULL OR next_retry_at <= :now)
@@ -140,6 +119,11 @@ class BackgroundScraperWorker:
               AND (status != 'dead' OR consecutive_failures < :max_retries)
             """,
             query_context,
+        )
+
+        oldest_item_ts = item_snapshot["oldest_item_ts"] if item_snapshot else None
+        oldest_episode_ts = (
+            episode_snapshot["oldest_episode_ts"] if episode_snapshot else None
         )
         candidate_timestamps = [
             ts for ts in (oldest_item_ts, oldest_episode_ts) if ts is not None
@@ -149,9 +133,11 @@ class BackgroundScraperWorker:
             if candidate_timestamps
             else 0.0
         )
-        queue_movies = int(item_counts["movie"])
-        queue_series = int(item_counts["series"])
-        queue_episodes = int(queue_episodes or 0)
+        queue_movies = int(item_snapshot["movie_count"] or 0) if item_snapshot else 0
+        queue_series = int(item_snapshot["series_count"] or 0) if item_snapshot else 0
+        queue_episodes = (
+            int(episode_snapshot["episode_count"] or 0) if episode_snapshot else 0
+        )
         total_queue = queue_movies + queue_series + queue_episodes
 
         return {
@@ -166,13 +152,37 @@ class BackgroundScraperWorker:
         low = max(0, int(settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK or 0))
         high = max(0, int(settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK or 0))
         hard = max(0, int(settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP or 0))
+        configured_low, configured_high, configured_hard = low, high, hard
+        corrections = []
 
         if high <= 0 and hard > 0:
             high = hard
+            corrections.append("high<=0 with hard>0, set high=hard")
         if high > 0 and (low <= 0 or low > high):
             low = max(1, high // 2)
+            corrections.append("low invalid for high, auto-derived low")
         if hard > 0 and high > 0 and hard < high:
             hard = high
+            corrections.append("hard<high, promoted hard to high")
+
+        if corrections:
+            normalization_signature = (
+                configured_low,
+                configured_high,
+                configured_hard,
+                low,
+                high,
+                hard,
+            )
+            if self._last_discovery_limit_normalization != normalization_signature:
+                logger.warning(
+                    "BACKGROUND_SCRAPER: Normalized queue limits "
+                    f"low/high/hard={configured_low}/{configured_high}/{configured_hard} "
+                    f"-> {low}/{high}/{hard} ({'; '.join(corrections)})"
+                )
+                self._last_discovery_limit_normalization = normalization_signature
+        else:
+            self._last_discovery_limit_normalization = None
 
         return low, high, hard
 
