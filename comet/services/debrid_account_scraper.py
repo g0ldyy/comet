@@ -16,6 +16,7 @@ from comet.services.torrent_manager import torrent_update_queue
 
 _SYNC_LOCK_PREFIX = "debrid-account-sync"
 _CACHED_STATUSES = frozenset({"cached", "downloaded"})
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _dedupe_accounts(debrid_entries: list[dict]) -> list[tuple[str, str, str]]:
@@ -248,6 +249,23 @@ async def _sync_task(
         await lock.release()
 
 
+def _handle_sync_task_done(task: asyncio.Task):
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+
+    try:
+        error = task.exception()
+    except asyncio.CancelledError:
+        return
+    except Exception as e:
+        logger.error(f"Debrid account sync task completion handling failed: {e}")
+        return
+
+    if error:
+        logger.error(f"Debrid account sync task failed: {error}")
+
+
 async def _has_fresh_snapshot(
     service: str, account_key_hash: str, min_timestamp: float
 ):
@@ -359,9 +377,11 @@ async def trigger_account_snapshot_sync(session, service: str, api_key: str, ip:
     if not await lock.acquire():
         return False
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         _sync_task(lock, session, service, api_key, ip, account_key_hash)
     )
+    _background_tasks.add(task)
+    task.add_done_callback(_handle_sync_task_done)
     return True
 
 
