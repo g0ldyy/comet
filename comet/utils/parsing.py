@@ -98,9 +98,9 @@ def parse_media_id(media_type: str, media_id: str):
 def parsed_matches_target(
     parsed: ParsedData, season: int | None, episode: int | None
 ) -> bool:
-    if parsed.seasons and season not in parsed.seasons:
+    if season is not None and parsed.seasons and season not in parsed.seasons:
         return False
-    if parsed.episodes and episode not in parsed.episodes:
+    if episode is not None and parsed.episodes and episode not in parsed.episodes:
         return False
     return True
 
