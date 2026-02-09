@@ -50,6 +50,9 @@ class BackgroundScraperWorker:
         self.metadata_scraper = None
         self.task: asyncio.Task | None = None
         self._active_scrape_task = None
+        self._reset_discovery_hysteresis()
+
+    def _reset_discovery_hysteresis(self):
         self._discovery_paused_for_backlog = False
 
     def clear_finished_task(self):
@@ -393,6 +396,7 @@ class BackgroundScraperWorker:
                 self.last_error = str(e)
                 logger.error(f"Background scraper task stopped with error: {e}")
         self.task = None
+        self._reset_discovery_hysteresis()
 
     async def pause(self):
         if not self.is_running:
