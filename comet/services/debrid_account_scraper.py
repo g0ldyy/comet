@@ -431,7 +431,7 @@ async def ingest_account_torrents_to_public_cache(
         media_id, list(account_torrents.keys())
     )
 
-    enqueued_rows = 0
+    file_infos_to_enqueue = []
     for info_hash, torrent in account_torrents.items():
         parsed = torrent["parsed"]
         parsed_seasons = parsed.seasons if parsed.seasons else [search_season]
@@ -454,10 +454,12 @@ async def ingest_account_torrents_to_public_cache(
                 "tracker": torrent["tracker"],
                 "sources": torrent["sources"],
             }
-            await torrent_update_queue.add_torrent_info(file_info, media_id)
-            enqueued_rows += 1
+            file_infos_to_enqueue.append(file_info)
 
-    return enqueued_rows
+    if file_infos_to_enqueue:
+        await torrent_update_queue.add_torrent_infos(file_infos_to_enqueue, media_id)
+
+    return len(file_infos_to_enqueue)
 
 
 async def schedule_account_snapshot_refresh(
