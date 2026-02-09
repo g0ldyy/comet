@@ -63,6 +63,12 @@ class AnimeToshoScraper(BaseScraper):
             async with self.session.get(
                 f"https://feed.animetosho.org/api?t=search&q={query}&offset={offset}&limit={limit}"
             ) as response:
+                if response.status != 200:
+                    logger.warning(
+                        f"Failed to scrape AnimeTosho offset={offset}: HTTP {response.status}"
+                    )
+                    return [], 0
+
                 content = await response.text()
                 if not content.strip():
                     return [], 0

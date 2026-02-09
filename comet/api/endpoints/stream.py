@@ -14,6 +14,9 @@ from comet.metadata.manager import MetadataScraper
 from comet.services.anime import anime_mapper
 from comet.services.cache_state import CacheStateManager
 from comet.services.debrid import DebridService
+from comet.services.debrid_account_scraper import (
+    ensure_account_snapshot_ready, get_account_torrents_for_media,
+    ingest_account_torrents_to_public_cache, schedule_account_snapshot_refresh)
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 from comet.services.trackers import trackers
@@ -34,21 +37,22 @@ def _build_stream_response(
     content: dict,
     is_empty: bool = False,
     vary_headers: list = None,
+    cache_policy=None,
 ):
     if not settings.HTTP_CACHE_ENABLED:
         return content
 
+    vary = ["Accept", "Accept-Encoding"]
+    if cache_policy is None:
+        if is_empty:
+            cache_policy = CachePolicies.empty_results()
+        else:
+            cache_policy = CachePolicies.streams()
+    cache_control = cache_policy.build()
+
     etag = generate_etag(content)
-
     if check_etag_match(request, etag):
-        return not_modified_response(etag)
-
-    if is_empty:
-        cache_policy = CachePolicies.empty_results()
-        vary = ["Accept", "Accept-Encoding"]
-    else:
-        cache_policy = CachePolicies.streams()
-        vary = ["Accept", "Accept-Encoding"]
+        return not_modified_response(etag, cache_control=cache_control)
 
     if vary_headers:
         vary.extend(vary_headers)
@@ -111,6 +115,25 @@ def _select_info_hashes_by_resolution(
         try_select(info_hash)
 
     return selected_info_hashes
+
+
+def _merge_service_cache_status(target: dict, incoming: dict):
+    for info_hash, service_map in incoming.items():
+        cache_map = target.setdefault(info_hash, {})
+        for service, is_cached in service_map.items():
+            if is_cached:
+                cache_map[service] = True
+            elif service not in cache_map:
+                cache_map[service] = False
+
+
+def _dedupe_debrid_entries_by_service(debrid_entries: list) -> list:
+    unique_services = {}
+    for entry in debrid_entries:
+        service = entry["service"]
+        if service not in unique_services:
+            unique_services[service] = entry
+    return list(unique_services.values())
 
 
 async def background_scrape(
@@ -177,14 +200,11 @@ async def check_multi_service_availability(
 
         return service, cached_hashes
 
-    unique_services = {}
-    for entry in debrid_entries:
-        if entry["service"] not in unique_services:
-            unique_services[entry["service"]] = entry
+    unique_services = _dedupe_debrid_entries_by_service(debrid_entries)
 
     if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in unique_services.values()],
+            *[check_service(e) for e in unique_services],
             return_exceptions=True,
         )
 
@@ -220,10 +240,7 @@ async def get_and_cache_multi_service_availability(
     tracker_map = {h: torrents[h]["tracker"] for h in info_hashes}
     sources_map = {h: torrents[h]["sources"] for h in info_hashes}
 
-    unique_services = {}
-    for entry in debrid_entries:
-        if entry["service"] not in unique_services:
-            unique_services[entry["service"]] = entry
+    unique_services = _dedupe_debrid_entries_by_service(debrid_entries)
 
     async def check_service(entry):
         service = entry["service"]
@@ -250,7 +267,7 @@ async def get_and_cache_multi_service_availability(
 
     if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in unique_services.values()],
+            *[check_service(e) for e in unique_services],
             return_exceptions=True,
         )
 
@@ -317,6 +334,17 @@ async def stream(
     debrid_entries = config.get("_debridEntries", [])
     enable_torrent = config.get("_enableTorrent", False)
     deduplicate_streams = config.get("deduplicateStreams", False)
+    scrape_debrid_account_torrents = config.get("scrapeDebridAccountTorrents", False)
+    use_account_scrape = bool(debrid_entries and scrape_debrid_account_torrents)
+    response_cache_policy = CachePolicies.no_cache() if use_account_scrape else None
+
+    def _stream_response(content: dict, is_empty: bool = False):
+        return _build_stream_response(
+            request,
+            content,
+            is_empty=is_empty,
+            cache_policy=response_cache_policy,
+        )
 
     is_torrent_only = enable_torrent and not debrid_entries
 
@@ -328,7 +356,7 @@ async def stream(
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
 
-        return _build_stream_response(request, {"streams": [placeholder_stream]})
+        return _stream_response({"streams": [placeholder_stream]})
 
     session = await http_client_manager.get_session()
     metadata_scraper = MetadataScraper(session)
@@ -342,8 +370,7 @@ async def stream(
 
         if not is_released:
             logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
-            return _build_stream_response(
-                request,
+            return _stream_response(
                 {
                     "streams": [
                         {
@@ -362,8 +389,7 @@ async def stream(
 
     if metadata is None:
         logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
-        return _build_stream_response(
-            request,
+        return _stream_response(
             {
                 "streams": [
                     {
@@ -435,6 +461,7 @@ async def stream(
             if kitsu_id and kitsu_id not in cache_media_ids:
                 cache_media_ids.append(kitsu_id)
 
+    remove_adult_content = settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
     torrent_manager = TorrentManager(
         media_type,
         media_id,
@@ -445,7 +472,7 @@ async def stream(
         season,
         episode,
         aliases,
-        settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
+        remove_adult_content,
         is_kitsu=is_kitsu,
         search_episode=search_episode,
         search_season=search_season,
@@ -472,6 +499,7 @@ async def stream(
     lock_acquired = cache_result.lock_acquired
 
     sort_mixed = is_torrent_only or config["sortCachedUncachedTogether"]
+    account_snapshot_ready = False
     cached_results = []
     non_cached_results = []
 
@@ -480,8 +508,7 @@ async def stream(
             "SCRAPER",
             f"🔄 Another instance is scraping {log_title}, returning early",
         )
-        return _build_stream_response(
-            request,
+        return _stream_response(
             {
                 "streams": [
                     {
@@ -529,7 +556,19 @@ async def stream(
     if cache_result.should_scrape_now or force_scrape_now:
         logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
         try:
-            await torrent_manager.scrape_torrents()
+            if use_account_scrape:
+                scrape_result, warmup_result = await asyncio.gather(
+                    torrent_manager.scrape_torrents(),
+                    ensure_account_snapshot_ready(session, debrid_entries, ip),
+                    return_exceptions=True,
+                )
+                if isinstance(scrape_result, Exception):
+                    raise scrape_result
+                if isinstance(warmup_result, Exception):
+                    raise warmup_result
+                account_snapshot_ready = True
+            else:
+                await torrent_manager.scrape_torrents()
             logger.log(
                 "SCRAPER",
                 f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",
@@ -537,10 +576,73 @@ async def stream(
         finally:
             await cache_manager.release_lock()
 
-    service_cache_status = {}
+    service_cache_status = defaultdict(dict)
+    verified_service_cache_status = defaultdict(dict)
+    show_account_sync_trigger = use_account_scrape
+    if use_account_scrape:
+        if not account_snapshot_ready:
+            await ensure_account_snapshot_ready(session, debrid_entries, ip)
+        await schedule_account_snapshot_refresh(
+            background_tasks, session, debrid_entries, ip
+        )
+        account_torrents, account_cache_status = await get_account_torrents_for_media(
+            debrid_entries,
+            media_type,
+            title,
+            year,
+            year_end,
+            search_season,
+            search_episode,
+            aliases,
+            remove_adult_content,
+        )
+
+        for info_hash, account_torrent in account_torrents.items():
+            existing_torrent = torrent_manager.torrents.get(info_hash)
+            if existing_torrent is None:
+                torrent_manager.torrents[info_hash] = account_torrent
+                continue
+
+            if (
+                existing_torrent.get("fileIndex") is None
+                and account_torrent["fileIndex"] is not None
+            ):
+                existing_torrent["fileIndex"] = account_torrent["fileIndex"]
+
+            if (
+                existing_torrent.get("size") is None
+                and account_torrent["size"] is not None
+            ):
+                existing_torrent["size"] = account_torrent["size"]
+
+            existing_parsed = existing_torrent.get("parsed")
+            if existing_parsed is None or str(existing_parsed.resolution) == "unknown":
+                existing_torrent["parsed"] = account_torrent["parsed"]
+
+        if account_torrents:
+            logger.log(
+                "SCRAPER",
+                f"📚 Account scrape added {len(account_torrents)} torrents from debrid snapshots",
+            )
+
+            public_cache_ingested = await ingest_account_torrents_to_public_cache(
+                account_torrents, media_only_id, search_season
+            )
+            if public_cache_ingested:
+                logger.log(
+                    "SCRAPER",
+                    f"🌐 Debrid account contributed {public_cache_ingested} rows to public torrent cache",
+                )
+
+        _merge_service_cache_status(service_cache_status, account_cache_status)
+
     if debrid_entries:
-        service_cache_status = await check_multi_service_availability(
+        existing_service_cache_status = await check_multi_service_availability(
             debrid_entries, torrent_manager.torrents, search_season, search_episode
+        )
+        _merge_service_cache_status(service_cache_status, existing_service_cache_status)
+        _merge_service_cache_status(
+            verified_service_cache_status, existing_service_cache_status
         )
     elif enable_torrent:
         await DebridService.apply_cached_availability_any_service(
@@ -550,22 +652,22 @@ async def stream(
             torrent_manager.torrents,
         )
 
-    total_cached_count = 0
-    for info_hash in torrent_manager.torrents:
-        for service in service_cache_status.get(info_hash, {}).values():
-            if service:
-                total_cached_count += 1
-                break
-
     total_count = len(torrent_manager.torrents)
+    total_verified_cached_count = 0
+    for info_hash in torrent_manager.torrents:
+        for service in verified_service_cache_status.get(info_hash, {}).values():
+            if service:
+                total_verified_cached_count += 1
+                break
 
     needs_debrid_check = (
         total_count > 0
         and debrid_entries
         and (
-            not cache_result.has_cached_torrents
-            or total_cached_count == 0
-            or (total_cached_count / total_count) < settings.DEBRID_CACHE_CHECK_RATIO
+            (not cache_result.has_cached_torrents and not use_account_scrape)
+            or total_verified_cached_count == 0
+            or (total_verified_cached_count / total_count)
+            < settings.DEBRID_CACHE_CHECK_RATIO
         )
     )
 
@@ -577,7 +679,7 @@ async def stream(
             f"🔄 Checking availability on debrid services: {services_str}",
         )
         (
-            service_cache_status,
+            fresh_service_cache_status,
             debrid_errors,
         ) = await get_and_cache_multi_service_availability(
             session,
@@ -589,6 +691,7 @@ async def stream(
             search_episode,
             ip,
         )
+        _merge_service_cache_status(service_cache_status, fresh_service_cache_status)
 
         for service, error in debrid_errors.items():
             cached_results.append(
@@ -648,6 +751,24 @@ async def stream(
         if settings.PUBLIC_BASE_URL
         else f"{request.url.scheme}://{request.url.netloc}"
     )
+
+    if show_account_sync_trigger:
+        for entry_index, entry in enumerate(debrid_entries):
+            service = entry["service"]
+            debrid_extension = get_debrid_extension(service)
+            cached_results.append(
+                {
+                    "name": f"[{debrid_extension}🔄] Comet Sync",
+                    "description": (
+                        "Sync debrid account library now.\n"
+                        "Select this stream, then retry this title in a few seconds."
+                    ),
+                    "url": (
+                        f"{base_playback_host}/{b64config}/debrid-sync/{entry_index}"
+                    ),
+                }
+            )
+
     selected_info_hashes = _select_info_hashes_by_resolution(
         ranked_info_hashes=torrent_manager.ranked_torrents,
         torrents=torrents,
@@ -767,8 +888,7 @@ async def stream(
 
     has_results = len(final_streams) > 0
 
-    return _build_stream_response(
-        request,
+    return _stream_response(
         {"streams": final_streams},
         is_empty=not has_results,
     )

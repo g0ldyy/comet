@@ -510,6 +510,12 @@
           help-text="When enabled, shows only one result per torrent (from the first service that has it cached). When disabled, shows results from all services."
           >Deduplicate Streams</sl-checkbox
         >
+
+        <sl-checkbox
+          id="scrapeDebridAccountTorrents"
+          help-text="Scrape torrents directly from your debrid account library."
+          >Scrape Debrid Account Torrents</sl-checkbox
+        >
       </sl-details>
 
       <style>
@@ -640,9 +646,29 @@
         window.disableTorrentStreams = torrentDisabled;
 
         let debridServiceCounter = 0;
+        let torrentModeAutoDisabled = false;
 
-        function createDebridServiceEntry(service = "", apiKey = "") {
+        function maybeAutoDisableTorrentModeOnFirstDebridService() {
+          if (torrentModeAutoDisabled) {
+            return;
+          }
+
+          const enableTorrentEl = document.getElementById("enableTorrent");
+          if (!enableTorrentEl) {
+            torrentModeAutoDisabled = true;
+            return;
+          }
+
+          if (enableTorrentEl.checked) {
+            enableTorrentEl.checked = false;
+          }
+
+          torrentModeAutoDisabled = true;
+        }
+
+        function createDebridServiceEntry(service = "", apiKey = "", applyAutoDisable = true) {
           const container = document.getElementById("debridServicesContainer");
+          const hadNoEntries = container.querySelectorAll(".debrid-service-entry").length === 0;
           const entryId = debridServiceCounter++;
 
           const entry = document.createElement("div");
@@ -722,6 +748,10 @@
 
           container.appendChild(entry);
 
+          if (applyAutoDisable && hadNoEntries) {
+            maybeAutoDisableTorrentModeOnFirstDebridService();
+          }
+
           // Initialize links if service is pre-selected
           if (service) {
             updateServiceLinks(service, linksContainer, apiKeyInput);
@@ -778,10 +808,11 @@
           const container = document.getElementById("debridServicesContainer");
           container.innerHTML = "";
           debridServiceCounter = 0;
+          torrentModeAutoDisabled = Boolean(services && services.length > 0);
 
           if (services && services.length > 0) {
             services.forEach(entry => {
-              createDebridServiceEntry(entry.service, entry.apiKey);
+              createDebridServiceEntry(entry.service, entry.apiKey, false);
             });
           }
         }
@@ -1105,6 +1136,8 @@
             const enableTorrent = enableTorrentEl ? enableTorrentEl.checked : false;
             const deduplicateStreamsEl = document.getElementById("deduplicateStreams");
             const deduplicateStreams = deduplicateStreamsEl ? deduplicateStreamsEl.checked : false;
+            const scrapeDebridAccountTorrentsEl = document.getElementById("scrapeDebridAccountTorrents");
+            const scrapeDebridAccountTorrents = scrapeDebridAccountTorrentsEl ? scrapeDebridAccountTorrentsEl.checked : false;
 
             const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
@@ -1118,6 +1151,7 @@
               debridServices: debridServices,
               enableTorrent: enableTorrent,
               deduplicateStreams: deduplicateStreams,
+              scrapeDebridAccountTorrents: scrapeDebridAccountTorrents,
               debridStreamProxyPassword: debridStreamProxyPassword,
               languages: {
                 required: languages_required,
@@ -1165,6 +1199,11 @@
 
             // sortCachedUncachedTogether default is false
             if (settings.sortCachedUncachedTogether !== false) {
+              return false;
+            }
+
+            // scrapeDebridAccountTorrents default is false
+            if (settings.scrapeDebridAccountTorrents === true) {
               return false;
             }
 
@@ -1327,6 +1366,11 @@
             const deduplicateStreamsEl = document.getElementById("deduplicateStreams");
             if (deduplicateStreamsEl && settings.deduplicateStreams !== undefined) {
               deduplicateStreamsEl.checked = settings.deduplicateStreams;
+            }
+
+            const scrapeDebridAccountTorrentsEl = document.getElementById("scrapeDebridAccountTorrents");
+            if (scrapeDebridAccountTorrentsEl && settings.scrapeDebridAccountTorrents !== undefined) {
+              scrapeDebridAccountTorrentsEl.checked = settings.scrapeDebridAccountTorrents;
             }
 
             if (settings.debridStreamProxyPassword !== null)

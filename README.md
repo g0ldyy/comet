@@ -9,6 +9,7 @@
 - Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB, Peerflix, DMM and SeaDex
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper
+- Debrid Account Scraper: Scrape torrents directly from your debrid account library
 - [DMM](https://github.com/debridmediamanager/hashlists) Ingester: Automatically download and index Debrid Media Manager hashlists
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions

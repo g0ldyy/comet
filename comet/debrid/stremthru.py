@@ -31,15 +31,11 @@ class StremThru:
         ip: str,
     ):
         store, token = self.parse_store_creds(token)
-        session.headers["X-StremThru-Store-Name"] = store
-        session.headers["X-StremThru-Store-Authorization"] = f"Bearer {token}"
-
-        session.headers["User-Agent"] = "comet"
 
         self.session = session
         self.base_url = f"{settings.STREMTHRU_URL}/v0/store"
-        self.name = f"StremThru-{store}"
-        self.real_debrid_name = store
+        self.store_name = store
+        self.store_token = token
         self.client_ip = ip
         self.sid = video_id
         self.media_only_id = media_only_id
@@ -51,41 +47,64 @@ class StremThru:
 
         return token, ""
 
+    def _headers(self):
+        return {
+            "X-StremThru-Store-Name": self.store_name,
+            "X-StremThru-Store-Authorization": f"Bearer {self.store_token}",
+            "User-Agent": "comet",
+        }
+
     async def check_premium(self):
         try:
             response = await self.session.get(
-                f"{self.base_url}/user?client_ip={self.client_ip}"
+                f"{self.base_url}/user?client_ip={self.client_ip}",
+                headers=self._headers(),
             )
             user = await response.json()
 
             if "data" not in user:
                 raise DebridAuthError(
-                    self.real_debrid_name,
-                    f"{self.real_debrid_name}: Invalid API key.\nPlease check your configuration.",
+                    self.store_name,
+                    f"{self.store_name}: Invalid API key.\nPlease check your configuration.",
                 )
 
             if user["data"]["subscription_status"] != "premium":
                 raise DebridAuthError(
-                    self.real_debrid_name,
-                    f"{self.real_debrid_name}: No active subscription.\nPlease renew your debrid account.",
+                    self.store_name,
+                    f"{self.store_name}: No active subscription.\nPlease renew your debrid account.",
                 )
         except DebridAuthError:
             raise
         except Exception as e:
             raise DebridAuthError(
-                self.real_debrid_name,
-                f"{self.real_debrid_name}: Failed to check account status.\n{e}",
+                self.store_name,
+                f"{self.store_name}: Failed to check account status.\n{e}",
             )
 
     async def get_instant(self, magnets: list):
         try:
             url = f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}&sid={self.sid}"
-            magnet = await self.session.get(url)
+            magnet = await self.session.get(url, headers=self._headers())
             return await magnet.json()
         except Exception as e:
             logger.warning(
-                f"Exception while checking hash instant availability on {self.name}: {e}"
+                f"Exception while checking hash instant availability on {self.store_name}: {e}"
             )
+
+    async def list_magnets(self, limit: int = 500, offset: int = 0):
+        try:
+            response = await self.session.get(
+                f"{self.base_url}/magnets?limit={limit}&offset={offset}&client_ip={self.client_ip}",
+                headers=self._headers(),
+            )
+            payload = await response.json()
+            data = payload["data"]
+            return data["items"], int(data["total_items"])
+        except Exception as e:
+            logger.warning(
+                f"Exception while listing account magnets on {self.store_name}: {e}"
+            )
+            return None, 0
 
     async def get_availability(
         self,
@@ -114,7 +133,7 @@ class StremThru:
             if response and "data" in response
         ]
 
-        is_offcloud = self.real_debrid_name == "offcloud"
+        is_offcloud = self.store_name == "offcloud"
 
         filenames_to_parse = []
         if not is_offcloud:
@@ -206,7 +225,7 @@ class StremThru:
 
         logger.log(
             "SCRAPER",
-            f"{self.name}: Found {cached_count} cached torrents with {len(files)} valid files",
+            f"{self.store_name}: Found {cached_count} cached torrents with {len(files)} valid files",
         )
         return files
 
@@ -243,6 +262,7 @@ class StremThru:
             magnet = await self.session.post(
                 f"{self.base_url}/magnets?client_ip={self.client_ip}",
                 json={"magnet": magnet_uri},
+                headers=self._headers(),
             )
             magnet = await magnet.json()
 
@@ -415,12 +435,13 @@ class StremThru:
 
             if all_files_for_cache:
                 asyncio.create_task(
-                    cache_availability(self.real_debrid_name, all_files_for_cache)
+                    cache_availability(self.store_name, all_files_for_cache)
                 )
 
             link = await self.session.post(
                 f"{self.base_url}/link/generate?client_ip={self.client_ip}",
                 json={"link": target_file["link"]},
+                headers=self._headers(),
             )
             link = await link.json()
 

@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from comet.api.endpoints import (admin, base, chilllink, cometnet, cometnet_ui,
-                                 config, manifest, playback)
+                                 config, debrid_sync, manifest, playback)
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
 from comet.cometnet.manager import init_cometnet_service
@@ -214,6 +214,7 @@ app.include_router(config.router)
 app.include_router(manifest.router)
 app.include_router(admin.router)
 app.include_router(playback.router)
+app.include_router(debrid_sync.router)
 app.include_router(streams_router.streams)
 app.include_router(chilllink.router)
 app.include_router(cometnet.router)

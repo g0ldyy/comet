@@ -142,12 +142,12 @@ class CachedJSONResponse(Response):
             self.headers["Vary"] = ", ".join(vary)
 
 
-def not_modified_response(etag: str):
+def not_modified_response(etag: str, cache_control: str = "must-revalidate"):
     return Response(
         status_code=304,
         headers={
             "ETag": etag,
-            "Cache-Control": "must-revalidate",
+            "Cache-Control": cache_control,
         },
     )
 

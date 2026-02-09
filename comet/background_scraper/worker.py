@@ -110,13 +110,37 @@ class BackgroundScraperWorker:
             """
             SELECT
                 COUNT(*) AS episode_count,
-                MIN(created_at) AS oldest_episode_ts
+                MIN(background_scraper_episodes.created_at) AS oldest_episode_ts
             FROM background_scraper_episodes
-            WHERE season >= 1
-              AND episode >= 1
-              AND (next_retry_at IS NULL OR next_retry_at <= :now)
-              AND (last_success_at IS NULL OR last_success_at <= :success_cutoff)
-              AND (status != 'dead' OR consecutive_failures < :max_retries)
+            JOIN background_scraper_items
+              ON background_scraper_items.media_id = background_scraper_episodes.series_id
+             AND background_scraper_items.media_type = 'series'
+            WHERE background_scraper_episodes.season >= 1
+              AND background_scraper_episodes.episode >= 1
+              AND (
+                    background_scraper_episodes.next_retry_at IS NULL
+                    OR background_scraper_episodes.next_retry_at <= :now
+                  )
+              AND (
+                    background_scraper_episodes.last_success_at IS NULL
+                    OR background_scraper_episodes.last_success_at <= :success_cutoff
+                  )
+              AND (
+                    background_scraper_episodes.status != 'dead'
+                    OR background_scraper_episodes.consecutive_failures < :max_retries
+                  )
+              AND (
+                    background_scraper_items.next_retry_at IS NULL
+                    OR background_scraper_items.next_retry_at <= :now
+                  )
+              AND (
+                    background_scraper_items.last_success_at IS NULL
+                    OR background_scraper_items.last_success_at <= :success_cutoff
+                  )
+              AND (
+                    background_scraper_items.status != 'dead'
+                    OR background_scraper_items.consecutive_failures < :max_retries
+                  )
             """,
             query_context,
         )

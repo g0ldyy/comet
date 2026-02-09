@@ -439,9 +439,19 @@ class TorrentUpdateQueue:
     async def add_torrent_info(
         self, file_info: dict, media_id: str = None, from_cometnet: bool = False
     ):
+        await self.add_torrent_infos([file_info], media_id, from_cometnet)
+
+    async def add_torrent_infos(
+        self, file_infos: list[dict], media_id: str = None, from_cometnet: bool = False
+    ):
+        if not file_infos:
+            return
+
         # Mark if this torrent came from CometNet (to avoid re-broadcasting)
-        file_info["_from_cometnet"] = from_cometnet
-        await self.queue.put((file_info, media_id))
+        for file_info in file_infos:
+            file_info["_from_cometnet"] = from_cometnet
+            self.queue.put_nowait((file_info, media_id))
+
         self._event.set()
 
         if not self.is_running:
