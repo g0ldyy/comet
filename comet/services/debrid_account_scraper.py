@@ -141,6 +141,15 @@ async def _upsert_snapshot_rows(rows: list[dict]):
                 timestamp = EXCLUDED.timestamp
         """
 
+    params_per_row = 9
+
+    if IS_SQLITE:
+        max_params = 999
+        chunk_size = max_params // params_per_row
+        for i in range(0, len(rows), chunk_size):
+            await database.execute_many(query, rows[i : i + chunk_size])
+        return
+
     await database.execute_many(query, rows)
 
 
