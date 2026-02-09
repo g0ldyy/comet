@@ -126,6 +126,11 @@ class AppSettings(BaseSettings):
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: Optional[str] = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: Optional[str] = None
     PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD: Optional[int] = 300
+    DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL: int = 900
+    DEBRID_ACCOUNT_SCRAPE_CACHE_TTL: int = 86400
+    DEBRID_ACCOUNT_SCRAPE_MAX_SNAPSHOT_ITEMS: int = 5000
+    DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS: int = 1500
+    DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT: float = 5.0
     STREMTHRU_URL: Optional[str] = "https://stremthru.13377001.xyz"
     DISABLE_TORRENT_STREAMS: Optional[bool] = False
     TORRENT_DISABLED_STREAM_NAME: Optional[str] = "[INFO] Comet"
@@ -885,6 +890,7 @@ class ConfigModel(BaseModel):
     debridServices: Optional[List[DebridServiceEntry]] = []
     enableTorrent: Optional[bool] = False
     deduplicateStreams: Optional[bool] = False
+    scrapeDebridAccountTorrents: Optional[bool] = False
 
     debridStreamProxyPassword: Optional[str] = ""
     languages: Optional[dict] = rtn_settings_default_dumped["languages"]

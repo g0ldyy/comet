@@ -8,7 +8,8 @@ from fastapi.responses import FileResponse, RedirectResponse
 from comet.core.config_validation import config_check
 from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.models import settings
-from comet.debrid.manager import get_debrid
+from comet.debrid.manager import (build_account_key_hash, get_debrid,
+                                  get_debrid_credentials)
 from comet.metadata.manager import MetadataScraper
 from comet.services.streaming.manager import custom_handle_stream_request
 from comet.utils.cache import NO_CACHE_HEADERS
@@ -17,22 +18,6 @@ from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_optional_int
 
 router = APIRouter()
-
-
-def _get_debrid_credentials(config: dict, service_index: int = None):
-    debrid_entries = config.get("_debridEntries", [])
-
-    if debrid_entries and service_index is not None:
-        if 0 <= service_index < len(debrid_entries):
-            entry = debrid_entries[service_index]
-            return entry["service"], entry["apiKey"]
-
-    if debrid_entries:
-        entry = debrid_entries[0]
-        return entry["service"], entry["apiKey"]
-
-    # Legacy single-service format
-    return config.get("debridService", "torrent"), config.get("debridApiKey", "")
 
 
 @router.get(
@@ -58,9 +43,10 @@ async def playback(
     season = parse_optional_int(season)
     episode = parse_optional_int(episode)
 
-    debrid_service, debrid_api_key = _get_debrid_credentials(
+    debrid_service, debrid_api_key = get_debrid_credentials(
         config, parsed_service_index
     )
+    account_key_hash = build_account_key_hash(debrid_api_key)
 
     session = await http_client_manager.get_session()
     min_timestamp = time.time() - 3600
@@ -68,14 +54,16 @@ async def playback(
         """
         SELECT download_url
         FROM download_links_cache
-        WHERE debrid_key = :debrid_key
+        WHERE debrid_service = :debrid_service
+        AND account_key_hash = :account_key_hash
         AND info_hash = :info_hash
         AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
         AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
         AND timestamp >= :min_timestamp
         """,
         {
-            "debrid_key": debrid_api_key,
+            "debrid_service": debrid_service,
+            "account_key_hash": account_key_hash,
             "info_hash": hash,
             "season": season,
             "episode": episode,
@@ -158,12 +146,29 @@ async def playback(
         await database.execute(
             f"""
                 INSERT {OR_IGNORE}
-                INTO download_links_cache
-                VALUES (:debrid_key, :info_hash, :season, :episode, :download_url, :timestamp)
+                INTO download_links_cache (
+                    debrid_service,
+                    account_key_hash,
+                    info_hash,
+                    season,
+                    episode,
+                    download_url,
+                    timestamp
+                )
+                VALUES (
+                    :debrid_service,
+                    :account_key_hash,
+                    :info_hash,
+                    :season,
+                    :episode,
+                    :download_url,
+                    :timestamp
+                )
                 {ON_CONFLICT_DO_NOTHING}
             """,
             {
-                "debrid_key": debrid_api_key,
+                "debrid_service": debrid_service,
+                "account_key_hash": account_key_hash,
                 "info_hash": hash,
                 "season": season,
                 "episode": episode,

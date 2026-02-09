@@ -518,6 +518,15 @@ def log_startup_info(settings):
     )
 
     logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
+    logger.log(
+        "COMET",
+        "Debrid Account Scrape: "
+        f"refresh={settings.DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL}s "
+        f"ttl={settings.DEBRID_ACCOUNT_SCRAPE_CACHE_TTL}s "
+        f"max_snapshot={settings.DEBRID_ACCOUNT_SCRAPE_MAX_SNAPSHOT_ITEMS} "
+        f"max_match={settings.DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS} "
+        f"warm_timeout={settings.DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT}s ",
+    )
 
     disabled_streams_info = (
         f" - Name: {settings.TORRENT_DISABLED_STREAM_NAME} - URL: {settings.TORRENT_DISABLED_STREAM_URL} - Description: {settings.TORRENT_DISABLED_STREAM_DESCRIPTION}"
