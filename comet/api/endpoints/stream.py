@@ -24,12 +24,64 @@ from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
                                not_modified_response)
 from comet.utils.formatting import (format_chilllink, format_title,
-                                    get_formatted_components)
+                                    format_title_plain,
+                                    get_formatted_components,
+                                    get_formatted_components_plain)
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
 
 streams = APIRouter()
+
+RESOLUTION_TO_DIMENSIONS = {
+    "4K": (2160, 3840),
+    "2160P": (2160, 3840),
+    "1440P": (1440, 2560),
+    "1080P": (1080, 1920),
+    "720P": (720, 1280),
+    "576P": (576, 720),
+    "480P": (480, 640),
+    "360P": (360, 480),
+    "240P": (240, 320),
+}
+
+
+def _first_meta_value(value):
+    if isinstance(value, list):
+        return value[0] if value else ""
+    return value or ""
+
+
+def _build_kodi_meta(parsed, formatted_components: dict):
+    resolution_value = getattr(parsed, "resolution", "")
+    resolution = str(resolution_value).upper() if resolution_value else ""
+    height, width = RESOLUTION_TO_DIMENSIONS.get(resolution, (0, 0))
+    languages = getattr(parsed, "languages", None) or []
+
+    return {
+        "width": width,
+        "height": height,
+        "resolution": resolution,
+        "codec": _first_meta_value(getattr(parsed, "codec", "")),
+        "hdr": _first_meta_value(getattr(parsed, "hdr", "")),
+        "audio": _first_meta_value(getattr(parsed, "audio", "")),
+        "channels": _first_meta_value(getattr(parsed, "channels", "")),
+        "language": languages[0] if languages else "",
+        "languages": languages,
+        "title": formatted_components.get("title", ""),
+        "videoInfo": formatted_components.get("video", ""),
+        "audioInfo": formatted_components.get("audio", ""),
+        "qualityInfo": formatted_components.get("quality", ""),
+        "groupInfo": formatted_components.get("group", ""),
+        "seedersInfo": formatted_components.get("seeders", ""),
+        "sizeInfo": formatted_components.get("size", ""),
+        "trackerInfo": formatted_components.get("tracker", ""),
+        "languagesInfo": formatted_components.get("languages", ""),
+    }
+
+
+def _stream_notice_name(kodi: bool, emoji_name: str, plain_name: str):
+    return plain_name if kodi else emoji_name
 
 
 def _build_stream_response(
@@ -61,7 +113,7 @@ def _build_stream_response(
         content=content,
         cache_control=cache_policy,
         etag=etag,
-        vary=list(set(vary)),
+        vary=list(dict.fromkeys(vary)),
     )
 
 
@@ -309,6 +361,7 @@ async def stream(
     background_tasks: BackgroundTasks,
     b64config: str = None,
     chilllink: bool = False,
+    kodi: bool = False,
 ):
     if media_type not in ["movie", "series"]:
         return _build_stream_response(request, {"streams": []}, is_empty=True)
@@ -323,18 +376,22 @@ async def stream(
         error_response = {
             "streams": [
                 {
-                    "name": "[❌] Comet",
-                    "description": f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️",
+                    "name": _stream_notice_name(kodi, "[❌] Comet", "[ERROR] Comet"),
+                    "description": (
+                        f"OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc}"
+                        if kodi
+                        else f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️"
+                    ),
                     "url": "https://comet.feels.legal",
                 }
             ]
         }
         return _build_stream_response(request, error_response, is_empty=True)
 
-    debrid_entries = config.get("_debridEntries", [])
-    enable_torrent = config.get("_enableTorrent", False)
-    deduplicate_streams = config.get("deduplicateStreams", False)
-    scrape_debrid_account_torrents = config.get("scrapeDebridAccountTorrents", False)
+    debrid_entries = config["_debridEntries"]
+    enable_torrent = config["_enableTorrent"]
+    deduplicate_streams = config["deduplicateStreams"]
+    scrape_debrid_account_torrents = config["scrapeDebridAccountTorrents"]
     use_account_scrape = bool(debrid_entries and scrape_debrid_account_torrents)
     response_cache_policy = CachePolicies.no_cache() if use_account_scrape else None
 
@@ -374,7 +431,9 @@ async def stream(
                 {
                     "streams": [
                         {
-                            "name": "[🚫] Comet",
+                            "name": _stream_notice_name(
+                                kodi, "[🚫] Comet", "[BLOCKED] Comet"
+                            ),
                             "description": "Content not digitally released yet.",
                             "url": "https://comet.feels.legal",
                         }
@@ -393,7 +452,7 @@ async def stream(
             {
                 "streams": [
                     {
-                        "name": "[⚠️] Comet",
+                        "name": _stream_notice_name(kodi, "[⚠️] Comet", "[WARN] Comet"),
                         "description": "Unable to get metadata.",
                         "url": "https://comet.feels.legal",
                     }
@@ -512,7 +571,7 @@ async def stream(
             {
                 "streams": [
                     {
-                        "name": "[🔄] Comet",
+                        "name": _stream_notice_name(kodi, "[🔄] Comet", "[INFO] Comet"),
                         "description": "Scraping in progress, please try again in a few seconds...",
                         "url": "https://comet.feels.legal",
                     }
@@ -533,7 +592,7 @@ async def stream(
     if cache_result.should_show_first_search_message:
         cached_results.append(
             {
-                "name": "[🔄] Comet",
+                "name": _stream_notice_name(kodi, "[🔄] Comet", "[INFO] Comet"),
                 "description": "First search for this media - More results will be available in a few seconds...",
                 "url": "https://comet.feels.legal",
             }
@@ -696,19 +755,26 @@ async def stream(
         for service, error in debrid_errors.items():
             cached_results.append(
                 {
-                    "name": f"[❌] {service}",
+                    "name": (f"[ERROR] {service}" if kodi else f"[❌] {service}"),
                     "description": error.display_message,
                     "url": "https://comet.feels.legal",
                 }
             )
 
-    if debrid_entries:
-        for entry in debrid_entries:
-            service = entry["service"]
+    debrid_stream_specs = [
+        (entry_index, entry["service"], get_debrid_extension(entry["service"]))
+        for entry_index, entry in enumerate(debrid_entries)
+    ]
+    if debrid_stream_specs:
+        seen_services = set()
+        for _, service, _ in debrid_stream_specs:
+            if service in seen_services:
+                continue
+            seen_services.add(service)
             cached_count = sum(
                 1
-                for h in torrent_manager.torrents
-                if service_cache_status.get(h, {}).get(service, False)
+                for cache_map in service_cache_status.values()
+                if cache_map.get(service, False)
             )
             logger.log(
                 "SCRAPER",
@@ -736,7 +802,7 @@ async def stream(
     ):
         cached_results.append(
             {
-                "name": "[⚠️] Comet",
+                "name": _stream_notice_name(kodi, "[⚠️] Comet", "[WARN] Comet"),
                 "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
                 "url": "https://comet.feels.legal",
             }
@@ -751,14 +817,22 @@ async def stream(
         if settings.PUBLIC_BASE_URL
         else f"{request.url.scheme}://{request.url.netloc}"
     )
+    quoted_title = quote(title)
+    format_components = (
+        get_formatted_components_plain if kodi else get_formatted_components
+    )
+    format_title_fn = format_title_plain if kodi else format_title
+    torrent_extension = get_debrid_extension("torrent")
 
     if show_account_sync_trigger:
-        for entry_index, entry in enumerate(debrid_entries):
-            service = entry["service"]
-            debrid_extension = get_debrid_extension(service)
+        for entry_index, service, debrid_extension in debrid_stream_specs:
             cached_results.append(
                 {
-                    "name": f"[{debrid_extension}🔄] Comet Sync",
+                    "name": (
+                        f"[{debrid_extension}] Comet Sync"
+                        if kodi
+                        else f"[{debrid_extension}🔄] Comet Sync"
+                    ),
                     "description": (
                         "Sync debrid account library now.\n"
                         "Select this stream, then retry this title in a few seconds."
@@ -791,23 +865,29 @@ async def stream(
         torrent = torrents[info_hash]
         rtn_data = torrent["parsed"]
         torrent_title = torrent["title"]
-
-        formatted_components = get_formatted_components(
+        torrent_size = torrent["size"]
+        formatted_components = format_components(
             rtn_data,
             torrent_title,
             torrent["seeders"],
-            torrent["size"],
+            torrent_size,
             torrent["tracker"],
             config["resultFormat"],
         )
+        formatted_title = format_title_fn(formatted_components)
+        kodi_meta = _build_kodi_meta(rtn_data, formatted_components) if kodi else None
+        info_hash_cache_status = service_cache_status.get(info_hash)
+        quoted_torrent_title = quote(torrent_title)
 
-        for entry_index, entry in enumerate(debrid_entries):
-            service = entry["service"]
-
+        for entry_index, service, debrid_extension in debrid_stream_specs:
             if service in debrid_errors:
                 continue
 
-            is_cached = service_cache_status.get(info_hash, {}).get(service, False)
+            is_cached = (
+                info_hash_cache_status.get(service, False)
+                if info_hash_cache_status
+                else False
+            )
 
             if config["cachedOnly"] and not is_cached:
                 continue
@@ -815,17 +895,19 @@ async def stream(
             if deduplicate_streams and info_hash in added_hashes and is_cached:
                 continue
 
-            debrid_extension = get_debrid_extension(service)
             debrid_emoji = "⚡" if is_cached else "⬇️"
+            behavior_hints = {
+                "bingeGroup": f"comet|{service}|{info_hash}",
+                "videoSize": torrent_size,
+                "filename": rtn_data.raw_title,
+            }
+            if kodi_meta is not None:
+                behavior_hints["cometKodiMetaV1"] = kodi_meta
 
             the_stream = {
                 "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
-                "description": format_title(formatted_components),
-                "behaviorHints": {
-                    "bingeGroup": f"comet|{service}|{info_hash}",
-                    "videoSize": torrent["size"],
-                    "filename": rtn_data.raw_title,
-                },
+                "description": formatted_title,
+                "behaviorHints": behavior_hints,
             }
 
             if chilllink:
@@ -838,7 +920,7 @@ async def stream(
                 str(file_index) if is_cached and file_index is not None else "n"
             )
             the_stream["url"] = (
-                f"{base_playback_host}/{b64config}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
+                f"{base_playback_host}/{b64config}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quoted_torrent_title}?name={quoted_title}"
             )
 
             if is_cached:
@@ -855,17 +937,19 @@ async def stream(
             if deduplicate_streams and info_hash in added_hashes:
                 continue
 
-            torrent_extension = get_debrid_extension("torrent")
-            debrid_emoji = "🧲"
+            debrid_emoji = "" if kodi else "🧲"
+            behavior_hints = {
+                "bingeGroup": f"comet|torrent|{info_hash}",
+                "videoSize": torrent_size,
+                "filename": rtn_data.raw_title,
+            }
+            if kodi_meta is not None:
+                behavior_hints["cometKodiMetaV1"] = kodi_meta
 
             the_stream = {
                 "name": f"[{torrent_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
-                "description": format_title(formatted_components),
-                "behaviorHints": {
-                    "bingeGroup": f"comet|torrent|{info_hash}",
-                    "videoSize": torrent["size"],
-                    "filename": rtn_data.raw_title,
-                },
+                "description": formatted_title,
+                "behaviorHints": behavior_hints,
                 "infoHash": info_hash,
             }
 

@@ -140,6 +140,19 @@ async def setup_database():
 
         await database.execute(
             """
+                CREATE TABLE IF NOT EXISTS kodi_setup_codes (
+                    code TEXT PRIMARY KEY,
+                    nonce TEXT NOT NULL,
+                    b64config TEXT,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    consumed_at REAL
+                )
+            """
+        )
+
+        await database.execute(
+            """
                 CREATE TABLE IF NOT EXISTS metadata_cache (
                     media_id TEXT PRIMARY KEY, 
                     title TEXT, 
@@ -690,6 +703,13 @@ async def setup_database():
 
         await database.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_kodi_setup_codes_expires
+            ON kodi_setup_codes (expires_at)
+            """
+        )
+
+        await database.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_bg_items_media_retry_priority
             ON background_scraper_items (media_type, next_retry_at, priority_score, last_scraped_at)
             """
@@ -899,6 +919,15 @@ async def _run_startup_cleanup():
 
             await database.execute("DELETE FROM download_links_cache")
 
+            await database.execute(
+                """
+                DELETE FROM kodi_setup_codes
+                WHERE expires_at < :current_time
+                   OR consumed_at IS NOT NULL
+                """,
+                {"current_time": current_time},
+            )
+
             run_retention_days = settings.BACKGROUND_SCRAPER_RUN_RETENTION_DAYS
             if run_retention_days > 0:
                 await database.execute(
@@ -962,6 +991,24 @@ async def cleanup_expired_sessions():
             logger.log("SESSION", f"❌ Error during periodic session cleanup: {e}")
 
         await asyncio.sleep(60)  # Clean up every 60 seconds
+
+
+async def cleanup_expired_kodi_setup_codes():
+    while True:
+        try:
+            current_time = time.time()
+            await database.execute(
+                """
+                DELETE FROM kodi_setup_codes
+                WHERE expires_at < :current_time
+                   OR consumed_at IS NOT NULL
+                """,
+                {"current_time": current_time},
+            )
+        except Exception as e:
+            logger.log("KODI", f"Error during Kodi setup cleanup: {e}")
+
+        await asyncio.sleep(30)
 
 
 async def _migrate_indexes():

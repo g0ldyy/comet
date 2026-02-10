@@ -268,7 +268,90 @@ def get_formatted_components(
     return components
 
 
+def get_formatted_components_plain(
+    data: ParsedData,
+    ttitle: str,
+    seeders: int,
+    size: int,
+    tracker: str,
+    result_format: list,
+):
+    has_all = "all" in result_format
+    components = {}
+
+    if has_all or "title" in result_format:
+        components["title"] = ttitle
+
+    if has_all or "video_info" in result_format:
+        info = format_video_info(data)
+        if info:
+            components["video"] = info
+
+    if has_all or "audio_info" in result_format:
+        info = format_audio_info(data)
+        if info:
+            components["audio"] = info
+
+    if has_all or "quality_info" in result_format:
+        info = format_quality_info(data)
+        if info:
+            components["quality"] = info
+
+    if has_all or "release_group" in result_format:
+        info = format_group_info(data)
+        if info:
+            components["group"] = info
+
+    if (has_all or "seeders" in result_format) and seeders is not None:
+        components["seeders"] = f"Seeders: {seeders}"
+
+    if (has_all or "size" in result_format) and size is not None:
+        components["size"] = f"Size: {format_bytes(size)}"
+
+    if (has_all or "tracker" in result_format) and tracker:
+        if comet_clean_tracker and tracker[:6] == "Comet|":
+            components["tracker"] = f"Source: Comet|{tracker.rsplit('|', 1)[-1]}"
+        else:
+            components["tracker"] = f"Source: {tracker}"
+
+    if (
+        (has_all or "languages" in result_format)
+        and hasattr(data, "languages")
+        and data.languages
+    ):
+        components["languages"] = "Languages: " + "/".join(data.languages)
+
+    return components
+
+
 def format_title(components: dict):
+    lines = []
+
+    if "title" in components:
+        lines.append(components["title"])
+
+    video_audio = [components[k] for k in ["video", "audio"] if k in components]
+    if video_audio:
+        lines.append(" | ".join(video_audio))
+
+    quality_group = [components[k] for k in ["quality", "group"] if k in components]
+    if quality_group:
+        lines.append(" | ".join(quality_group))
+
+    info = [components[k] for k in ["seeders", "size", "tracker"] if k in components]
+    if info:
+        lines.append(" ".join(info))
+
+    if "languages" in components:
+        lines.append(components["languages"])
+
+    if not lines:
+        return "Empty result format configuration"
+
+    return "\n".join(lines)
+
+
+def format_title_plain(components: dict):
     lines = []
 
     if "title" in components:
