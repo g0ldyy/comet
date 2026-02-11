@@ -1,6 +1,7 @@
 import json
 import re
 import sys
+from typing import Optional, Tuple
 from urllib import parse
 
 import xbmc
@@ -29,7 +30,7 @@ _TAGLINE_KEYS = (
     "trackerInfo",
     "languagesInfo",
 )
-_PROVIDER_CONTEXT_CACHE: tuple[str, str] | None = None
+_PROVIDER_CONTEXT_CACHE: Optional[Tuple[str, str]] = None
 
 
 def _compose_url(base_url: str, path: str):
@@ -114,7 +115,7 @@ def _parse_release_year(release_info):
     return int(match.group()) if match else None
 
 
-def _upgrade_metahub_url(url: str | None):
+def _upgrade_metahub_url(url: Optional[str]):
     if url and "/poster/small/" in url:
         return url.replace("/poster/small/", "/poster/medium/")
     return url or None
@@ -151,7 +152,9 @@ def _set_video_tags(tags, meta: dict, title: str):
         tags.setGenres(genres)
 
 
-def _build_art(primary: str | None, poster: str | None, background: str | None):
+def _build_art(
+    primary: Optional[str], poster: Optional[str], background: Optional[str]
+):
     art = {}
     if primary:
         art["thumb"] = primary
@@ -211,7 +214,7 @@ def _set_episode_art(list_item, video: dict, meta: dict):
         list_item.setArt(art)
 
 
-def _set_season_art(list_item, meta: dict, season_thumbnail: str | None):
+def _set_season_art(list_item, meta: dict, season_thumbnail: Optional[str]):
     season_thumb = _upgrade_metahub_url(season_thumbnail)
     poster = _upgrade_metahub_url(meta.get("poster"))
     background = _upgrade_metahub_url(meta.get("background")) or poster
@@ -225,7 +228,7 @@ def _stream_tagline(video_info: dict):
     return " | ".join(part for part in parts if part)
 
 
-def _add_directory_items(items: list, total_items: int | None = None):
+def _add_directory_items(items: list, total_items: Optional[int] = None):
     if not items:
         return
     xbmcplugin.addDirectoryItems(
