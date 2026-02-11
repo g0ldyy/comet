@@ -938,9 +938,13 @@
         </sl-alert>
 
         <sl-button id="setup-kodi" variant="neutral">Setup Kodi</sl-button>
-        <sl-alert id="kodiAlert" variant="neutral" duration="3000" closable>
+        <sl-alert id="kodiAlert" variant="success" duration="3000" closable>
           <sl-icon slot="icon" name="check2-circle"></sl-icon>
           <strong id="kodiAlertText">Kodi setup completed successfully.</strong>
+        </sl-alert>
+        <sl-alert id="kodiErrorAlert" variant="danger" duration="4000" closable>
+          <sl-icon slot="icon" name="exclamation-octagon"></sl-icon>
+          <strong id="kodiErrorAlertText">Failed to setup Kodi.</strong>
         </sl-alert>
 
         <script type="module">
@@ -1331,7 +1335,7 @@
           async function setupKodiWithCode(rawCode) {
             const code = rawCode.trim().toLowerCase();
             if (!/^[0-9a-f]{6,16}$/.test(code)) {
-              window.alert("Kodi setup code must be a 6–16 character hexadecimal value.");
+              showKodiError("Kodi setup code must be a 6–16 character hexadecimal value.");
               return;
             }
 
@@ -1359,31 +1363,59 @@
               } catch (error) {
                 console.error("Failed to parse Kodi setup error:", error);
               }
-              window.alert(errorMessage);
+              showKodiError(errorMessage);
               return;
             }
 
             kodiAlertText.textContent = "Kodi setup completed successfully.";
             kodiAlert.toast();
+            return true;
           }
 
-          kodiSetupButton.addEventListener("click", async () => {
+          function showKodiError(message) {
+            const errorAlert = document.getElementById("kodiErrorAlert");
+            const errorText = document.getElementById("kodiErrorAlertText");
+            errorText.textContent = message;
+            errorAlert.toast();
+          }
+
+          const kodiDialog = document.querySelector("#kodi-dialog");
+          const kodiConfirmBtn = document.querySelector("#kodi-confirm-btn");
+          const kodiCancelBtn = document.querySelector("#kodi-cancel-btn");
+          const kodiInput = document.querySelector("#kodi-code-input");
+
+          kodiSetupButton.addEventListener("click", () => {
             const queryParams = new URLSearchParams(window.location.search);
             const suggestedCode = queryParams.get("kodi_code") || "";
-            const inputCode = window.prompt(
-              "Enter the Kodi setup code",
-              suggestedCode,
-            );
+            kodiInput.value = suggestedCode;
+            kodiDialog.show();
+          });
 
-            if (!inputCode) {
-              return;
+          kodiConfirmBtn.addEventListener("click", async () => {
+            const code = kodiInput.value;
+            if (code) {
+              kodiConfirmBtn.loading = true;
+              try {
+                const success = await setupKodiWithCode(code);
+                if (success) {
+                  kodiDialog.hide();
+                }
+              } catch (error) {
+                console.error("Kodi setup error:", error);
+                showKodiError("An unexpected error occurred.");
+              } finally {
+                kodiConfirmBtn.loading = false;
+              }
+            } else {
+              showKodiError("Please enter a setup code.");
             }
+          });
 
-            try {
-              await setupKodiWithCode(inputCode);
-            } catch (error) {
-              console.error("Kodi setup error:", error);
-              window.alert("Failed to setup Kodi.");
+          kodiCancelBtn.addEventListener("click", () => kodiDialog.hide());
+
+          kodiInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              kodiConfirmBtn.click();
             }
           });
 
@@ -1481,6 +1513,57 @@
     <div class="heart-button" id="support-trigger">
       <sl-icon name="heart-fill"></sl-icon>
     </div>
+
+    <sl-dialog label="Setup Kodi" id="kodi-dialog" style="--width: 500px">
+      <div
+        style="
+          display: flex;
+          flex-direction: column;
+          gap: 1.2rem;
+          margin-top: -10px;
+        "
+      >
+        <p
+          style="
+            margin: 0;
+            color: var(--sl-color-neutral-600);
+            font-size: 0.95rem;
+            line-height: 1.6;
+          "
+        >
+          Kodi is a free and open-source media player that allows you to stream
+          and organize your digital content. By setting up Comet on Kodi, you
+          can access your favorite torrents and debrid services directly through
+          its interface.
+        </p>
+
+        <sl-button
+          href="https://github.com/g0ldyy/comet/blob/main/kodi/README.md"
+          target="_blank"
+          variant="default"
+          style="width: 100%"
+        >
+          <sl-icon slot="prefix" name="book"></sl-icon>
+          Kodi Setup Guide
+        </sl-button>
+
+        <sl-divider></sl-divider>
+
+        <sl-input
+          id="kodi-code-input"
+          label="Setup Code"
+          placeholder="e.g. 1a2b3c"
+          help-text="Enter the hexadecimal code displayed in the Comet add-on settings (Configure/Reconfigure)."
+          clearable
+        ></sl-input>
+      </div>
+      <sl-button slot="footer" variant="primary" id="kodi-confirm-btn">
+        Setup
+      </sl-button>
+      <sl-button slot="footer" variant="neutral" id="kodi-cancel-btn">
+        Cancel
+      </sl-button>
+    </sl-dialog>
 
     <sl-dialog label="Support Comet" id="support-dialog" style="--width: 400px">
       <div
