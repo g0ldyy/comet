@@ -1,0 +1,10 @@
+<settings>
+    <category label="Comet">
+        <setting label="Base URL" id="base_url" type="text" default="https://comet.feels.legal" />
+        <setting label="Configuration" id="secret_string" type="text" default="" />
+        <setting label="Catalog Provider URL" id="catalog_provider_url" type="text" default="https://v3-cinemeta.strem.io" />
+        <setting label="Configure/Reconfigure" id="configure_secret" type="action" action="RunScript(special://home/addons/plugin.video.comet/lib/custom_settings_window.py)" />
+        <setting label="Check Elementum" id="setup_elementum" type="action" action="RunScript(special://home/addons/plugin.video.comet/lib/setup_elementum.py)" />
+        <setting label="Check TMDB Helper player" id="setup_tmdb_helper" type="action" action="RunScript(special://home/addons/plugin.video.comet/lib/setup_tmdb_helper.py)" />
+    </category>
+</settings>

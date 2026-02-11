@@ -209,6 +209,98 @@ def format_group_info(data: ParsedData):
 comet_clean_tracker = settings.COMET_CLEAN_TRACKER
 
 
+_STYLE_EMOJI = {
+    "title": "📄 {}",
+    "video": "📹 {}",
+    "audio": "🔊 {}",
+    "quality": "⭐ {}",
+    "group": "🏷️ {}",
+    "seeders": "👤 {}",
+    "size": "💾 {}",
+    "tracker": "🔎 {}",
+    "tracker_clean": "🔎 Comet|{}",
+    "languages": None,
+}
+
+_STYLE_PLAIN = {
+    "title": "{}",
+    "video": "{}",
+    "audio": "{}",
+    "quality": "{}",
+    "group": "{}",
+    "seeders": "Seeders: {}",
+    "size": "Size: {}",
+    "tracker": "Source: {}",
+    "tracker_clean": "Source: Comet|{}",
+    "languages": "Languages: {}",
+}
+
+
+def _get_formatted_components(
+    data: ParsedData,
+    ttitle: str,
+    seeders: int,
+    size: int,
+    tracker: str,
+    result_format: list,
+    style: dict,
+):
+    has_all = "all" in result_format
+    components = {}
+
+    if has_all or "title" in result_format:
+        components["title"] = style["title"].format(ttitle)
+
+    if has_all or "video_info" in result_format:
+        info = format_video_info(data)
+        if info:
+            components["video"] = style["video"].format(info)
+
+    if has_all or "audio_info" in result_format:
+        info = format_audio_info(data)
+        if info:
+            components["audio"] = style["audio"].format(info)
+
+    if has_all or "quality_info" in result_format:
+        info = format_quality_info(data)
+        if info:
+            components["quality"] = style["quality"].format(info)
+
+    if has_all or "release_group" in result_format:
+        info = format_group_info(data)
+        if info:
+            components["group"] = style["group"].format(info)
+
+    if (has_all or "seeders" in result_format) and seeders is not None:
+        components["seeders"] = style["seeders"].format(seeders)
+
+    if (has_all or "size" in result_format) and size is not None:
+        components["size"] = style["size"].format(format_bytes(size))
+
+    if (has_all or "tracker" in result_format) and tracker:
+        if comet_clean_tracker and tracker[:6] == "Comet|":
+            components["tracker"] = style["tracker_clean"].format(
+                tracker.rsplit("|", 1)[-1]
+            )
+        else:
+            components["tracker"] = style["tracker"].format(tracker)
+
+    if (
+        (has_all or "languages" in result_format)
+        and hasattr(data, "languages")
+        and data.languages
+    ):
+        lang_fmt = style["languages"]
+        if lang_fmt is None:
+            components["languages"] = "/".join(
+                get_language_emoji(language) for language in data.languages
+            )
+        else:
+            components["languages"] = lang_fmt.format("/".join(data.languages))
+
+    return components
+
+
 def get_formatted_components(
     data: ParsedData,
     ttitle: str,
@@ -217,55 +309,22 @@ def get_formatted_components(
     tracker: str,
     result_format: list,
 ):
-    has_all = "all" in result_format
-    components = {}
+    return _get_formatted_components(
+        data, ttitle, seeders, size, tracker, result_format, _STYLE_EMOJI
+    )
 
-    if has_all or "title" in result_format:
-        components["title"] = f"📄 {ttitle}"
 
-    if has_all or "video_info" in result_format:
-        info = format_video_info(data)
-        if info:
-            components["video"] = f"📹 {info}"
-
-    if has_all or "audio_info" in result_format:
-        info = format_audio_info(data)
-        if info:
-            components["audio"] = f"🔊 {info}"
-
-    if has_all or "quality_info" in result_format:
-        info = format_quality_info(data)
-        if info:
-            components["quality"] = f"⭐ {info}"
-
-    if has_all or "release_group" in result_format:
-        info = format_group_info(data)
-        if info:
-            components["group"] = f"🏷️ {info}"
-
-    if (has_all or "seeders" in result_format) and seeders is not None:
-        components["seeders"] = f"👤 {seeders}"
-
-    if (has_all or "size" in result_format) and size is not None:
-        components["size"] = f"💾 {format_bytes(size)}"
-
-    if (has_all or "tracker" in result_format) and tracker:
-        if comet_clean_tracker and tracker[:6] == "Comet|":
-            components["tracker"] = f"🔎 Comet|{tracker.rsplit('|', 1)[-1]}"
-        else:
-            components["tracker"] = f"🔎 {tracker}"
-
-    if (
-        (has_all or "languages" in result_format)
-        and hasattr(data, "languages")
-        and data.languages
-    ):
-        formatted_languages = "/".join(
-            get_language_emoji(language) for language in data.languages
-        )
-        components["languages"] = formatted_languages
-
-    return components
+def get_formatted_components_plain(
+    data: ParsedData,
+    ttitle: str,
+    seeders: int,
+    size: int,
+    tracker: str,
+    result_format: list,
+):
+    return _get_formatted_components(
+        data, ttitle, seeders, size, tracker, result_format, _STYLE_PLAIN
+    )
 
 
 def format_title(components: dict):

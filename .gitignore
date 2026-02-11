@@ -1,6 +1,8 @@
 # Project Based
 *.db
 data/
+lib/
+!kodi/plugin.video.comet/lib/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -18,7 +20,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/

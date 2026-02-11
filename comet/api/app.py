@@ -10,12 +10,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from comet.api.endpoints import (admin, base, chilllink, cometnet, cometnet_ui,
-                                 config, debrid_sync, manifest, playback)
+                                 config, debrid_sync, kodi, manifest, playback)
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
 from comet.cometnet.manager import init_cometnet_service
 from comet.cometnet.relay import init_relay, stop_relay
-from comet.core.database import (cleanup_expired_locks,
+from comet.core.database import (cleanup_expired_kodi_setup_codes,
+                                 cleanup_expired_locks,
                                  cleanup_expired_sessions, setup_database,
                                  teardown_database)
 from comet.core.execution import setup_executor, shutdown_executor
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
     # Start background cleanup tasks
     cleanup_locks_task = asyncio.create_task(cleanup_expired_locks())
     cleanup_sessions_task = asyncio.create_task(cleanup_expired_sessions())
+    cleanup_kodi_task = asyncio.create_task(cleanup_expired_kodi_setup_codes())
 
     # Start background scraper if enabled
     if settings.BACKGROUND_SCRAPER_ENABLED:
@@ -138,12 +140,17 @@ async def lifespan(app: FastAPI):
 
         cleanup_locks_task.cancel()
         cleanup_sessions_task.cancel()
+        cleanup_kodi_task.cancel()
         try:
             await cleanup_locks_task
         except asyncio.CancelledError:
             pass
         try:
             await cleanup_sessions_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await cleanup_kodi_task
         except asyncio.CancelledError:
             pass
 
@@ -178,6 +185,10 @@ tags_metadata = [
     {
         "name": "Stremio",
         "description": "Standard Stremio endpoints.",
+    },
+    {
+        "name": "Kodi",
+        "description": "Kodi specific endpoints.",
     },
     {
         "name": "ChillLink",
@@ -219,3 +230,4 @@ app.include_router(streams_router.streams)
 app.include_router(chilllink.router)
 app.include_router(cometnet.router)
 app.include_router(cometnet_ui.router)
+app.include_router(kodi.router)
