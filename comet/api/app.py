@@ -187,16 +187,16 @@ tags_metadata = [
         "description": "Standard Stremio endpoints.",
     },
     {
+        "name": "Kodi",
+        "description": "Kodi specific endpoints.",
+    },
+    {
         "name": "ChillLink",
         "description": "Chillio specific endpoints.",
     },
     {
         "name": "Admin",
         "description": "Admin dashboard and API endpoints.",
-    },
-    {
-        "name": "Kodi",
-        "description": "Kodi setup and pairing endpoints.",
     },
 ]
 

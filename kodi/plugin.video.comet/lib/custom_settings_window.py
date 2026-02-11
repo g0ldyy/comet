@@ -74,7 +74,7 @@ def configure_comet():
         addon.setSetting("base_url", base_url)
 
         entered_secret = dialog.input(
-            "Comet secret string (optional)",
+            "Comet configuration (optional)",
             secret_string,
             option=xbmcgui.ALPHANUM_HIDE_INPUT,
         )

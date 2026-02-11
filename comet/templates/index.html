@@ -1294,6 +1294,9 @@
           }
 
           function getKodiManifestUrl(settings) {
+            if (isDefaultConfig(settings)) {
+              return `${window.location.origin}/manifest.json`;
+            }
             const settingsString = btoa(JSON.stringify(settings));
             return `${window.location.origin}/${settingsString}/manifest.json`;
           }

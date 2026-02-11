@@ -89,6 +89,11 @@ def get_secret_string():
     return ADDON.getSetting("secret_string")
 
 
+def get_config_prefix():
+    secret = get_secret_string()
+    return f"{secret}/" if secret else ""
+
+
 def get_catalog_provider_url():
     configured = ADDON.getSetting("catalog_provider_url").strip()
     if not configured:
@@ -107,7 +112,7 @@ def is_elementum_installed_and_enabled():
 
 
 def ensure_configured():
-    if get_secret_string():
+    if get_base_url():
         return True
 
     xbmcgui.Dialog().notification(

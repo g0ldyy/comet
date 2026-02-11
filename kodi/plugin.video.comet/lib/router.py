@@ -10,7 +10,7 @@ import xbmcplugin
 from .parser import parse_stream_info
 from .utils import (ADDON_HANDLE, ADDON_ID, build_url,
                     convert_info_hash_to_magnet, ensure_configured, fetch_data,
-                    get_base_url, get_catalog_provider_url, get_secret_string,
+                    get_base_url, get_catalog_provider_url, get_config_prefix,
                     is_elementum_installed_and_enabled, log)
 
 CATALOG_PAGE_SIZE = 25
@@ -572,7 +572,7 @@ def get_streams(params):
     video_id = params["video_id"]
     stream_url = _compose_url(
         get_base_url(),
-        f"{get_secret_string()}/stream/{catalog_type}/{video_id}.json?kodi=1",
+        f"{get_config_prefix()}stream/{catalog_type}/{video_id}.json?kodi=1",
     )
 
     response = fetch_data(stream_url)

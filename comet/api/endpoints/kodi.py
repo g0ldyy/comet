@@ -30,8 +30,11 @@ def _extract_b64config_from_manifest_url(manifest_url: str):
         segment for segment in urlparse(manifest_url).path.split("/") if segment
     ]
 
-    if len(path_segments) < 2 or path_segments[-1] != "manifest.json":
+    if not path_segments or path_segments[-1] != "manifest.json":
         raise ValueError("Invalid manifest URL format")
+
+    if len(path_segments) == 1:
+        return ""
 
     return unquote(path_segments[-2])
 
@@ -95,7 +98,8 @@ async def generate_setup_code(request: Request, payload: GenerateSetupCodeReques
 async def associate_manifest(payload: AssociateManifestRequest):
     try:
         b64config = _extract_b64config_from_manifest_url(payload.manifest_url)
-        _validate_b64config(b64config)
+        if b64config:
+            _validate_b64config(b64config)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -109,8 +113,8 @@ async def associate_manifest(payload: AssociateManifestRequest):
 @router.get(
     "/kodi/get_manifest/{code}",
     tags=["Kodi"],
-    summary="Fetch Paired Kodi Secret",
-    description="Returns the configured Comet secret string for a setup code.",
+    summary="Fetch Paired Kodi Configuration",
+    description="Returns the Comet configuration for a setup code.",
 )
 async def get_manifest(code: str):
     b64config = await consume_b64config_for_setup_code(code)
