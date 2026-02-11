@@ -114,10 +114,9 @@
       .centered-item {
         display: flex;
         justify-content: center;
-      }
-
-      .margin-left-install {
-        margin-right: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
       }
 
       .stars {
@@ -510,6 +509,12 @@
           help-text="When enabled, shows only one result per torrent (from the first service that has it cached). When disabled, shows results from all services."
           >Deduplicate Streams</sl-checkbox
         >
+
+        <sl-checkbox
+          id="scrapeDebridAccountTorrents"
+          help-text="Scrape torrents directly from your debrid account library."
+          >Scrape Debrid Account Torrents</sl-checkbox
+        >
       </sl-details>
 
       <style>
@@ -640,9 +645,29 @@
         window.disableTorrentStreams = torrentDisabled;
 
         let debridServiceCounter = 0;
+        let torrentModeAutoDisabled = false;
 
-        function createDebridServiceEntry(service = "", apiKey = "") {
+        function maybeAutoDisableTorrentModeOnFirstDebridService() {
+          if (torrentModeAutoDisabled) {
+            return;
+          }
+
+          const enableTorrentEl = document.getElementById("enableTorrent");
+          if (!enableTorrentEl) {
+            torrentModeAutoDisabled = true;
+            return;
+          }
+
+          if (enableTorrentEl.checked) {
+            enableTorrentEl.checked = false;
+          }
+
+          torrentModeAutoDisabled = true;
+        }
+
+        function createDebridServiceEntry(service = "", apiKey = "", applyAutoDisable = true) {
           const container = document.getElementById("debridServicesContainer");
+          const hadNoEntries = container.querySelectorAll(".debrid-service-entry").length === 0;
           const entryId = debridServiceCounter++;
 
           const entry = document.createElement("div");
@@ -722,6 +747,10 @@
 
           container.appendChild(entry);
 
+          if (applyAutoDisable && hadNoEntries) {
+            maybeAutoDisableTorrentModeOnFirstDebridService();
+          }
+
           // Initialize links if service is pre-selected
           if (service) {
             updateServiceLinks(service, linksContainer, apiKeyInput);
@@ -778,10 +807,11 @@
           const container = document.getElementById("debridServicesContainer");
           container.innerHTML = "";
           debridServiceCounter = 0;
+          torrentModeAutoDisabled = Boolean(services && services.length > 0);
 
           if (services && services.length > 0) {
             services.forEach(entry => {
-              createDebridServiceEntry(entry.service, entry.apiKey);
+              createDebridServiceEntry(entry.service, entry.apiKey, false);
             });
           }
         }
@@ -893,18 +923,24 @@
       </sl-details>
 
       <div class="centered-item">
-        <sl-button id="install" variant="neutral" class="margin-left-install"
-          >Install</sl-button
-        >
+        <sl-button id="install" variant="neutral">Install</sl-button>
         <sl-alert id="installAlert" variant="neutral" duration="3000" closable>
           <sl-icon slot="icon" name="clipboard2-check"></sl-icon>
-          <strong>Attempting to add the addon to Stremio...</strong>
+          <strong>Attempting to add the add-on to Stremio...</strong>
         </sl-alert>
 
         <sl-button id="copy-link" variant="neutral">Copy Link</sl-button>
         <sl-alert id="copyAlert" variant="neutral" duration="3000" closable>
           <sl-icon slot="icon" name="clipboard2-check"></sl-icon>
-          <strong>The Stremio addon link has been automatically copied.</strong>
+          <strong
+            >The Stremio add-on link has been automatically copied.</strong
+          >
+        </sl-alert>
+
+        <sl-button id="setup-kodi" variant="neutral">Setup Kodi</sl-button>
+        <sl-alert id="kodiAlert" variant="neutral" duration="3000" closable>
+          <sl-icon slot="icon" name="check2-circle"></sl-icon>
+          <strong id="kodiAlertText">Kodi setup completed successfully.</strong>
         </sl-alert>
 
         <script type="module">
@@ -1074,6 +1110,9 @@
           const installAlert = document.querySelector('#installAlert');
           const copyLinkButton = document.querySelector("#copy-link");
           const copyAlert = document.querySelector('#copyAlert');
+          const kodiSetupButton = document.querySelector("#setup-kodi");
+          const kodiAlert = document.querySelector("#kodiAlert");
+          const kodiAlertText = document.querySelector("#kodiAlertText");
 
           function getSettings() {
             const languages_required = Array.from(document.getElementById("languages_required").selectedOptions).map(option => option.value);
@@ -1105,6 +1144,8 @@
             const enableTorrent = enableTorrentEl ? enableTorrentEl.checked : false;
             const deduplicateStreamsEl = document.getElementById("deduplicateStreams");
             const deduplicateStreams = deduplicateStreamsEl ? deduplicateStreamsEl.checked : false;
+            const scrapeDebridAccountTorrentsEl = document.getElementById("scrapeDebridAccountTorrents");
+            const scrapeDebridAccountTorrents = scrapeDebridAccountTorrentsEl ? scrapeDebridAccountTorrentsEl.checked : false;
 
             const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
@@ -1118,6 +1159,7 @@
               debridServices: debridServices,
               enableTorrent: enableTorrent,
               deduplicateStreams: deduplicateStreams,
+              scrapeDebridAccountTorrents: scrapeDebridAccountTorrents,
               debridStreamProxyPassword: debridStreamProxyPassword,
               languages: {
                 required: languages_required,
@@ -1165,6 +1207,11 @@
 
             // sortCachedUncachedTogether default is false
             if (settings.sortCachedUncachedTogether !== false) {
+              return false;
+            }
+
+            // scrapeDebridAccountTorrents default is false
+            if (settings.scrapeDebridAccountTorrents === true) {
               return false;
             }
 
@@ -1248,6 +1295,14 @@
             }
           }
 
+          function getKodiManifestUrl(settings) {
+            if (isDefaultConfig(settings)) {
+              return `${window.location.origin}/manifest.json`;
+            }
+            const settingsString = btoa(JSON.stringify(settings));
+            return `${window.location.origin}/${settingsString}/manifest.json`;
+          }
+
           copyLinkButton.addEventListener("click", () => {
             const settings = getSettings();
             const manifestUrl = getManifestUrl(settings, false);
@@ -1271,6 +1326,65 @@
             window.location.href = manifestUrl;
             console.log(isDefaultConfig(settings) ? "Installing with default manifest" : btoa(JSON.stringify(settings)));
             installAlert.toast();
+          });
+
+          async function setupKodiWithCode(rawCode) {
+            const code = rawCode.trim().toLowerCase();
+            if (!/^[0-9a-f]{6,16}$/.test(code)) {
+              window.alert("Kodi setup code must be a 6–16 character hexadecimal value.");
+              return;
+            }
+
+            const settings = getSettings();
+            const manifestUrl = getKodiManifestUrl(settings);
+
+            const response = await fetch("/kodi/associate_manifest", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                code: code,
+                manifest_url: manifestUrl,
+              }),
+            });
+
+            if (!response.ok) {
+              let errorMessage = "Failed to setup Kodi.";
+              try {
+                const errorData = await response.json();
+                if (errorData.detail) {
+                  errorMessage = errorData.detail;
+                }
+              } catch (error) {
+                console.error("Failed to parse Kodi setup error:", error);
+              }
+              window.alert(errorMessage);
+              return;
+            }
+
+            kodiAlertText.textContent = "Kodi setup completed successfully.";
+            kodiAlert.toast();
+          }
+
+          kodiSetupButton.addEventListener("click", async () => {
+            const queryParams = new URLSearchParams(window.location.search);
+            const suggestedCode = queryParams.get("kodi_code") || "";
+            const inputCode = window.prompt(
+              "Enter the Kodi setup code",
+              suggestedCode,
+            );
+
+            if (!inputCode) {
+              return;
+            }
+
+            try {
+              await setupKodiWithCode(inputCode);
+            } catch (error) {
+              console.error("Kodi setup error:", error);
+              window.alert("Failed to setup Kodi.");
+            }
           });
 
           function getSettingsFromUrl() {
@@ -1327,6 +1441,11 @@
             const deduplicateStreamsEl = document.getElementById("deduplicateStreams");
             if (deduplicateStreamsEl && settings.deduplicateStreams !== undefined) {
               deduplicateStreamsEl.checked = settings.deduplicateStreams;
+            }
+
+            const scrapeDebridAccountTorrentsEl = document.getElementById("scrapeDebridAccountTorrents");
+            if (scrapeDebridAccountTorrentsEl && settings.scrapeDebridAccountTorrents !== undefined) {
+              scrapeDebridAccountTorrentsEl.checked = settings.scrapeDebridAccountTorrents;
             }
 
             if (settings.debridStreamProxyPassword !== null)

@@ -3,12 +3,14 @@
 
 # Features
 - **CometNet**: Decentralized P2P network for automatic torrent metadata sharing ([documentation](docs/cometnet/README.md))
-- The first Stremio addon to Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
+- The first Stremio add-on to Proxy Debrid Streams to allow use of the Debrid Service on multiple IPs at the same time on the same account!
+- Kodi add-on ([documentation](kodi/README.md))
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
 - Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB, Peerflix, DMM and SeaDex
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper
+- Debrid Account Scraper: Scrape torrents directly from your debrid account library
 - [DMM](https://github.com/debridmediamanager/hashlists) Ingester: Automatically download and index Debrid Media Manager hashlists
 - Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
 - Proxy support to bypass debrid restrictions
@@ -78,7 +80,7 @@ Comet is a community-driven project, and your support helps it grow! 🚀
 
 - ❤️ **Donate** via [GitHub Sponsors](https://github.com/sponsors/g0ldyy) or [Ko-fi](https://ko-fi.com/g0ldyy) to support development
 - ⭐ **Star the repository** here on GitHub
-- ⭐ **Star the addon** on [stremio-addons.net](https://stremio-addons.net/addons/comet)
+- ⭐ **Star the add-on** on [stremio-addons.net](https://stremio-addons.net/addons/comet)
 - 🐛 **Contribute** by reporting issues, suggesting features, or submitting PRs
 
 ## Web UI Showcase

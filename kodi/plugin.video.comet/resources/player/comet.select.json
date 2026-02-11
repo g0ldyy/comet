@@ -1,0 +1,19 @@
+{
+  "name": "Search with Comet",
+  "plugin": "plugin.video.comet",
+  "api_language": "en-US",
+  "priority": 100,
+  "is_resolvable": "false",
+  "assert": {
+    "search_movie": [
+      "imdb"
+    ],
+    "search_episode": [
+      "imdb",
+      "season",
+      "episode"
+    ]
+  },
+  "search_movie": "plugin://plugin.video.comet/?action=get_streams&catalog_type=movie&video_id={imdb}",
+  "search_episode": "plugin://plugin.video.comet/?action=get_streams&catalog_type=series&video_id={imdb}:{season}:{episode}"
+}

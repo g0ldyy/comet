@@ -14,6 +14,9 @@ from comet.metadata.manager import MetadataScraper
 from comet.services.anime import anime_mapper
 from comet.services.cache_state import CacheStateManager
 from comet.services.debrid import DebridService
+from comet.services.debrid_account_scraper import (
+    ensure_account_snapshot_ready, get_account_torrents_for_media,
+    ingest_account_torrents_to_public_cache, schedule_account_snapshot_refresh)
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 from comet.services.trackers import trackers
@@ -21,12 +24,63 @@ from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
                                not_modified_response)
 from comet.utils.formatting import (format_chilllink, format_title,
-                                    get_formatted_components)
+                                    get_formatted_components,
+                                    get_formatted_components_plain)
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
 
 streams = APIRouter()
+
+RESOLUTION_TO_DIMENSIONS = {
+    "4K": (2160, 3840),
+    "2160P": (2160, 3840),
+    "1440P": (1440, 2560),
+    "1080P": (1080, 1920),
+    "720P": (720, 1280),
+    "576P": (576, 720),
+    "480P": (480, 640),
+    "360P": (360, 480),
+    "240P": (240, 320),
+}
+
+
+def _first_meta_value(value):
+    if isinstance(value, list):
+        return value[0] if value else ""
+    return value or ""
+
+
+def _build_kodi_meta(parsed, formatted_components: dict):
+    resolution_value = getattr(parsed, "resolution", "")
+    resolution = str(resolution_value).upper() if resolution_value else ""
+    height, width = RESOLUTION_TO_DIMENSIONS.get(resolution, (0, 0))
+    languages = getattr(parsed, "languages", None) or []
+
+    return {
+        "width": width,
+        "height": height,
+        "resolution": resolution,
+        "codec": _first_meta_value(getattr(parsed, "codec", "")),
+        "hdr": _first_meta_value(getattr(parsed, "hdr", "")),
+        "audio": _first_meta_value(getattr(parsed, "audio", "")),
+        "channels": _first_meta_value(getattr(parsed, "channels", "")),
+        "language": languages[0] if languages else "",
+        "languages": languages,
+        "title": formatted_components.get("title", ""),
+        "videoInfo": formatted_components.get("video", ""),
+        "audioInfo": formatted_components.get("audio", ""),
+        "qualityInfo": formatted_components.get("quality", ""),
+        "groupInfo": formatted_components.get("group", ""),
+        "seedersInfo": formatted_components.get("seeders", ""),
+        "sizeInfo": formatted_components.get("size", ""),
+        "trackerInfo": formatted_components.get("tracker", ""),
+        "languagesInfo": formatted_components.get("languages", ""),
+    }
+
+
+def _stream_notice_name(kodi: bool, emoji_name: str, plain_name: str):
+    return plain_name if kodi else emoji_name
 
 
 def _build_stream_response(
@@ -34,21 +88,22 @@ def _build_stream_response(
     content: dict,
     is_empty: bool = False,
     vary_headers: list = None,
+    cache_policy=None,
 ):
     if not settings.HTTP_CACHE_ENABLED:
         return content
 
+    vary = ["Accept", "Accept-Encoding"]
+    if cache_policy is None:
+        if is_empty:
+            cache_policy = CachePolicies.empty_results()
+        else:
+            cache_policy = CachePolicies.streams()
+    cache_control = cache_policy.build()
+
     etag = generate_etag(content)
-
     if check_etag_match(request, etag):
-        return not_modified_response(etag)
-
-    if is_empty:
-        cache_policy = CachePolicies.empty_results()
-        vary = ["Accept", "Accept-Encoding"]
-    else:
-        cache_policy = CachePolicies.streams()
-        vary = ["Accept", "Accept-Encoding"]
+        return not_modified_response(etag, cache_control=cache_control)
 
     if vary_headers:
         vary.extend(vary_headers)
@@ -57,7 +112,7 @@ def _build_stream_response(
         content=content,
         cache_control=cache_policy,
         etag=etag,
-        vary=list(set(vary)),
+        vary=list(dict.fromkeys(vary)),
     )
 
 
@@ -111,6 +166,25 @@ def _select_info_hashes_by_resolution(
         try_select(info_hash)
 
     return selected_info_hashes
+
+
+def _merge_service_cache_status(target: dict, incoming: dict):
+    for info_hash, service_map in incoming.items():
+        cache_map = target.setdefault(info_hash, {})
+        for service, is_cached in service_map.items():
+            if is_cached:
+                cache_map[service] = True
+            elif service not in cache_map:
+                cache_map[service] = False
+
+
+def _dedupe_debrid_entries_by_service(debrid_entries: list) -> list:
+    unique_services = {}
+    for entry in debrid_entries:
+        service = entry["service"]
+        if service not in unique_services:
+            unique_services[service] = entry
+    return list(unique_services.values())
 
 
 async def background_scrape(
@@ -177,14 +251,11 @@ async def check_multi_service_availability(
 
         return service, cached_hashes
 
-    unique_services = {}
-    for entry in debrid_entries:
-        if entry["service"] not in unique_services:
-            unique_services[entry["service"]] = entry
+    unique_services = _dedupe_debrid_entries_by_service(debrid_entries)
 
     if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in unique_services.values()],
+            *[check_service(e) for e in unique_services],
             return_exceptions=True,
         )
 
@@ -220,10 +291,7 @@ async def get_and_cache_multi_service_availability(
     tracker_map = {h: torrents[h]["tracker"] for h in info_hashes}
     sources_map = {h: torrents[h]["sources"] for h in info_hashes}
 
-    unique_services = {}
-    for entry in debrid_entries:
-        if entry["service"] not in unique_services:
-            unique_services[entry["service"]] = entry
+    unique_services = _dedupe_debrid_entries_by_service(debrid_entries)
 
     async def check_service(entry):
         service = entry["service"]
@@ -250,7 +318,7 @@ async def get_and_cache_multi_service_availability(
 
     if unique_services:
         results = await asyncio.gather(
-            *[check_service(e) for e in unique_services.values()],
+            *[check_service(e) for e in unique_services],
             return_exceptions=True,
         )
 
@@ -292,6 +360,7 @@ async def stream(
     background_tasks: BackgroundTasks,
     b64config: str = None,
     chilllink: bool = False,
+    kodi: bool = False,
 ):
     if media_type not in ["movie", "series"]:
         return _build_stream_response(request, {"streams": []}, is_empty=True)
@@ -306,17 +375,32 @@ async def stream(
         error_response = {
             "streams": [
                 {
-                    "name": "[❌] Comet",
-                    "description": f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️",
+                    "name": _stream_notice_name(kodi, "[❌] Comet", "[ERROR] Comet"),
+                    "description": (
+                        f"OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc}"
+                        if kodi
+                        else f"⚠️ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE ON {request.url.scheme}://{request.url.netloc} ⚠️"
+                    ),
                     "url": "https://comet.feels.legal",
                 }
             ]
         }
         return _build_stream_response(request, error_response, is_empty=True)
 
-    debrid_entries = config.get("_debridEntries", [])
-    enable_torrent = config.get("_enableTorrent", False)
-    deduplicate_streams = config.get("deduplicateStreams", False)
+    debrid_entries = config["_debridEntries"]
+    enable_torrent = config["_enableTorrent"]
+    deduplicate_streams = config["deduplicateStreams"]
+    scrape_debrid_account_torrents = config["scrapeDebridAccountTorrents"]
+    use_account_scrape = bool(debrid_entries and scrape_debrid_account_torrents)
+    response_cache_policy = CachePolicies.no_cache() if use_account_scrape else None
+
+    def _stream_response(content: dict, is_empty: bool = False):
+        return _build_stream_response(
+            request,
+            content,
+            is_empty=is_empty,
+            cache_policy=response_cache_policy,
+        )
 
     is_torrent_only = enable_torrent and not debrid_entries
 
@@ -328,7 +412,7 @@ async def stream(
         if settings.TORRENT_DISABLED_STREAM_URL:
             placeholder_stream["url"] = settings.TORRENT_DISABLED_STREAM_URL
 
-        return _build_stream_response(request, {"streams": [placeholder_stream]})
+        return _stream_response({"streams": [placeholder_stream]})
 
     session = await http_client_manager.get_session()
     metadata_scraper = MetadataScraper(session)
@@ -342,12 +426,13 @@ async def stream(
 
         if not is_released:
             logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
-            return _build_stream_response(
-                request,
+            return _stream_response(
                 {
                     "streams": [
                         {
-                            "name": "[🚫] Comet",
+                            "name": _stream_notice_name(
+                                kodi, "[🚫] Comet", "[BLOCKED] Comet"
+                            ),
                             "description": "Content not digitally released yet.",
                             "url": "https://comet.feels.legal",
                         }
@@ -362,12 +447,11 @@ async def stream(
 
     if metadata is None:
         logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
-        return _build_stream_response(
-            request,
+        return _stream_response(
             {
                 "streams": [
                     {
-                        "name": "[⚠️] Comet",
+                        "name": _stream_notice_name(kodi, "[⚠️] Comet", "[WARN] Comet"),
                         "description": "Unable to get metadata.",
                         "url": "https://comet.feels.legal",
                     }
@@ -435,6 +519,7 @@ async def stream(
             if kitsu_id and kitsu_id not in cache_media_ids:
                 cache_media_ids.append(kitsu_id)
 
+    remove_adult_content = settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
     torrent_manager = TorrentManager(
         media_type,
         media_id,
@@ -445,7 +530,7 @@ async def stream(
         season,
         episode,
         aliases,
-        settings.REMOVE_ADULT_CONTENT and config["removeTrash"],
+        remove_adult_content,
         is_kitsu=is_kitsu,
         search_episode=search_episode,
         search_season=search_season,
@@ -472,6 +557,7 @@ async def stream(
     lock_acquired = cache_result.lock_acquired
 
     sort_mixed = is_torrent_only or config["sortCachedUncachedTogether"]
+    account_snapshot_ready = False
     cached_results = []
     non_cached_results = []
 
@@ -480,12 +566,11 @@ async def stream(
             "SCRAPER",
             f"🔄 Another instance is scraping {log_title}, returning early",
         )
-        return _build_stream_response(
-            request,
+        return _stream_response(
             {
                 "streams": [
                     {
-                        "name": "[🔄] Comet",
+                        "name": _stream_notice_name(kodi, "[🔄] Comet", "[INFO] Comet"),
                         "description": "Scraping in progress, please try again in a few seconds...",
                         "url": "https://comet.feels.legal",
                     }
@@ -506,7 +591,7 @@ async def stream(
     if cache_result.should_show_first_search_message:
         cached_results.append(
             {
-                "name": "[🔄] Comet",
+                "name": _stream_notice_name(kodi, "[🔄] Comet", "[INFO] Comet"),
                 "description": "First search for this media - More results will be available in a few seconds...",
                 "url": "https://comet.feels.legal",
             }
@@ -529,7 +614,19 @@ async def stream(
     if cache_result.should_scrape_now or force_scrape_now:
         logger.log("SCRAPER", f"🔎 Starting new search for {log_title}")
         try:
-            await torrent_manager.scrape_torrents()
+            if use_account_scrape:
+                scrape_result, warmup_result = await asyncio.gather(
+                    torrent_manager.scrape_torrents(),
+                    ensure_account_snapshot_ready(session, debrid_entries, ip),
+                    return_exceptions=True,
+                )
+                if isinstance(scrape_result, Exception):
+                    raise scrape_result
+                if isinstance(warmup_result, Exception):
+                    raise warmup_result
+                account_snapshot_ready = True
+            else:
+                await torrent_manager.scrape_torrents()
             logger.log(
                 "SCRAPER",
                 f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",
@@ -537,10 +634,73 @@ async def stream(
         finally:
             await cache_manager.release_lock()
 
-    service_cache_status = {}
+    service_cache_status = defaultdict(dict)
+    verified_service_cache_status = defaultdict(dict)
+    show_account_sync_trigger = use_account_scrape
+    if use_account_scrape:
+        if not account_snapshot_ready:
+            await ensure_account_snapshot_ready(session, debrid_entries, ip)
+        await schedule_account_snapshot_refresh(
+            background_tasks, session, debrid_entries, ip
+        )
+        account_torrents, account_cache_status = await get_account_torrents_for_media(
+            debrid_entries,
+            media_type,
+            title,
+            year,
+            year_end,
+            search_season,
+            search_episode,
+            aliases,
+            remove_adult_content,
+        )
+
+        for info_hash, account_torrent in account_torrents.items():
+            existing_torrent = torrent_manager.torrents.get(info_hash)
+            if existing_torrent is None:
+                torrent_manager.torrents[info_hash] = account_torrent
+                continue
+
+            if (
+                existing_torrent.get("fileIndex") is None
+                and account_torrent["fileIndex"] is not None
+            ):
+                existing_torrent["fileIndex"] = account_torrent["fileIndex"]
+
+            if (
+                existing_torrent.get("size") is None
+                and account_torrent["size"] is not None
+            ):
+                existing_torrent["size"] = account_torrent["size"]
+
+            existing_parsed = existing_torrent.get("parsed")
+            if existing_parsed is None or str(existing_parsed.resolution) == "unknown":
+                existing_torrent["parsed"] = account_torrent["parsed"]
+
+        if account_torrents:
+            logger.log(
+                "SCRAPER",
+                f"📚 Account scrape added {len(account_torrents)} torrents from debrid snapshots",
+            )
+
+            public_cache_ingested = await ingest_account_torrents_to_public_cache(
+                account_torrents, media_only_id, search_season
+            )
+            if public_cache_ingested:
+                logger.log(
+                    "SCRAPER",
+                    f"🌐 Debrid account contributed {public_cache_ingested} rows to public torrent cache",
+                )
+
+        _merge_service_cache_status(service_cache_status, account_cache_status)
+
     if debrid_entries:
-        service_cache_status = await check_multi_service_availability(
+        existing_service_cache_status = await check_multi_service_availability(
             debrid_entries, torrent_manager.torrents, search_season, search_episode
+        )
+        _merge_service_cache_status(service_cache_status, existing_service_cache_status)
+        _merge_service_cache_status(
+            verified_service_cache_status, existing_service_cache_status
         )
     elif enable_torrent:
         await DebridService.apply_cached_availability_any_service(
@@ -550,22 +710,22 @@ async def stream(
             torrent_manager.torrents,
         )
 
-    total_cached_count = 0
-    for info_hash in torrent_manager.torrents:
-        for service in service_cache_status.get(info_hash, {}).values():
-            if service:
-                total_cached_count += 1
-                break
-
     total_count = len(torrent_manager.torrents)
+    total_verified_cached_count = 0
+    for info_hash in torrent_manager.torrents:
+        for service in verified_service_cache_status.get(info_hash, {}).values():
+            if service:
+                total_verified_cached_count += 1
+                break
 
     needs_debrid_check = (
         total_count > 0
         and debrid_entries
         and (
-            not cache_result.has_cached_torrents
-            or total_cached_count == 0
-            or (total_cached_count / total_count) < settings.DEBRID_CACHE_CHECK_RATIO
+            (not cache_result.has_cached_torrents and not use_account_scrape)
+            or total_verified_cached_count == 0
+            or (total_verified_cached_count / total_count)
+            < settings.DEBRID_CACHE_CHECK_RATIO
         )
     )
 
@@ -577,7 +737,7 @@ async def stream(
             f"🔄 Checking availability on debrid services: {services_str}",
         )
         (
-            service_cache_status,
+            fresh_service_cache_status,
             debrid_errors,
         ) = await get_and_cache_multi_service_availability(
             session,
@@ -589,23 +749,31 @@ async def stream(
             search_episode,
             ip,
         )
+        _merge_service_cache_status(service_cache_status, fresh_service_cache_status)
 
         for service, error in debrid_errors.items():
             cached_results.append(
                 {
-                    "name": f"[❌] {service}",
+                    "name": (f"[ERROR] {service}" if kodi else f"[❌] {service}"),
                     "description": error.display_message,
                     "url": "https://comet.feels.legal",
                 }
             )
 
-    if debrid_entries:
-        for entry in debrid_entries:
-            service = entry["service"]
+    debrid_stream_specs = [
+        (entry_index, entry["service"], get_debrid_extension(entry["service"]))
+        for entry_index, entry in enumerate(debrid_entries)
+    ]
+    if debrid_stream_specs:
+        seen_services = set()
+        for _, service, _ in debrid_stream_specs:
+            if service in seen_services:
+                continue
+            seen_services.add(service)
             cached_count = sum(
                 1
-                for h in torrent_manager.torrents
-                if service_cache_status.get(h, {}).get(service, False)
+                for cache_map in service_cache_status.values()
+                if cache_map.get(service, False)
             )
             logger.log(
                 "SCRAPER",
@@ -633,7 +801,7 @@ async def stream(
     ):
         cached_results.append(
             {
-                "name": "[⚠️] Comet",
+                "name": _stream_notice_name(kodi, "[⚠️] Comet", "[WARN] Comet"),
                 "description": "Debrid Stream Proxy Password incorrect.\nStreams will not be proxied.",
                 "url": "https://comet.feels.legal",
             }
@@ -648,6 +816,32 @@ async def stream(
         if settings.PUBLIC_BASE_URL
         else f"{request.url.scheme}://{request.url.netloc}"
     )
+    quoted_title = quote(title)
+    format_components = (
+        get_formatted_components_plain if kodi else get_formatted_components
+    )
+    format_title_fn = format_title
+    torrent_extension = get_debrid_extension("torrent")
+
+    if show_account_sync_trigger:
+        for entry_index, _, debrid_extension in debrid_stream_specs:
+            cached_results.append(
+                {
+                    "name": (
+                        f"[{debrid_extension}] Comet Sync"
+                        if kodi
+                        else f"[{debrid_extension}🔄] Comet Sync"
+                    ),
+                    "description": (
+                        "Sync debrid account library now.\n"
+                        "Select this stream, then retry this title in a few seconds."
+                    ),
+                    "url": (
+                        f"{base_playback_host}/{b64config}/debrid-sync/{entry_index}"
+                    ),
+                }
+            )
+
     selected_info_hashes = _select_info_hashes_by_resolution(
         ranked_info_hashes=torrent_manager.ranked_torrents,
         torrents=torrents,
@@ -670,23 +864,29 @@ async def stream(
         torrent = torrents[info_hash]
         rtn_data = torrent["parsed"]
         torrent_title = torrent["title"]
-
-        formatted_components = get_formatted_components(
+        torrent_size = torrent["size"]
+        formatted_components = format_components(
             rtn_data,
             torrent_title,
             torrent["seeders"],
-            torrent["size"],
+            torrent_size,
             torrent["tracker"],
             config["resultFormat"],
         )
+        formatted_title = format_title_fn(formatted_components)
+        kodi_meta = _build_kodi_meta(rtn_data, formatted_components) if kodi else None
+        info_hash_cache_status = service_cache_status.get(info_hash)
+        quoted_torrent_title = quote(torrent_title)
 
-        for entry_index, entry in enumerate(debrid_entries):
-            service = entry["service"]
-
+        for entry_index, service, debrid_extension in debrid_stream_specs:
             if service in debrid_errors:
                 continue
 
-            is_cached = service_cache_status.get(info_hash, {}).get(service, False)
+            is_cached = (
+                info_hash_cache_status.get(service, False)
+                if info_hash_cache_status
+                else False
+            )
 
             if config["cachedOnly"] and not is_cached:
                 continue
@@ -694,17 +894,20 @@ async def stream(
             if deduplicate_streams and info_hash in added_hashes and is_cached:
                 continue
 
-            debrid_extension = get_debrid_extension(service)
             debrid_emoji = "⚡" if is_cached else "⬇️"
+            behavior_hints = {
+                "bingeGroup": f"comet|{service}|{info_hash}",
+                "filename": rtn_data.raw_title,
+            }
+            if torrent_size is not None:
+                behavior_hints["videoSize"] = torrent_size
+            if kodi_meta is not None:
+                behavior_hints["cometKodiMetaV1"] = kodi_meta
 
             the_stream = {
                 "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
-                "description": format_title(formatted_components),
-                "behaviorHints": {
-                    "bingeGroup": f"comet|{service}|{info_hash}",
-                    "videoSize": torrent["size"],
-                    "filename": rtn_data.raw_title,
-                },
+                "description": formatted_title,
+                "behaviorHints": behavior_hints,
             }
 
             if chilllink:
@@ -717,7 +920,7 @@ async def stream(
                 str(file_index) if is_cached and file_index is not None else "n"
             )
             the_stream["url"] = (
-                f"{base_playback_host}/{b64config}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quote(torrent_title)}?name={quote(title)}"
+                f"{base_playback_host}/{b64config}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quoted_torrent_title}?name={quoted_title}"
             )
 
             if is_cached:
@@ -734,17 +937,20 @@ async def stream(
             if deduplicate_streams and info_hash in added_hashes:
                 continue
 
-            torrent_extension = get_debrid_extension("torrent")
-            debrid_emoji = "🧲"
+            debrid_emoji = "" if kodi else "🧲"
+            behavior_hints = {
+                "bingeGroup": f"comet|torrent|{info_hash}",
+                "filename": rtn_data.raw_title,
+            }
+            if torrent_size is not None:
+                behavior_hints["videoSize"] = torrent_size
+            if kodi_meta is not None:
+                behavior_hints["cometKodiMetaV1"] = kodi_meta
 
             the_stream = {
                 "name": f"[{torrent_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
-                "description": format_title(formatted_components),
-                "behaviorHints": {
-                    "bingeGroup": f"comet|torrent|{info_hash}",
-                    "videoSize": torrent["size"],
-                    "filename": rtn_data.raw_title,
-                },
+                "description": formatted_title,
+                "behaviorHints": behavior_hints,
                 "infoHash": info_hash,
             }
 
@@ -767,8 +973,7 @@ async def stream(
 
     has_results = len(final_streams) > 0
 
-    return _build_stream_response(
-        request,
+    return _stream_response(
         {"streams": final_streams},
         is_empty=not has_results,
     )

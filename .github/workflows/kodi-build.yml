@@ -1,0 +1,33 @@
+name: Kodi Add-on Build & Deploy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "kodi/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - run: sudo apt-get install -y zip
+
+      - run: make -C kodi
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: kodi/dist
+          enable_jekyll: false
+          force_orphan: true

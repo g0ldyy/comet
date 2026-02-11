@@ -405,7 +405,11 @@ class AnimeMapper:
         lookup_map = {}
         total_entries = 0
 
-        entries_query = "INSERT INTO anime_entries (id, data) VALUES (:id, :data)"
+        entries_query = """
+            INSERT INTO anime_entries (id, data)
+            VALUES (:id, :data)
+            ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+        """
         ids_query = f"""
             INSERT {OR_IGNORE} INTO anime_ids (provider, provider_id, entry_id) 
             VALUES (:provider, :provider_id, :entry_id)

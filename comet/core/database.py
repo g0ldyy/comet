@@ -24,6 +24,13 @@ STARTUP_CLEANUP_LOCK_ID = 0xC0FFEE
 DATABASE_VERSION = "1.0"
 
 
+def _debrid_account_snapshot_ttl() -> int:
+    return max(
+        settings.DEBRID_ACCOUNT_SCRAPE_CACHE_TTL,
+        settings.DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL,
+    )
+
+
 async def setup_database():
     try:
         if IS_SQLITE:
@@ -127,6 +134,19 @@ async def setup_database():
                     session_id TEXT PRIMARY KEY,
                     created_at INTEGER,
                     expires_at INTEGER
+                )
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS kodi_setup_codes (
+                    code TEXT PRIMARY KEY,
+                    nonce TEXT NOT NULL,
+                    b64config TEXT,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    consumed_at REAL
                 )
             """
         )
@@ -246,7 +266,8 @@ async def setup_database():
         await database.execute(
             """
                 CREATE TABLE IF NOT EXISTS download_links_cache (
-                    debrid_key TEXT, 
+                    debrid_service TEXT,
+                    account_key_hash TEXT,
                     info_hash TEXT, 
                     season INTEGER,
                     episode INTEGER,
@@ -256,35 +277,119 @@ async def setup_database():
             """
         )
 
+        if IS_POSTGRES:
+            await database.execute(
+                """
+                ALTER TABLE download_links_cache
+                ADD COLUMN IF NOT EXISTS debrid_service TEXT
+                """
+            )
+            await database.execute(
+                """
+                ALTER TABLE download_links_cache
+                ADD COLUMN IF NOT EXISTS account_key_hash TEXT
+                """
+            )
+        else:
+            try:
+                await database.execute(
+                    """
+                    ALTER TABLE download_links_cache
+                    ADD COLUMN debrid_service TEXT
+                    """
+                )
+            except Exception as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+            try:
+                await database.execute(
+                    """
+                    ALTER TABLE download_links_cache
+                    ADD COLUMN account_key_hash TEXT
+                    """
+                )
+            except Exception as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
         await database.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS download_links_series_both_idx 
-            ON download_links_cache (debrid_key, info_hash, season, episode) 
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_series_both_v2_idx 
+            ON download_links_cache (debrid_service, account_key_hash, info_hash, season, episode) 
             WHERE season IS NOT NULL AND episode IS NOT NULL
             """
         )
 
         await database.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS download_links_season_only_idx 
-            ON download_links_cache (debrid_key, info_hash, season) 
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_season_only_v2_idx 
+            ON download_links_cache (debrid_service, account_key_hash, info_hash, season) 
             WHERE season IS NOT NULL AND episode IS NULL
             """
         )
 
         await database.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS download_links_episode_only_idx 
-            ON download_links_cache (debrid_key, info_hash, episode) 
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_episode_only_v2_idx 
+            ON download_links_cache (debrid_service, account_key_hash, info_hash, episode) 
             WHERE season IS NULL AND episode IS NOT NULL
             """
         )
 
         await database.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS download_links_no_season_episode_idx 
-            ON download_links_cache (debrid_key, info_hash) 
+            CREATE UNIQUE INDEX IF NOT EXISTS download_links_no_season_episode_v2_idx 
+            ON download_links_cache (debrid_service, account_key_hash, info_hash) 
             WHERE season IS NULL AND episode IS NULL
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS debrid_account_magnets (
+                    debrid_service TEXT,
+                    account_key_hash TEXT,
+                    magnet_id TEXT,
+                    info_hash TEXT,
+                    name TEXT,
+                    size BIGINT,
+                    status TEXT,
+                    added_at REAL,
+                    timestamp REAL
+                )
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS unq_debrid_account_magnet
+            ON debrid_account_magnets (debrid_service, account_key_hash, magnet_id)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_account_lookup
+            ON debrid_account_magnets (debrid_service, account_key_hash, timestamp, added_at)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_debrid_account_cleanup
+            ON debrid_account_magnets (timestamp)
+            """
+        )
+
+        await database.execute(
+            """
+                CREATE TABLE IF NOT EXISTS debrid_account_sync_state (
+                    debrid_service TEXT,
+                    account_key_hash TEXT,
+                    last_sync REAL,
+                    PRIMARY KEY (debrid_service, account_key_hash)
+                )
             """
         )
 
@@ -520,11 +625,11 @@ async def setup_database():
         # DOWNLOAD_LINKS_CACHE TABLE INDEXES
         # =============================================================================
 
-        # Primary playback lookup: debrid_key + info_hash + season + episode
+        # Primary playback lookup: service + account hash + info_hash + season + episode
         await database.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_download_links_playback 
-            ON download_links_cache (debrid_key, info_hash, season, episode, timestamp)
+            CREATE INDEX IF NOT EXISTS idx_download_links_playback_v2 
+            ON download_links_cache (debrid_service, account_key_hash, info_hash, season, episode, timestamp)
             """
         )
 
@@ -593,6 +698,13 @@ async def setup_database():
             """
             CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires 
             ON admin_sessions (expires_at)
+            """
+        )
+
+        await database.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_kodi_setup_codes_expires
+            ON kodi_setup_codes (expires_at)
             """
         )
 
@@ -775,6 +887,27 @@ async def _run_startup_cleanup():
 
             await database.execute(
                 """
+                DELETE FROM debrid_account_magnets
+                WHERE timestamp < :min_timestamp
+                """,
+                {
+                    "min_timestamp": current_time - _debrid_account_snapshot_ttl(),
+                },
+            )
+
+            await database.execute(
+                """
+                DELETE FROM debrid_account_sync_state
+                WHERE last_sync < :min_timestamp
+                """,
+                {
+                    "min_timestamp": current_time
+                    - (_debrid_account_snapshot_ttl() * 2),
+                },
+            )
+
+            await database.execute(
+                """
                 DELETE FROM digital_release_cache
                 WHERE timestamp < CAST(:current_time AS BIGINT) - CAST(:cache_ttl AS BIGINT);
                 """,
@@ -785,6 +918,15 @@ async def _run_startup_cleanup():
             )
 
             await database.execute("DELETE FROM download_links_cache")
+
+            await database.execute(
+                """
+                DELETE FROM kodi_setup_codes
+                WHERE expires_at < :current_time
+                   OR consumed_at IS NOT NULL
+                """,
+                {"current_time": current_time},
+            )
 
             run_retention_days = settings.BACKGROUND_SCRAPER_RUN_RETENTION_DAYS
             if run_retention_days > 0:
@@ -851,6 +993,24 @@ async def cleanup_expired_sessions():
         await asyncio.sleep(60)  # Clean up every 60 seconds
 
 
+async def cleanup_expired_kodi_setup_codes():
+    while True:
+        try:
+            current_time = time.time()
+            await database.execute(
+                """
+                DELETE FROM kodi_setup_codes
+                WHERE expires_at < :current_time
+                   OR consumed_at IS NOT NULL
+                """,
+                {"current_time": current_time},
+            )
+        except Exception as e:
+            logger.log("KODI", f"Error during Kodi setup cleanup: {e}")
+
+        await asyncio.sleep(30)
+
+
 async def _migrate_indexes():
     try:
         old_indexes = [
@@ -884,6 +1044,11 @@ async def _migrate_indexes():
             "idx_metadata_title_search",
             "idx_anime_ids_entry_id",
             "idx_torrents_info_hash_season",
+            "download_links_series_both_idx",
+            "download_links_season_only_idx",
+            "download_links_episode_only_idx",
+            "download_links_no_season_episode_idx",
+            "idx_download_links_playback",
         ]
 
         dropped_count = 0

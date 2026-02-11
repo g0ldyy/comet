@@ -12,7 +12,7 @@ from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.media_ids import normalize_cache_media_ids
-from comet.utils.parsing import ensure_multi_language
+from comet.utils.parsing import ensure_multi_language, parsed_matches_target
 from comet.utils.torrent_cache import (build_torrent_cache_where,
                                        normalize_search_params)
 
@@ -83,13 +83,8 @@ class TorrentManager:
         asyncio.create_task(self.cache_torrents())
 
         for torrent in self.ready_to_cache:
-            season = torrent["parsed"].seasons[0] if torrent["parsed"].seasons else None
-            episode = (
-                torrent["parsed"].episodes[0] if torrent["parsed"].episodes else None
-            )
-
-            if (season is not None and season != self.search_season) or (
-                episode is not None and episode != self.search_episode
+            if not parsed_matches_target(
+                torrent["parsed"], self.search_season, self.search_episode
             ):
                 continue
 

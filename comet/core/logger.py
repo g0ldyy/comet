@@ -518,6 +518,15 @@ def log_startup_info(settings):
     )
 
     logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
+    logger.log(
+        "COMET",
+        "Debrid Account Scrape: "
+        f"refresh={settings.DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL}s "
+        f"ttl={settings.DEBRID_ACCOUNT_SCRAPE_CACHE_TTL}s "
+        f"max_snapshot={settings.DEBRID_ACCOUNT_SCRAPE_MAX_SNAPSHOT_ITEMS} "
+        f"max_match={settings.DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS} "
+        f"warm_timeout={settings.DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT}s ",
+    )
 
     disabled_streams_info = (
         f" - Name: {settings.TORRENT_DISABLED_STREAM_NAME} - URL: {settings.TORRENT_DISABLED_STREAM_URL} - Description: {settings.TORRENT_DISABLED_STREAM_DESCRIPTION}"
@@ -554,7 +563,7 @@ def log_startup_info(settings):
     )
 
     background_scraper_display = (
-        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN} - Success TTL: {settings.BACKGROUND_SCRAPER_SUCCESS_TTL}s - Episode Refresh TTL: {settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL}s - Retry Backoff: {settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF}s..{settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF}s - Max Retries: {settings.BACKGROUND_SCRAPER_MAX_RETRIES} - Runtime Budget: {settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET}s - Demand Priority: {bool(settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY)} - Min Priority: {settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE} - Priority Decay: {settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS} - Defer Cooldown: {settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN}s"
+        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN} - Success TTL: {settings.BACKGROUND_SCRAPER_SUCCESS_TTL}s - Episode Refresh TTL: {settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL}s - Retry Backoff: {settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF}s..{settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF}s - Max Retries: {settings.BACKGROUND_SCRAPER_MAX_RETRIES} - Runtime Budget: {settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET}s - Demand Priority: {bool(settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY)} - Min Priority: {settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE} - Priority Decay: {settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS} - Defer Cooldown: {settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN}s - Queue Watermarks: {settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK}/{settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK} - Queue Hard Cap: {settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP}"
         if settings.BACKGROUND_SCRAPER_ENABLED
         else ""
     )
