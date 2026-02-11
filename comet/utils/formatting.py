@@ -351,33 +351,6 @@ def format_title(components: dict):
     return "\n".join(lines)
 
 
-def format_title_plain(components: dict):
-    lines = []
-
-    if "title" in components:
-        lines.append(components["title"])
-
-    video_audio = [components[k] for k in ["video", "audio"] if k in components]
-    if video_audio:
-        lines.append(" | ".join(video_audio))
-
-    quality_group = [components[k] for k in ["quality", "group"] if k in components]
-    if quality_group:
-        lines.append(" | ".join(quality_group))
-
-    info = [components[k] for k in ["seeders", "size", "tracker"] if k in components]
-    if info:
-        lines.append(" ".join(info))
-
-    if "languages" in components:
-        lines.append(components["languages"])
-
-    if not lines:
-        return "Empty result format configuration"
-
-    return "\n".join(lines)
-
-
 def format_chilllink(components: dict, cached: bool):
     metadata = []
 

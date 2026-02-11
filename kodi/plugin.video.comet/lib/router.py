@@ -221,7 +221,8 @@ def _set_season_art(list_item, meta: dict, season_thumbnail: str | None):
 
 
 def _stream_tagline(video_info: dict):
-    return " | ".join(video_info[key] for key in _TAGLINE_KEYS if video_info[key])
+    parts = (video_info.get(key) for key in _TAGLINE_KEYS)
+    return " | ".join(part for part in parts if part)
 
 
 def _add_directory_items(items: list, total_items: int | None = None):
@@ -619,14 +620,18 @@ def get_streams(params):
         if stream_tagline:
             tags.setTagLine(stream_tagline)
 
-        info_labels = {"size": video_info["size"], "mediatype": "video"}
         if is_imdb:
-            info_labels["imdbnumber"] = imdb_id
+            tags.setIMDBNumber(imdb_id)
         if season is not None:
-            info_labels["season"] = season_number
-            info_labels["episode"] = episode_number
-            info_labels["mediatype"] = "episode"
-        list_item.setInfo("video", info_labels)
+            tags.setSeason(season_number)
+            tags.setEpisode(episode_number)
+            tags.setMediaType("episode")
+        else:
+            tags.setMediaType("video")
+
+        size = video_info["size"]
+        if size:
+            list_item.setProperty("size", str(size))
 
         tags.addVideoStream(
             xbmc.VideoStreamDetail(
@@ -684,18 +689,16 @@ def play_video(params):
     episode = params.get("episode")
 
     list_item = xbmcgui.ListItem(path=video_url)
+    tags = list_item.getVideoInfoTag()
 
-    info_labels = {}
     if season and episode:
-        info_labels["season"] = int(season)
-        info_labels["episode"] = int(episode)
+        tags.setSeason(int(season))
+        tags.setEpisode(int(episode))
     if imdb:
-        info_labels["imdbnumber"] = imdb
+        tags.setIMDBNumber(imdb)
         xbmcgui.Window(10000).setProperty(
             "script.trakt.ids", json.dumps({"imdb": imdb})
         )
-    if info_labels:
-        list_item.setInfo("video", info_labels)
 
     xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, list_item)
 

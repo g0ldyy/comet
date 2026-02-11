@@ -24,7 +24,6 @@ from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
                                not_modified_response)
 from comet.utils.formatting import (format_chilllink, format_title,
-                                    format_title_plain,
                                     get_formatted_components,
                                     get_formatted_components_plain)
 from comet.utils.http_client import http_client_manager
@@ -821,11 +820,11 @@ async def stream(
     format_components = (
         get_formatted_components_plain if kodi else get_formatted_components
     )
-    format_title_fn = format_title_plain if kodi else format_title
+    format_title_fn = format_title
     torrent_extension = get_debrid_extension("torrent")
 
     if show_account_sync_trigger:
-        for entry_index, service, debrid_extension in debrid_stream_specs:
+        for entry_index, _, debrid_extension in debrid_stream_specs:
             cached_results.append(
                 {
                     "name": (
@@ -898,9 +897,10 @@ async def stream(
             debrid_emoji = "⚡" if is_cached else "⬇️"
             behavior_hints = {
                 "bingeGroup": f"comet|{service}|{info_hash}",
-                "videoSize": torrent_size,
                 "filename": rtn_data.raw_title,
             }
+            if torrent_size is not None:
+                behavior_hints["videoSize"] = torrent_size
             if kodi_meta is not None:
                 behavior_hints["cometKodiMetaV1"] = kodi_meta
 
@@ -940,9 +940,10 @@ async def stream(
             debrid_emoji = "" if kodi else "🧲"
             behavior_hints = {
                 "bingeGroup": f"comet|torrent|{info_hash}",
-                "videoSize": torrent_size,
                 "filename": rtn_data.raw_title,
             }
+            if torrent_size is not None:
+                behavior_hints["videoSize"] = torrent_size
             if kodi_meta is not None:
                 behavior_hints["cometKodiMetaV1"] = kodi_meta
 

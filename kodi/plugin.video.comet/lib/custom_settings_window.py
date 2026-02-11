@@ -36,8 +36,9 @@ def open_configuration_page(url: str):
             subprocess.run(["xdg-open", url], check=True)
             return
         if os_android:
+            safe_url = url.replace('"', "%22")
             xbmc.executebuiltin(
-                f'StartAndroidActivity("","android.intent.action.VIEW","","{url}")'
+                f'StartAndroidActivity("","android.intent.action.VIEW","","{safe_url}")'
             )
             return
     except Exception as exc:
@@ -132,7 +133,19 @@ def configure_comet():
             except requests.RequestException as exc:
                 xbmc.log(f"Polling setup status failed: {exc}", xbmc.LOGWARNING)
             else:
-                addon.setSetting("secret_string", manifest_data["secret_string"])
+                secret = manifest_data.get("secret_string")
+                if secret is None:
+                    xbmc.log(
+                        "Server response missing 'secret_string' key",
+                        xbmc.LOGERROR,
+                    )
+                    dialog.notification(
+                        "Comet",
+                        "Setup failed: server returned incomplete data",
+                        xbmcgui.NOTIFICATION_ERROR,
+                    )
+                    return
+                addon.setSetting("secret_string", secret)
                 dialog.notification(
                     "Comet",
                     "Kodi setup complete",

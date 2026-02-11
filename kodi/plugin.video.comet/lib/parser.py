@@ -33,7 +33,7 @@ def _safe_int(value):
 
 def parse_stream_info(_name: str, _description: str, behavior_hints: dict):
     stream_info = _DEFAULTS.copy()
-    stream_info["size"] = behavior_hints.get("videoSize")
+    stream_info["size"] = behavior_hints.get("videoSize") or 0
     stream_info["languages"] = []
 
     kodi_meta = behavior_hints.get(KODI_META_KEY)
@@ -47,8 +47,7 @@ def parse_stream_info(_name: str, _description: str, behavior_hints: dict):
             continue
         stream_info[field] = kodi_meta.get(field, _DEFAULTS[field])
 
-    languages = stream_info["languages"]
-    if not isinstance(languages, list):
-        stream_info["languages"] = []
+    languages = kodi_meta.get("languages")
+    stream_info["languages"] = languages if isinstance(languages, list) else []
 
     return stream_info
