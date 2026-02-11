@@ -1,33 +1,43 @@
-ADDON_DIR = plugin.video.comet
-BUILD_DIR = build
-DIST_DIR = dist
-ASSETS_DIR = ../comet/assets
-VERSION := $(shell sed -n 's/^<addon[^>]*version="\([^"]*\)".*/\1/p' $(ADDON_DIR)/addon.xml)
-ZIP_FILE := $(ADDON_DIR)-$(VERSION).zip
+DIST    = dist
+BUILD   = build
+ADDON   = plugin.video.comet
+REPO    = repository.comet
+ASSETS  = ../comet/assets
 
-all: package
+V_ADDON := $(shell sed -n 's/^<addon.*version="\([^"]*\)".*/\1/p' $(ADDON)/addon.xml)
+V_REPO  := $(shell sed -n 's/^<addon.*version="\([^"]*\)".*/\1/p' $(REPO)/addon.xml)
 
-define prepare_build
-	@mkdir -p $(BUILD_DIR)/$(ADDON_DIR)
-	@mkdir -p $(DIST_DIR)
-	@cp -r $(ADDON_DIR)/* $(BUILD_DIR)/$(ADDON_DIR)
-	@cp $(ASSETS_DIR)/icon.png $(BUILD_DIR)/$(ADDON_DIR)/resources/icon.png
-	@cp $(ASSETS_DIR)/background.png $(BUILD_DIR)/$(ADDON_DIR)/resources/fanart.png
-	@find $(BUILD_DIR)/$(ADDON_DIR) -type d -name __pycache__ -prune -exec rm -rf {} +
-	@find $(BUILD_DIR)/$(ADDON_DIR) -type f -name '*.py[co]' -delete
-endef
+all: clean
+	@echo "🚀 Building Comet Kodi Repository (Plugin v$(V_ADDON) / Repo v$(V_REPO))..."
+	@$(MAKE) build-zip ID=$(ADDON) VER=$(V_ADDON) IS_ADDON=1 --no-print-directory
+	@$(MAKE) build-zip ID=$(REPO)  VER=$(V_REPO) --no-print-directory
+	@echo "📦 Generating repository index..."
+	@python3 generate_repository.py
+	@sed -e 's|ADDON_URL|$(ADDON)/$(ADDON)-$(V_ADDON).zip|g' \
+		 -e 's|V_ADDON|$(V_ADDON)|g' \
+		 -e 's|REPO_URL|$(REPO)/$(REPO)-$(V_REPO).zip|g' \
+		 -e 's|V_REPO|$(V_REPO)|g' \
+		 index.html.template > $(DIST)/index.html
+	@rm -rf $(BUILD)
+	@echo "✨ Success: $(DIST)/ is ready."
 
-package: clean
-	$(prepare_build)
-	@cd $(BUILD_DIR) && zip -r ../$(DIST_DIR)/$(ZIP_FILE) $(ADDON_DIR)
-	@echo "Built $(DIST_DIR)/$(ZIP_FILE)"
-
-package-flat: clean
-	$(prepare_build)
-	@cd $(BUILD_DIR)/$(ADDON_DIR) && zip -r ../../$(DIST_DIR)/$(ADDON_DIR)-$(VERSION)-flat.zip .
-	@echo "Built $(DIST_DIR)/$(ADDON_DIR)-$(VERSION)-flat.zip"
+build-zip:
+	@mkdir -p $(BUILD)/$(ID) $(DIST)/$(ID)
+	@cp -a $(ID)/. $(BUILD)/$(ID)
+	@IMG_DIR=$(if $(IS_ADDON),resources/,); \
+	mkdir -p $(BUILD)/$(ID)/$${IMG_DIR} $(DIST)/$(ID)/$${IMG_DIR}; \
+	cp $(ASSETS)/icon.png $(BUILD)/$(ID)/$${IMG_DIR}icon.png; \
+	cp $(ASSETS)/background.png $(BUILD)/$(ID)/$${IMG_DIR}fanart.png; \
+	cp $(ASSETS)/icon.png $(DIST)/$(ID)/icon.png; \
+	cp $(ASSETS)/background.png $(DIST)/$(ID)/fanart.png; \
+	cp $(ASSETS)/icon.png $(DIST)/$(ID)/$${IMG_DIR}icon.png; \
+	cp $(ASSETS)/background.png $(DIST)/$(ID)/$${IMG_DIR}fanart.png
+	@$(if $(IS_ADDON),find $(BUILD)/$(ID) -name "__pycache__" -exec rm -rf {} +)
+	@cp $(ID)/addon.xml $(DIST)/$(ID)/
+	@cd $(BUILD) && zip -r9q ../$(DIST)/$(ID)/$(ID)-$(VER).zip $(ID)
+	@echo "  ✅ Built $(ID)"
 
 clean:
-	@rm -rf $(BUILD_DIR) $(DIST_DIR)
+	@rm -rf $(BUILD) $(DIST)
 
-.PHONY: all package package-flat clean
+.PHONY: all clean build-zip

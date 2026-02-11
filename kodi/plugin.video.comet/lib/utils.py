@@ -117,7 +117,7 @@ def ensure_configured():
 
     xbmcgui.Dialog().notification(
         "Comet",
-        "Comet is not configured. Open addon settings.",
+        "Comet is not configured. Open add-on settings.",
         xbmcgui.NOTIFICATION_INFO,
     )
     xbmc.executebuiltin(
