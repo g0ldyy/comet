@@ -1325,8 +1325,8 @@
 
           async function setupKodiWithCode(rawCode) {
             const code = rawCode.trim().toLowerCase();
-            if (!/^[0-9a-f]{6}$/.test(code)) {
-              window.alert("Kodi setup code must be a 6-character hexadecimal value.");
+            if (!/^[0-9a-f]{6,16}$/.test(code)) {
+              window.alert("Kodi setup code must be a 6–16 character hexadecimal value.");
               return;
             }
 
@@ -1366,7 +1366,7 @@
             const queryParams = new URLSearchParams(window.location.search);
             const suggestedCode = queryParams.get("kodi_code") || "";
             const inputCode = window.prompt(
-              "Enter the 6-character Kodi setup code",
+              "Enter the Kodi setup code",
               suggestedCode,
             );
 
