@@ -63,7 +63,7 @@ class MetadataScraper:
         is_kitsu = provider == "kitsu"
 
         metadata_task = asyncio.create_task(
-            self.get_metadata(id, season, episode, is_kitsu)
+            self.get_metadata(id, season, episode, is_kitsu, media_type)
         )
         aliases_task = asyncio.create_task(self.get_aliases(media_type, id, provider))
         metadata, aliases = await asyncio.gather(metadata_task, aliases_task)
@@ -137,12 +137,14 @@ class MetadataScraper:
             "episode": episode,
         }
 
-    async def get_metadata(self, id: str, season: int, episode: int, is_kitsu: bool):
+    async def get_metadata(
+        self, id: str, season: int, episode: int, is_kitsu: bool, media_type: str
+    ):
         if is_kitsu:
             raw_metadata = await get_kitsu_metadata(self.session, id)
             return self.normalize_metadata(raw_metadata, 1, episode)
         else:
-            raw_metadata = await get_imdb_metadata(self.session, id)
+            raw_metadata = await get_imdb_metadata(self.session, id, media_type)
             return self.normalize_metadata(raw_metadata, season, episode)
 
     async def fetch_aliases_with_metadata(

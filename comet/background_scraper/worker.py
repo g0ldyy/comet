@@ -1,6 +1,5 @@
 import asyncio
 import math
-import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -14,12 +13,12 @@ from comet.metadata.manager import MetadataScraper
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 from comet.utils.http_client import http_client_manager
+from comet.utils.year import parse_year_range
 
 from .cinemata_client import CinemataClient
 
 LOCK_KEY = "background_scraper_lock"
 LOCK_TTL = 60
-YEAR_PATTERN = re.compile(r"\d{4}")
 
 
 @dataclass
@@ -967,7 +966,7 @@ class BackgroundScraperWorker:
             return None
 
         year_source = media_item.get("year") or media_item.get("releaseInfo")
-        year, year_end = self._parse_year_range(year_source)
+        year, year_end = parse_year_range(year_source)
         if year is None:
             return None
 
@@ -984,25 +983,6 @@ class BackgroundScraperWorker:
             "created_at": now,
             "updated_at": now,
         }
-
-    def _parse_year_range(self, raw_year):
-        if raw_year is None:
-            return None, None
-
-        if isinstance(raw_year, int):
-            return raw_year, None
-
-        text = str(raw_year).strip()
-        matches = YEAR_PATTERN.findall(text)
-        if not matches:
-            return None, None
-
-        year = int(matches[0])
-        year_end = int(matches[1]) if len(matches) > 1 else None
-        if year_end is not None and year_end < year:
-            year_end = None
-
-        return year, year_end
 
     def _calculate_priority(
         self, media_item: dict, media_type: str, year: int, current_year: int
