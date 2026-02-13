@@ -83,6 +83,35 @@ def _stream_notice_name(kodi: bool, emoji_name: str, plain_name: str):
     return plain_name if kodi else emoji_name
 
 
+def _build_stream_name(
+    kodi: bool,
+    service: str,
+    resolution,
+    icon: str = "",
+    formatted_components: dict | None = None,
+    seeders: int | None = None,
+    status: str = "",
+):
+    if not kodi:
+        return f"[{service}{icon}] Comet {resolution}"
+
+    prefix = f"[{f'{service} {status}'.strip()}] {resolution}"
+
+    if formatted_components is None:
+        return prefix
+
+    details = [
+        formatted_components.get("size", "").removeprefix("Size: "),
+        f"S:{seeders}" if seeders is not None else "",
+        formatted_components.get("video", ""),
+        formatted_components.get("audio", ""),
+        formatted_components.get("quality", ""),
+        formatted_components.get("group", ""),
+    ]
+    details = [d for d in details if d]
+    return f"{prefix} | {' | '.join(details)}" if details else prefix
+
+
 def _build_stream_response(
     request: Request,
     content: dict,
@@ -822,6 +851,7 @@ async def stream(
     )
     format_title_fn = format_title
     torrent_extension = get_debrid_extension("torrent")
+    torrent_service = "" if kodi else torrent_extension
 
     if show_account_sync_trigger:
         for entry_index, _, debrid_extension in debrid_stream_specs:
@@ -894,7 +924,6 @@ async def stream(
             if deduplicate_streams and info_hash in added_hashes and is_cached:
                 continue
 
-            debrid_emoji = "⚡" if is_cached else "⬇️"
             behavior_hints = {
                 "bingeGroup": f"comet|{service}|{info_hash}",
                 "filename": rtn_data.raw_title,
@@ -904,8 +933,18 @@ async def stream(
             if kodi_meta is not None:
                 behavior_hints["cometKodiMetaV1"] = kodi_meta
 
+            stream_name = _build_stream_name(
+                kodi,
+                debrid_extension,
+                rtn_data.resolution,
+                icon="⚡" if is_cached else "⬇️",
+                formatted_components=formatted_components,
+                seeders=torrent["seeders"],
+                status="C" if is_cached else "U",
+            )
+
             the_stream = {
-                "name": f"[{debrid_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
+                "name": stream_name,
                 "description": formatted_title,
                 "behaviorHints": behavior_hints,
             }
@@ -937,7 +976,6 @@ async def stream(
             if deduplicate_streams and info_hash in added_hashes:
                 continue
 
-            debrid_emoji = "" if kodi else "🧲"
             behavior_hints = {
                 "bingeGroup": f"comet|torrent|{info_hash}",
                 "filename": rtn_data.raw_title,
@@ -947,8 +985,18 @@ async def stream(
             if kodi_meta is not None:
                 behavior_hints["cometKodiMetaV1"] = kodi_meta
 
+            stream_name = _build_stream_name(
+                kodi,
+                torrent_service,
+                rtn_data.resolution,
+                icon="🧲",
+                formatted_components=formatted_components,
+                seeders=torrent["seeders"],
+                status="P2P",
+            )
+
             the_stream = {
-                "name": f"[{torrent_extension}{debrid_emoji}] Comet {rtn_data.resolution}",
+                "name": stream_name,
                 "description": formatted_title,
                 "behaviorHints": behavior_hints,
                 "infoHash": info_hash,
