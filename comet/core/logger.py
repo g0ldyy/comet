@@ -550,6 +550,9 @@ def log_startup_info(settings):
         "COMET",
         f"TMDB Read Access Token: {censor(settings.TMDB_READ_ACCESS_TOKEN) if settings.TMDB_READ_ACCESS_TOKEN else 'Shared'}",
     )
+    logger.log("COMET", f"Custom Logo URL: {bool(settings.CUSTOM_LOGO_URL)}")
+    logger.log("COMET", f"Custom Addon Name: {bool(settings.CUSTOM_ADDON_NAME)}")
+    logger.log("COMET", f"Custom Discord URL: {bool(settings.CUSTOM_DISCORD_URL)}")
     logger.log("COMET", f"Custom Header HTML: {bool(settings.CUSTOM_HEADER_HTML)}")
 
     http_cache_info = (
