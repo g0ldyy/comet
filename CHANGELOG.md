@@ -2,6 +2,13 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.51.0](https://github.com/g0ldyy/comet/compare/v2.50.0...v2.51.0) (2026-02-13)
+
+
+### Features
+
+* implement Cinemeta as a fallback for IMDB metadata retrieval and centralize year parsing into a new utility module ([29d79c1](https://github.com/g0ldyy/comet/commit/29d79c100bc16213be23a0fd3c4cf2b1f1588948))
+
 ## [2.50.0](https://github.com/g0ldyy/comet/compare/v2.49.0...v2.50.0) (2026-02-11)
 
 
