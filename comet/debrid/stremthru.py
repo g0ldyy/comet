@@ -115,7 +115,7 @@ class StremThru:
     ):
         await self.check_premium()
 
-        chunk_size = 50
+        chunk_size = 500
         chunks = [
             torrent_hashes[i : i + chunk_size]
             for i in range(0, len(torrent_hashes), chunk_size)
