@@ -73,7 +73,6 @@ class StremThru:
 
         try:
             data = await response.json(content_type=None)
-            print(data)
         except Exception as exc:
             raise DebridLinkGenerationError(
                 self.store_name,
