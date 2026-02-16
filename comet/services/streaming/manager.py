@@ -3,14 +3,13 @@ import uuid
 
 import mediaflow_proxy.handlers
 import mediaflow_proxy.utils.http_utils
-from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
+from comet.services.status_video import build_status_video_response
 from comet.services.streaming.wrapper import monitored_handle_stream_request
-from comet.utils.cache import NO_CACHE_HEADERS
 
 
 async def on_stream_end(connection_id: str, ip: str):
@@ -88,7 +87,10 @@ async def custom_handle_stream_request(
     ip: str,
 ):
     if not await check_ip_connections(ip):
-        return FileResponse("comet/assets/proxylimit.mp4", headers=NO_CACHE_HEADERS)
+        return build_status_video_response(
+            ["PROXY_LIMIT_REACHED"],
+            default_key="PROXY_LIMIT_REACHED",
+        )
 
     connection_id = await add_active_connection(media_id, ip)
 

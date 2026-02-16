@@ -7,7 +7,7 @@ from RTN import normalize_title, parse, title_match
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.debrid.exceptions import DebridAuthError
+from comet.debrid.exceptions import DebridAuthError, DebridLinkGenerationError
 from comet.services.debrid_cache import cache_availability
 from comet.services.filtering import quick_alias_match
 from comet.services.torrent_manager import torrent_update_queue
@@ -22,6 +22,12 @@ def batch_parse(filenames):
 
 
 class StremThru:
+    _MAGNET_READY_STATUSES: frozenset[str] = frozenset({"cached", "downloaded"})
+    _MAGNET_PENDING_STATUSES: frozenset[str] = frozenset(
+        {"queued", "downloading", "processing", "uploading"}
+    )
+    _MAGNET_INVALID_STATUSES: frozenset[str] = frozenset({"failed", "invalid"})
+
     def __init__(
         self,
         session: aiohttp.ClientSession,
@@ -53,6 +59,64 @@ class StremThru:
             "X-StremThru-Store-Authorization": f"Bearer {self.store_token}",
             "User-Agent": "comet",
         }
+
+    @staticmethod
+    def _extract_upstream_error_code(upstream_error: dict | None) -> str | None:
+        if not isinstance(upstream_error, dict):
+            return None
+        return upstream_error.get("code") or upstream_error.get("error")
+
+    async def _post_store_json(self, endpoint: str, payload: dict, action: str) -> dict:
+        response = await self.session.post(
+            f"{self.base_url}{endpoint}",
+            json=payload,
+            headers=self._headers(),
+        )
+
+        try:
+            data = await response.json(content_type=None)
+        except Exception as exc:
+            raise DebridLinkGenerationError(
+                self.store_name,
+                f"{self.store_name}: Failed to {action}.",
+                payload={
+                    "status_code": response.status,
+                    "raw": await response.text(),
+                },
+            ) from exc
+
+        if isinstance(data, dict):
+            error = data.get("error")
+            if isinstance(error, dict):
+                upstream = error.get("__upstream_cause__")
+                message = error.get("message")
+                if not message and isinstance(upstream, dict):
+                    message = upstream.get("detail") or upstream.get("message")
+
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    message or f"{self.store_name}: Failed to {action}.",
+                    error_code=error.get("code"),
+                    upstream_error_code=self._extract_upstream_error_code(upstream),
+                    payload=data,
+                )
+            elif error:
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    str(error)
+                    if isinstance(error, str)
+                    else f"{self.store_name}: Failed to {action}.",
+                    payload=data,
+                )
+
+            if response.status < 400:
+                return data
+
+        raise DebridLinkGenerationError(
+            self.store_name,
+            f"{self.store_name}: Failed to {action}.",
+            payload={"response": data, "status_code": response.status},
+        )
 
     async def check_premium(self):
         try:
@@ -259,14 +323,33 @@ class StremThru:
                 for source in sources:
                     magnet_uri += f"&tr={quote(source, safe='')}"
 
-            magnet = await self.session.post(
-                f"{self.base_url}/magnets?client_ip={self.client_ip}",
-                json={"magnet": magnet_uri},
-                headers=self._headers(),
+            magnet = await self._post_store_json(
+                f"/magnets?client_ip={self.client_ip}",
+                {"magnet": magnet_uri},
+                "add torrent to store",
             )
-            magnet = await magnet.json()
 
-            if magnet["data"]["status"] != "downloaded":
+            magnet_data = magnet.get("data", {})
+            magnet_status = magnet_data.get("status", "")
+
+            if magnet_status in self._MAGNET_PENDING_STATUSES:
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    f"{self.store_name}: Media is not cached yet (status: {magnet_status}).",
+                    upstream_error_code="MEDIA_NOT_CACHED_YET",
+                    payload={"status": magnet_status, "data": magnet_data},
+                )
+            if magnet_status in self._MAGNET_INVALID_STATUSES:
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    f"{self.store_name}: Torrent cannot be processed (status: {magnet_status}).",
+                    upstream_error_code="STORE_MAGNET_INVALID",
+                    payload={"status": magnet_status, "data": magnet_data},
+                )
+            if magnet_status not in self._MAGNET_READY_STATUSES:
+                logger.warning(
+                    f"Unrecognized magnet status '{magnet_status}' for {hash} on {self.store_name}"
+                )
                 return
 
             name = unquote(name)
@@ -276,7 +359,7 @@ class StremThru:
             if ez_aliases:
                 ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
 
-            debrid_files = magnet["data"]["files"]
+            debrid_files = magnet_data.get("files", [])
 
             # Filter to video files only, excluding samples
             video_files = []
@@ -438,13 +521,29 @@ class StremThru:
                     cache_availability(self.store_name, all_files_for_cache)
                 )
 
-            link = await self.session.post(
-                f"{self.base_url}/link/generate?client_ip={self.client_ip}",
-                json={"link": target_file["link"]},
-                headers=self._headers(),
+            link = await self._post_store_json(
+                f"/link/generate?client_ip={self.client_ip}",
+                {"link": target_file["link"]},
+                "generate download link",
             )
-            link = await link.json()
 
-            return link["data"]["link"]
+            link_url = link.get("data", {}).get("link")
+            if not link_url:
+                logger.warning(
+                    f"Missing generated link for hash {hash} and target_file={target_file}. Full response payload: {link}"
+                )
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    f"{self.store_name}: Failed to generate download link.",
+                    payload={
+                        "hash": hash,
+                        "target_file": target_file,
+                        "response": link,
+                    },
+                )
+
+            return link_url
+        except DebridLinkGenerationError:
+            raise
         except Exception as e:
             logger.warning(f"Exception while getting download link for {hash}: {e}")
