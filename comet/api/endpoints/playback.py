@@ -3,16 +3,17 @@ import time
 import mediaflow_proxy.utils.http_utils
 import orjson
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from comet.core.config_validation import config_check
 from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.models import settings
+from comet.debrid.exceptions import DebridLinkGenerationError
 from comet.debrid.manager import (build_account_key_hash, get_debrid,
                                   get_debrid_credentials)
 from comet.metadata.manager import MetadataScraper
+from comet.services.status_video import build_status_video_response
 from comet.services.streaming.manager import custom_handle_stream_request
-from comet.utils.cache import NO_CACHE_HEADERS
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_optional_int
@@ -130,18 +131,29 @@ async def playback(
             debrid_api_key,
             ip if not should_proxy else "",
         )
-        download_url = await debrid.generate_download_link(
-            hash,
-            index,
-            name_query,
-            torrent_name,
-            season,
-            episode,
-            sources,
-            aliases,
-        )
+        try:
+            download_url = await debrid.generate_download_link(
+                hash,
+                index,
+                name_query,
+                torrent_name,
+                season,
+                episode,
+                sources,
+                aliases,
+            )
+        except DebridLinkGenerationError as error:
+            status_keys = error.status_keys
+            return build_status_video_response(
+                status_keys,
+                default_key=status_keys[0] if status_keys else "UNKNOWN",
+            )
+
         if not download_url:
-            return FileResponse("comet/assets/uncached.mp4", headers=NO_CACHE_HEADERS)
+            return build_status_video_response(
+                [],
+                default_key="UNKNOWN",
+            )
 
         await database.execute(
             f"""

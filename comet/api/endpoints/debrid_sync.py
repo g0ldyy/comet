@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse
 
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
 from comet.debrid.manager import get_debrid_credentials
 from comet.services.debrid_account_scraper import trigger_account_snapshot_sync
-from comet.utils.cache import NO_CACHE_HEADERS
+from comet.services.status_video import build_status_video_response
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_optional_int
@@ -42,10 +41,12 @@ async def debrid_sync(
             "SCRAPER",
             f"{debrid_service}: Manual account sync triggered via debrid-sync endpoint",
         )
+        video_code = "DEBRID_SYNC_TRIGGERED"
     else:
         logger.log(
             "SCRAPER",
             f"{debrid_service}: Manual account sync already running",
         )
+        video_code = "DEBRID_SYNC_ALREADY_RUNNING"
 
-    return FileResponse("comet/assets/uncached.mp4", headers=NO_CACHE_HEADERS)
+    return build_status_video_response([video_code], default_key=video_code)
