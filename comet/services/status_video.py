@@ -1,25 +1,15 @@
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
+from comet.core.logger import logger
 from comet.utils.cache import NO_CACHE_HEADERS
+from comet.utils.status_keys import normalize_status_key
 
 STATUS_VIDEO_DIR = Path("comet/assets/status_videos")
 DEFAULT_STATUS_KEY = "UNKNOWN"
-
-_NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
-_MULTI_UNDERSCORE = re.compile(r"_+")
-
-
-def normalize_status_key(status_key: str | None) -> str | None:
-    if not status_key:
-        return None
-    normalized = _NON_ALNUM.sub("_", str(status_key).strip()).strip("_").upper()
-    normalized = _MULTI_UNDERSCORE.sub("_", normalized)
-    return normalized or None
 
 
 def _iter_normalized_keys(status_keys: Iterable[str | None]) -> list[str]:
@@ -51,7 +41,7 @@ def _build_status_video_index() -> tuple[dict[str, str], str | None]:
 def resolve_status_video_path(
     status_keys: Iterable[str | None],
     default_key: str = DEFAULT_STATUS_KEY,
-) -> str:
+) -> str | None:
     status_video_index, first_status_video = _build_status_video_index()
 
     for key in _iter_normalized_keys(status_keys):
@@ -71,14 +61,38 @@ def resolve_status_video_path(
     if first_status_video:
         return first_status_video
 
-    return str(STATUS_VIDEO_DIR / f"{default_normalized}.mp4")
+    fallback_path = STATUS_VIDEO_DIR / f"{default_normalized}.mp4"
+    if fallback_path.exists():
+        return str(fallback_path)
+
+    return None
 
 
 def build_status_video_response(
     status_keys: Iterable[str | None],
     default_key: str = DEFAULT_STATUS_KEY,
-) -> FileResponse:
+) -> Response:
+    status_keys_tuple = tuple(status_keys)
+    video_path = resolve_status_video_path(status_keys_tuple, default_key)
+
+    if video_path is None:
+        normalized_default_key = normalize_status_key(default_key) or DEFAULT_STATUS_KEY
+        normalized_status_keys = _iter_normalized_keys(status_keys_tuple)
+        logger.error(
+            f"Missing status video in {STATUS_VIDEO_DIR} for keys={normalized_status_keys} "
+            f"and default={normalized_default_key}"
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Status video asset is missing on server.",
+                "status_keys": normalized_status_keys,
+                "default_key": normalized_default_key,
+            },
+            headers=NO_CACHE_HEADERS,
+        )
+
     return FileResponse(
-        resolve_status_video_path(status_keys, default_key),
+        video_path,
         headers=NO_CACHE_HEADERS,
     )

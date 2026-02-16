@@ -1,4 +1,4 @@
-# python scripts/generate_status_videos.py \
+# uv run python scripts/generate_status_videos.py \
 #     --background surfer.mp4 \
 #     --stremthru-root stremthru \
 #     --output-dir comet/assets/status_videos \
@@ -11,12 +11,13 @@
 #     --code DEBRID_SYNC_TRIGGERED \
 #     --code DEBRID_SYNC_ALREADY_RUNNING \
 #     --code MEDIA_NOT_CACHED_YET \
-#     --duration 10 \
-#     --width 960 --height 540 \
-#     --fps 20 \
-#     --crf 22 \
+#     --font-file /usr/share/fonts/noto/NotoSans-Black.ttf \
+#     --width 1280 --height 720 \
+#     --fps 18 \
+#     --duration 8 \
+#     --crf 24 \
 #     --maxrate 1200k --bufsize 2400k \
-#     --preset slow
+#     --preset veryslow
 
 from __future__ import annotations
 
@@ -24,14 +25,23 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 from textwrap import fill
+
+try:
+    from comet.utils.status_keys import \
+        normalize_status_key as normalize_status_key_runtime
+except ModuleNotFoundError:
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from comet.utils.status_keys import \
+        normalize_status_key as normalize_status_key_runtime
 
 STATUS_DECLARATION_PATTERN = re.compile(
     r"\b[A-Za-z0-9_]+\s+ErrorCode\s*=\s*\"([^\"]+)\""
 )
-NON_ALNUM_PATTERN = re.compile(r"[^A-Za-z0-9]+")
-MULTI_UNDERSCORE_PATTERN = re.compile(r"_+")
 
 SCOPE_ALL = "all"
 SCOPE_DEBRID = "debrid"
@@ -71,12 +81,6 @@ ESSENTIAL_STORE_STATUS_KEYS = {
     "UNAUTHENTICATED",
     "UNAUTHORIZED_CLIENT",
 }
-
-DEFAULT_FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/montserrat/Montserrat-SemiBold.ttf",
-    "/usr/share/fonts/truetype/noto/NotoSans-SemiBold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-]
 
 DEFAULT_STATUS_MESSAGES = {
     "UNKNOWN": "Unexpected provider response. Please try again.",
@@ -123,9 +127,7 @@ DEFAULT_STATUS_MESSAGES = {
 
 
 def normalize_status_key(status_key: str) -> str:
-    normalized = NON_ALNUM_PATTERN.sub("_", status_key.strip()).strip("_").upper()
-    normalized = MULTI_UNDERSCORE_PATTERN.sub("_", normalized)
-    return normalized or "UNKNOWN"
+    return normalize_status_key_runtime(status_key) or "UNKNOWN"
 
 
 def split_identifier_words(value: str) -> list[str]:
@@ -250,22 +252,22 @@ def layout_message(message: str, width: int, height: int) -> tuple[list[str], in
 
 
 def resolve_font_file(font_file: str | None) -> str | None:
-    if font_file:
-        candidate = Path(font_file)
-        if not candidate.is_file():
-            raise FileNotFoundError(f"Font file not found: {font_file}")
-        return str(candidate)
-    for candidate in DEFAULT_FONT_CANDIDATES:
-        if Path(candidate).is_file():
-            return candidate
-    return None
+    if not font_file:
+        return None
+
+    candidate = Path(font_file)
+    if not candidate.is_file():
+        raise FileNotFoundError(f"Font file not found: {font_file}")
+    return str(candidate)
 
 
 def build_filter(
     lines: list[str], width: int, height: int, font_file: str | None, fontsize: int
 ) -> str:
     font_part = (
-        f"fontfile={escape_filter_value(font_file)}" if font_file else "font='Sans'"
+        f"fontfile={escape_filter_value(font_file)}"
+        if font_file
+        else "font='Sans Bold'"
     )
 
     filters = [
@@ -277,6 +279,8 @@ def build_filter(
     line_height = int(fontsize * 1.25)
     block_height = (len(lines) - 1) * line_height
     first_y = int((height - block_height) / 2)
+    outline_width = max(4, int(round(fontsize * 0.14)))
+    shadow_offset = max(2, int(round(fontsize * 0.06)))
 
     for index, line in enumerate(lines):
         y = first_y + (index * line_height)
@@ -284,8 +288,8 @@ def build_filter(
             (
                 f"drawtext={font_part}:text='{escape_drawtext_text(line)}'"
                 f":x=(w-text_w)/2:y={y}:fontsize={fontsize}"
-                ":fontcolor=white:borderw=4:bordercolor=black@0.85"
-                ":shadowcolor=black@0.8:shadowx=2:shadowy=2:fix_bounds=1"
+                f":fontcolor=white:borderw={outline_width}:bordercolor=black@0.92"
+                f":shadowcolor=black@0.85:shadowx={shadow_offset}:shadowy={shadow_offset}:fix_bounds=1"
             )
         )
 

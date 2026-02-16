@@ -22,9 +22,11 @@ def batch_parse(filenames):
 
 
 class StremThru:
-    _MAGNET_READY_STATUSES = {"cached", "downloaded"}
-    _MAGNET_PENDING_STATUSES = {"queued", "downloading", "processing", "uploading"}
-    _MAGNET_INVALID_STATUSES = {"failed", "invalid"}
+    _MAGNET_READY_STATUSES: frozenset[str] = frozenset({"cached", "downloaded"})
+    _MAGNET_PENDING_STATUSES: frozenset[str] = frozenset(
+        {"queued", "downloading", "processing", "uploading"}
+    )
+    _MAGNET_INVALID_STATUSES: frozenset[str] = frozenset({"failed", "invalid"})
 
     def __init__(
         self,
@@ -96,6 +98,14 @@ class StremThru:
                     message or f"{self.store_name}: Failed to {action}.",
                     error_code=error.get("code"),
                     upstream_error_code=self._extract_upstream_error_code(upstream),
+                    payload=data,
+                )
+            elif error:
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    str(error)
+                    if isinstance(error, str)
+                    else f"{self.store_name}: Failed to {action}.",
                     payload=data,
                 )
 
@@ -337,6 +347,9 @@ class StremThru:
                     payload={"status": magnet_status, "data": magnet_data},
                 )
             if magnet_status not in self._MAGNET_READY_STATUSES:
+                logger.warning(
+                    f"Unrecognized magnet status '{magnet_status}' for {hash} on {self.store_name}"
+                )
                 return
 
             name = unquote(name)
@@ -346,7 +359,7 @@ class StremThru:
             if ez_aliases:
                 ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
 
-            debrid_files = magnet.get("data", {}).get("files", [])
+            debrid_files = magnet_data.get("files", [])
 
             # Filter to video files only, excluding samples
             video_files = []
