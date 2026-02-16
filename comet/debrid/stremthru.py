@@ -527,7 +527,22 @@ class StremThru:
                 "generate download link",
             )
 
-            return link.get("data", {}).get("link")
+            link_url = link.get("data", {}).get("link")
+            if not link_url:
+                logger.warning(
+                    f"Missing generated link for hash {hash} and target_file={target_file}. Full response payload: {link}"
+                )
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    f"{self.store_name}: Failed to generate download link.",
+                    payload={
+                        "hash": hash,
+                        "target_file": target_file,
+                        "response": link,
+                    },
+                )
+
+            return link_url
         except DebridLinkGenerationError:
             raise
         except Exception as e:

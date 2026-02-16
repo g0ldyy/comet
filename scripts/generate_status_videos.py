@@ -279,8 +279,8 @@ def build_filter(
     line_height = int(fontsize * 1.25)
     block_height = (len(lines) - 1) * line_height
     first_y = int((height - block_height) / 2)
-    outline_width = max(4, int(round(fontsize * 0.14)))
-    shadow_offset = max(2, int(round(fontsize * 0.06)))
+    outline_width = max(4, round(fontsize * 0.14))
+    shadow_offset = max(2, round(fontsize * 0.06))
 
     for index, line in enumerate(lines):
         y = first_y + (index * line_height)
@@ -476,7 +476,7 @@ def load_message_overrides(messages_file: str | None) -> dict[str, str]:
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError("Messages file must be a JSON object.")
+        raise TypeError("Messages file must be a JSON object.")
 
     normalized_map = {}
     for key, value in payload.items():
