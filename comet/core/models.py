@@ -40,7 +40,7 @@ class AppSettings(BaseSettings):
     ADMIN_DASHBOARD_SESSION_SECRET_FILE: Optional[str] = (
         "data/admin_dashboard_session_secret.txt"
     )
-    CONFIGURE_PAGE_PASSWORD: Optional[str] = ""
+    CONFIGURE_PAGE_PASSWORD: Optional[str] = None
     CONFIGURE_PAGE_SESSION_TTL: Optional[int] = 86400
     PUBLIC_API_TOKEN: Optional[str] = None
     PUBLIC_API_TOKEN_FILE: Optional[str] = "data/public_api_token.txt"
