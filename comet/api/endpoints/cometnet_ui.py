@@ -1,12 +1,12 @@
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from comet.api.endpoints.admin import require_admin_auth
 from comet.cometnet import CometNetBackend, get_active_backend
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin_auth)])
 
 # --- Models ---
 
@@ -76,11 +76,8 @@ def get_cometnet_backend() -> CometNetBackend:
     summary="Get CometNet Stats",
 )
 async def get_stats(
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
-
     return await backend.get_stats()
 
 
@@ -90,10 +87,8 @@ async def get_stats(
     summary="Get Connected Peers",
 )
 async def get_peers(
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     return await backend.get_peers()
 
 
@@ -103,10 +98,8 @@ async def get_peers(
     summary="Get Pools",
 )
 async def get_pools(
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     return await backend.get_pools()
 
 
@@ -117,10 +110,8 @@ async def get_pools(
 )
 async def create_pool(
     request: CreatePoolRequest,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     try:
         return await backend.create_pool(
             pool_id=request.pool_id,
@@ -139,10 +130,8 @@ async def create_pool(
 )
 async def delete_pool(
     pool_id: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     if await backend.delete_pool(pool_id):
         return {"status": "success"}
     raise HTTPException(status_code=404, detail="Pool not found or failed to delete")
@@ -156,10 +145,8 @@ async def delete_pool(
 async def join_pool(
     pool_id: str,
     request: JoinPoolRequest,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     try:
         if request.invite_code:
             success = await backend.join_pool_with_invite(
@@ -184,10 +171,8 @@ async def join_pool(
 async def create_pool_invite(
     pool_id: str,
     request: CreateInviteRequest,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     invite_link = await backend.create_pool_invite(
         pool_id, request.expires_in, request.max_uses
     )
@@ -203,10 +188,8 @@ async def create_pool_invite(
 )
 async def get_pool_invites(
     pool_id: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     return await backend.get_pool_invites(pool_id)
 
 
@@ -218,10 +201,8 @@ async def get_pool_invites(
 async def delete_pool_invite(
     pool_id: str,
     invite_code: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     success = await backend.delete_pool_invite(pool_id, invite_code)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to delete invite")
@@ -235,10 +216,8 @@ async def delete_pool_invite(
 )
 async def unsubscribe_pool(
     pool_id: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     if await backend.unsubscribe_from_pool(pool_id):
         return {"status": "success"}
     return {"status": "failed"}
@@ -251,10 +230,8 @@ async def unsubscribe_pool(
 )
 async def subscribe_pool(
     pool_id: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     if await backend.subscribe_to_pool(pool_id):
         return {"status": "success"}
     return {"status": "failed"}
@@ -268,10 +245,8 @@ async def subscribe_pool(
 async def add_pool_member(
     pool_id: str,
     request: AddMemberRequest,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     if await backend.add_pool_member(pool_id, request.member_key, request.role):
         return {"status": "success"}
     raise HTTPException(status_code=400, detail="Failed to add member")
@@ -285,10 +260,8 @@ async def add_pool_member(
 async def remove_pool_member(
     pool_id: str,
     member_key: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
-    await require_admin_auth(admin_session)
     if await backend.remove_pool_member(pool_id, member_key):
         return {"status": "success"}
     raise HTTPException(status_code=400, detail="Failed to remove member")
@@ -301,11 +274,9 @@ async def remove_pool_member(
 )
 async def get_pool_details(
     pool_id: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
     """Get detailed information about a pool including all members."""
-    await require_admin_auth(admin_session)
     pool = await backend.get_pool_details(pool_id)
     if pool is None:
         raise HTTPException(status_code=404, detail="Pool not found")
@@ -321,11 +292,9 @@ async def update_member_role(
     pool_id: str,
     member_key: str,
     request: UpdateMemberRoleRequest,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
     """Change a member's role (promote to admin or demote to member)."""
-    await require_admin_auth(admin_session)
     try:
         if await backend.update_member_role(pool_id, member_key, request.role):
             return {"status": "success"}
@@ -343,11 +312,9 @@ async def update_member_role(
 )
 async def leave_pool(
     pool_id: str,
-    admin_session: str = Cookie(None),
     backend=Depends(get_cometnet_backend),
 ):
     """Leave a pool (self-removal). Any member except creator can leave."""
-    await require_admin_auth(admin_session)
     try:
         if await backend.leave_pool(pool_id):
             return {"status": "success"}
