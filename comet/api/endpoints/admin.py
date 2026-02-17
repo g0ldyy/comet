@@ -57,7 +57,9 @@ def verify_admin_session(admin_session: str | None):
     return verify_signed_session(token=admin_session, secret=ADMIN_SESSION_SECRET)
 
 
-def require_admin_auth(admin_session: str | None):
+def require_admin_auth(
+    admin_session: str | None = Cookie(None, description="Admin session token"),
+):
     if not verify_admin_session(admin_session):
         raise HTTPException(status_code=401, detail="Authentication required")
 
