@@ -487,11 +487,10 @@ def _resolve_persisted_token(
             raise RuntimeError(
                 f"{error_context}: {last_read_error}"
             ) from last_read_error
-        raise RuntimeError(error_context)
+        raise RuntimeError(error_context) from None
     except Exception as error:
-        logger.warning(f"Failed to persist {token_name}_FILE ({token_file}): {error}")
-
-    return generated_token, "generated-memory"
+        logger.error(f"Failed to persist {token_name}_FILE ({token_file}): {error}")
+        raise
 
 
 def _build_stremio_api_prefix():

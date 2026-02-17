@@ -135,8 +135,8 @@ async def configure_login(
 )
 async def configure(
     request: Request,
-    b64config: str = None,
-    configure_session: str = Cookie(
+    b64config: str | None = None,
+    configure_session: str | None = Cookie(
         None, description="Configuration page session token"
     ),
 ):

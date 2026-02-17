@@ -251,7 +251,7 @@ def log_startup_info(settings):
 
     logger.log(
         "COMET",
-        f"Admin Dashboard Password: {admin_password} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Session Secret: {admin_session_secret_source} - Public Metrics API: {settings.PUBLIC_METRICS_API}",
+        f"Admin Dashboard Password: {admin_password} - http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Session Secret: {admin_session_secret_source} - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
     logger.log(
         "COMET",
