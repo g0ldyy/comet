@@ -849,7 +849,7 @@ class ConnectionManager:
                 now = time.time()
                 stale_nodes: List[str] = []
                 high_latency_nodes: List[str] = []
-                max_latency = settings.COMETNET_TRANSPORT_MAX_LATENCY_MS or 10000.0
+                max_latency = settings.COMETNET_TRANSPORT_MAX_LATENCY_MS
 
                 peers_to_ping: List[PeerConnection] = []
                 for conn in connections:

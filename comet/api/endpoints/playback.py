@@ -38,7 +38,12 @@ async def playback(
     torrent_name: str,
     name_query: str = Query("", alias="name"),
 ):
-    config = config_check(b64config)
+    config = config_check(b64config, strict_b64config=True)
+    if not config:
+        return build_status_video_response(
+            ["BAD_REQUEST"],
+            default_key="BAD_REQUEST",
+        )
 
     parsed_service_index = parse_optional_int(service_index)
     season = parse_optional_int(season)
@@ -79,8 +84,7 @@ async def playback(
     ip = get_client_ip(request)
     should_proxy = (
         settings.PROXY_DEBRID_STREAM
-        and settings.PROXY_DEBRID_STREAM_PASSWORD
-        == config.get("debridStreamProxyPassword")
+        and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
     )
     if download_url is None:
         # Retrieve torrent sources from database for private trackers

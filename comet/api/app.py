@@ -16,12 +16,11 @@ from comet.background_scraper.worker import background_scraper
 from comet.cometnet.manager import init_cometnet_service
 from comet.cometnet.relay import init_relay, stop_relay
 from comet.core.database import (cleanup_expired_kodi_setup_codes,
-                                 cleanup_expired_locks,
-                                 cleanup_expired_sessions, setup_database,
+                                 cleanup_expired_locks, setup_database,
                                  teardown_database)
 from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
-from comet.core.models import settings
+from comet.core.models import STREMIO_API_PREFIX, settings
 from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
 from comet.services.dmm_ingester import dmm_ingester
@@ -75,7 +74,6 @@ async def lifespan(app: FastAPI):
 
     # Start background cleanup tasks
     cleanup_locks_task = asyncio.create_task(cleanup_expired_locks())
-    cleanup_sessions_task = asyncio.create_task(cleanup_expired_sessions())
     cleanup_kodi_task = asyncio.create_task(cleanup_expired_kodi_setup_codes())
 
     # Start background scraper if enabled
@@ -139,14 +137,9 @@ async def lifespan(app: FastAPI):
                 pass
 
         cleanup_locks_task.cancel()
-        cleanup_sessions_task.cancel()
         cleanup_kodi_task.cancel()
         try:
             await cleanup_locks_task
-        except asyncio.CancelledError:
-            pass
-        try:
-            await cleanup_sessions_task
         except asyncio.CancelledError:
             pass
         try:
@@ -204,6 +197,8 @@ app = FastAPI(
     title="Comet",
     summary="Stremio's fastest torrent/debrid search add-on.",
     lifespan=lifespan,
+    docs_url=None if STREMIO_API_PREFIX else "/docs",
+    openapi_url=None if STREMIO_API_PREFIX else "/openapi.json",
     redoc_url=None,
     openapi_tags=tags_metadata,
 )
@@ -222,12 +217,18 @@ app.mount("/static", StaticFiles(directory="comet/templates"), name="static")
 
 app.include_router(base.router)
 app.include_router(config.router)
-app.include_router(manifest.router)
 app.include_router(admin.router)
-app.include_router(playback.router)
-app.include_router(debrid_sync.router)
-app.include_router(streams_router.streams)
-app.include_router(chilllink.router)
 app.include_router(cometnet.router)
 app.include_router(cometnet_ui.router)
 app.include_router(kodi.router)
+
+stremio_routers = (
+    manifest.router,
+    playback.router,
+    debrid_sync.router,
+    streams_router.streams,
+    chilllink.router,
+)
+
+for stremio_router in stremio_routers:
+    app.include_router(stremio_router, prefix=STREMIO_API_PREFIX)
