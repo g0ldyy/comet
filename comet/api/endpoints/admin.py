@@ -1,6 +1,4 @@
 import asyncio
-import hashlib
-import hmac
 import secrets
 import time
 
@@ -14,7 +12,8 @@ from comet.core.logger import log_capture, logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.utils.formatting import format_bytes
-from comet.utils.signed_session import (encode_signed_session,
+from comet.utils.signed_session import (derive_session_secret,
+                                        encode_signed_session,
                                         verify_signed_session)
 from comet.utils.update import UpdateManager
 
@@ -23,11 +22,10 @@ templates = Jinja2Templates("comet/templates")
 background_scraper_start_lock = asyncio.Lock()
 ADMIN_SESSION_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
-ADMIN_SESSION_SECRET = hmac.new(
-    settings.ADMIN_DASHBOARD_SESSION_SECRET.encode("utf-8"),
-    settings.ADMIN_DASHBOARD_PASSWORD.encode("utf-8"),
-    hashlib.sha256,
-).digest()
+ADMIN_SESSION_SECRET = derive_session_secret(
+    settings.ADMIN_DASHBOARD_PASSWORD,
+    "admin-dashboard",
+)
 
 
 def _handle_background_scraper_task_done(task: asyncio.Task):

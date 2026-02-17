@@ -6,6 +6,10 @@ import secrets
 import time
 
 
+def derive_session_secret(password: str, scope: str):
+    return hashlib.sha256(f"{scope}:{password}".encode("utf-8")).digest()
+
+
 def encode_signed_session(secret: bytes, ttl: int):
     expires_at = int(time.time()) + ttl
     expires_at_text = str(expires_at)
