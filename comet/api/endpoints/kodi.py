@@ -97,6 +97,7 @@ async def generate_setup_code(request: Request, payload: GenerateSetupCodeReques
             "code": code,
             "configure_url": configure_url,
             "expires_in": expires_in,
+            "stremio_api_prefix": settings.STREMIO_API_PREFIX,
         },
         headers=NO_CACHE_HEADERS,
     )
@@ -137,6 +138,9 @@ async def get_manifest(code: str):
         )
 
     return JSONResponse(
-        content={"secret_string": b64config},
+        content={
+            "secret_string": b64config,
+            "stremio_api_prefix": settings.STREMIO_API_PREFIX,
+        },
         headers=NO_CACHE_HEADERS,
     )

@@ -99,9 +99,12 @@ def configure_comet():
         try:
             code = data["code"]
             configure_url = data["configure_url"]
-            expires_in = int(data["expires_in"])
+            expires_in = data["expires_in"]
+            stremio_api_prefix = data.get("stremio_api_prefix", "")
         except (KeyError, ValueError, TypeError) as exc:
             raise ValueError("Invalid response from /kodi/generate_setup_code") from exc
+
+        addon.setSetting("stremio_api_prefix", stremio_api_prefix)
 
         dialog.ok(
             "Comet Kodi Setup",
@@ -134,6 +137,10 @@ def configure_comet():
                 xbmc.log(f"Polling setup status failed: {exc}", xbmc.LOGWARNING)
             else:
                 addon.setSetting("secret_string", manifest_data["secret_string"])
+                if "stremio_api_prefix" in manifest_data:
+                    addon.setSetting(
+                        "stremio_api_prefix", manifest_data["stremio_api_prefix"]
+                    )
                 dialog.notification(
                     "Comet",
                     "Kodi setup complete",
