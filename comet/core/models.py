@@ -1,5 +1,8 @@
+import os
 import random
+import secrets
 import string
+import time
 from typing import List, Optional, Union
 
 import RTN
@@ -32,6 +35,15 @@ class AppSettings(BaseSettings):
     ADMIN_DASHBOARD_PASSWORD: Optional[str] = "".join(
         random.choices(string.ascii_letters + string.digits, k=16)
     )
+    ADMIN_DASHBOARD_SESSION_TTL: Optional[int] = 86400
+    ADMIN_DASHBOARD_SESSION_SECRET: Optional[str] = None
+    ADMIN_DASHBOARD_SESSION_SECRET_FILE: Optional[str] = (
+        "data/admin_dashboard_session_secret.txt"
+    )
+    CONFIGURE_PAGE_PASSWORD: Optional[str] = ""
+    CONFIGURE_PAGE_SESSION_TTL: Optional[int] = 86400
+    PUBLIC_API_TOKEN: Optional[str] = None
+    PUBLIC_API_TOKEN_FILE: Optional[str] = "data/public_api_token.txt"
     PUBLIC_METRICS_API: Optional[bool] = False
     DATABASE_TYPE: Optional[str] = "sqlite"
     DATABASE_URL: Optional[str] = "username:password@hostname:port"
@@ -299,6 +311,24 @@ class AppSettings(BaseSettings):
             return 1
         return v
 
+    @field_validator(
+        "CONFIGURE_PAGE_PASSWORD",
+        "PUBLIC_API_TOKEN",
+        "PUBLIC_API_TOKEN_FILE",
+        "ADMIN_DASHBOARD_SESSION_SECRET",
+        "ADMIN_DASHBOARD_SESSION_SECRET_FILE",
+        mode="before",
+    )
+    def normalize_optional_secrets(cls, v):
+        if v is None:
+            return None
+
+        normalized = str(v).strip()
+        if not normalized or normalized.lower() == "none":
+            return None
+
+        return normalized
+
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):
         if v is not None and v.lower() == "none":
@@ -404,7 +434,91 @@ class AppSettings(BaseSettings):
                 self.PROWLARR_INDEXERS = self.INDEXER_MANAGER_INDEXERS
 
 
+def _resolve_persisted_token(
+    configured_token: str | None,
+    token_file: str | None,
+    token_name: str,
+):
+    if configured_token:
+        return configured_token, "env"
+
+    if token_file:
+        try:
+            token_dir = os.path.dirname(token_file)
+            if token_dir:
+                os.makedirs(token_dir, exist_ok=True)
+
+            if os.path.exists(token_file):
+                with open(token_file, "r", encoding="utf-8") as file:
+                    existing_token = file.read().strip()
+                    if existing_token:
+                        return existing_token, "file"
+        except FileNotFoundError:
+            pass
+        except Exception as error:
+            logger.warning(f"Failed to read {token_name}_FILE ({token_file}): {error}")
+
+    generated_token = secrets.token_urlsafe(32)
+    if not token_file:
+        return generated_token, "generated-memory"
+
+    try:
+        fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(generated_token)
+        return generated_token, "generated-file"
+    except FileExistsError:
+        for _ in range(3):
+            try:
+                with open(token_file, "r", encoding="utf-8") as file:
+                    existing_token = file.read().strip()
+                    if existing_token:
+                        return existing_token, "file"
+            except Exception as error:
+                logger.warning(
+                    f"Failed to read existing {token_name}_FILE ({token_file}): {error}"
+                )
+                break
+            time.sleep(0.01)
+    except Exception as error:
+        logger.warning(f"Failed to persist {token_name}_FILE ({token_file}): {error}")
+
+    return generated_token, "generated-memory"
+
+
+def _build_stremio_api_prefix():
+    should_protect_api = bool(settings.CONFIGURE_PAGE_PASSWORD) or bool(
+        settings.PUBLIC_API_TOKEN
+    )
+    if not should_protect_api:
+        settings.PUBLIC_API_TOKEN_SOURCE = "disabled"
+        return ""
+
+    settings.PUBLIC_API_TOKEN, settings.PUBLIC_API_TOKEN_SOURCE = (
+        _resolve_persisted_token(
+            settings.PUBLIC_API_TOKEN,
+            settings.PUBLIC_API_TOKEN_FILE,
+            "PUBLIC_API_TOKEN",
+        )
+    )
+    return f"/s/{settings.PUBLIC_API_TOKEN}"
+
+
+def _build_admin_dashboard_session_secret():
+    (
+        settings.ADMIN_DASHBOARD_SESSION_SECRET,
+        settings.ADMIN_DASHBOARD_SESSION_SECRET_SOURCE,
+    ) = _resolve_persisted_token(
+        settings.ADMIN_DASHBOARD_SESSION_SECRET,
+        settings.ADMIN_DASHBOARD_SESSION_SECRET_FILE,
+        "ADMIN_DASHBOARD_SESSION_SECRET",
+    )
+
+
 settings = AppSettings()
+_build_admin_dashboard_session_secret()
+STREMIO_API_PREFIX = _build_stremio_api_prefix()
+settings.STREMIO_API_PREFIX = STREMIO_API_PREFIX
 
 IS_POSTGRES = settings.DATABASE_TYPE == "postgresql"
 IS_SQLITE = settings.DATABASE_TYPE == "sqlite"

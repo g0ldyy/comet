@@ -227,16 +227,72 @@ def log_startup_info(settings):
     if settings.PUBLIC_BASE_URL:
         logger.log("COMET", f"Public Base URL: {settings.PUBLIC_BASE_URL}")
 
+    def _secret_source_label(source_raw: str, file_env: str):
+        if source_raw == "env":
+            return "from env"
+        if source_raw == "file":
+            return f"from {file_env}"
+        if source_raw == "generated-memory":
+            return "auto-generated (not persisted)"
+        return "auto-generated"
+
     admin_password = settings.ADMIN_DASHBOARD_PASSWORD
     if "ADMIN_DASHBOARD_PASSWORD" in settings.model_fields_set:
         admin_password = censor(admin_password)
     else:
         admin_password = f"{admin_password} (Randomly Generated)"
+    admin_session_ttl = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
+    admin_session_secret_source = _secret_source_label(
+        settings.ADMIN_DASHBOARD_SESSION_SECRET_SOURCE,
+        "ADMIN_DASHBOARD_SESSION_SECRET_FILE",
+    )
 
     logger.log(
         "COMET",
-        f"Admin Dashboard Password: {admin_password} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Public Metrics API: {settings.PUBLIC_METRICS_API}",
+        f"Admin Dashboard Password: {admin_password} -  http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Session Secret: {admin_session_secret_source} - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
+    logger.log(
+        "COMET",
+        f"Admin Session Secret File: {settings.ADMIN_DASHBOARD_SESSION_SECRET_FILE}",
+    )
+
+    configure_password = settings.CONFIGURE_PAGE_PASSWORD
+    configure_session_ttl = max(60, settings.CONFIGURE_PAGE_SESSION_TTL)
+    if configure_password:
+        if "CONFIGURE_PAGE_PASSWORD" in settings.model_fields_set:
+            configure_password = censor(configure_password)
+        else:
+            configure_password = f"{configure_password} (Randomly Generated)"
+    else:
+        configure_password = "Disabled"
+
+    logger.log(
+        "COMET",
+        f"Configure Page Password: {configure_password} - Session TTL: {configure_session_ttl}s",
+    )
+
+    logger.log(
+        "COMET",
+        f"Public API Token File: {settings.PUBLIC_API_TOKEN_FILE}",
+    )
+
+    stremio_api_prefix = settings.STREMIO_API_PREFIX
+    if stremio_api_prefix:
+        token_value = settings.PUBLIC_API_TOKEN
+        token_preview = (
+            f"{token_value[:6]}...{token_value[-4:]}"
+            if len(token_value) > 10
+            else censor(token_value)
+        )
+        token_source = _secret_source_label(
+            settings.PUBLIC_API_TOKEN_SOURCE,
+            "PUBLIC_API_TOKEN_FILE",
+        )
+
+        logger.log(
+            "COMET",
+            f"Protected Stremio API Prefix enabled: /s/{token_preview} ({token_source})",
+        )
 
     replicas = ""
     if not IS_SQLITE:
@@ -273,7 +329,7 @@ def log_startup_info(settings):
         "Filter Parse Cache: "
         f"size={settings.FILTER_PARSE_CACHE_SIZE} "
         f"shards={settings.FILTER_PARSE_CACHE_SHARDS} "
-        f"dedup_inflight={bool(settings.FILTER_PARSE_CACHE_DEDUP_INFLIGHT)}",
+        f"dedup_inflight={settings.FILTER_PARSE_CACHE_DEDUP_INFLIGHT}",
     )
 
     anime_mapping_refresh = (
@@ -335,9 +391,7 @@ def log_startup_info(settings):
     logger.log("COMET", f"Catalog Timeout: {settings.CATALOG_TIMEOUT}s")
     logger.log("COMET", f"Scrape Lock TTL: {settings.SCRAPE_LOCK_TTL}s")
     logger.log("COMET", f"Scrape Wait Timeout: {settings.SCRAPE_WAIT_TIMEOUT}s")
-    logger.log(
-        "COMET", f"Download Torrent Files: {bool(settings.DOWNLOAD_TORRENT_FILES)}"
-    )
+    logger.log("COMET", f"Download Torrent Files: {settings.DOWNLOAD_TORRENT_FILES}")
 
     comet_url = (
         f" - {settings.COMET_URL}"
@@ -346,11 +400,11 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"Comet Scraper: {settings.format_scraper_mode(settings.SCRAPE_COMET)}{comet_url} - Clean Tracker: {bool(settings.COMET_CLEAN_TRACKER)}",
+        f"Comet Scraper: {settings.format_scraper_mode(settings.SCRAPE_COMET)}{comet_url} - Clean Tracker: {settings.COMET_CLEAN_TRACKER}",
     )
 
     nyaa_anime_only = (
-        f" - Anime Only: {bool(settings.NYAA_ANIME_ONLY)} - Concurrent Pages: {settings.NYAA_MAX_CONCURRENT_PAGES}"
+        f" - Anime Only: {settings.NYAA_ANIME_ONLY} - Concurrent Pages: {settings.NYAA_MAX_CONCURRENT_PAGES}"
         if settings.is_any_context_enabled(settings.SCRAPE_NYAA)
         else ""
     )
@@ -360,7 +414,7 @@ def log_startup_info(settings):
     )
 
     animetosho_anime_only = (
-        f" - Anime Only: {bool(settings.ANIMETOSHO_ANIME_ONLY)} - Concurrent Pages: {settings.ANIMETOSHO_MAX_CONCURRENT_PAGES}"
+        f" - Anime Only: {settings.ANIMETOSHO_ANIME_ONLY} - Concurrent Pages: {settings.ANIMETOSHO_MAX_CONCURRENT_PAGES}"
         if settings.is_any_context_enabled(settings.SCRAPE_ANIMETOSHO)
         else ""
     )
@@ -370,7 +424,7 @@ def log_startup_info(settings):
     )
 
     seadex_anime_only = (
-        f" - Anime Only: {bool(settings.SEADEX_ANIME_ONLY)}"
+        f" - Anime Only: {settings.SEADEX_ANIME_ONLY}"
         if settings.is_any_context_enabled(settings.SCRAPE_SEADEX)
         else ""
     )
@@ -380,7 +434,7 @@ def log_startup_info(settings):
     )
 
     nekobt_anime_only = (
-        f" - Anime Only: {bool(settings.NEKOBT_ANIME_ONLY)}"
+        f" - Anime Only: {settings.NEKOBT_ANIME_ONLY}"
         if settings.is_any_context_enabled(settings.SCRAPE_NEKOBT)
         else ""
     )
@@ -500,7 +554,7 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"DMM Ingester: {bool(settings.DMM_INGEST_ENABLED)}{dmm_ingest_info}",
+        f"DMM Ingester: {settings.DMM_INGEST_ENABLED}{dmm_ingest_info}",
     )
 
     proxy_stream_password = settings.PROXY_DEBRID_STREAM_PASSWORD
@@ -514,7 +568,7 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"Debrid Stream Proxy: {bool(settings.PROXY_DEBRID_STREAM)}{debrid_stream_proxy_display}",
+        f"Debrid Stream Proxy: {settings.PROXY_DEBRID_STREAM}{debrid_stream_proxy_display}",
     )
 
     logger.log("COMET", f"StremThru URL: {settings.STREMTHRU_URL}")
@@ -535,17 +589,15 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"Disable Torrent Streams: {bool(settings.DISABLE_TORRENT_STREAMS)}{disabled_streams_info}",
+        f"Disable Torrent Streams: {settings.DISABLE_TORRENT_STREAMS}{disabled_streams_info}",
     )
 
-    logger.log("COMET", f"Remove Adult Content: {bool(settings.REMOVE_ADULT_CONTENT)}")
+    logger.log("COMET", f"Remove Adult Content: {settings.REMOVE_ADULT_CONTENT}")
     logger.log(
-        "COMET", f"Smart Language Detection: {bool(settings.SMART_LANGUAGE_DETECTION)}"
+        "COMET", f"Smart Language Detection: {settings.SMART_LANGUAGE_DETECTION}"
     )
-    logger.log("COMET", f"RTN Filter Debug: {bool(settings.RTN_FILTER_DEBUG)}")
-    logger.log(
-        "COMET", f"Digital Release Filter: {bool(settings.DIGITAL_RELEASE_FILTER)}"
-    )
+    logger.log("COMET", f"RTN Filter Debug: {settings.RTN_FILTER_DEBUG}")
+    logger.log("COMET", f"Digital Release Filter: {settings.DIGITAL_RELEASE_FILTER}")
     logger.log(
         "COMET",
         f"TMDB Read Access Token: {censor(settings.TMDB_READ_ACCESS_TOKEN) if settings.TMDB_READ_ACCESS_TOKEN else 'Shared'}",
@@ -559,22 +611,22 @@ def log_startup_info(settings):
     )
     logger.log(
         "COMET",
-        f"HTTP Cache: {bool(settings.HTTP_CACHE_ENABLED)}{http_cache_info}",
+        f"HTTP Cache: {settings.HTTP_CACHE_ENABLED}{http_cache_info}",
     )
 
     background_scraper_display = (
-        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN} - Success TTL: {settings.BACKGROUND_SCRAPER_SUCCESS_TTL}s - Episode Refresh TTL: {settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL}s - Retry Backoff: {settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF}s..{settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF}s - Max Retries: {settings.BACKGROUND_SCRAPER_MAX_RETRIES} - Runtime Budget: {settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET}s - Demand Priority: {bool(settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY)} - Min Priority: {settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE} - Priority Decay: {settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS} - Defer Cooldown: {settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN}s - Queue Watermarks: {settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK}/{settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK} - Queue Hard Cap: {settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP}"
+        f" - Workers: {settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS} - Interval: {settings.BACKGROUND_SCRAPER_INTERVAL}s - Max Movies/Run: {settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN} - Max Series/Run: {settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN} - Success TTL: {settings.BACKGROUND_SCRAPER_SUCCESS_TTL}s - Episode Refresh TTL: {settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL}s - Retry Backoff: {settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF}s..{settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF}s - Max Retries: {settings.BACKGROUND_SCRAPER_MAX_RETRIES} - Runtime Budget: {settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET}s - Demand Priority: {settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY} - Min Priority: {settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE} - Priority Decay: {settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS} - Defer Cooldown: {settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN}s - Queue Watermarks: {settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK}/{settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK} - Queue Hard Cap: {settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP}"
         if settings.BACKGROUND_SCRAPER_ENABLED
         else ""
     )
     logger.log(
         "COMET",
-        f"Background Scraper: {bool(settings.BACKGROUND_SCRAPER_ENABLED)}{background_scraper_display}",
+        f"Background Scraper: {settings.BACKGROUND_SCRAPER_ENABLED}{background_scraper_display}",
     )
 
     logger.log(
         "COMET",
-        f"Generic Trackers: {bool(settings.DOWNLOAD_GENERIC_TRACKERS)}",
+        f"Generic Trackers: {settings.DOWNLOAD_GENERIC_TRACKERS}",
     )
 
     if settings.COMETNET_RELAY_URL:

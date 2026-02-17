@@ -1117,6 +1117,7 @@
           const kodiSetupButton = document.querySelector("#setup-kodi");
           const kodiAlert = document.querySelector("#kodiAlert");
           const kodiAlertText = document.querySelector("#kodiAlertText");
+          const stremioApiPrefix = {{ (stremioApiPrefix or "") | tojson }};
 
           function getSettings() {
             const languages_required = Array.from(document.getElementById("languages_required").selectedOptions).map(option => option.value);
@@ -1282,29 +1283,28 @@
           // Generate the manifest URL - use /manifest.json for default configs
           function getManifestUrl(settings, forInstall = false) {
             const isDefault = isDefaultConfig(settings);
-            const protocol = forInstall ? "stremio:" : window.location.protocol;
             const host = window.location.host;
 
             if (isDefault) {
               // Default config: use public manifest URL (better CDN caching)
               return forInstall
-                ? `stremio://${host}/manifest.json`
-                : `${window.location.origin}/manifest.json`;
+                ? `stremio://${host}${stremioApiPrefix}/manifest.json`
+                : `${window.location.origin}${stremioApiPrefix}/manifest.json`;
             } else {
               // Custom config: use b64config in URL
               const settingsString = btoa(JSON.stringify(settings));
               return forInstall
-                ? `stremio://${host}/${settingsString}/manifest.json`
-                : `${window.location.origin}/${settingsString}/manifest.json`;
+                ? `stremio://${host}${stremioApiPrefix}/${settingsString}/manifest.json`
+                : `${window.location.origin}${stremioApiPrefix}/${settingsString}/manifest.json`;
             }
           }
 
           function getKodiManifestUrl(settings) {
             if (isDefaultConfig(settings)) {
-              return `${window.location.origin}/manifest.json`;
+              return `${window.location.origin}${stremioApiPrefix}/manifest.json`;
             }
             const settingsString = btoa(JSON.stringify(settings));
-            return `${window.location.origin}/${settingsString}/manifest.json`;
+            return `${window.location.origin}${stremioApiPrefix}/${settingsString}/manifest.json`;
           }
 
           copyLinkButton.addEventListener("click", () => {
@@ -1420,18 +1420,22 @@
           });
 
           function getSettingsFromUrl() {
-            const url = window.location.href;
-            // Try parse settings from the URL
-            if (url.split("/").length < 5) {
-              console.log("no previous settings"); return null;
-            }
-            const settingsString = url.split("/")[3];
-            if (typeof settingsString === "undefined") {
-              console.log("can't fetch previous settings", settingsString)
+            const segments = window.location.pathname.split("/").filter(Boolean);
+            const configureIndex = segments.lastIndexOf("configure");
+            if (configureIndex <= 0) {
               return null;
             }
-            const settingsJson = atob(settingsString);
-            return JSON.parse(settingsJson);
+
+            const settingsString = decodeURIComponent(segments[configureIndex - 1]);
+            if (!settingsString) {
+              return null;
+            }
+
+            try {
+              return JSON.parse(atob(settingsString));
+            } catch (_) {
+              return null;
+            }
           }
 
           function populateFormFromSettings(settings) {

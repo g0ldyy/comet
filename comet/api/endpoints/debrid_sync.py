@@ -23,7 +23,10 @@ async def debrid_sync(
     b64config: str,
     service_index: str,
 ):
-    config = config_check(b64config)
+    config = config_check(b64config, strict_b64config=True)
+    if not config:
+        return build_status_video_response(["BAD_REQUEST"], default_key="BAD_REQUEST")
+
     parsed_service_index = parse_optional_int(service_index)
 
     debrid_service, debrid_api_key = get_debrid_credentials(

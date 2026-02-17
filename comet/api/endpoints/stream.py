@@ -31,6 +31,7 @@ from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
 
 streams = APIRouter()
+STREMIO_API_PREFIX = settings.STREMIO_API_PREFIX
 
 RESOLUTION_TO_DIMENSIONS = {
     "4K": (2160, 3840),
@@ -399,7 +400,7 @@ async def stream(
 
     media_id = media_id.replace("imdb_id:", "")
 
-    config = config_check(b64config)
+    config = config_check(b64config, strict_b64config=True)
     if not config:
         error_response = {
             "streams": [
@@ -845,6 +846,9 @@ async def stream(
         if settings.PUBLIC_BASE_URL
         else f"{request.url.scheme}://{request.url.netloc}"
     )
+    api_prefix = STREMIO_API_PREFIX
+    config_segment = f"/{b64config}" if b64config else ""
+    playback_base_url = f"{base_playback_host}{api_prefix}{config_segment}"
     quoted_title = quote(title)
     format_components = (
         get_formatted_components_plain if kodi else get_formatted_components
@@ -866,9 +870,7 @@ async def stream(
                         "Sync debrid account library now.\n"
                         "Select this stream, then retry this title in a few seconds."
                     ),
-                    "url": (
-                        f"{base_playback_host}/{b64config}/debrid-sync/{entry_index}"
-                    ),
+                    "url": f"{playback_base_url}/debrid-sync/{entry_index}",
                 }
             )
 
@@ -959,7 +961,7 @@ async def stream(
                 str(file_index) if is_cached and file_index is not None else "n"
             )
             the_stream["url"] = (
-                f"{base_playback_host}/{b64config}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quoted_torrent_title}?name={quoted_title}"
+                f"{playback_base_url}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quoted_torrent_title}?name={quoted_title}"
             )
 
             if is_cached:
