@@ -41,7 +41,7 @@ async def manifest(request: Request, b64config: str = None):
         "behaviorHints": {"configurable": True, "configurationRequired": False},
     }
 
-    config = config_check(b64config)
+    config = config_check(b64config, strict_b64config=True)
     if not config:
         base_manifest["name"] = "❌ | Comet"
         base_manifest["description"] = (

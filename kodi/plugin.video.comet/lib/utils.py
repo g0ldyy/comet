@@ -90,9 +90,15 @@ def get_secret_string():
     return ADDON.getSetting("secret_string")
 
 
+def get_stremio_api_prefix():
+    prefix = ADDON.getSetting("stremio_api_prefix").strip().strip("/")
+    return f"{prefix}/" if prefix else ""
+
+
 def get_config_prefix():
+    api_prefix = get_stremio_api_prefix()
     secret = get_secret_string()
-    return f"{secret}/" if secret else ""
+    return f"{api_prefix}{secret}/" if secret else api_prefix
 
 
 def get_catalog_provider_url():

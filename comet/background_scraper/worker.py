@@ -84,8 +84,7 @@ class BackgroundScraperWorker:
         current_now = now if now is not None else time.time()
         return current_now, {
             "now": current_now,
-            "success_cutoff": current_now
-            - (settings.BACKGROUND_SCRAPER_SUCCESS_TTL or 0),
+            "success_cutoff": current_now - settings.BACKGROUND_SCRAPER_SUCCESS_TTL,
             "max_retries": self._max_retries_for_query(),
         }
 
@@ -172,9 +171,9 @@ class BackgroundScraperWorker:
         }
 
     def _discovery_queue_limits(self):
-        low = max(0, int(settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK or 0))
-        high = max(0, int(settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK or 0))
-        hard = max(0, int(settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP or 0))
+        low = max(0, settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK)
+        high = max(0, settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK)
+        hard = max(0, settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP)
         configured_low, configured_high, configured_hard = low, high, hard
         corrections = []
 
@@ -310,7 +309,7 @@ class BackgroundScraperWorker:
         return movies_capped, series_capped
 
     def _planning_batch_size_per_type(self):
-        workers = max(1, int(settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS or 1))
+        workers = max(1, settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS)
         return max(500, min(10000, workers * 500))
 
     async def _run_items_in_bounded_chunks(
@@ -319,7 +318,7 @@ class BackgroundScraperWorker:
         if not planned_items:
             return
 
-        worker_limit = max(1, int(settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS or 1))
+        worker_limit = max(1, settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS)
         next_item_index = 0
         in_flight: set[asyncio.Task] = set()
         scheduling_stopped = False
@@ -662,10 +661,10 @@ class BackgroundScraperWorker:
             session = await http_client_manager.get_session()
             self.metadata_scraper = MetadataScraper(session)
 
-            max_movies = max(0, settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN or 0)
-            max_series = max(0, settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN or 0)
+            max_movies = max(0, settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN)
+            max_series = max(0, settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN)
             discovery_multiplier = max(
-                1, settings.BACKGROUND_SCRAPER_DISCOVERY_MULTIPLIER or 1
+                1, settings.BACKGROUND_SCRAPER_DISCOVERY_MULTIPLIER
             )
             queue_snapshot = await self._fetch_queue_snapshot()
             (
@@ -808,9 +807,7 @@ class BackgroundScraperWorker:
                 "run_id": run_id,
                 "started_at": now,
                 "status": "running",
-                "worker_count": max(
-                    1, settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS or 1
-                ),
+                "worker_count": max(1, settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS),
                 "config_snapshot": self._serialize_config_snapshot(),
             },
         )
@@ -887,7 +884,7 @@ class BackgroundScraperWorker:
         batch = []
         now = time.time()
         current_year = time.gmtime().tm_year
-        success_cutoff = now - (settings.BACKGROUND_SCRAPER_SUCCESS_TTL or 0)
+        success_cutoff = now - settings.BACKGROUND_SCRAPER_SUCCESS_TTL
         blocked_cache: dict[str, bool] = {}
 
         async with CinemataClient(session=session) as cinemata_client:
@@ -1035,13 +1032,11 @@ class BackgroundScraperWorker:
             return []
 
         now = time.time()
-        success_cutoff = now - (settings.BACKGROUND_SCRAPER_SUCCESS_TTL or 0)
-        demand_cutoff = now - (settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK or 0)
+        success_cutoff = now - settings.BACKGROUND_SCRAPER_SUCCESS_TTL
+        demand_cutoff = now - settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK
         max_retries = self._max_retries_for_query()
         demand_enabled = 1 if settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY else 0
-        min_priority_score = max(
-            0.0, float(settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE or 0.0)
-        )
+        min_priority_score = max(0.0, settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE)
 
         rows = await database.fetch_all(
             """
@@ -1249,7 +1244,7 @@ class BackgroundScraperWorker:
             """,
             {"series_id": series_id},
         )
-        episode_refresh_ttl = settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL or 0
+        episode_refresh_ttl = settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL
         should_refresh_episodes = has_existing_episodes is None
 
         if has_existing_episodes and episode_refresh_ttl > 0:
@@ -1305,7 +1300,7 @@ class BackgroundScraperWorker:
                     rows,
                 )
 
-        success_cutoff = now - (settings.BACKGROUND_SCRAPER_SUCCESS_TTL or 0)
+        success_cutoff = now - settings.BACKGROUND_SCRAPER_SUCCESS_TTL
         max_retries = self._max_retries_for_query()
         configured_max_episodes = (
             settings.BACKGROUND_SCRAPER_MAX_EPISODES_PER_SERIES_PER_RUN
@@ -1393,7 +1388,7 @@ class BackgroundScraperWorker:
                 "last_scraped_at": now,
                 "last_success_at": now,
                 "last_failure_at": None,
-                "next_retry_at": now + (settings.BACKGROUND_SCRAPER_SUCCESS_TTL or 0),
+                "next_retry_at": now + settings.BACKGROUND_SCRAPER_SUCCESS_TTL,
                 "updated_at": now,
             }
 
@@ -1449,7 +1444,7 @@ class BackgroundScraperWorker:
             return
 
         now = time.time()
-        defer_cooldown = max(0, int(settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN or 0))
+        defer_cooldown = max(0, settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN)
         next_retry_at = now + defer_cooldown
         await database.execute_many(
             """
@@ -1489,7 +1484,7 @@ class BackgroundScraperWorker:
         )
 
     async def _decay_item_priority_on_miss(self, media_id: str):
-        decay = float(settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS or 1.0)
+        decay = settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS
         if decay <= 0 or decay >= 1:
             return
 
@@ -1554,8 +1549,8 @@ class BackgroundScraperWorker:
         total_queue: int,
     ) -> dict:
         reasons = []
-        alert_fail_rate = float(settings.BACKGROUND_SCRAPER_ALERT_FAIL_RATE or 0.0)
-        alert_queue_age = int(settings.BACKGROUND_SCRAPER_ALERT_QUEUE_AGE or 0)
+        alert_fail_rate = settings.BACKGROUND_SCRAPER_ALERT_FAIL_RATE
+        alert_queue_age = settings.BACKGROUND_SCRAPER_ALERT_QUEUE_AGE
 
         if (
             processed_24h >= 20
@@ -1587,8 +1582,8 @@ class BackgroundScraperWorker:
         )
 
     def _compute_backoff(self, failures: int) -> float:
-        base = max(1, settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF or 1)
-        max_backoff = max(base, settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF or base)
+        base = max(1, settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF)
+        max_backoff = max(base, settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF)
         exponent = max(0, failures - 1)
         return min(max_backoff, base * math.pow(2, exponent))
 

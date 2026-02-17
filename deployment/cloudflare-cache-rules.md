@@ -14,6 +14,7 @@ Cache all stream results. Comet controls the TTL via headers.
 
 ## 2. Configure Page (Cache Rule)
 Cache the configuration page.
+If `CONFIGURE_PAGE_PASSWORD` is enabled, **skip this rule** because `/configure` becomes private and non-cacheable.
 
 *   **Rule Name**: Configure Page
 *   **Expression**: `(http.request.uri.path eq "/configure")`

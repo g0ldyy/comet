@@ -1,7 +1,8 @@
 import asyncio
+import hashlib
+import hmac
 import secrets
 import time
-import uuid
 
 import orjson
 from fastapi import APIRouter, Cookie, Form, HTTPException, Request
@@ -13,11 +14,20 @@ from comet.core.logger import log_capture, logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.utils.formatting import format_bytes
+from comet.utils.signed_session import (encode_signed_session,
+                                        verify_signed_session)
 from comet.utils.update import UpdateManager
 
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
 background_scraper_start_lock = asyncio.Lock()
+ADMIN_SESSION_COOKIE = "admin_session"
+ADMIN_SESSION_TTL = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
+ADMIN_SESSION_SECRET = hmac.new(
+    settings.ADMIN_DASHBOARD_SESSION_SECRET.encode("utf-8"),
+    settings.ADMIN_DASHBOARD_PASSWORD.encode("utf-8"),
+    hashlib.sha256,
+).digest()
 
 
 def _handle_background_scraper_task_done(task: asyncio.Task):
@@ -41,41 +51,16 @@ def _handle_background_scraper_task_done(task: asyncio.Task):
         background_scraper.task = None
 
 
-async def create_admin_session():
-    session_id = str(uuid.uuid4())
-    created_at = time.time()
-    expires_at = created_at + 86400  # 24 hours
-
-    await database.execute(
-        """
-            INSERT INTO admin_sessions (session_id, created_at, expires_at)
-            VALUES (:session_id, :created_at, :expires_at)
-        """,
-        {"session_id": session_id, "created_at": created_at, "expires_at": expires_at},
-    )
-    return session_id
+def create_admin_session():
+    return encode_signed_session(secret=ADMIN_SESSION_SECRET, ttl=ADMIN_SESSION_TTL)
 
 
-async def verify_admin_session(admin_session: str = Cookie(None)):
-    if not admin_session:
-        return False
-
-    current_time = time.time()
-
-    # Check if session exists and is valid
-    session = await database.fetch_one(
-        """
-            SELECT session_id FROM admin_sessions 
-            WHERE session_id = :session_id AND expires_at > :current_time
-        """,
-        {"session_id": admin_session, "current_time": current_time},
-    )
-
-    return session is not None
+def verify_admin_session(admin_session: str | None):
+    return verify_signed_session(token=admin_session, secret=ADMIN_SESSION_SECRET)
 
 
-async def require_admin_auth(admin_session: str = Cookie(None)):
-    if not await verify_admin_session(admin_session):
+def require_admin_auth(admin_session: str | None):
+    if not verify_admin_session(admin_session):
         raise HTTPException(status_code=401, detail="Authentication required")
 
 
@@ -86,9 +71,10 @@ async def require_admin_auth(admin_session: str = Cookie(None)):
     description="Renders the admin login page.",
 )
 async def admin_root(
-    request: Request, admin_session: str = Cookie(None, description="Admin session ID")
+    request: Request,
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    if await verify_admin_session(admin_session):
+    if verify_admin_session(admin_session):
         return RedirectResponse("/admin/dashboard")
     return templates.TemplateResponse("admin_login.html", {"request": request})
 
@@ -109,15 +95,15 @@ async def admin_login(
             "admin_login.html", {"request": request, "error": "Invalid password"}
         )
 
-    session_id = await create_admin_session()
+    session_token = create_admin_session()
     response = RedirectResponse("/admin/dashboard", status_code=303)
     response.set_cookie(
-        key="admin_session",
-        value=session_id,
+        key=ADMIN_SESSION_COOKIE,
+        value=session_token,
         httponly=True,
-        secure=False,
+        secure=request.url.scheme == "https",
         samesite="lax",
-        max_age=86400,
+        max_age=ADMIN_SESSION_TTL,
     )
     return response
 
@@ -129,9 +115,9 @@ async def admin_login(
     description="Checks if a new version of Comet is available.",
 )
 async def update_check(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     return await UpdateManager.check_for_updates()
 
 
@@ -142,10 +128,11 @@ async def update_check(
     description="Renders the admin dashboard.",
 )
 async def admin_dashboard(
-    request: Request, admin_session: str = Cookie(None, description="Admin session ID")
+    request: Request,
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
     try:
-        await require_admin_auth(admin_session)
+        require_admin_auth(admin_session)
         return templates.TemplateResponse(
             "admin_dashboard.html",
             {
@@ -166,18 +153,9 @@ async def admin_dashboard(
     summary="Admin Logout",
     description="Logs out the admin user.",
 )
-async def admin_logout(
-    admin_session: str = Cookie(None, description="Admin session ID"),
-):
-    if admin_session:
-        # Remove session from database
-        await database.execute(
-            "DELETE FROM admin_sessions WHERE session_id = :session_id",
-            {"session_id": admin_session},
-        )
-
+async def admin_logout():
     response = RedirectResponse("/admin", status_code=303)
-    response.delete_cookie("admin_session")
+    response.delete_cookie(ADMIN_SESSION_COOKIE)
     return response
 
 
@@ -188,9 +166,9 @@ async def admin_logout(
     description="Returns a list of active connections and bandwidth usage.",
 )
 async def admin_api_connections(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     rows = await database.fetch_all(
         "SELECT id, ip, content, timestamp FROM active_connections ORDER BY timestamp DESC"
     )
@@ -278,9 +256,10 @@ async def admin_api_connections(
     description="Returns a list of recent application logs.",
 )
 async def admin_api_logs(
-    admin_session: str = Cookie(None, description="Admin session ID"), since: float = 0
+    admin_session: str = Cookie(None, description="Admin session token"),
+    since: float = 0,
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
 
     # Get logs since the specified timestamp
     all_logs = log_capture.get_logs()
@@ -298,10 +277,10 @@ async def admin_api_logs(
     description="Returns application metrics including torrents, searches, and cache stats.",
 )
 async def admin_api_metrics(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
     if not settings.PUBLIC_METRICS_API:
-        await require_admin_auth(admin_session)
+        require_admin_auth(admin_session)
 
     current_time = time.time()
 
@@ -502,9 +481,9 @@ async def admin_api_metrics(
     description="Returns background scraper runtime status, queue stats, and latest run data.",
 )
 async def admin_background_scraper_status(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     return JSONResponse(await background_scraper.get_status())
 
 
@@ -515,10 +494,10 @@ async def admin_background_scraper_status(
     description="Returns recent background scraper runs.",
 )
 async def admin_background_scraper_runs(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
     limit: int = 20,
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     safe_limit = max(1, min(limit, 200))
     return JSONResponse(
         {"runs": await background_scraper.get_recent_runs(limit=safe_limit)}
@@ -532,9 +511,9 @@ async def admin_background_scraper_runs(
     description="Starts the background scraper orchestrator.",
 )
 async def admin_background_scraper_start(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     async with background_scraper_start_lock:
         background_scraper.clear_finished_task()
         if not background_scraper.task:
@@ -551,9 +530,9 @@ async def admin_background_scraper_start(
     description="Stops the background scraper orchestrator.",
 )
 async def admin_background_scraper_stop(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     await background_scraper.stop()
     return JSONResponse({"success": True, "message": "Background scraper stopped"})
 
@@ -565,9 +544,9 @@ async def admin_background_scraper_stop(
     description="Pauses the background scraper orchestrator.",
 )
 async def admin_background_scraper_pause(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     paused = await background_scraper.pause()
     if not paused:
         return JSONResponse(
@@ -584,9 +563,9 @@ async def admin_background_scraper_pause(
     description="Resumes the background scraper orchestrator.",
 )
 async def admin_background_scraper_resume(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     resumed = await background_scraper.resume()
     if not resumed:
         return JSONResponse(
@@ -603,9 +582,9 @@ async def admin_background_scraper_resume(
     description="Requeues dead background scraper media items and episodes for retry.",
 )
 async def admin_background_scraper_requeue_dead(
-    admin_session: str = Cookie(None, description="Admin session ID"),
+    admin_session: str = Cookie(None, description="Admin session token"),
 ):
-    await require_admin_auth(admin_session)
+    require_admin_auth(admin_session)
     requeued = await background_scraper.requeue_dead_items()
     return JSONResponse(
         {

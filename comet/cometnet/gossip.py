@@ -90,7 +90,7 @@ class GossipEngine:
         )
 
         # Contribution mode determines what we share/receive
-        self.contribution_mode = settings.COMETNET_CONTRIBUTION_MODE or "full"
+        self.contribution_mode = settings.COMETNET_CONTRIBUTION_MODE
         if self.contribution_mode not in self.CONTRIBUTION_MODES:
             logger.warning(
                 f"Invalid contribution mode '{self.contribution_mode}', defaulting to 'full'"

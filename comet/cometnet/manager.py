@@ -1488,7 +1488,7 @@ class CometNetService(CometNetBackend):
             "keystore_stats": self.keystore.get_stats() if self.keystore else {},
             "security_alerts": security_alerts,
             # stats
-            "contribution_mode": settings.COMETNET_CONTRIBUTION_MODE or "full",
+            "contribution_mode": settings.COMETNET_CONTRIBUTION_MODE,
             "pool_stats": self.pool_store.get_stats() if self.pool_store else {},
             # Private network info
             "private_network": settings.COMETNET_PRIVATE_NETWORK,

@@ -33,10 +33,23 @@ def _extract_b64config_from_manifest_url(manifest_url: str):
     if not path_segments or path_segments[-1] != "manifest.json":
         raise ValueError("Invalid manifest URL format")
 
-    if len(path_segments) == 1:
+    path_without_manifest = path_segments[:-1]
+
+    prefix_segments = [
+        segment for segment in settings.STREMIO_API_PREFIX.split("/") if segment
+    ]
+    if prefix_segments:
+        if path_without_manifest[: len(prefix_segments)] != prefix_segments:
+            raise ValueError("Manifest URL does not match this Comet instance")
+        path_without_manifest = path_without_manifest[len(prefix_segments) :]
+
+    if not path_without_manifest:
         return ""
 
-    return unquote(path_segments[-2])
+    if len(path_without_manifest) != 1:
+        raise ValueError("Invalid manifest URL format")
+
+    return unquote(path_without_manifest[0])
 
 
 def _validate_b64config(b64config: str):
@@ -84,6 +97,7 @@ async def generate_setup_code(request: Request, payload: GenerateSetupCodeReques
             "code": code,
             "configure_url": configure_url,
             "expires_in": expires_in,
+            "stremio_api_prefix": settings.STREMIO_API_PREFIX,
         },
         headers=NO_CACHE_HEADERS,
     )
@@ -124,6 +138,9 @@ async def get_manifest(code: str):
         )
 
     return JSONResponse(
-        content={"secret_string": b64config},
+        content={
+            "secret_string": b64config,
+            "stremio_api_prefix": settings.STREMIO_API_PREFIX,
+        },
         headers=NO_CACHE_HEADERS,
     )
