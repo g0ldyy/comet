@@ -1319,7 +1319,7 @@
             document.execCommand("copy");
             document.body.removeChild(textArea);
 
-            console.log(isDefaultConfig(settings) ? "Using default manifest URL" : btoa(JSON.stringify(settings)));
+            console.log(`Copied manifest URL: ${manifestUrl}`);
 
             copyAlert.toast();
           });
@@ -1328,7 +1328,7 @@
             const settings = getSettings();
             const manifestUrl = getManifestUrl(settings, true);
             window.location.href = manifestUrl;
-            console.log(isDefaultConfig(settings) ? "Installing with default manifest" : btoa(JSON.stringify(settings)));
+            console.log(`Installing manifest URL: ${manifestUrl}`);
             installAlert.toast();
           });
 
