@@ -2125,7 +2125,6 @@
       let connectionsInterval = null;
       let logsInterval = null;
       let cometnetInterval = null;
-      let metricsInterval = null;
       let backgroundScraperInterval = null;
       let backgroundScraperNextCycleTicker = null;
       let backgroundScraperNextCycleState = "stopped";
@@ -2254,10 +2253,6 @@
           clearInterval(cometnetInterval);
           cometnetInterval = null;
         }
-        if (metricsInterval) {
-          clearInterval(metricsInterval);
-          metricsInterval = null;
-        }
         if (backgroundScraperInterval) {
           clearInterval(backgroundScraperInterval);
           backgroundScraperInterval = null;
@@ -2279,12 +2274,6 @@
             break;
           case "logs":
             logsInterval = setInterval(loadLogs, interval);
-            break;
-          case "metrics":
-            metricsInterval = setInterval(
-              loadMetrics,
-              Math.max(5000, interval),
-            );
             break;
           case "background-scraper":
             backgroundScraperInterval = setInterval(
@@ -2316,17 +2305,6 @@
             document.getElementById("refresh-interval").value,
           );
           logsInterval = setInterval(loadLogs, interval);
-        }
-
-        if (
-          document.getElementById("auto-refresh").checked &&
-          currentTab === "metrics"
-        ) {
-          if (metricsInterval) clearInterval(metricsInterval);
-          const interval = parseInt(
-            document.getElementById("refresh-interval").value,
-          );
-          metricsInterval = setInterval(loadMetrics, Math.max(5000, interval));
         }
 
         if (

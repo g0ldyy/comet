@@ -36,10 +36,6 @@ class AppSettings(BaseSettings):
         random.choices(string.ascii_letters + string.digits, k=16)
     )
     ADMIN_DASHBOARD_SESSION_TTL: Optional[int] = 86400
-    ADMIN_DASHBOARD_SESSION_SECRET: Optional[str] = None
-    ADMIN_DASHBOARD_SESSION_SECRET_FILE: Optional[str] = (
-        "data/admin_dashboard_session_secret.txt"
-    )
     CONFIGURE_PAGE_PASSWORD: Optional[str] = None
     CONFIGURE_PAGE_SESSION_TTL: Optional[int] = 86400
     PUBLIC_API_TOKEN: Optional[str] = None
@@ -315,8 +311,6 @@ class AppSettings(BaseSettings):
         "CONFIGURE_PAGE_PASSWORD",
         "PUBLIC_API_TOKEN",
         "PUBLIC_API_TOKEN_FILE",
-        "ADMIN_DASHBOARD_SESSION_SECRET",
-        "ADMIN_DASHBOARD_SESSION_SECRET_FILE",
         mode="before",
     )
     def normalize_optional_secrets(cls, v):
@@ -511,19 +505,7 @@ def _build_stremio_api_prefix():
     return f"/s/{settings.PUBLIC_API_TOKEN}"
 
 
-def _build_admin_dashboard_session_secret():
-    (
-        settings.ADMIN_DASHBOARD_SESSION_SECRET,
-        settings.ADMIN_DASHBOARD_SESSION_SECRET_SOURCE,
-    ) = _resolve_persisted_token(
-        settings.ADMIN_DASHBOARD_SESSION_SECRET,
-        settings.ADMIN_DASHBOARD_SESSION_SECRET_FILE,
-        "ADMIN_DASHBOARD_SESSION_SECRET",
-    )
-
-
 settings = AppSettings()
-_build_admin_dashboard_session_secret()
 STREMIO_API_PREFIX = _build_stremio_api_prefix()
 settings.STREMIO_API_PREFIX = STREMIO_API_PREFIX
 

@@ -244,18 +244,10 @@ def log_startup_info(settings):
     else:
         admin_password = f"{admin_password} (Randomly Generated)"
     admin_session_ttl = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
-    admin_session_secret_source = _secret_source_label(
-        settings.ADMIN_DASHBOARD_SESSION_SECRET_SOURCE,
-        "ADMIN_DASHBOARD_SESSION_SECRET_FILE",
-    )
 
     logger.log(
         "COMET",
-        f"Admin Dashboard Password: {admin_password} - http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Session Secret: {admin_session_secret_source} - Public Metrics API: {settings.PUBLIC_METRICS_API}",
-    )
-    logger.log(
-        "COMET",
-        f"Admin Session Secret File: {settings.ADMIN_DASHBOARD_SESSION_SECRET_FILE}",
+        f"Admin Dashboard Password: {admin_password} - http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
 
     configure_password = settings.CONFIGURE_PAGE_PASSWORD
