@@ -1,9 +1,12 @@
+import hashlib
+import hmac
 import secrets
 
 from fastapi import APIRouter, Cookie, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from comet.core.config_validation import config_check
 from comet.core.models import settings, web_config
 from comet.utils.cache import CachePolicies
 from comet.utils.signed_session import (encode_signed_session,
@@ -17,13 +20,22 @@ CONFIGURE_PAGE_PASSWORD_ENABLED = bool(CONFIGURE_PAGE_PASSWORD)
 CONFIGURE_PAGE_PASSWORD_BYTES = (
     CONFIGURE_PAGE_PASSWORD.encode("utf-8") if CONFIGURE_PAGE_PASSWORD_ENABLED else b""
 )
+CONFIGURE_SESSION_SECRET = (
+    hmac.new(
+        settings.ADMIN_DASHBOARD_SESSION_SECRET.encode("utf-8"),
+        CONFIGURE_PAGE_PASSWORD_BYTES,
+        hashlib.sha256,
+    ).digest()
+    if CONFIGURE_PAGE_PASSWORD_ENABLED
+    else b""
+)
 CONFIGURE_PAGE_SESSION_TTL = max(60, settings.CONFIGURE_PAGE_SESSION_TTL)
 PRIVATE_NO_CACHE_CONTROL = CachePolicies.no_cache().build()
 
 
 def _encode_configure_session():
     return encode_signed_session(
-        secret=CONFIGURE_PAGE_PASSWORD_BYTES,
+        secret=CONFIGURE_SESSION_SECRET,
         ttl=CONFIGURE_PAGE_SESSION_TTL,
     )
 
@@ -31,7 +43,7 @@ def _encode_configure_session():
 def _verify_configure_session(configure_session: str | None):
     return verify_signed_session(
         token=configure_session,
-        secret=CONFIGURE_PAGE_PASSWORD_BYTES,
+        secret=CONFIGURE_SESSION_SECRET,
     )
 
 
@@ -123,10 +135,14 @@ async def configure_login(
 )
 async def configure(
     request: Request,
+    b64config: str = None,
     configure_session: str = Cookie(
         None, description="Configuration page session token"
     ),
 ):
+    if b64config is not None and not config_check(b64config, strict_b64config=True):
+        return RedirectResponse("/configure", status_code=303)
+
     if CONFIGURE_PAGE_PASSWORD_ENABLED and not _verify_configure_session(
         configure_session
     ):

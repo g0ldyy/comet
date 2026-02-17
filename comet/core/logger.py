@@ -234,6 +234,8 @@ def log_startup_info(settings):
             return f"from {file_env}"
         if source_raw == "generated-memory":
             return "auto-generated (not persisted)"
+        if source_raw == "generated-file":
+            return f"auto-generated (persisted to {file_env})"
         return "auto-generated"
 
     admin_password = settings.ADMIN_DASHBOARD_PASSWORD

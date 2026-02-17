@@ -468,18 +468,26 @@ def _resolve_persisted_token(
             file.write(generated_token)
         return generated_token, "generated-file"
     except FileExistsError:
-        for _ in range(3):
+        last_read_error: Exception | None = None
+        for _ in range(5):
             try:
                 with open(token_file, "r", encoding="utf-8") as file:
                     existing_token = file.read().strip()
                     if existing_token:
                         return existing_token, "file"
             except Exception as error:
+                last_read_error = error
                 logger.warning(
                     f"Failed to read existing {token_name}_FILE ({token_file}): {error}"
                 )
-                break
-            time.sleep(0.01)
+            time.sleep(0.05)
+
+        error_context = f"{token_name}_FILE ({token_file}) exists but remained empty or unreadable after retries"
+        if last_read_error is not None:
+            raise RuntimeError(
+                f"{error_context}: {last_read_error}"
+            ) from last_read_error
+        raise RuntimeError(error_context)
     except Exception as error:
         logger.warning(f"Failed to persist {token_name}_FILE ({token_file}): {error}")
 
