@@ -59,6 +59,9 @@ def _sanitize_next_url(next_url: str | None):
     if not next_url:
         return "/configure"
 
+    if "\\" in next_url:
+        return "/configure"
+
     if not next_url.startswith("/") or next_url.startswith("//"):
         return "/configure"
 
