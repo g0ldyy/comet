@@ -222,6 +222,9 @@ app.include_router(cometnet.router)
 app.include_router(cometnet_ui.router)
 app.include_router(kodi.router)
 
+if STREMIO_API_PREFIX:
+    app.include_router(config.router, prefix=STREMIO_API_PREFIX)
+
 stremio_routers = (
     manifest.router,
     playback.router,
