@@ -2,6 +2,28 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.52.0](https://github.com/g0ldyy/comet/compare/v2.51.0...v2.52.0) (2026-02-19)
+
+
+### Features
+
+* add Stremio API prefix support in Kodi plugin and update settings ([c6d5587](https://github.com/g0ldyy/comet/commit/c6d5587448242f33c8be5d2b70893116c712c15d))
+* enhance admin and configuration session management with secure token handling and improved session validation ([6c0e943](https://github.com/g0ldyy/comet/commit/6c0e943847cb1980a2fdf6ded7af28d77d51b645))
+* enhance session security and validation in configuration endpoints with improved token handling and error management ([94a5af2](https://github.com/g0ldyy/comet/commit/94a5af2cf5110ead6fd42e4d1ca0d12b16bd04a0))
+* implement status video responses for debrid sync and playback errors, and add new status video assets ([1ec5383](https://github.com/g0ldyy/comet/commit/1ec5383561a8eff8ae638945905b5ac244b9ecd8))
+* refactor authentication handling in CometNet UI ([e104a74](https://github.com/g0ldyy/comet/commit/e104a740beef49e01291697cb3ac2fabdcec117e))
+* refactor authentication handling in CometNet UI ([f859926](https://github.com/g0ldyy/comet/commit/f85992684a13c3e3327f27383e38ecc3c11e60bd))
+* update status video assets and enhance error handling in StremThru class ([ba10378](https://github.com/g0ldyy/comet/commit/ba10378a9e00754a0a7a056b5005e768a0924e72))
+
+
+### Bug Fixes
+
+* add config route with prefix when configuration password is enabled ([a9a3892](https://github.com/g0ldyy/comet/commit/a9a389255889274f6ecef11a2b35031e82046516))
+* add validation to sanitize next URL in configuration endpoint to prevent backslashes ([d64302c](https://github.com/g0ldyy/comet/commit/d64302cc253b206cbd7123d56328ba5304526c5b))
+* enhance error handling in StremThru class for missing download links and update error type in generate_status_videos.py ([0ebe670](https://github.com/g0ldyy/comet/commit/0ebe670979eb4998b22e8a27fb5246b2b8b6e4f3))
+* improve type hinting for configuration parameters and enhance error logging in token persistence ([3588754](https://github.com/g0ldyy/comet/commit/358875449d76aae8b321d4bd7e0edda931f94c30))
+* update CONFIGURE_PAGE_PASSWORD default value to None for improved clarity in configuration settings ([4ef1f2d](https://github.com/g0ldyy/comet/commit/4ef1f2dd2e60ed80c1add25dc14c3a2755574ef4))
+
 ## [2.51.0](https://github.com/g0ldyy/comet/compare/v2.50.0...v2.51.0) (2026-02-13)
 
 
