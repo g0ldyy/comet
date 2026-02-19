@@ -546,4 +546,6 @@ class StremThru:
         except DebridLinkGenerationError:
             raise
         except Exception as e:
-            logger.warning(f"Exception while getting download link for {hash}: {e}")
+            logger.exception(
+                f"Exception while getting download link for {hash} ({type(e).__name__}): {e!r}"
+            )
