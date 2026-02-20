@@ -11,6 +11,8 @@ Using the repository ensures that you receive automatic updates.
 3.  **Install Repository**: Go to **Add-ons** ➔ **Install from zip file** ➔ select `Comet` ➔ install `repository.comet-X.Y.Z.zip`.
 4.  **Install Add-on**: Go to **Install from repository** ➔ **Comet Repository** ➔ **Video add-ons** ➔ **Comet** ➔ **Install**.
 
+If step 4 fails right after installing the repository, restart the Kodi client and try the install again.
+
 ## ⚙️ Configuration
 
 Once installed, you need to link the add-on to your Comet instance:

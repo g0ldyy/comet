@@ -13,7 +13,7 @@ This documentation covers everything you need to set up and configure CometNet f
 3. [Deployment Modes](#deployment-modes)
    - [Integrated Mode](#integrated-mode)
    - [Relay Mode](#relay-mode)
-4. [Quick Start](QUICKSTART.md)
+4. [Quick Start](quickstart.md)
 5. [Configuration Reference](#configuration-reference)
    - [Core Settings](#core-settings)
    - [Network Discovery](#network-discovery)
@@ -287,7 +287,6 @@ The reputation system tracks peer quality and filters bad actors:
 | `COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION` | `0.001` | Bonus per valid torrent contributed. |
 | `COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY` | `10.0` | Daily bonus for long-running peers. |
 | `COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION` | `50.0` | Penalty for sending bad data. |
-| `COMETNET_REPUTATION_PENALTY_SPAM_DETECTED` | `100.0` | Penalty for spamming. |
 | `COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE` | `500.0` | Penalty for invalid signatures. |
 
 ---

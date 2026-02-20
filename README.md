@@ -44,7 +44,7 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
 (*[ElfHosted Discord](https://discord.elfhosted.com)*)
 
 ## Self Hosted
-### From source
+### From source (developers)
 - Clone the repository and enter the folder
     ```sh
     git clone https://github.com/g0ldyy/comet
@@ -60,17 +60,12 @@ ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/
     uv run python -m comet.main
     ````
 
-### With Docker Compose
-- Copy *deployment/docker-compose.yml* in a directory
-- Create a `.env` file in the same directory and add only the variables you wish to modify. All other variables will use the default values from `.env-sample`.
-- Pull the latest version from docker hub
-    ```sh
-      docker compose pull
-    ```
-- Run
-    ```sh
-      docker compose up -d
-    ```
+### Docker / production-style setup
+
+Use the dedicated documentation:
+
+- Beginner step-by-step: [docs/beginner/01-get-started-docker.md](docs/beginner/01-get-started-docker.md)
+- Full documentation index: [docs/README.md](docs/README.md)
 
 # CometNet (P2P Network)
 Comet transforms your Comet instance from an isolated scraper into a participant in a collaborative network. Instead of each instance independently discovering the same torrents, CometNet allows instances to share their discovered **metadata** (hashes, titles, etc.) with each other in a decentralized way. **No actual files are shared.**

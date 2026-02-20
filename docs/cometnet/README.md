@@ -2,13 +2,15 @@
 
 Welcome to the CometNet documentation. CometNet is a decentralized peer-to-peer network integrated into Comet that automatically shares torrent metadata between instances.
 
+For the full non-CometNet project documentation, see [`docs/README.md`](../README.md).
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Quick Start](QUICKSTART.md) | Get CometNet running in 5 minutes |
-| [Full Documentation](COMETNET.md) | Complete reference with all settings and features |
-| [Docker Deployment](DOCKER.md) | Docker-specific configurations and examples |
+| [Quick Start](quickstart.md) | Get CometNet running in 5 minutes |
+| [Full Documentation](cometnet.md) | Complete reference with all settings and features |
+| [Docker Deployment](docker.md) | Docker-specific configurations and examples |
 
 ## Overview
 
@@ -24,5 +26,5 @@ CometNet enables Comet instances to share discovered torrent **metadata** with e
 
 ## Need Help?
 
-- Check the [Troubleshooting](COMETNET.md#troubleshooting) section
+- Check the [Troubleshooting](cometnet.md#troubleshooting) section
 - Join the [Comet Discord](https://discord.com/invite/UJEqpT42nb)
