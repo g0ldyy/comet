@@ -14,6 +14,7 @@ Practical rule:
 `AppSettings` applies normalization and compatibility logic:
 
 - URL settings have trailing `/` removed.
+- URL list entries may include an instance mode suffix (`:live`, `:background`, `:both`).
 - `DATABASE_TYPE` aliases (`postgres`, `pgsql`, `sqlite3`, etc.) are normalized.
 - Scraper context mode supports `true/both/live/background/false`.
 - `PUBLIC_API_TOKEN` and `PUBLIC_API_TOKEN_FILE` support auto-generation when API protection is enabled.

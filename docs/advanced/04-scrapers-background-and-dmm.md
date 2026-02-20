@@ -11,6 +11,14 @@ Enablement is controlled by `SCRAPE_*` settings with context modes:
 - `background`
 - `false`
 
+For URL-based scrapers, each URL can also override context with a suffix:
+
+- `:both` (default when omitted)
+- `:live`
+- `:background`
+
+Effective execution is the intersection of scraper-level mode (`SCRAPE_*`) and URL-level mode.
+
 Anime-only gates are enforced for specific scrapers (`NYAA_ANIME_ONLY`, `ANIMETOSHO_ANIME_ONLY`, `SEADEX_ANIME_ONLY`, `NEKOBT_ANIME_ONLY`).
 
 ## Indexer Manager (Jackett/Prowlarr)
