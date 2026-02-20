@@ -58,7 +58,7 @@ async def cometnet_health():
             status_code=503,
         )
 
-    stats = service.get_stats()
+    stats = await service.get_stats()
     connection_stats = stats.get("connection_stats", {})
     connected_peers = connection_stats.get("connected_peers", 0)
     min_peers = service.min_peers

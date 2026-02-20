@@ -273,6 +273,6 @@ Make sure:
 
 ## Next Steps
 
-- Read the [full documentation](COMETNET.md) for advanced configuration
-- Set up [Trust Pools](COMETNET.md#trust-pools) for community-based sharing
-- Configure [contribution modes](COMETNET.md#contribution-modes) based on your needs
+- Read the [full documentation](cometnet.md) for advanced configuration
+- Set up [Trust Pools](cometnet.md#trust-pools) for community-based sharing
+- Configure [contribution modes](cometnet.md#contribution-modes) based on your needs
