@@ -74,6 +74,15 @@ If `ADMIN_DASHBOARD_PASSWORD` is not set, Comet generates one at startup and log
 
 For beginner self-hosting, a reverse proxy is the simplest path to use a domain name and HTTPS.
 
+Requirements:
+* An A record on your domain pointing towards your IP.
+* Ports 443 and 80 open.
+
+> [!TIP]
+> You can also use services such as DuckDNS as a free alternative to buying a domain.
+
+### Nginx
+
 Comet includes a minimal nginx example in `deployment/nginx.conf`:
 
 ```nginx
@@ -95,6 +104,97 @@ Beginner checklist:
 1. Replace `example.com` with your domain.
 2. Ensure `proxy_pass` points to your Comet service.
 3. Add HTTPS/TLS on the proxy before using Stremio from another device/network.
+
+### Traefik
+
+Add the following example from below into your compose file:
+
+```traefik
+  traefik:
+    image: traefik:v3
+    container_name: traefik
+    restart: unless-stopped
+    environment:
+      - TZ=Etc/UTC # change this if needed
+    ports:
+      - 443:443
+    command:
+      - '--ping=true'
+      - '--api=true'
+      - '--api.dashboard=false'
+      - '--api.insecure=false'
+      - '--global.sendAnonymousUsage=false'
+      - '--global.checkNewVersion=false'
+      - '--log=true'
+      - '--log.level=DEBUG'
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=youremail@example.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/config/acme.json"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./traefik:/config"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+```
+
+ * Replace "youremail@example.com" with your email (used for Let's Encrypt)
+
+ Then, add this to the labels of your comet:
+
+ ```cometlabels
+     labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comet.rule=Host(`comet.example.com`)"
+      - "traefik.http.routers.comet.entrypoints=websecure"
+      - "traefik.http.routers.comet.tls.certresolver=letsencrypt"
+```
+
+Example:
+
+```cometlabelexample
+services:
+  comet:
+    container_name: comet
+    image: g0ldyy/comet
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgresql}
+      DATABASE_URL: ${DATABASE_URL:-comet:comet@postgres:5432/comet}
+    env_file:
+      - .env
+    volumes:
+      - comet_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comet.rule=Host(`comet.example.com`)"
+      - "traefik.http.routers.comet.entrypoints=websecure"
+      - "traefik.http.routers.comet.tls.certresolver=letsencrypt"
+```
+
+ * Replace `comet.example.com` with your hostname.
+
+Now run this command:
+```
+sudo docker compose up -d
+```
+
 
 ## Next
 
