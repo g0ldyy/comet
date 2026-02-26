@@ -61,6 +61,7 @@ class AppSettings(BaseSettings):
     ADDON_ID: Optional[str] = "stremio.comet.fast"
     ADDON_NAME: Optional[str] = "Comet"
     ADDON_LOGO: Optional[str] = "https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/icon.png"
+    ADDON_DESCRIPTION: Optional[str] = "Stremio's fastest torrent/debrid search add-on."
     FASTAPI_HOST: Optional[str] = "0.0.0.0"
     FASTAPI_PORT: Optional[int] = 8000
     FASTAPI_WORKERS: Optional[int] = 1

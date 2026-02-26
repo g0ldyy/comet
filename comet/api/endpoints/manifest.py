@@ -25,7 +25,7 @@ router = APIRouter()
 async def manifest(request: Request, b64config: str = None):
     base_manifest = {
         "id": settings.ADDON_ID,
-        "description": "Stremio's fastest torrent/debrid search add-on.",
+        "description": settings.ADDON_DESCRIPTION,
         "version": "2.0.0",
         "catalogs": [],
         "resources": [
