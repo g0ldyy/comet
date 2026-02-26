@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html class="sl-theme-dark">
   <head>
     <meta charset="UTF-8" />
@@ -52,9 +52,19 @@
           #25292c 0%,
           #0c0d13 100%
         );
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif,
-          "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          "Noto Sans",
+          "Liberation Sans",
+          Arial,
+          sans-serif,
+          "Apple Color Emoji",
+          "Segoe UI Emoji",
+          "Segoe UI Symbol",
           "Noto Color Emoji";
         font-size: 1rem;
         font-weight: 400;
@@ -136,7 +146,8 @@
         border-radius: 50%;
         filter: drop-shadow(0 0 6px currentColor);
         transform: translate3d(104em, 0, 0);
-        animation: fall var(--fall-duration) var(--fall-delay) linear infinite,
+        animation:
+          fall var(--fall-duration) var(--fall-delay) linear infinite,
           tail-fade var(--tail-fade-duration) var(--fall-delay) ease-out
             infinite;
       }
@@ -355,7 +366,7 @@
             star.style.setProperty("--top-offset", `${randomTopOffset}vh`);
             star.style.setProperty(
               "--star-tail-length",
-              `${randomTailLength}em`
+              `${randomTailLength}em`,
             );
             star.style.setProperty("--fall-duration", `${randomFallDuration}s`);
             star.style.setProperty("--fall-delay", "0s");
@@ -1559,8 +1570,13 @@
       </div>
     </div>
 
-    <div class="heart-button" id="support-trigger">
-      <sl-icon name="heart-fill"></sl-icon>
+    <div class="heart-button">
+      <a
+        href="https://www.stremx.net/posts/help-cover-hosting/"
+        target="_blank"
+      >
+        <sl-icon name="heart-fill"></sl-icon>
+      </a>
     </div>
 
     <sl-dialog label="Setup Kodi" id="kodi-dialog" style="--width: 500px">
@@ -1614,7 +1630,8 @@
       </sl-button>
     </sl-dialog>
 
-    <sl-dialog label="Support Comet" id="support-dialog" style="--width: 400px">
+    <!--<sl-dialog label="Support Comet" id="support-dialog" style="--width: 400px">
+
       <div
         style="
           display: flex;
@@ -1625,14 +1642,20 @@
           margin-top: -15px;
         "
       >
-        <div
-          style="
-            font-size: 2.5rem;
-            animation: heartbeat 1.5s ease-in-out infinite;
-          "
+        <a
+          href="https://github.com/sponsors/g0ldyy"
+          target="_blank"
+          style="text-decoration: none; color: inherit"
         >
-          ❤️
-        </div>
+          <div
+            style="
+              font-size: 2.5rem;
+              animation: heartbeat 1.5s ease-in-out infinite;
+            "
+          >
+            ❤️
+          </div>
+        </a>
         <h3 style="margin: 0">Donate to Me</h3>
         <p
           style="
@@ -1681,5 +1704,6 @@
       const openButton = document.querySelector("#support-trigger");
       openButton.addEventListener("click", () => dialog.show());
     </script>
+    -->
   </body>
 </html>
