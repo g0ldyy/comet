@@ -1,4 +1,9 @@
+from functools import lru_cache
+
 from RTN import ParsedData
+
+SCRAPE_URL_MODE_BOTH = "both"
+SCRAPE_URL_MODES = frozenset((SCRAPE_URL_MODE_BOTH, "live", "background"))
 
 
 def ensure_multi_language(parsed: ParsedData):
@@ -105,6 +110,21 @@ def parsed_matches_target(
     if parsed.episodes and episode not in parsed.episodes:
         return False
     return True
+
+
+@lru_cache(maxsize=1024)
+def parse_url_scrape_mode(url: str):
+    normalized = url.strip().rstrip("/")
+    base_url, separator, mode = normalized.rpartition(":")
+    if separator:
+        lowered_mode = mode.lower()
+        if lowered_mode in SCRAPE_URL_MODES:
+            return base_url.rstrip("/"), lowered_mode
+    return normalized, SCRAPE_URL_MODE_BOTH
+
+
+def url_mode_matches_context(mode: str, context: str):
+    return mode == SCRAPE_URL_MODE_BOTH or mode == context
 
 
 def associate_urls_credentials(urls, credentials):
