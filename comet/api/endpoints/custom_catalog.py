@@ -48,38 +48,51 @@ _PRIVATE_NETWORKS = [
 
 def _is_safe_url(url: str) -> bool:
     """
-    Return True if the URL resolves to a public, non-private address.
+    Return True if the URL resolves only to public, non-private addresses.
     Blocks SSRF targets: loopback, private ranges, link-local, multicast, etc.
+    Also validates that the scheme is http or https.
     """
     try:
         parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            logger.warning(
+                f"Custom catalog: rejected URL with unsupported scheme {parsed.scheme!r}"
+            )
+            return False
         hostname = parsed.hostname
         if not hostname:
             return False
 
+        def _addr_is_blocked(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+            if addr.is_multicast or addr.is_unspecified or addr.is_reserved:
+                return True
+            return any(addr in net for net in _PRIVATE_NETWORKS)
+
         # Reject raw IP literals in private ranges without DNS resolution
         try:
             addr = ipaddress.ip_address(hostname)
-            for net in _PRIVATE_NETWORKS:
-                if addr in net:
-                    return False
-            if addr.is_multicast or addr.is_unspecified or addr.is_reserved:
-                return False
-            return True
+            return not _addr_is_blocked(addr)
         except ValueError:
             pass  # hostname is a name, not an IP literal
 
-        # Resolve hostname to IP and check
-        resolved_ip = socket.getaddrinfo(hostname, None)[0][4][0]
-        addr = ipaddress.ip_address(resolved_ip)
-        for net in _PRIVATE_NETWORKS:
-            if addr in net:
+        # Resolve hostname and check ALL returned addresses (prevents mixed-DNS bypass)
+        all_addrs = socket.getaddrinfo(hostname, None)
+        for record in all_addrs:
+            ip_str = record[4][0]
+            try:
+                addr = ipaddress.ip_address(ip_str)
+                if _addr_is_blocked(addr):
+                    logger.warning(
+                        f"Custom catalog: SSRF block - {hostname!r} "
+                        f"resolved to blocked address {ip_str!r}"
+                    )
+                    return False
+            except ValueError:
+                # Unexpected non-IP result from getaddrinfo; treat as unsafe
                 logger.warning(
-                    f"Custom catalog: SSRF block - {hostname!r} resolved to private range"
+                    f"Custom catalog: SSRF block - could not parse resolved address {ip_str!r}"
                 )
                 return False
-        if addr.is_multicast or addr.is_unspecified or addr.is_reserved:
-            return False
         return True
     except Exception as e:
         logger.warning(f"Custom catalog: URL safety check failed: {e}")
@@ -140,8 +153,17 @@ async def _fetch_json(url: str, timeout: int = 15) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Helper: resolve custom-prefix ID -> IMDB ID
+# Safe nested dict accessor
 # ---------------------------------------------------------------------------
+
+def _safe_get(d: object, *keys: str) -> object:
+    """Traverse nested dicts safely; returns None if any step is missing or not a dict."""
+    for key in keys:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(key)
+    return d
+
 
 async def resolve_custom_prefix_to_imdb(
     media_type: str,
@@ -202,10 +224,10 @@ async def resolve_custom_prefix_to_imdb(
         meta.get("imdbId"),
         meta.get("imdb"),
         meta.get("tt"),
-        (meta.get("externalIds") or {}).get("imdb"),
-        (meta.get("externalIds") or {}).get("imdbId"),
-        (meta.get("filmOverviewOut") or {}).get("imdbId"),
-        ((meta.get("filmOverviewOut") or {}).get("externalIds") or {}).get("imdb"),
+        _safe_get(meta, "externalIds", "imdb"),
+        _safe_get(meta, "externalIds", "imdbId"),
+        _safe_get(meta, "filmOverviewOut", "imdbId"),
+        _safe_get(meta, "filmOverviewOut", "externalIds", "imdb"),
     ]:
         if candidate and str(candidate).startswith("tt"):
             return str(candidate), meta
@@ -257,13 +279,13 @@ async def _handle_catalog(
 ) -> JSONResponse:
     parsed = _parse_catalog_id(catalog_id)
     if not parsed:
-        return JSONResponse({"metas": []})
+        return JSONResponse({"metas": []}, headers={"Access-Control-Allow-Origin": "*"})
 
     idx, prefix, _declared_type = parsed
 
     config = config_check(b64config, strict_b64config=False)
     if not config:
-        return JSONResponse({"metas": []})
+        return JSONResponse({"metas": []}, headers={"Access-Control-Allow-Origin": "*"})
 
     custom_catalogs = config.get("customCatalogs") or []
     # Reject both out-of-range and negative indices (negative already caught above,
@@ -272,14 +294,14 @@ async def _handle_catalog(
         logger.warning(
             f"Custom catalog: index {idx} out of range (len={len(custom_catalogs)})"
         )
-        return JSONResponse({"metas": []})
+        return JSONResponse({"metas": []}, headers={"Access-Control-Allow-Origin": "*"})
 
     entry = custom_catalogs[idx]
     base_url = (entry.get("url") or "").strip().rstrip("/")
     entry_prefix = (entry.get("prefix") or "").strip()
 
     if not base_url or not entry_prefix:
-        return JSONResponse({"metas": []})
+        return JSONResponse({"metas": []}, headers={"Access-Control-Allow-Origin": "*"})
 
     # Safety: verify prefix still matches what is stored in user config
     if entry_prefix != prefix:
@@ -287,7 +309,7 @@ async def _handle_catalog(
             f"Custom catalog: prefix mismatch: config has {entry_prefix!r}, "
             f"catalog_id implies {prefix!r}"
         )
-        return JSONResponse({"metas": []})
+        return JSONResponse({"metas": []}, headers={"Access-Control-Allow-Origin": "*"})
 
     # The original catalog ID on the remote addon is constructed from the prefix
     # and the requested catalog type.  The manifest endpoint registers catalogs
