@@ -13,6 +13,9 @@ to convert custom-prefix IDs (e.g. csfd12345) into IMDB IDs.
 """
 
 import asyncio
+import ipaddress
+import socket
+from urllib.parse import urlparse
 from typing import Optional
 
 import aiohttp
@@ -27,10 +30,76 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
+# SSRF protection helpers
+# ---------------------------------------------------------------------------
+
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("fc00::/7"),
+]
+
+
+def _is_safe_url(url: str) -> bool:
+    """
+    Return True if the URL resolves to a public, non-private address.
+    Blocks SSRF targets: loopback, private ranges, link-local, multicast, etc.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Reject raw IP literals in private ranges without DNS resolution
+        try:
+            addr = ipaddress.ip_address(hostname)
+            for net in _PRIVATE_NETWORKS:
+                if addr in net:
+                    return False
+            if addr.is_multicast or addr.is_unspecified or addr.is_reserved:
+                return False
+            return True
+        except ValueError:
+            pass  # hostname is a name, not an IP literal
+
+        # Resolve hostname to IP and check
+        resolved_ip = socket.getaddrinfo(hostname, None)[0][4][0]
+        addr = ipaddress.ip_address(resolved_ip)
+        for net in _PRIVATE_NETWORKS:
+            if addr in net:
+                logger.warning(
+                    f"Custom catalog: SSRF block - {hostname!r} resolved to private range"
+                )
+                return False
+        if addr.is_multicast or addr.is_unspecified or addr.is_reserved:
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Custom catalog: URL safety check failed: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Internal HTTP helper
 # ---------------------------------------------------------------------------
 
 async def _fetch_json(url: str, timeout: int = 15) -> Optional[dict]:
+    parsed = urlparse(url)
+    host_label = parsed.hostname or "<unknown>"
+
+    if not _is_safe_url(url):
+        logger.warning(
+            f"Custom catalog: blocked request to private/unsafe host {host_label!r}"
+        )
+        return None
+
     try:
         session = await http_client_manager.get_session()
         async with session.get(
@@ -40,24 +109,38 @@ async def _fetch_json(url: str, timeout: int = 15) -> Optional[dict]:
         ) as resp:
             if resp.status == 200:
                 data = await resp.json(content_type=None)
-                logger.info(f"Custom catalog: fetch success for {url}")
+                if not isinstance(data, dict):
+                    logger.warning(
+                        f"Custom catalog: unexpected response type {type(data).__name__!r} "
+                        f"from {host_label!r}"
+                    )
+                    return None
+                logger.info(
+                    f"Custom catalog: fetch success from {host_label!r}")
                 return data
-            logger.warning(f"Custom catalog: HTTP {resp.status} for {url}")
+            logger.warning(
+                f"Custom catalog: HTTP {resp.status} from {host_label!r}"
+            )
             try:
-                text = await resp.text()
-                logger.warning(f"Custom catalog err body: {text}")
+                body_snippet = (await resp.text())[:200]
+                logger.debug(
+                    f"Custom catalog: error body snippet from {host_label!r}: {body_snippet!r}"
+                )
             except Exception as e:
                 logger.debug(
-                    f"Custom catalog: failed reading response body: {e}", exc_info=True)
+                    f"Custom catalog: failed reading response body from {host_label!r}: {e}",
+                    exc_info=True,
+                )
     except asyncio.TimeoutError:
-        logger.warning(f"Custom catalog: timeout fetching {url}")
+        logger.warning(f"Custom catalog: timeout fetching from {host_label!r}")
     except Exception as e:
-        logger.warning(f"Custom catalog: error fetching {url}: {e}")
+        logger.warning(
+            f"Custom catalog: error fetching from {host_label!r}: {e}")
     return None
 
 
 # ---------------------------------------------------------------------------
-# Helper: resolve custom-prefix ID → IMDB ID
+# Helper: resolve custom-prefix ID -> IMDB ID
 # ---------------------------------------------------------------------------
 
 async def resolve_custom_prefix_to_imdb(
@@ -68,7 +151,7 @@ async def resolve_custom_prefix_to_imdb(
 ) -> tuple[Optional[str], Optional[dict]]:
     """
     For a media_id whose prefix matches one of the user's customCatalogs,
-    call /meta/{type}/{media_id}.json on the corresponding addon URL and
+    call /meta/{type}/{base_id}.json on the corresponding addon URL and
     attempt to extract an IMDB ID from the response.
 
     Returns ``(imdb_id, meta_dict)``. If IMDB ID is not found, imdb_id is None,
@@ -84,7 +167,8 @@ async def resolve_custom_prefix_to_imdb(
 
     if not matched_url:
         logger.warning(
-            f"Custom catalog plugin logic: NO MATCHED URL for {media_id}")
+            f"Custom catalog: no matched addon URL for media_id prefix in {media_id!r}"
+        )
         return None, None
 
     # Stremio uses IDs like prefix123:1:2 for series streams, but custom catalogs
@@ -92,15 +176,26 @@ async def resolve_custom_prefix_to_imdb(
     base_id = media_id.split(":")[0]
 
     meta_url = f"{matched_url}/meta/{media_type}/{base_id}.json"
-    logger.info(f"Custom catalog: requesting IMDB resolution from {meta_url}")
+    parsed_host = urlparse(meta_url).hostname or "<unknown>"
+    logger.info(
+        f"Custom catalog: requesting IMDB resolution from {parsed_host!r}")
     data = await _fetch_json(meta_url, timeout)
     if not data:
         logger.warning(
-            f"Custom catalog: fetch returned empty/none for {meta_url}")
+            f"Custom catalog: fetch returned empty/none from {parsed_host!r}"
+        )
         return None, None
 
+    # data is validated to be a dict by _fetch_json
     meta = data.get("meta") or {}
-    logger.info(f"Custom catalog: received meta keys = {list(meta.keys())}")
+    if not isinstance(meta, dict):
+        logger.warning(
+            f"Custom catalog: 'meta' field is not a dict (got {type(meta).__name__!r}) "
+            f"from {parsed_host!r}"
+        )
+        return None, None
+
+    logger.info(f"Custom catalog: received meta keys = {list(meta.keys())!r}")
 
     # Try common locations for IMDB ID - adjust to actual API response structure
     for candidate in [
@@ -126,6 +221,7 @@ def _parse_catalog_id(catalog_id: str) -> Optional[tuple]:
     """
     Parse a catalog ID of the form ``cstm{idx}_{prefix}_{type}``.
     Returns ``(idx, prefix, catalog_type)`` or ``None``.
+    Rejects negative or obviously out-of-range idx values.
     """
     if not catalog_id.startswith("cstm"):
         return None
@@ -133,6 +229,10 @@ def _parse_catalog_id(catalog_id: str) -> Optional[tuple]:
     try:
         underscore_pos = rest.index("_")
         idx = int(rest[:underscore_pos])
+        if idx < 0:
+            logger.warning(
+                f"Custom catalog: rejected negative catalog index {idx}")
+            return None
         remainder = rest[underscore_pos + 1:]
         # remainder is "{prefix}_{type}" - split at the *last* underscore
         # because prefix itself may not contain underscores and type is
@@ -166,9 +266,12 @@ async def _handle_catalog(
         return JSONResponse({"metas": []})
 
     custom_catalogs = config.get("customCatalogs") or []
-    if idx >= len(custom_catalogs):
+    # Reject both out-of-range and negative indices (negative already caught above,
+    # but guard again against races/edge cases in case of direct calls)
+    if idx < 0 or idx >= len(custom_catalogs):
         logger.warning(
-            f"Custom catalog: index {idx} out of range for user config")
+            f"Custom catalog: index {idx} out of range (len={len(custom_catalogs)})"
+        )
         return JSONResponse({"metas": []})
 
     entry = custom_catalogs[idx]

@@ -469,7 +469,10 @@ async def stream(
                 if resolved_id:
                     logger.log(
                         "SCRAPER", f"Custom prefix: resolved {media_id} → {resolved_id}")
-                    media_id = resolved_id
+                    # Preserve the :season:episode suffix (e.g. ":1:2") that Stremio
+                    # appends to IDs for series so parse_media_id() still gets it.
+                    suffix = media_id[len(media_id.split(":")[0]):]
+                    media_id = f"{resolved_id}{suffix}"
                 elif resolved_meta and resolved_meta.get("name"):
                     logger.log(
                         "SCRAPER", f"Custom prefix: no IMDB ID for {media_id}, but found metadata.")
