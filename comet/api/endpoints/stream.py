@@ -2,6 +2,7 @@ import asyncio
 from collections import defaultdict
 from urllib.parse import quote
 
+import re
 from fastapi import APIRouter, BackgroundTasks, Request
 from typing import Optional
 
@@ -479,7 +480,6 @@ async def stream(
                                    or resolved_meta.get("releaseInfo") or "")
                     if year_str:
                         # try to get the first 4 digits
-                        import re
                         match = re.search(r'\d{4}', year_str)
                         if match:
                             custom_meta_year = int(match.group(0))

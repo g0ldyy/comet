@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 
 from comet.core.config_validation import config_check
-from comet.core.models import settings
+from comet.core.models import BUILTIN_PREFIXES, settings
 from comet.debrid.manager import build_addon_name
 from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
@@ -9,17 +9,14 @@ from comet.utils.cache import (CachedJSONResponse, CachePolicies,
 
 router = APIRouter()
 
-# ID prefixes that are always handled natively (not via custom catalogs)
-_BUILTIN_PREFIXES = {"tt", "kitsu"}
-
 
 def _build_custom_catalog_manifest(custom_catalogs: list) -> tuple[list, list]:
     """
     Given a user's customCatalogs config (list of {url, prefix} dicts),
     return (stremio_catalogs, extra_id_prefixes).
 
-    stremio_catalogs – catalog entries to include in the manifest
-    extra_id_prefixes – additional idPrefixes to advertise so Stremio sends
+    stremio_catalogs - catalog entries to include in the manifest
+    extra_id_prefixes - additional idPrefixes to advertise so Stremio sends
                         stream requests for IDs with those prefixes to Comet
     """
     stremio_catalogs = []
@@ -31,7 +28,7 @@ def _build_custom_catalog_manifest(custom_catalogs: list) -> tuple[list, list]:
         prefix = (entry.get("prefix") or "").strip()
         if not url or not prefix:
             continue
-        if prefix in _BUILTIN_PREFIXES:
+        if prefix in BUILTIN_PREFIXES:
             continue  # never override built-ins
 
         # One search-style catalog per custom addon (minimal; Stremio will

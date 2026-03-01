@@ -1,3 +1,14 @@
+from comet.core.logger import logger
+from comet.core.db_router import ReplicaAwareDatabase
+from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
+                        ExtrasRankModel, HdrRankModel, LanguagesConfig,
+                        OptionsConfig, QualityRankModel, ResolutionConfig,
+                        RipsRankModel)
+from RTN import DefaultRanking, SettingsModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field, field_validator
+from databases import Database
+import RTN
 import os
 import random
 import secrets
@@ -5,18 +16,7 @@ import string
 import time
 from typing import List, Optional, Union
 
-import RTN
-from databases import Database
-from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from RTN import DefaultRanking, SettingsModel
-from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
-                        ExtrasRankModel, HdrRankModel, LanguagesConfig,
-                        OptionsConfig, QualityRankModel, ResolutionConfig,
-                        RipsRankModel)
-
-from comet.core.db_router import ReplicaAwareDatabase
-from comet.core.logger import logger
+BUILTIN_PREFIXES = {"tt", "kitsu"}
 
 
 class AppSettings(BaseSettings):
@@ -1029,7 +1029,7 @@ class ConfigModel(BaseModel):
             url = str(entry.get("url") or "").strip().rstrip("/")
             prefix = str(entry.get("prefix") or "").strip()
             # Skip entries with missing data or that would override built-in prefixes
-            if url and prefix and prefix not in ("tt", "kitsu"):
+            if url and prefix and prefix not in BUILTIN_PREFIXES:
                 sanitized.append({"url": url, "prefix": prefix})
         return sanitized
 

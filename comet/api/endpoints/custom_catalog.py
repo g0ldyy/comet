@@ -35,7 +35,7 @@ async def _fetch_json(url: str, timeout: int = 15) -> Optional[dict]:
         session = await http_client_manager.get_session()
         async with session.get(
             url,
-            timeout=__import__("aiohttp").ClientTimeout(total=timeout),
+            timeout=aiohttp.ClientTimeout(total=timeout),
             headers={"Accept": "application/json"},
         ) as resp:
             if resp.status == 200:
@@ -46,8 +46,9 @@ async def _fetch_json(url: str, timeout: int = 15) -> Optional[dict]:
             try:
                 text = await resp.text()
                 logger.warning(f"Custom catalog err body: {text}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f"Custom catalog: failed reading response body: {e}", exc_info=True)
     except asyncio.TimeoutError:
         logger.warning(f"Custom catalog: timeout fetching {url}")
     except Exception as e:
@@ -101,7 +102,7 @@ async def resolve_custom_prefix_to_imdb(
     meta = data.get("meta") or {}
     logger.info(f"Custom catalog: received meta keys = {list(meta.keys())}")
 
-    # Try common locations for IMDB ID – adjust to actual API response structure
+    # Try common locations for IMDB ID - adjust to actual API response structure
     for candidate in [
         meta.get("imdbId"),
         meta.get("imdb"),
@@ -133,7 +134,7 @@ def _parse_catalog_id(catalog_id: str) -> Optional[tuple]:
         underscore_pos = rest.index("_")
         idx = int(rest[:underscore_pos])
         remainder = rest[underscore_pos + 1:]
-        # remainder is "{prefix}_{type}" – split at the *last* underscore
+        # remainder is "{prefix}_{type}" - split at the *last* underscore
         # because prefix itself may not contain underscores and type is
         # always the rightmost segment.
         last_underscore = remainder.rfind("_")
