@@ -518,6 +518,35 @@
       </sl-details>
 
       <style>
+        .custom-catalog-entry {
+          display: grid;
+          grid-template-columns: 2fr 1fr auto;
+          gap: 0.75rem;
+          align-items: center;
+          padding: 0.75rem;
+          background: rgba(255, 255, 255, 0.03);
+          border-radius: 0.5rem;
+          margin-bottom: 0.5rem;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          transition: border-color 0.2s ease;
+        }
+
+        .custom-catalog-entry:hover {
+          border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .custom-catalog-entry .remove-btn {
+          color: var(--sl-color-danger-600);
+        }
+
+        @media (max-width: 600px) {
+          .custom-catalog-entry {
+            grid-template-columns: 1fr;
+          }
+        }
+      </style>
+
+      <style>
         .debrid-service-entry {
           display: grid;
           grid-template-columns: 1fr 2fr auto;
@@ -884,6 +913,94 @@
         </div>
       </sl-details>
 
+      <sl-details summary="Custom Catalogs">
+        <p style="margin: 0 0 0.75rem; color: var(--sl-color-neutral-500); font-size: 0.875rem; line-height: 1.5;">
+          Add external Stremio-compatible catalog addons. Each entry has a <strong>URL</strong> (the addon base URL) and a <strong>prefix</strong>
+          used to route requests – e.g. <code>csfd</code> for Kinobox. The <code>tt</code> prefix is always handled by Cinemeta.
+        </p>
+
+        <div id="customCatalogsContainer"></div>
+
+        <sl-button
+          id="addCustomCatalog"
+          variant="default"
+          size="small"
+          style="margin-bottom: 1rem"
+        >
+          <sl-icon slot="prefix" name="plus-circle"></sl-icon>
+          Add Custom Catalog
+        </sl-button>
+
+        <script>
+          let customCatalogCounter = 0;
+
+          function createCustomCatalogEntry(url = "", prefix = "") {
+            const container = document.getElementById("customCatalogsContainer");
+            const entryId = customCatalogCounter++;
+
+            const entry = document.createElement("div");
+            entry.className = "custom-catalog-entry";
+            entry.dataset.entryId = entryId;
+
+            entry.innerHTML = `
+              <sl-input
+                class="catalog-url-input"
+                value="${url.replace(/"/g, '&quot;')}"
+                placeholder="https://your-addon.example.com"
+                size="small"
+                label="Catalog URL"
+                clearable
+              ></sl-input>
+              <sl-input
+                class="catalog-prefix-input"
+                value="${prefix.replace(/"/g, '&quot;')}"
+                placeholder="csfd"
+                size="small"
+                label="ID Prefix"
+                clearable
+              ></sl-input>
+              <sl-icon-button class="remove-btn" name="trash" label="Remove" style="margin-top: 1.2rem;"></sl-icon-button>
+            `;
+
+            const removeBtn = entry.querySelector(".remove-btn");
+            removeBtn.addEventListener("click", () => entry.remove());
+
+            container.appendChild(entry);
+            return entry;
+          }
+
+          function getCustomCatalogs() {
+            const container = document.getElementById("customCatalogsContainer");
+            const entries = container.querySelectorAll(".custom-catalog-entry");
+            const catalogs = [];
+
+            entries.forEach(entry => {
+              const url = entry.querySelector(".catalog-url-input").value.trim();
+              const prefix = entry.querySelector(".catalog-prefix-input").value.trim();
+              if (url && prefix) {
+                catalogs.push({ url, prefix });
+              }
+            });
+
+            return catalogs;
+          }
+
+          function populateCustomCatalogs(catalogs) {
+            const container = document.getElementById("customCatalogsContainer");
+            container.innerHTML = "";
+            customCatalogCounter = 0;
+            if (catalogs && catalogs.length > 0) {
+              catalogs.forEach(entry => createCustomCatalogEntry(entry.url || "", entry.prefix || ""));
+            }
+          }
+
+          document.addEventListener("DOMContentLoaded", () => {
+            const addBtn = document.getElementById("addCustomCatalog");
+            addBtn.addEventListener("click", () => createCustomCatalogEntry());
+          });
+        </script>
+      </sl-details>
+
       <sl-details summary="Advanced Settings">
         <div class="form-item">
           <sl-input
@@ -1144,6 +1261,8 @@
             const resultFormat = Array.from(document.getElementById("resultFormat").selectedOptions).map(option => option.value);
             const debridStreamProxyPassword = document.getElementById("debridStreamProxyPassword").value;
 
+            const customCatalogs = getCustomCatalogs();
+
             const debridServices = getDebridServices();
             const enableTorrentEl = document.getElementById("enableTorrent");
             const enableTorrent = enableTorrentEl ? enableTorrentEl.checked : false;
@@ -1166,6 +1285,7 @@
               deduplicateStreams: deduplicateStreams,
               scrapeDebridAccountTorrents: scrapeDebridAccountTorrents,
               debridStreamProxyPassword: debridStreamProxyPassword,
+              customCatalogs: customCatalogs,
               languages: {
                 required: languages_required,
                 allowed: languages_allowed,
@@ -1186,6 +1306,11 @@
           function isDefaultConfig(settings) {
             // For default: no debrid services and torrent mode enabled
             if (settings.debridServices && settings.debridServices.length > 0) {
+              return false;
+            }
+
+            // Non-empty customCatalogs makes config non-default
+            if (settings.customCatalogs && settings.customCatalogs.length > 0) {
               return false;
             }
 
@@ -1509,6 +1634,8 @@
               document.getElementById("allowEnglishInLanguages").checked = settings.options.allow_english_in_languages;
             if (settings.options?.remove_unknown_languages !== undefined)
               document.getElementById("removeUnknownLanguages").checked = settings.options.remove_unknown_languages;
+            if (settings.customCatalogs && settings.customCatalogs.length > 0)
+              populateCustomCatalogs(settings.customCatalogs);
           }
         </script>
       </div>

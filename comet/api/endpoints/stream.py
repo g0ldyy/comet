@@ -3,6 +3,7 @@ from collections import defaultdict
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Request
+from typing import Optional
 
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
@@ -23,6 +24,7 @@ from comet.services.trackers import trackers
 from comet.utils.cache import (CachedJSONResponse, CachePolicies,
                                check_etag_match, generate_etag,
                                not_modified_response)
+from comet.api.endpoints.custom_catalog import resolve_custom_prefix_to_imdb
 from comet.utils.formatting import (format_chilllink, format_title,
                                     get_formatted_components,
                                     get_formatted_components_plain)
@@ -254,7 +256,8 @@ async def background_scrape(
             f"📥 Background scrape complete for {media_id}!",
         )
     except Exception as e:
-        logger.log("SCRAPER", f"❌ Background scrape failed for {media_id}: {e}")
+        logger.log(
+            "SCRAPER", f"❌ Background scrape failed for {media_id}: {e}")
     finally:
         await scrape_lock.release()
 
@@ -291,7 +294,8 @@ async def check_multi_service_availability(
 
         for result in results:
             if isinstance(result, Exception):
-                logger.log("DEBRID", f"❌ Error checking availability: {result}")
+                logger.log(
+                    "DEBRID", f"❌ Error checking availability: {result}")
                 continue
             service, cached_hashes = result
             for info_hash in cached_hashes:
@@ -421,7 +425,8 @@ async def stream(
     enable_torrent = config["_enableTorrent"]
     deduplicate_streams = config["deduplicateStreams"]
     scrape_debrid_account_torrents = config["scrapeDebridAccountTorrents"]
-    use_account_scrape = bool(debrid_entries and scrape_debrid_account_torrents)
+    use_account_scrape = bool(
+        debrid_entries and scrape_debrid_account_torrents)
     response_cache_policy = CachePolicies.no_cache() if use_account_scrape else None
 
     def _stream_response(content: dict, is_empty: bool = False):
@@ -447,6 +452,43 @@ async def stream(
     session = await http_client_manager.get_session()
     metadata_scraper = MetadataScraper(session)
 
+    # Resolve custom-prefix IDs (e.g. csfd12345 → tt0111161)
+    custom_catalogs = config.get("customCatalogs") or []
+    custom_meta_title: Optional[str] = None
+    custom_meta_year: Optional[int] = None
+
+    if custom_catalogs:
+        # Check if media_id starts with any user-configured custom prefix
+        for _entry in custom_catalogs:
+            _prefix = (_entry.get("prefix") or "").strip()
+            if _prefix and media_id.startswith(_prefix):
+                resolved_id, resolved_meta = await resolve_custom_prefix_to_imdb(
+                    media_type, media_id, custom_catalogs
+                )
+                if resolved_id:
+                    logger.log(
+                        "SCRAPER", f"Custom prefix: resolved {media_id} → {resolved_id}")
+                    media_id = resolved_id
+                elif resolved_meta and resolved_meta.get("name"):
+                    logger.log(
+                        "SCRAPER", f"Custom prefix: no IMDB ID for {media_id}, but found metadata.")
+                    custom_meta_title = resolved_meta.get("name")
+
+                    # Parse year from "2026-2026" or "2026" or "2026-"
+                    year_str = str(resolved_meta.get("year")
+                                   or resolved_meta.get("releaseInfo") or "")
+                    if year_str:
+                        # try to get the first 4 digits
+                        import re
+                        match = re.search(r'\d{4}', year_str)
+                        if match:
+                            custom_meta_year = int(match.group(0))
+                else:
+                    logger.warning(
+                        f"Custom prefix: could not resolve {media_id} to anything, returning empty streams")
+                    return _stream_response({"streams": []}, is_empty=True)
+                break
+
     id, season, episode = parse_media_id(media_type, media_id)
 
     if settings.DIGITAL_RELEASE_FILTER:
@@ -455,7 +497,8 @@ async def stream(
         )
 
         if not is_released:
-            logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
+            logger.log(
+                "FILTER", f"🚫 {media_id} is not released yet. Skipping.")
             return _stream_response(
                 {
                     "streams": [
@@ -471,9 +514,17 @@ async def stream(
                 is_empty=True,
             )
 
-    metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-        media_type, media_id, id, season, episode
-    )
+    if custom_meta_title and custom_meta_year:
+        metadata, aliases = await metadata_scraper.fetch_aliases_with_metadata(
+            media_type, media_id, custom_meta_title, custom_meta_year, None, id
+        )
+        if metadata is not None:
+            metadata["season"] = season
+            metadata["episode"] = episode
+    else:
+        metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+            media_type, media_id, id, season, episode
+        )
 
     if metadata is None:
         logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
@@ -728,7 +779,8 @@ async def stream(
         existing_service_cache_status = await check_multi_service_availability(
             debrid_entries, torrent_manager.torrents, search_season, search_episode
         )
-        _merge_service_cache_status(service_cache_status, existing_service_cache_status)
+        _merge_service_cache_status(
+            service_cache_status, existing_service_cache_status)
         _merge_service_cache_status(
             verified_service_cache_status, existing_service_cache_status
         )
@@ -779,7 +831,8 @@ async def stream(
             search_episode,
             ip,
         )
-        _merge_service_cache_status(service_cache_status, fresh_service_cache_status)
+        _merge_service_cache_status(
+            service_cache_status, fresh_service_cache_status)
 
         for service, error in debrid_errors.items():
             cached_results.append(
@@ -906,7 +959,8 @@ async def stream(
             config["resultFormat"],
         )
         formatted_title = format_title_fn(formatted_components)
-        kodi_meta = _build_kodi_meta(rtn_data, formatted_components) if kodi else None
+        kodi_meta = _build_kodi_meta(
+            rtn_data, formatted_components) if kodi else None
         info_hash_cache_status = service_cache_status.get(info_hash)
         quoted_torrent_title = quote(torrent_title)
 
@@ -1005,7 +1059,8 @@ async def stream(
             }
 
             if chilllink:
-                the_stream["_chilllink"] = format_chilllink(formatted_components, False)
+                the_stream["_chilllink"] = format_chilllink(
+                    formatted_components, False)
 
             if torrent.get("fileIndex") is not None:
                 the_stream["fileIdx"] = torrent["fileIndex"]

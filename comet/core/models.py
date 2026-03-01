@@ -92,9 +92,11 @@ class AppSettings(BaseSettings):
     SCRAPE_NEKOBT: Union[bool, str] = False
     NEKOBT_ANIME_ONLY: Optional[bool] = True
     SCRAPE_ZILEAN: Union[bool, str] = False
-    ZILEAN_URL: Union[str, List[str]] = "https://zileanfortheweebs.midnightignite.me"
+    ZILEAN_URL: Union[str, List[str]
+                      ] = "https://zileanfortheweebs.midnightignite.me"
     SCRAPE_STREMTHRU: Union[bool, str] = False
-    STREMTHRU_SCRAPE_URL: Union[str, List[str]] = "https://stremthru.13377001.xyz"
+    STREMTHRU_SCRAPE_URL: Union[str, List[str]
+                                ] = "https://stremthru.13377001.xyz"
     SCRAPE_DMM: Union[bool, str] = False
     DMM_INGEST_ENABLED: Optional[bool] = False
     DMM_INGEST_INTERVAL: Optional[int] = 86400
@@ -109,7 +111,8 @@ class AppSettings(BaseSettings):
     SCRAPE_TORRENTIO: Union[bool, str] = False
     TORRENTIO_URL: Union[str, List[str]] = "https://torrentio.strem.fun"
     SCRAPE_MEDIAFUSION: Union[bool, str] = False
-    MEDIAFUSION_URL: Union[str, List[str]] = "https://mediafusion.elfhosted.com"
+    MEDIAFUSION_URL: Union[str, List[str]
+                           ] = "https://mediafusion.elfhosted.com"
     MEDIAFUSION_API_PASSWORD: Union[str, List[str], None] = None
     MEDIAFUSION_LIVE_SEARCH: Optional[bool] = True
     SCRAPE_AIOSTREAMS: Union[bool, str] = False
@@ -251,14 +254,16 @@ class AppSettings(BaseSettings):
         10000.0  # Max acceptable latency before disconnection
     )
     COMETNET_TRANSPORT_RATE_LIMIT_ENABLED: Optional[bool] = True
-    COMETNET_TRANSPORT_RATE_LIMIT_COUNT: Optional[int] = 20  # Messages per window
+    # Messages per window
+    COMETNET_TRANSPORT_RATE_LIMIT_COUNT: Optional[int] = 20
     COMETNET_TRANSPORT_RATE_LIMIT_WINDOW: Optional[float] = 1.0  # Seconds
 
     # CometNet Reputation Tuning
     COMETNET_REPUTATION_INITIAL: Optional[float] = 100.0
     COMETNET_REPUTATION_MIN: Optional[float] = 0.0
     COMETNET_REPUTATION_MAX: Optional[float] = 10000.0
-    COMETNET_REPUTATION_THRESHOLD_UNTRUSTED: Optional[float] = 50.0  # Ban threshold
+    # Ban threshold
+    COMETNET_REPUTATION_THRESHOLD_UNTRUSTED: Optional[float] = 50.0
     COMETNET_REPUTATION_THRESHOLD_TRUSTED: Optional[float] = (
         1000.0  # Trust threshold (approx 1 day of heavy scraping)
     )
@@ -450,7 +455,8 @@ def _resolve_persisted_token(
         except FileNotFoundError:
             pass
         except Exception as error:
-            logger.warning(f"Failed to read {token_name}_FILE ({token_file}): {error}")
+            logger.warning(
+                f"Failed to read {token_name}_FILE ({token_file}): {error}")
 
     generated_token = secrets.token_urlsafe(32)
     if not token_file:
@@ -483,7 +489,8 @@ def _resolve_persisted_token(
             ) from last_read_error
         raise RuntimeError(error_context) from None
     except Exception as error:
-        logger.error(f"Failed to persist {token_name}_FILE ({token_file}): {error}")
+        logger.error(
+            f"Failed to persist {token_name}_FILE ({token_file}): {error}")
         raise
 
 
@@ -1002,6 +1009,30 @@ class ConfigModel(BaseModel):
     rtnSettings: Optional[CometSettingsModel] = rtn_settings_default
     rtnRanking: Optional[DefaultRanking] = rtn_ranking_default
 
+    # Custom catalog addons configured per-user via the configure page
+    # Each entry: {"url": "https://...", "prefix": "csfd"}
+    # The prefix is used to route stream requests to the correct catalog addon.
+    # The "tt" prefix is always handled by Cinemeta (built-in).
+    customCatalogs: Optional[List[dict]] = []
+
+    @field_validator("customCatalogs", mode="before")
+    @classmethod
+    def validate_custom_catalogs(cls, v):
+        if not v:
+            return []
+        if not isinstance(v, list):
+            return []
+        sanitized = []
+        for entry in v:
+            if not isinstance(entry, dict):
+                continue
+            url = str(entry.get("url") or "").strip().rstrip("/")
+            prefix = str(entry.get("prefix") or "").strip()
+            # Skip entries with missing data or that would override built-in prefixes
+            if url and prefix and prefix not in ("tt", "kitsu"):
+                sanitized.append({"url": url, "prefix": prefix})
+        return sanitized
+
     @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):
         if not isinstance(v, int):
@@ -1032,7 +1063,8 @@ class ConfigModel(BaseModel):
             return []
         if isinstance(v, list):
             return [
-                DebridServiceEntry(**entry) if isinstance(entry, dict) else entry
+                DebridServiceEntry(
+                    **entry) if isinstance(entry, dict) else entry
                 for entry in v
             ]
         return v
@@ -1065,7 +1097,7 @@ def _build_database_instance(raw_url: str):
 
     for scheme in ["postgresql://", "postgres://"]:
         if raw_url.startswith(scheme):
-            raw_url = raw_url[len(scheme) :]
+            raw_url = raw_url[len(scheme):]
             break
 
     return Database(f"postgresql+asyncpg://{raw_url}")
