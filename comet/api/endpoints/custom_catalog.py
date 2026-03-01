@@ -14,7 +14,6 @@ to convert custom-prefix IDs (e.g. csfd12345) into IMDB IDs.
 
 import asyncio
 import ipaddress
-import socket
 from urllib.parse import urlparse
 from typing import Optional
 
@@ -46,7 +45,7 @@ _PRIVATE_NETWORKS = [
 ]
 
 
-def _is_safe_url(url: str) -> bool:
+async def _is_safe_url(url: str) -> bool:
     """
     Return True if the URL resolves only to public, non-private addresses.
     Blocks SSRF targets: loopback, private ranges, link-local, multicast, etc.
@@ -75,8 +74,10 @@ def _is_safe_url(url: str) -> bool:
         except ValueError:
             pass  # hostname is a name, not an IP literal
 
-        # Resolve hostname and check ALL returned addresses (prevents mixed-DNS bypass)
-        all_addrs = socket.getaddrinfo(hostname, None)
+        # Resolve hostname and check ALL returned addresses (prevents mixed-DNS bypass).
+        # Uses the async resolver so we don't block the event loop.
+        loop = asyncio.get_running_loop()
+        all_addrs = await loop.getaddrinfo(hostname, None)
         for record in all_addrs:
             ip_str = record[4][0]
             try:
@@ -107,7 +108,7 @@ async def _fetch_json(url: str, timeout: int = 15) -> Optional[dict]:
     parsed = urlparse(url)
     host_label = parsed.hostname or "<unknown>"
 
-    if not _is_safe_url(url):
+    if not await _is_safe_url(url):
         logger.warning(
             f"Custom catalog: blocked request to private/unsafe host {host_label!r}"
         )
@@ -168,7 +169,7 @@ def _safe_get(d: object, *keys: str) -> object:
 async def resolve_custom_prefix_to_imdb(
     media_type: str,
     media_id: str,
-    custom_catalogs: list,
+    custom_catalogs: Optional[list],
     timeout: int = 15,
 ) -> tuple[Optional[str], Optional[dict]]:
     """
@@ -256,9 +257,8 @@ def _parse_catalog_id(catalog_id: str) -> Optional[tuple]:
                 f"Custom catalog: rejected negative catalog index {idx}")
             return None
         remainder = rest[underscore_pos + 1:]
-        # remainder is "{prefix}_{type}" - split at the *last* underscore
-        # because prefix itself may not contain underscores and type is
-        # always the rightmost segment.
+        # remainder is "{prefix}_{type}" - split at the *last* underscore so the
+        # rightmost segment is the type; the prefix may itself contain underscores.
         last_underscore = remainder.rfind("_")
         if last_underscore < 0:
             return None
