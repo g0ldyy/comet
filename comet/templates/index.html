@@ -817,11 +817,9 @@
         }
 
         // Initialize add button
-        document.addEventListener("DOMContentLoaded", () => {
-          const addBtn = document.getElementById("addDebridService");
-          addBtn.addEventListener("click", () => {
-            createDebridServiceEntry();
-          });
+        const addBtn = document.getElementById("addDebridService");
+        addBtn.addEventListener("click", () => {
+          createDebridServiceEntry();
         });
       </script>
 
@@ -1001,7 +999,7 @@
           let defaultResultFormat = [];
           const ALL_RESOLUTIONS = ["r2160p", "r1440p", "r1080p", "r720p", "r576p", "r480p", "r360p", "r240p", "unknown"];
 
-          document.addEventListener("DOMContentLoaded", async () => {
+          (async () => {
             await Promise.allSettled([
               customElements.whenDefined("sl-button"),
               customElements.whenDefined("sl-alert"),
@@ -1038,7 +1036,7 @@
           populateSelect("languages_preferred", Object.keys(languagesEmojis));
 
           document.body.classList.add("ready");
-                });
+          })();
 
           function populateSelect(selectId, options) {
             const selectElement = document.getElementById(selectId);
