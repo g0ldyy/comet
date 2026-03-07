@@ -919,6 +919,18 @@
             max-options-visible="10"
           >
           </sl-select>
+          <div id="resultFormatPreview" style="
+            margin-top: 0.6rem;
+            padding: 0.65rem 0.85rem;
+            background: rgba(0,0,0,0.35);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 0.4rem;
+            font-family: monospace;
+            font-size: 0.78rem;
+            color: #c8ccd0;
+            white-space: pre;
+            line-height: 1.65;
+          "></div>
         </div>
       </sl-details>
 
@@ -1022,6 +1034,48 @@
           defaultResultFormat = webConfig.resultFormat;
           const resultFormatSelect = document.getElementById("resultFormat");
           resultFormatSelect.value = defaultResultFormat;
+
+          // Live preview for result format
+          function updateResultFormatPreview() {
+            const sel = document.getElementById("resultFormat");
+            const raw = sel.value;
+            const selected = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            const hasAll = selected.includes("all");
+            const S = {
+              title:     "📄 Movie.Title.2024.1080p.BluRay.x264-GROUP",
+              video:     "📹 H.264 • HDR • 10bit",
+              audio:     "🔊 DDP5.1 • Atmos",
+              quality:   "⭐ BluRay",
+              group:     "🏷️ YTS",
+              seeders:   "👤 1234",
+              size:      "💾 12.5 GB",
+              tracker:   "🔎 Yggrasil",
+              languages: "🇬🇧🇫🇷",
+            };
+            const c = {};
+            if (hasAll || selected.includes("title"))          c.title     = S.title;
+            if (hasAll || selected.includes("video_info"))      c.video     = S.video;
+            if (hasAll || selected.includes("audio_info"))      c.audio     = S.audio;
+            if (hasAll || selected.includes("quality_info"))    c.quality   = S.quality;
+            if (hasAll || selected.includes("release_group"))   c.group     = S.group;
+            if (hasAll || selected.includes("seeders"))         c.seeders   = S.seeders;
+            if (hasAll || selected.includes("size"))            c.size      = S.size;
+            if (hasAll || selected.includes("tracker"))         c.tracker   = S.tracker;
+            if (hasAll || selected.includes("languages"))       c.languages = S.languages;
+            const lines = [];
+            if (c.title) lines.push(c.title);
+            const va = [c.video, c.audio].filter(Boolean);
+            if (va.length) lines.push(va.join(" | "));
+            const qg = [c.quality, c.group].filter(Boolean);
+            if (qg.length) lines.push(qg.join(" | "));
+            const info = [c.seeders, c.size, c.tracker].filter(Boolean);
+            if (info.length) lines.push(info.join(" "));
+            if (c.languages) lines.push(c.languages);
+            document.getElementById("resultFormatPreview").textContent =
+              lines.length ? lines.join("\n") : "Empty result format configuration";
+          }
+          resultFormatSelect.addEventListener("sl-change", updateResultFormatPreview);
+          updateResultFormatPreview();
 
           // try populate the form from previous settings
           try {
@@ -1488,6 +1542,7 @@
               document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
             if (settings.resultFormat !== null && settings.resultFormat != "all")
               document.getElementById("resultFormat").value = settings.resultFormat;
+            updateResultFormatPreview();
             if (settings.languages) {
               if (settings.languages.required)
                 document.getElementById("languages_required").value = settings.languages.required;
