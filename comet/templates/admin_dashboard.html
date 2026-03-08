@@ -2546,6 +2546,7 @@
 
       function appendLogs(logs) {
         const container = document.getElementById("logs-container");
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
         const hideApiLogs = document.getElementById("hide-api-logs").checked;
 
         if (container.querySelector(".empty-state")) {
@@ -2577,7 +2578,9 @@
           container.appendChild(logEntry);
         });
 
-        container.scrollTop = container.scrollHeight;
+        if (isAtBottom) {
+          container.scrollTop = container.scrollHeight;
+        }
 
         const maxEntries = 500;
         while (container.children.length > maxEntries) {
