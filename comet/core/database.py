@@ -39,6 +39,7 @@ SCHEMA_MIGRATION_LOCK_ID = 0xC0DE7001
 DOWNLOAD_LINK_CACHE_TTL = 3600
 _BACKEND_LOCK_WAIT_LOG_DELAY_SECONDS = 0.5
 _BACKEND_LOCK_RETRY_INTERVAL_SECONDS = 0.1
+_SQLITE_INVALID_LOCKFILE_GRACE_SECONDS = 1.0
 
 
 def normalize_scope_value(value: int | None) -> int:
@@ -127,7 +128,17 @@ def _read_sqlite_lockfile_pid(lock_path: str) -> int | None:
 
 def _try_remove_stale_sqlite_lockfile(lock_path: str) -> bool:
     pid = _read_sqlite_lockfile_pid(lock_path)
-    if pid is None or _is_process_running(pid):
+    if pid is None:
+        try:
+            age_seconds = max(0.0, time.time() - os.path.getmtime(lock_path))
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return False
+
+        if age_seconds < _SQLITE_INVALID_LOCKFILE_GRACE_SECONDS:
+            return False
+    elif _is_process_running(pid):
         return False
 
     try:
@@ -156,7 +167,14 @@ def _create_sqlite_lockfile(lock_path: str) -> int | None:
         raise
 
     try:
-        os.write(lock_fd, f"{os.getpid()}\n".encode("ascii"))
+        payload = f"{os.getpid()}\n".encode("ascii")
+        written = 0
+        while written < len(payload):
+            chunk_written = os.write(lock_fd, payload[written:])
+            if chunk_written <= 0:
+                raise OSError(errno.EIO, "Failed to write SQLite lock file PID")
+            written += chunk_written
+        os.fsync(lock_fd)
     except Exception:
         try:
             os.close(lock_fd)
