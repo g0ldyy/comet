@@ -164,7 +164,7 @@ class CacheStateManager:
                     f"Failed to insert media_demand for {self.media_id}: {exc}",
                     exc_info=True,
                 )
-                return False
+                raise
 
             try:
                 await database.execute(
@@ -180,6 +180,7 @@ class CacheStateManager:
                     f"Failed to update media_demand for {self.media_id}: {exc}",
                     exc_info=True,
                 )
+                raise
 
             return False
 
