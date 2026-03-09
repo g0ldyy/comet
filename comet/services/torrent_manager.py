@@ -432,6 +432,7 @@ class TorrentUpdateQueue:
         "_event",
         "upserts",
         "_is_postgresql",
+        "_worker_task",
     )
 
     def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
@@ -443,6 +444,7 @@ class TorrentUpdateQueue:
         self._event = asyncio.Event()
         self.upserts = {}
         self._is_postgresql = IS_POSTGRES
+        self._worker_task = None
 
     async def add_torrent_info(
         self, file_info: dict, media_id: str = None, from_cometnet: bool = False
@@ -466,7 +468,7 @@ class TorrentUpdateQueue:
             async with self._lock:
                 if not self.is_running:
                     self.is_running = True
-                    asyncio.create_task(self._process_queue())
+                    self._worker_task = asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
         last_flush_time = time.time()
@@ -516,40 +518,21 @@ class TorrentUpdateQueue:
         finally:
             if self.upserts:
                 await self._flush_batch()
-            if self.is_running:
-                async with self._lock:
-                    self.is_running = False
+            worker_task = asyncio.current_task()
+            async with self._lock:
+                self.is_running = False
+                if self._worker_task is worker_task:
+                    self._worker_task = None
 
     async def stop(self):
-        self.is_running = False
+        async with self._lock:
+            self.is_running = False
+            worker_task = self._worker_task
+
         self._event.set()
 
-        shutdown_time = time.time()
-        while True:
-            try:
-                file_info, media_id = self.queue.get_nowait()
-                self._process_file_info(file_info, media_id, shutdown_time)
-            except QueueEmpty:
-                break
-            except Exception as e:
-                logger.warning(
-                    f"Error processing remaining queue items during shutdown: {e}"
-                )
-                break
-
-        if self.upserts:
-            max_flush_attempts = 5
-            for attempt in range(max_flush_attempts):
-                skipped_rows = await self._flush_batch()
-                if not skipped_rows and not self.upserts:
-                    break
-                if attempt < max_flush_attempts - 1 and self.upserts:
-                    await asyncio.sleep(0.05 * (attempt + 1))
-
-            if self.upserts:
-                logger.warning(
-                    f"Stop completed with {len(self.upserts)} pending upserts after {max_flush_attempts} flush attempts"
-                )
+        if worker_task:
+            await worker_task
 
     async def _flush_batch(self):
         if not self.upserts:
@@ -620,7 +603,7 @@ class TorrentUpdateQueue:
             upsert_key = (media_id, info_hash, season, episode)
 
             existing = self.upserts.get(upsert_key)
-            if existing and existing["updated_at"] >= current_time:
+            if existing and existing["updated_at"] > current_time:
                 return
 
             params = {
