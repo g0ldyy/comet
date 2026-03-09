@@ -21,7 +21,7 @@ _CACHE_SELECT_QUERY = """
     AND metadata_updated_at >= :min_timestamp
 """
 
-_CACHE_INSERT_QUERY = """
+_CACHE_UPSERT_QUERY = """
     INSERT INTO media_metadata_cache (
         media_id,
         title,
@@ -44,6 +44,47 @@ _CACHE_INSERT_QUERY = """
         year_end = EXCLUDED.year_end,
         aliases_json = EXCLUDED.aliases_json,
         metadata_updated_at = EXCLUDED.metadata_updated_at
+"""
+
+_CACHE_ALIAS_ENRICH_QUERY = """
+    INSERT INTO media_metadata_cache (
+        media_id,
+        title,
+        year,
+        year_end,
+        aliases_json,
+        metadata_updated_at
+    )
+    VALUES (
+        :media_id,
+        :title,
+        :year,
+        :year_end,
+        :aliases_json,
+        :metadata_updated_at
+    )
+    ON CONFLICT (media_id) DO UPDATE SET
+        title = CASE
+            WHEN media_metadata_cache.metadata_updated_at IS NULL
+            THEN EXCLUDED.title
+            ELSE media_metadata_cache.title
+        END,
+        year = CASE
+            WHEN media_metadata_cache.metadata_updated_at IS NULL
+            THEN EXCLUDED.year
+            ELSE media_metadata_cache.year
+        END,
+        year_end = CASE
+            WHEN media_metadata_cache.metadata_updated_at IS NULL
+            THEN EXCLUDED.year_end
+            ELSE media_metadata_cache.year_end
+        END,
+        aliases_json = EXCLUDED.aliases_json,
+        metadata_updated_at = CASE
+            WHEN media_metadata_cache.metadata_updated_at IS NULL
+            THEN EXCLUDED.metadata_updated_at
+            ELSE media_metadata_cache.metadata_updated_at
+        END
 """
 
 
@@ -126,9 +167,20 @@ class MetadataScraper:
             orjson.loads(row["aliases_json"]),
         )
 
-    async def cache_metadata(self, media_id: str, metadata: dict, aliases: dict):
+    async def cache_metadata(
+        self,
+        media_id: str,
+        metadata: dict,
+        aliases: dict,
+        preserve_existing_metadata: bool = False,
+    ):
+        query = (
+            _CACHE_ALIAS_ENRICH_QUERY
+            if preserve_existing_metadata
+            else _CACHE_UPSERT_QUERY
+        )
         await database.execute(
-            _CACHE_INSERT_QUERY,
+            query,
             {
                 "media_id": media_id,
                 "title": metadata["title"],
@@ -177,7 +229,7 @@ class MetadataScraper:
     ):
         """
         Fetch only aliases for media when we already have the metadata from another source.
-        This method will cache the provided metadata along with the scraped aliases.
+        This method refreshes aliases and only seeds metadata when no canonical metadata exists.
         """
         if id is None:
             id, _, _ = parse_media_id(media_type, media_id)
@@ -197,7 +249,12 @@ class MetadataScraper:
 
         aliases = await self.get_aliases(media_type, id, provider)
 
-        await self.cache_metadata(cache_id, metadata, aliases)
+        await self.cache_metadata(
+            cache_id,
+            metadata,
+            aliases,
+            preserve_existing_metadata=True,
+        )
 
         return metadata, aliases
 
