@@ -158,6 +158,15 @@ class CacheStateManager:
                 )
                 return True
             except sqlite3.IntegrityError:
+                pass
+            except Exception as exc:
+                logger.debug(
+                    f"Failed to insert media_demand for {self.media_id}: {exc}",
+                    exc_info=True,
+                )
+                return False
+
+            try:
                 await database.execute(
                     """
                     UPDATE media_demand
@@ -166,13 +175,13 @@ class CacheStateManager:
                     """,
                     update_params,
                 )
-                return False
             except Exception as exc:
                 logger.debug(
-                    f"Unexpected error inserting media_demand for {self.media_id}: {exc}",
+                    f"Failed to update media_demand for {self.media_id}: {exc}",
                     exc_info=True,
                 )
-                raise
+
+            return False
 
         inserted = await database.fetch_val(
             f"""
