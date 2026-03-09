@@ -1494,7 +1494,7 @@ async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
     for table_name, columns in [
         ("db_maintenance", ["last_startup_cleanup"]),
         ("scrape_locks", ["timestamp"]),
-        ("kodi_setup_codes", ["b64config"]),
+        ("kodi_setup_codes", ["b64config", "created_at"]),
         ("torrents", ["sources", "parsed", "timestamp"]),
         ("debrid_availability", ["parsed", "timestamp"]),
         ("download_links_cache", ["timestamp"]),
