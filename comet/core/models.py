@@ -19,14 +19,17 @@ from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
 
+_comet_fk_enabled = False
+
 if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
     _original_sqlite_acquire = SQLiteConnection.acquire
 
     async def _comet_sqlite_acquire(self):
         await _original_sqlite_acquire(self)
         assert self._connection is not None
-        await self._connection.execute("PRAGMA foreign_keys=ON")
         await self._connection.execute("PRAGMA busy_timeout=30000")
+        if _comet_fk_enabled:
+            await self._connection.execute("PRAGMA foreign_keys=ON")
 
     SQLiteConnection.acquire = _comet_sqlite_acquire
     SQLiteConnection._comet_pragmas_patched = True

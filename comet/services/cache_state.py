@@ -1,9 +1,11 @@
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
 from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, database
+from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
 from comet.utils.media_ids import normalize_cache_media_ids
@@ -156,8 +158,13 @@ class CacheStateManager:
                         insert_params,
                     )
                     return True
-                except Exception:
+                except sqlite3.IntegrityError:
                     pass
+                except Exception as exc:
+                    logger.debug(
+                        f"Unexpected error inserting media_demand for {self.media_id}: {exc}",
+                        exc_info=True,
+                    )
 
                 await database.execute(
                     """
@@ -181,16 +188,16 @@ class CacheStateManager:
             )
             if inserted == 1:
                 return True
-
-            await database.execute(
-                """
-                UPDATE media_demand
-                SET last_seen_at = :last_seen_at
-                WHERE media_id = :media_id
-                """,
-                update_params,
-            )
-            return False
+            else:
+                await database.execute(
+                    """
+                    UPDATE media_demand
+                    SET last_seen_at = :last_seen_at
+                    WHERE media_id = :media_id
+                    """,
+                    update_params,
+                )
+                return False
         except Exception:
             return False
 

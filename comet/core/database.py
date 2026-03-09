@@ -10,6 +10,7 @@ try:
 except ImportError:
     fcntl = None
 
+import comet.core.models as _models_mod
 from comet.core.logger import logger
 from comet.core.models import (IS_POSTGRES, IS_SQLITE, JSON_FUNC,
                                ON_CONFLICT_DO_NOTHING, OR_IGNORE, database,
@@ -182,6 +183,7 @@ async def setup_database():
             await _migrate_indexes()
 
         if IS_SQLITE:
+            _models_mod._comet_fk_enabled = True
             await _apply_sqlite_pragmas(foreign_keys=True)
 
         await database.execute("DELETE FROM active_connections")
@@ -496,7 +498,10 @@ async def _migrate_indexes():
 
             await database.execute(f"DROP INDEX IF EXISTS {index_name}")
             dropped_count += 1
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                f"Failed to drop legacy index {index_name}: {exc}", exc_info=True
+            )
             continue
 
     if dropped_count > 0:

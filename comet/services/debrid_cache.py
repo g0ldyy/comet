@@ -118,7 +118,10 @@ async def cache_availability(debrid_service: str, availability: list):
 
 
 async def get_cached_availability(
-    debrid_service: str, info_hashes: list, season: int = None, episode: int = None
+    debrid_service: str,
+    info_hashes: list[str],
+    season: int | None = None,
+    episode: int | None = None,
 ):
     select_clause = "SELECT info_hash, file_index, title, size, parsed_json AS parsed"
 
