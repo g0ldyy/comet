@@ -133,7 +133,7 @@ class CacheStateManager:
 
     async def _update_media_demand_last_seen(
         self, update_params: dict[str, str | float]
-    ) -> bool:
+    ) -> None:
         try:
             await database.execute(
                 """
@@ -147,8 +147,7 @@ class CacheStateManager:
             logger.opt(exception=True).debug(
                 f"Failed to update media_demand for {self.media_id}: {exc}",
             )
-            return False
-        return False
+            return
 
     async def check_is_first_search(self) -> bool:
         """
@@ -184,7 +183,8 @@ class CacheStateManager:
                 )
                 return False
 
-            return await self._update_media_demand_last_seen(update_params)
+            await self._update_media_demand_last_seen(update_params)
+            return False
 
         try:
             inserted = await database.fetch_val(
@@ -206,7 +206,8 @@ class CacheStateManager:
         if inserted == 1:
             return True
 
-        return await self._update_media_demand_last_seen(update_params)
+        await self._update_media_demand_last_seen(update_params)
+        return False
 
     async def _try_acquire_lock(self) -> bool:
         """Attempt to acquire the distributed lock."""
