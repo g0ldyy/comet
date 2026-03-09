@@ -164,7 +164,7 @@ class CacheStateManager:
                     f"Failed to insert media_demand for {self.media_id}: {exc}",
                     exc_info=True,
                 )
-                raise
+                return False
 
             try:
                 await database.execute(
@@ -180,31 +180,46 @@ class CacheStateManager:
                     f"Failed to update media_demand for {self.media_id}: {exc}",
                     exc_info=True,
                 )
-                raise
+                return False
 
             return False
 
-        inserted = await database.fetch_val(
-            f"""
-            INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
-            VALUES (:media_id, :first_seen_at, :last_seen_at)
-            {ON_CONFLICT_DO_NOTHING}
-            RETURNING 1
-            """,
-            insert_params,
-            force_primary=True,
-        )
+        try:
+            inserted = await database.fetch_val(
+                f"""
+                INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
+                VALUES (:media_id, :first_seen_at, :last_seen_at)
+                {ON_CONFLICT_DO_NOTHING}
+                RETURNING 1
+                """,
+                insert_params,
+                force_primary=True,
+            )
+        except Exception as exc:
+            logger.debug(
+                f"Failed to insert media_demand for {self.media_id}: {exc}",
+                exc_info=True,
+            )
+            return False
+
         if inserted == 1:
             return True
 
-        await database.execute(
-            """
-            UPDATE media_demand
-            SET last_seen_at = :last_seen_at
-            WHERE media_id = :media_id
-            """,
-            update_params,
-        )
+        try:
+            await database.execute(
+                """
+                UPDATE media_demand
+                SET last_seen_at = :last_seen_at
+                WHERE media_id = :media_id
+                """,
+                update_params,
+            )
+        except Exception as exc:
+            logger.debug(
+                f"Failed to update media_demand for {self.media_id}: {exc}",
+                exc_info=True,
+            )
+            return False
         return False
 
     async def _try_acquire_lock(self) -> bool:
