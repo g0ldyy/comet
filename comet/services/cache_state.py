@@ -143,52 +143,21 @@ class CacheStateManager:
         }
         update_params = {"media_id": self.media_id, "last_seen_at": current_time}
 
-        try:
-            if IS_SQLITE:
-                try:
-                    await database.execute(
-                        """
-                        INSERT INTO media_demand (
-                            media_id,
-                            first_seen_at,
-                            last_seen_at
-                        )
-                        VALUES (:media_id, :first_seen_at, :last_seen_at)
-                        """,
-                        insert_params,
-                    )
-                    return True
-                except sqlite3.IntegrityError:
-                    pass
-                except Exception as exc:
-                    logger.debug(
-                        f"Unexpected error inserting media_demand for {self.media_id}: {exc}",
-                        exc_info=True,
-                    )
-
+        if IS_SQLITE:
+            try:
                 await database.execute(
                     """
-                    UPDATE media_demand
-                    SET last_seen_at = :last_seen_at
-                    WHERE media_id = :media_id
+                    INSERT INTO media_demand (
+                        media_id,
+                        first_seen_at,
+                        last_seen_at
+                    )
+                    VALUES (:media_id, :first_seen_at, :last_seen_at)
                     """,
-                    update_params,
+                    insert_params,
                 )
-                return False
-
-            inserted = await database.fetch_val(
-                f"""
-                INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
-                VALUES (:media_id, :first_seen_at, :last_seen_at)
-                {ON_CONFLICT_DO_NOTHING}
-                RETURNING 1
-                """,
-                insert_params,
-                force_primary=True,
-            )
-            if inserted == 1:
                 return True
-            else:
+            except sqlite3.IntegrityError:
                 await database.execute(
                     """
                     UPDATE media_demand
@@ -198,12 +167,35 @@ class CacheStateManager:
                     update_params,
                 )
                 return False
-        except Exception as exc:
-            logger.debug(
-                f"Error checking cache_state first-search status for {self.media_id}: {exc}",
-                exc_info=True,
-            )
-            return False
+            except Exception as exc:
+                logger.debug(
+                    f"Unexpected error inserting media_demand for {self.media_id}: {exc}",
+                    exc_info=True,
+                )
+                raise
+
+        inserted = await database.fetch_val(
+            f"""
+            INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
+            VALUES (:media_id, :first_seen_at, :last_seen_at)
+            {ON_CONFLICT_DO_NOTHING}
+            RETURNING 1
+            """,
+            insert_params,
+            force_primary=True,
+        )
+        if inserted == 1:
+            return True
+
+        await database.execute(
+            """
+            UPDATE media_demand
+            SET last_seen_at = :last_seen_at
+            WHERE media_id = :media_id
+            """,
+            update_params,
+        )
+        return False
 
     async def _try_acquire_lock(self) -> bool:
         """Attempt to acquire the distributed lock."""
