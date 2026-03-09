@@ -26,7 +26,7 @@ Examples:
 - `GET /{b64config}/manifest.json`
 - `GET /stream/{media_type}/{media_id}.json`
 - `GET /{b64config}/stream/{media_type}/{media_id}.json`
-- `GET /{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}/{torrent_name}`
+- `GET /{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}?torrent={torrent_name}&name={name_query}`
 - `GET /{b64config}/debrid-sync/{service_index}`
 
 Legacy playback route is still present:
