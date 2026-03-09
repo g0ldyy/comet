@@ -961,7 +961,7 @@ async def stream(
                 str(file_index) if is_cached and file_index is not None else "n"
             )
             the_stream["url"] = (
-                f"{playback_base_url}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}/{quoted_torrent_title}?name={quoted_title}"
+                f"{playback_base_url}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}?torrent={quoted_torrent_title}&name={quoted_title}"
             )
 
             if is_cached:

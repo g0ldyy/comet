@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 @router.get(
-    "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}/{torrent_name:path}",
+    "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}",
     tags=["Stremio"],
     summary="Playback Proxy",
     description="Proxies the playback request to the Debrid service or returns a cached link.",
@@ -35,8 +35,8 @@ async def playback(
     index: str,
     season: str,
     episode: str,
-    torrent_name: str,
-    name_query: str = Query("", alias="name"),
+    torrent_name: str = Query(alias="torrent"),
+    name_query: str = Query(alias="name"),
 ):
     config = config_check(b64config, strict_b64config=True)
     if not config:
