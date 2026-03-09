@@ -218,7 +218,7 @@ def _parse_sqlite_version(version: str | None) -> tuple[int, int, int]:
             parsed.append(0)
     while len(parsed) < 3:
         parsed.append(0)
-    return tuple(parsed)
+    return (parsed[0], parsed[1], parsed[2])
 
 
 async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
