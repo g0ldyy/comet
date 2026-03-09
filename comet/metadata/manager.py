@@ -237,8 +237,9 @@ class MetadataScraper:
         id: str | None = None,
     ):
         """
-        Fetch only aliases for media when we already have the metadata from another source.
-        This method refreshes aliases and only seeds metadata when no canonical metadata exists.
+        Fetch aliases while reusing provided canonical metadata values.
+        It short-circuits on a warm cache, refreshes aliases, refreshes stale canonical
+        metadata, and seeds canonical metadata only when none exists.
         """
         if id is None:
             id, _, _ = parse_media_id(media_type, media_id)
