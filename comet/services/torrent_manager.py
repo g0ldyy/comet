@@ -558,6 +558,8 @@ class TorrentUpdateQueue:
                 )
                 upsert_succeeded = True
             except Exception:
+                for upsert_key, upsert_params in upserts_to_flush.items():
+                    self.upserts.setdefault(upsert_key, upsert_params)
                 logger.exception("Error processing upsert batch")
 
             total_upserts = len(upserts_to_flush)
