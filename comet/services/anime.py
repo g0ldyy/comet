@@ -1,13 +1,16 @@
 import asyncio
 import ctypes
 import gc
+import os
 import sys
 import time
+from contextlib import asynccontextmanager
 
 import aiohttp
 import orjson
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import (ON_CONFLICT_DO_NOTHING, OR_IGNORE,
+                                 backend_lock, database)
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -37,6 +40,17 @@ _FRIBB_PROVIDER_ORDER = (
 )
 
 _DB_CHUNK_SIZE = 10000
+_ANIME_REFRESH_LOCK_ID = 0xA11E0001
+
+
+@asynccontextmanager
+async def _anime_refresh_lock():
+    async with backend_lock(
+        postgres_lock_id=_ANIME_REFRESH_LOCK_ID,
+        sqlite_lock_path=f"{os.path.abspath(settings.DATABASE_PATH)}.anime.lock",
+        wait_message="Waiting for anime mapping refresh lock",
+    ):
+        yield
 
 
 class AnimeMapper:
@@ -60,28 +74,7 @@ class AnimeMapper:
         if self.loaded:
             return True
 
-        count = await database.fetch_val("SELECT COUNT(*) FROM anime_entries")
-        if count and count > 0:
-            await self._load_provider_ids()
-            await self._load_kitsu_mapping_cache()
-
-            kitsu_count = await database.fetch_val(
-                "SELECT COUNT(*) FROM kitsu_imdb_mapping"
-            )
-            needs_kitsu_refresh = (
-                kitsu_count == 0 or len(self._kitsu_mapping_cache) == 0
-            )
-
-            if await self._is_cache_stale() or needs_kitsu_refresh:
-                self._refresh_task = asyncio.create_task(
-                    self._refresh_from_remote(background=True)
-                )
-
-            self.loaded = True
-            logger.log(
-                "COMET",
-                f"✅ Anime mapping loaded from database: {count} entries, {len(self._kitsu_mapping_cache)} Kitsu-IMDB mappings",
-            )
+        if await self._load_from_database(schedule_refresh=True):
             return True
 
         return await self._refresh_from_remote(session)
@@ -110,7 +103,7 @@ class AnimeMapper:
 
         row = await database.fetch_one(
             """
-            SELECT e.data 
+            SELECT e.data_json 
             FROM anime_entries e
             INNER JOIN anime_ids i ON e.id = i.entry_id
             WHERE i.provider = :provider AND i.provider_id = :provider_id
@@ -121,7 +114,7 @@ class AnimeMapper:
         if not row:
             return None
 
-        return orjson.loads(row["data"])
+        return orjson.loads(row["data_json"])
 
     async def get_aliases(self, media_id: str):
         if not self.loaded:
@@ -277,10 +270,14 @@ class AnimeMapper:
         try:
             rows = await database.fetch_all(
                 """
-                SELECT kitsu_id, imdb_id, from_season, from_episode
-                FROM kitsu_imdb_mapping
-                WHERE (from_episode IS NOT NULL AND from_episode > 1)
-                OR from_season IS NOT NULL
+                SELECT source_id, target_id, from_season, from_episode
+                FROM anime_provider_overrides
+                WHERE source_provider = 'kitsu'
+                  AND target_provider = 'imdb'
+                  AND (
+                        (from_episode IS NOT NULL AND from_episode > 1)
+                        OR from_season IS NOT NULL
+                      )
                 """
             )
 
@@ -288,8 +285,8 @@ class AnimeMapper:
             self._imdb_kitsu_mapping_cache.clear()
 
             for row in rows:
-                kitsu_id = row["kitsu_id"]
-                imdb_id = row["imdb_id"]
+                kitsu_id = row["source_id"]
+                imdb_id = row["target_id"]
 
                 self._kitsu_mapping_cache[str(kitsu_id)] = {
                     "imdb_id": imdb_id,
@@ -302,6 +299,55 @@ class AnimeMapper:
                 )
         except Exception as e:
             logger.warning(f"Failed to load Kitsu-IMDB mapping cache: {e}")
+
+    async def _needs_refresh(self) -> bool:
+        kitsu_count = await database.fetch_val(
+            """
+            SELECT COUNT(*)
+            FROM anime_provider_overrides
+            WHERE source_provider = 'kitsu'
+              AND target_provider = 'imdb'
+            """
+        )
+        needs_kitsu_refresh = kitsu_count == 0 or len(self._kitsu_mapping_cache) == 0
+        return await self._is_cache_stale() or needs_kitsu_refresh
+
+    def _handle_refresh_task_done(self, task: asyncio.Task):
+        if self._refresh_task is task:
+            self._refresh_task = None
+
+    def _schedule_background_refresh(self):
+        if self._refresh_task is not None and not self._refresh_task.done():
+            return
+
+        self._refresh_task = asyncio.create_task(
+            self._refresh_from_remote(background=True)
+        )
+        self._refresh_task.add_done_callback(self._handle_refresh_task_done)
+
+    async def _load_from_database(
+        self,
+        *,
+        schedule_refresh: bool,
+        log_loaded: bool = True,
+    ) -> bool:
+        count = await database.fetch_val("SELECT COUNT(*) FROM anime_entries")
+        if not count or count <= 0:
+            return False
+
+        await self._load_provider_ids()
+        await self._load_kitsu_mapping_cache()
+
+        if schedule_refresh and await self._needs_refresh():
+            self._schedule_background_refresh()
+
+        self.loaded = True
+        if log_loaded:
+            logger.log(
+                "COMET",
+                f"✅ Anime mapping loaded from database: {count} entries, {len(self._kitsu_mapping_cache)} Kitsu-IMDB mappings",
+            )
+        return True
 
     async def _refresh_from_remote(
         self,
@@ -319,76 +365,87 @@ class AnimeMapper:
                 session = aiohttp.ClientSession()
 
             try:
-
-                async def _download_json(url: str, label: str):
-                    logger.log("COMET", f"Downloading anime mapping ({label})...")
-                    async with session.get(url) as response:
-                        return response.status, await response.read()
-
-                (
-                    (aod_status, aod_payload),
-                    (fribb_status, fribb_payload),
-                    (kitsu_status, kitsu_payload),
-                ) = await asyncio.gather(
-                    _download_json(self._aod_url, "Source 1/3: Anime Offline Database"),
-                    _download_json(self._fribb_url, "Source 2/3: Fribb Anime List"),
-                    _download_json(
-                        self._kitsu_imdb_url, "Source 3/3: Kitsu-IMDB Mapping"
-                    ),
-                )
-
-                if aod_status != 200:
-                    logger.error(f"Failed to load AOD: HTTP {aod_status}")
-                    return False
-
-                if fribb_status != 200:
-                    logger.error(f"Failed to load Fribb List: HTTP {fribb_status}")
-                    return False
-
-                if kitsu_status != 200:
-                    logger.warning(
-                        f"Failed to load Kitsu-IMDB mapping: HTTP {kitsu_status}"
-                    )
-                    return False
-
-                data_aod = orjson.loads(aod_payload)
-                data_fribb = orjson.loads(fribb_payload)
-                data_kitsu_imdb = orjson.loads(kitsu_payload)
-
-                anime_list = data_aod.get("data", [])
-                total_entries = await self._persist_mapping(anime_list, data_fribb)
-
-                await self._persist_kitsu_imdb_mapping(data_kitsu_imdb)
-
-                del data_aod
-                del data_fribb
-                del data_kitsu_imdb
-                del anime_list
-                gc.collect()
-
-                if sys.platform == "linux":
-                    try:
-                        ctypes.CDLL("libc.so.6").malloc_trim(0)
-                    except Exception:
-                        pass
-                elif sys.platform == "win32":
-                    try:
-                        ctypes.windll.psapi.EmptyWorkingSet(
-                            ctypes.windll.kernel32.GetCurrentProcess()
+                async with _anime_refresh_lock():
+                    if (
+                        await self._load_from_database(
+                            schedule_refresh=False,
+                            log_loaded=False,
                         )
-                    except Exception:
-                        pass
+                        and not await self._needs_refresh()
+                    ):
+                        return True
 
-                await self._load_provider_ids()
-                await self._load_kitsu_mapping_cache()
+                    async def _download_json(url: str, label: str):
+                        logger.log("COMET", f"Downloading anime mapping ({label})...")
+                        async with session.get(url) as response:
+                            return response.status, await response.read()
 
-                self.loaded = True
-                logger.log(
-                    "COMET",
-                    f"✅ Anime mapping loaded: {total_entries} entries, {len(self._kitsu_mapping_cache)} Kitsu-IMDB mappings cached",
-                )
+                    (
+                        (aod_status, aod_payload),
+                        (fribb_status, fribb_payload),
+                        (kitsu_status, kitsu_payload),
+                    ) = await asyncio.gather(
+                        _download_json(
+                            self._aod_url, "Source 1/3: Anime Offline Database"
+                        ),
+                        _download_json(self._fribb_url, "Source 2/3: Fribb Anime List"),
+                        _download_json(
+                            self._kitsu_imdb_url, "Source 3/3: Kitsu-IMDB Mapping"
+                        ),
+                    )
 
-                return True
+                    if aod_status != 200:
+                        logger.error(f"Failed to load AOD: HTTP {aod_status}")
+                        return False
+
+                    if fribb_status != 200:
+                        logger.error(f"Failed to load Fribb List: HTTP {fribb_status}")
+                        return False
+
+                    if kitsu_status != 200:
+                        logger.warning(
+                            f"Failed to load Kitsu-IMDB mapping: HTTP {kitsu_status}"
+                        )
+                        return False
+
+                    data_aod = orjson.loads(aod_payload)
+                    data_fribb = orjson.loads(fribb_payload)
+                    data_kitsu_imdb = orjson.loads(kitsu_payload)
+
+                    anime_list = data_aod.get("data", [])
+                    total_entries = await self._persist_mapping(anime_list, data_fribb)
+
+                    await self._persist_provider_overrides(data_kitsu_imdb)
+
+                    del data_aod
+                    del data_fribb
+                    del data_kitsu_imdb
+                    del anime_list
+                    gc.collect()
+
+                    if sys.platform == "linux":
+                        try:
+                            ctypes.CDLL("libc.so.6").malloc_trim(0)
+                        except Exception:
+                            pass
+                    elif sys.platform == "win32":
+                        try:
+                            ctypes.windll.psapi.EmptyWorkingSet(
+                                ctypes.windll.kernel32.GetCurrentProcess()
+                            )
+                        except Exception:
+                            pass
+
+                    await self._load_provider_ids()
+                    await self._load_kitsu_mapping_cache()
+
+                    self.loaded = True
+                    logger.log(
+                        "COMET",
+                        f"✅ Anime mapping loaded: {total_entries} entries, {len(self._kitsu_mapping_cache)} Kitsu-IMDB mappings cached",
+                    )
+
+                    return True
             except Exception as exc:
                 log_fn = logger.warning if background else logger.error
                 log_fn(f"Exception while loading anime mapping: {exc}")
@@ -406,9 +463,9 @@ class AnimeMapper:
         total_entries = 0
 
         entries_query = """
-            INSERT INTO anime_entries (id, data)
-            VALUES (:id, :data)
-            ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+            INSERT INTO anime_entries (id, data_json)
+            VALUES (:id, :data_json)
+            ON CONFLICT (id) DO UPDATE SET data_json = EXCLUDED.data_json
         """
         ids_query = f"""
             INSERT {OR_IGNORE} INTO anime_ids (provider, provider_id, entry_id) 
@@ -418,15 +475,33 @@ class AnimeMapper:
 
         try:
             async with database.transaction():
-                await database.execute("DELETE FROM anime_entries")
                 await database.execute("DELETE FROM anime_ids")
+                await database.execute("DELETE FROM anime_entries")
+
+                async def flush_entries(batch: list[dict]) -> int:
+                    if not batch:
+                        return 0
+
+                    await database.execute_many(entries_query, batch)
+                    flushed_count = len(batch)
+                    batch.clear()
+                    return flushed_count
+
+                async def flush_ids(batch: list[dict]):
+                    if not batch:
+                        return
+
+                    # `anime_ids.entry_id` now has a real FK to `anime_entries.id`,
+                    # so parent rows must exist before child rows are flushed.
+                    await database.execute_many(ids_query, batch)
+                    batch.clear()
 
                 for idx, entry in enumerate(anime_list):
                     entry_id = idx + 1
                     entries_batch.append(
                         {
                             "id": entry_id,
-                            "data": orjson.dumps(entry).decode("utf-8"),
+                            "data_json": orjson.dumps(entry).decode("utf-8"),
                         }
                     )
 
@@ -460,22 +535,14 @@ class AnimeMapper:
                                     break
 
                     if len(entries_batch) >= _DB_CHUNK_SIZE:
-                        await database.execute_many(entries_query, entries_batch)
-                        total_entries += len(entries_batch)
-                        entries_batch.clear()
+                        total_entries += await flush_entries(entries_batch)
 
                     if len(ids_batch) >= _DB_CHUNK_SIZE:
-                        await database.execute_many(ids_query, ids_batch)
-                        ids_batch.clear()
+                        total_entries += await flush_entries(entries_batch)
+                        await flush_ids(ids_batch)
 
-                if entries_batch:
-                    await database.execute_many(entries_query, entries_batch)
-                    total_entries += len(entries_batch)
-                    entries_batch.clear()
-
-                if ids_batch:
-                    await database.execute_many(ids_query, ids_batch)
-                    ids_batch.clear()
+                total_entries += await flush_entries(entries_batch)
+                await flush_ids(ids_batch)
 
                 del entries_batch
                 del ids_batch
@@ -525,22 +592,41 @@ class AnimeMapper:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
             return 0
 
-    async def _persist_kitsu_imdb_mapping(self, kitsu_imdb_data: list):
+    async def _persist_provider_overrides(self, kitsu_imdb_data: list):
         total_count = 0
         batch = []
         batch_size = 1000
 
         try:
             async with database.transaction():
-                await database.execute("DELETE FROM kitsu_imdb_mapping")
+                await database.execute(
+                    """
+                    DELETE FROM anime_provider_overrides
+                    WHERE source_provider = 'kitsu'
+                      AND target_provider = 'imdb'
+                    """
+                )
 
                 insert_query = """
-                    INSERT INTO kitsu_imdb_mapping 
-                    (kitsu_id, imdb_id, title, from_season, from_episode)
-                    VALUES (:kitsu_id, :imdb_id, :title, :from_season, :from_episode)
-                    ON CONFLICT (kitsu_id) DO UPDATE SET
-                        imdb_id = :imdb_id,
-                        title = :title,
+                    INSERT INTO anime_provider_overrides
+                    (
+                        source_provider,
+                        source_id,
+                        target_provider,
+                        target_id,
+                        from_season,
+                        from_episode
+                    )
+                    VALUES (
+                        'kitsu',
+                        :source_id,
+                        'imdb',
+                        :target_id,
+                        :from_season,
+                        :from_episode
+                    )
+                    ON CONFLICT (source_provider, source_id, target_provider) DO UPDATE SET
+                        target_id = :target_id,
                         from_season = :from_season,
                         from_episode = :from_episode
                 """
@@ -557,9 +643,8 @@ class AnimeMapper:
 
                     batch.append(
                         {
-                            "kitsu_id": str(kitsu_id),
-                            "imdb_id": imdb_id,
-                            "title": entry.get("title"),
+                            "source_id": str(kitsu_id),
+                            "target_id": imdb_id,
                             "from_season": from_season,
                             "from_episode": from_episode,
                         }
@@ -577,7 +662,7 @@ class AnimeMapper:
 
             return total_count
         except Exception as exc:
-            logger.error(f"Failed to persist Kitsu-IMDB mapping: {exc}")
+            logger.error(f"Failed to persist anime provider overrides: {exc}")
             return 0
 
 

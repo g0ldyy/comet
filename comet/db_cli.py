@@ -174,7 +174,7 @@ Examples:
   python -m comet.db_cli info --table torrents
   
   # Export specific tables
-  python -m comet.db_cli export --tables torrents,metadata_cache --output ./backup/
+  python -m comet.db_cli export --tables torrents,media_metadata_cache --output ./backup/
   
   # Export all tables with compression
   python -m comet.db_cli export --output ./backup/

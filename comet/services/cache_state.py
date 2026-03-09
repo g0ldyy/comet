@@ -117,7 +117,7 @@ class CacheStateManager:
             base_query = "SELECT 1 " + where_clause
 
             if min_timestamp is not None:
-                ttl_condition = " AND timestamp >= :min_timestamp"
+                ttl_condition = " AND updated_at >= :min_timestamp"
                 params["min_timestamp"] = min_timestamp
                 query = base_query + ttl_condition
             else:
@@ -133,30 +133,64 @@ class CacheStateManager:
         """
         Check if this is the first search for this media_id.
         """
-        params = {"media_id": self.media_id, "timestamp": time.time()}
+        current_time = time.time()
+        insert_params = {
+            "media_id": self.media_id,
+            "first_seen_at": current_time,
+            "last_seen_at": current_time,
+        }
+        update_params = {"media_id": self.media_id, "last_seen_at": current_time}
 
         try:
             if IS_SQLITE:
                 try:
                     await database.execute(
-                        "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
-                        params,
+                        """
+                        INSERT INTO media_demand (
+                            media_id,
+                            first_seen_at,
+                            last_seen_at
+                        )
+                        VALUES (:media_id, :first_seen_at, :last_seen_at)
+                        """,
+                        insert_params,
                     )
                     return True
                 except Exception:
-                    return False
+                    pass
+
+                await database.execute(
+                    """
+                    UPDATE media_demand
+                    SET last_seen_at = :last_seen_at
+                    WHERE media_id = :media_id
+                    """,
+                    update_params,
+                )
+                return False
 
             inserted = await database.fetch_val(
                 f"""
-                INSERT INTO first_searches (media_id, timestamp)
-                VALUES (:media_id, :timestamp)
+                INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
+                VALUES (:media_id, :first_seen_at, :last_seen_at)
                 {ON_CONFLICT_DO_NOTHING}
                 RETURNING 1
                 """,
-                params,
+                insert_params,
                 force_primary=True,
             )
-            return inserted == 1
+            if inserted == 1:
+                return True
+
+            await database.execute(
+                """
+                UPDATE media_demand
+                SET last_seen_at = :last_seen_at
+                WHERE media_id = :media_id
+                """,
+                update_params,
+            )
+            return False
         except Exception:
             return False
 

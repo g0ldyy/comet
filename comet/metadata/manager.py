@@ -4,7 +4,7 @@ import time
 import aiohttp
 import orjson
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
@@ -15,16 +15,35 @@ from .kitsu import get_kitsu_metadata
 from .trakt import get_trakt_aliases
 
 _CACHE_SELECT_QUERY = """
-    SELECT title, year, year_end, aliases
-    FROM metadata_cache
+    SELECT title, year, year_end, aliases_json
+    FROM media_metadata_cache
     WHERE media_id = :media_id
-    AND timestamp >= :min_timestamp
+    AND metadata_updated_at >= :min_timestamp
 """
 
-_CACHE_INSERT_QUERY = f"""
-    INSERT {OR_IGNORE} INTO metadata_cache
-    VALUES (:media_id, :title, :year, :year_end, :aliases, :timestamp)
-    {ON_CONFLICT_DO_NOTHING}
+_CACHE_INSERT_QUERY = """
+    INSERT INTO media_metadata_cache (
+        media_id,
+        title,
+        year,
+        year_end,
+        aliases_json,
+        metadata_updated_at
+    )
+    VALUES (
+        :media_id,
+        :title,
+        :year,
+        :year_end,
+        :aliases_json,
+        :metadata_updated_at
+    )
+    ON CONFLICT (media_id) DO UPDATE SET
+        title = EXCLUDED.title,
+        year = EXCLUDED.year,
+        year_end = EXCLUDED.year_end,
+        aliases_json = EXCLUDED.aliases_json,
+        metadata_updated_at = EXCLUDED.metadata_updated_at
 """
 
 
@@ -104,7 +123,7 @@ class MetadataScraper:
                 "season": season,
                 "episode": episode,
             },
-            orjson.loads(row["aliases"]),
+            orjson.loads(row["aliases_json"]),
         )
 
     async def cache_metadata(self, media_id: str, metadata: dict, aliases: dict):
@@ -115,8 +134,8 @@ class MetadataScraper:
                 "title": metadata["title"],
                 "year": metadata["year"],
                 "year_end": metadata["year_end"],
-                "aliases": orjson.dumps(aliases).decode("utf-8"),
-                "timestamp": time.time(),
+                "aliases_json": orjson.dumps(aliases).decode("utf-8"),
+                "metadata_updated_at": time.time(),
             },
         )
 

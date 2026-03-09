@@ -35,11 +35,11 @@ class DistributedLock:
 
                 # If already acquired, refresh the lock
                 if self.acquired:
-                    query = "UPDATE scrape_locks SET expires_at = :expires_at, timestamp = :timestamp WHERE lock_key = :lock_key AND instance_id = :instance_id"
+                    query = "UPDATE scrape_locks SET expires_at = :expires_at, updated_at = :updated_at WHERE lock_key = :lock_key AND instance_id = :instance_id"
                     params = {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": loop_time,
+                        "updated_at": loop_time,
                         "expires_at": expires_at,
                     }
 
@@ -57,14 +57,14 @@ class DistributedLock:
                 result = await database.execute(
                     f"""
                     INSERT {OR_IGNORE}
-                    INTO scrape_locks (lock_key, instance_id, timestamp, expires_at)
-                    VALUES (:lock_key, :instance_id, :timestamp, :expires_at)
+                    INTO scrape_locks (lock_key, instance_id, updated_at, expires_at)
+                    VALUES (:lock_key, :instance_id, :updated_at, :expires_at)
                     {ON_CONFLICT_DO_NOTHING}
                     """,
                     {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": loop_time,
+                        "updated_at": loop_time,
                         "expires_at": expires_at,
                     },
                 )

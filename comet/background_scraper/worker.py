@@ -4,9 +4,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-import orjson
-
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.metadata.manager import MetadataScraper
@@ -455,8 +453,12 @@ class BackgroundScraperWorker:
 
         latest_run = await database.fetch_one(
             """
-            SELECT run_id, started_at, finished_at, status, processed, success, failed,
-                   torrents_found, duration_ms, worker_count, last_error
+            SELECT run_id, started_at, finished_at, status,
+                   processed_count AS processed,
+                   success_count AS success,
+                   failed_count AS failed,
+                   torrents_found_count AS torrents_found,
+                   duration_ms, worker_count, last_error
             FROM background_scraper_runs
             ORDER BY started_at DESC
             LIMIT 1
@@ -488,10 +490,10 @@ class BackgroundScraperWorker:
         run_agg = await database.fetch_one(
             """
             SELECT
-                COALESCE(SUM(processed), 0) AS processed,
-                COALESCE(SUM(success), 0) AS success,
-                COALESCE(SUM(failed), 0) AS failed,
-                COALESCE(SUM(torrents_found), 0) AS torrents_found,
+                COALESCE(SUM(processed_count), 0) AS processed,
+                COALESCE(SUM(success_count), 0) AS success,
+                COALESCE(SUM(failed_count), 0) AS failed,
+                COALESCE(SUM(torrents_found_count), 0) AS torrents_found,
                 COUNT(*) AS run_count
             FROM background_scraper_runs
             WHERE started_at >= :lookback_24h
@@ -572,8 +574,12 @@ class BackgroundScraperWorker:
     async def get_recent_runs(self, limit: int = 20):
         rows = await database.fetch_all(
             """
-            SELECT run_id, started_at, finished_at, status, processed, success, failed,
-                   torrents_found, duration_ms, worker_count, last_error
+            SELECT run_id, started_at, finished_at, status,
+                   processed_count AS processed,
+                   success_count AS success,
+                   failed_count AS failed,
+                   torrents_found_count AS torrents_found,
+                   duration_ms, worker_count, last_error
             FROM background_scraper_runs
             ORDER BY started_at DESC
             LIMIT :limit
@@ -800,15 +806,14 @@ class BackgroundScraperWorker:
         await database.execute(
             """
             INSERT INTO background_scraper_runs
-            (run_id, started_at, status, worker_count, config_snapshot)
-            VALUES (:run_id, :started_at, :status, :worker_count, :config_snapshot)
+            (run_id, started_at, status, worker_count)
+            VALUES (:run_id, :started_at, :status, :worker_count)
             """,
             {
                 "run_id": run_id,
                 "started_at": now,
                 "status": "running",
                 "worker_count": max(1, settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS),
-                "config_snapshot": self._serialize_config_snapshot(),
             },
         )
 
@@ -821,10 +826,10 @@ class BackgroundScraperWorker:
             UPDATE background_scraper_runs
             SET finished_at = :finished_at,
                 status = :status,
-                processed = :processed,
-                success = :success,
-                failed = :failed,
-                torrents_found = :torrents_found,
+                processed_count = :processed,
+                success_count = :success,
+                failed_count = :failed,
+                torrents_found_count = :torrents_found,
                 duration_ms = :duration_ms,
                 last_error = :last_error
             WHERE run_id = :run_id
@@ -841,33 +846,6 @@ class BackgroundScraperWorker:
                 "last_error": last_error,
             },
         )
-
-    def _serialize_config_snapshot(self) -> str:
-        payload = {
-            "workers": settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS,
-            "interval": settings.BACKGROUND_SCRAPER_INTERVAL,
-            "max_movies": settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN,
-            "max_series": settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN,
-            "success_ttl": settings.BACKGROUND_SCRAPER_SUCCESS_TTL,
-            "failure_base_backoff": settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF,
-            "failure_max_backoff": settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF,
-            "max_retries": settings.BACKGROUND_SCRAPER_MAX_RETRIES,
-            "run_time_budget": settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET,
-            "discovery_multiplier": settings.BACKGROUND_SCRAPER_DISCOVERY_MULTIPLIER,
-            "max_episodes_per_series_run": settings.BACKGROUND_SCRAPER_MAX_EPISODES_PER_SERIES_PER_RUN,
-            "episode_refresh_ttl": settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL,
-            "demand_priority": settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY,
-            "demand_lookback": settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK,
-            "defer_cooldown": settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN,
-            "min_priority_score": settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE,
-            "priority_decay_on_miss": settings.BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS,
-            "queue_low_watermark": settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK,
-            "queue_high_watermark": settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK,
-            "queue_hard_cap": settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP,
-            "alert_fail_rate": settings.BACKGROUND_SCRAPER_ALERT_FAIL_RATE,
-            "alert_queue_age": settings.BACKGROUND_SCRAPER_ALERT_QUEUE_AGE,
-        }
-        return orjson.dumps(payload).decode("utf-8")
 
     async def _wait_if_paused(self):
         if not self.is_paused:
@@ -1007,17 +985,16 @@ class BackgroundScraperWorker:
     async def _upsert_discovered_items(self, batch: list[dict]):
         query = """
         INSERT INTO background_scraper_items
-        (media_id, media_type, title, year, year_end, priority_score, status, source,
+        (media_id, media_type, title, year, year_end, priority_score, status,
          consecutive_failures, created_at, updated_at)
         VALUES
-        (:media_id, :media_type, :title, :year, :year_end, :priority_score, 'discovered', :source,
+        (:media_id, :media_type, :title, :year, :year_end, :priority_score, 'discovered',
          0, :created_at, :updated_at)
         ON CONFLICT (media_id) DO UPDATE SET
             media_type = excluded.media_type,
             title = excluded.title,
             year = excluded.year,
             year_end = excluded.year_end,
-            source = excluded.source,
             priority_score = CASE
                 WHEN excluded.priority_score > background_scraper_items.priority_score
                 THEN excluded.priority_score
@@ -1041,10 +1018,10 @@ class BackgroundScraperWorker:
         rows = await database.fetch_all(
             """
             WITH demand_ids AS (
-                SELECT DISTINCT fs.media_id
-                FROM first_searches fs
+                SELECT DISTINCT md.media_id
+                FROM media_demand md
                 WHERE :demand_enabled = 1
-                  AND fs.timestamp >= :demand_cutoff
+                  AND md.last_seen_at >= :demand_cutoff
             )
             SELECT i.media_id, i.media_type, i.title, i.year, i.year_end, i.priority_score,
                    i.consecutive_failures, i.status,
@@ -1572,13 +1549,13 @@ class BackgroundScraperWorker:
 
     async def _insert_first_search(self, media_id: str):
         await database.execute(
-            f"""
-            INSERT {OR_IGNORE}
-            INTO first_searches
-            VALUES (:media_id, :timestamp)
-            {ON_CONFLICT_DO_NOTHING}
+            """
+            INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
+            VALUES (:media_id, :current_time, :current_time)
+            ON CONFLICT (media_id) DO UPDATE SET
+                last_seen_at = EXCLUDED.last_seen_at
             """,
-            {"media_id": media_id, "timestamp": time.time()},
+            {"media_id": media_id, "current_time": time.time()},
         )
 
     def _compute_backoff(self, failures: int) -> float:

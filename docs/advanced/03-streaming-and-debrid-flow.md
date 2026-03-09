@@ -34,6 +34,7 @@
 - Checks `download_links_cache` first (1-hour freshness window).
 - If cache miss, calls debrid provider link generation.
 - Stores generated link in `download_links_cache`.
+- Encodes missing `season`, `episode`, and uncached file index values as `n` in playback URLs.
 - If proxy mode is active and authorized, streams through `mediaflow-proxy` wrapper.
 - Otherwise returns HTTP redirect to provider link.
 

@@ -17,18 +17,26 @@ logging.getLogger("demagnetize").setLevel(
 def setupLogger(level: str):
     # Configure custom log levels
     for level_name, level_config in CUSTOM_LOG_LEVELS.items():
-        logger.level(
-            level_name,
-            no=level_config["no"],
-            icon=level_config["icon"],
-            color=level_config["loguru_color"],
-        )
+        try:
+            logger.level(
+                level_name,
+                no=level_config["no"],
+                icon=level_config["icon"],
+                color=level_config["loguru_color"],
+            )
+        except ValueError:
+            pass
 
     # Configure standard log levels (override defaults)
     for level_name, level_config in STANDARD_LOG_LEVELS.items():
-        logger.level(
-            level_name, icon=level_config["icon"], color=level_config["loguru_color"]
-        )
+        try:
+            logger.level(
+                level_name,
+                icon=level_config["icon"],
+                color=level_config["loguru_color"],
+            )
+        except ValueError:
+            pass
 
     log_format = (
         "<white>{time:YYYY-MM-DD}</white> <magenta>{time:HH:mm:ss}</magenta> | "

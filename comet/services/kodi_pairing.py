@@ -11,15 +11,13 @@ _INSERT_SETUP_CODE_QUERY = f"""
 INSERT {OR_IGNORE} INTO kodi_setup_codes (
     code,
     nonce,
-    b64config,
-    created_at,
+    config_b64,
     expires_at,
     consumed_at
 ) VALUES (
     :code,
     :nonce,
     NULL,
-    :created_at,
     :expires_at,
     NULL
 )
@@ -35,7 +33,7 @@ WHERE code = :code
 
 _ASSOCIATE_SETUP_CODE_QUERY = """
 UPDATE kodi_setup_codes
-SET b64config = :b64config
+SET config_b64 = :b64config
 WHERE code = :code
   AND consumed_at IS NULL
   AND expires_at >= :now
@@ -45,13 +43,13 @@ _SELECT_ASSOCIATED_SETUP_CODE_QUERY = """
 SELECT code
 FROM kodi_setup_codes
 WHERE code = :code
-  AND b64config = :b64config
+  AND config_b64 = :b64config
   AND consumed_at IS NULL
   AND expires_at >= :now
 """
 
 _SELECT_CONSUMABLE_SETUP_CODE_QUERY = """
-SELECT b64config, nonce
+SELECT config_b64, nonce
 FROM kodi_setup_codes
 WHERE code = :code
   AND consumed_at IS NULL
@@ -65,7 +63,7 @@ SET consumed_at = :consumed_at,
 WHERE code = :code
   AND consumed_at IS NULL
   AND nonce = :current_nonce
-  AND b64config = :b64config
+  AND config_b64 = :b64config
 """
 
 _SELECT_CONSUMED_SETUP_CODE_QUERY = """
@@ -95,7 +93,6 @@ async def create_setup_code(ttl_seconds: int = KODI_SETUP_CODE_TTL_SECONDS):
             {
                 "code": code,
                 "nonce": nonce,
-                "created_at": now,
                 "expires_at": expires_at,
             },
         )
@@ -140,7 +137,7 @@ async def consume_b64config_for_setup_code(code: str):
         if row is None:
             return None
 
-        b64config = row["b64config"]
+        b64config = row["config_b64"]
         if b64config is None:
             return None
 

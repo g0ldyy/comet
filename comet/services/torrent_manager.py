@@ -3,7 +3,6 @@ import hashlib
 import re
 import time
 from asyncio import QueueEmpty
-from collections import defaultdict
 from urllib.parse import unquote
 
 import anyio
@@ -17,7 +16,8 @@ from torf import Magnet
 from comet.cometnet import get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
-from comet.core.database import IS_POSTGRES, IS_SQLITE, JSON_FUNC
+from comet.core.database import (IS_POSTGRES, IS_SQLITE, JSON_FUNC,
+                                 build_scope_params)
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.utils.formatting import normalize_info_hash
@@ -293,9 +293,10 @@ async def add_torrent(
                     "seeders": seeders,
                     "size": size,
                     "tracker": tracker,
-                    "sources": orjson.dumps(sources).decode("utf-8"),
-                    "parsed": orjson.dumps(parsed, default_dump).decode("utf-8"),
-                    "timestamp": insert_timestamp,
+                    "sources_json": orjson.dumps(sources).decode("utf-8"),
+                    "parsed_json": orjson.dumps(parsed, default_dump).decode("utf-8"),
+                    "updated_at": insert_timestamp,
+                    **build_scope_params(season, episode_to_insert),
                 }
             )
 
@@ -540,17 +541,13 @@ class TorrentUpdateQueue:
         self.upserts = {}
 
         try:
-            grouped = defaultdict(list)
-            for params in upserts_to_flush.values():
-                key = _determine_conflict_key(params["season"], params["episode"])
-                grouped[key].append(params)
-
-            for key, rows in grouped.items():
-                query = _get_torrent_upsert_query(key)
-                try:
-                    await _execute_batched_upsert(query, rows)
-                except Exception as e:
-                    logger.warning(f"Error processing upsert batch: {e}")
+            try:
+                await _execute_batched_upsert(
+                    _get_torrent_upsert_query(),
+                    list(upserts_to_flush.values()),
+                )
+            except Exception as e:
+                logger.warning(f"Error processing upsert batch: {e}")
 
             total_upserts = len(upserts_to_flush)
             if total_upserts > 0:
@@ -587,7 +584,7 @@ class TorrentUpdateQueue:
             upsert_key = (media_id, info_hash, season, episode)
 
             existing = self.upserts.get(upsert_key)
-            if existing and existing["timestamp"] >= current_time:
+            if existing and existing["updated_at"] >= current_time:
                 return
 
             params = {
@@ -595,15 +592,16 @@ class TorrentUpdateQueue:
                 "file_index": file_info["index"],
                 "season": season,
                 "episode": episode,
+                **build_scope_params(season, episode),
                 "title": file_info["title"],
                 "seeders": file_info["seeders"],
                 "size": file_info["size"],
                 "tracker": file_info["tracker"],
-                "sources": orjson.dumps(file_info["sources"]).decode("utf-8"),
-                "parsed": orjson.dumps(
+                "sources_json": orjson.dumps(file_info["sources"]).decode("utf-8"),
+                "parsed_json": orjson.dumps(
                     file_info["parsed"], default=default_dump
                 ).decode("utf-8"),
-                "timestamp": current_time,
+                "updated_at": current_time,
                 "media_id": media_id,
             }
 
@@ -627,29 +625,33 @@ TORRENT_INSERT_TEMPLATE = """
 INSERT INTO torrents (
     media_id,
     info_hash,
-    file_index,
     season,
     episode,
+    season_norm,
+    episode_norm,
+    file_index,
     title,
     seeders,
     size,
     tracker,
-    sources,
-    parsed,
-    timestamp
+    sources_json,
+    parsed_json,
+    updated_at
 ) VALUES (
     :media_id,
     :info_hash,
-    :file_index,
     :season,
     :episode,
+    :season_norm,
+    :episode_norm,
+    :file_index,
     :title,
     :seeders,
     :size,
     :tracker,
-    :sources,
-    :parsed,
-    :timestamp
+    :sources_json,
+    :parsed_json,
+    :updated_at
 )
 """
 
@@ -662,9 +664,9 @@ POSTGRES_UPDATE_SET = """
         seeders = EXCLUDED.seeders,
         size = EXCLUDED.size,
         tracker = EXCLUDED.tracker,
-        sources = EXCLUDED.sources,
-        parsed = EXCLUDED.parsed,
-        timestamp = EXCLUDED.timestamp
+        sources_json = EXCLUDED.sources_json,
+        parsed_json = EXCLUDED.parsed_json,
+        updated_at = EXCLUDED.updated_at
     WHERE
         (
             torrents.media_id IS DISTINCT FROM EXCLUDED.media_id OR
@@ -673,31 +675,18 @@ POSTGRES_UPDATE_SET = """
             torrents.seeders IS DISTINCT FROM EXCLUDED.seeders OR
             torrents.size IS DISTINCT FROM EXCLUDED.size OR
             torrents.tracker IS DISTINCT FROM EXCLUDED.tracker OR
-            torrents.sources IS DISTINCT FROM EXCLUDED.sources OR
-            torrents.parsed IS DISTINCT FROM EXCLUDED.parsed
+            torrents.sources_json IS DISTINCT FROM EXCLUDED.sources_json OR
+            torrents.parsed_json IS DISTINCT FROM EXCLUDED.parsed_json
         )
         OR
         (
-            COALESCE(torrents.timestamp, 0) < (EXCLUDED.timestamp - :update_interval)
+            COALESCE(torrents.updated_at, 0) < (EXCLUDED.updated_at - :update_interval)
         )
 """
 
-POSTGRES_CONFLICT_TARGETS = {
-    "series": "(media_id, info_hash, season, episode) WHERE season IS NOT NULL AND episode IS NOT NULL",
-    "season_only": "(media_id, info_hash, season) WHERE season IS NOT NULL AND episode IS NULL",
-    "episode_only": "(media_id, info_hash, episode) WHERE season IS NULL AND episode IS NOT NULL",
-    "none": "(media_id, info_hash) WHERE season IS NULL AND episode IS NULL",
-}
+POSTGRES_CONFLICT_TARGET = "(media_id, info_hash, season_norm, episode_norm)"
 
-_POSTGRES_UPSERT_CACHE: dict[str, str] = {}
-
-
-def _determine_conflict_key(season: int | None, episode: int | None):
-    if IS_SQLITE:
-        return "sqlite"
-    if season is not None:
-        return "series" if episode is not None else "season_only"
-    return "episode_only" if episode is not None else "none"
+_POSTGRES_UPSERT_QUERY: str | None = None
 
 
 def _compute_advisory_lock_key(media_id, info_hash, season, episode):
@@ -706,7 +695,15 @@ def _compute_advisory_lock_key(media_id, info_hash, season, episode):
 
 
 _SQLITE_CHECK_COLS = frozenset(
-    ["file_index", "title", "seeders", "size", "tracker", "sources", "parsed"]
+    [
+        "file_index",
+        "title",
+        "seeders",
+        "size",
+        "tracker",
+        "sources_json",
+        "parsed_json",
+    ]
 )
 
 
@@ -730,7 +727,7 @@ async def _execute_sqlite_batched_upsert(rows: list[dict]):
         params = {f"ih{j}": ih for j, ih in enumerate(chunk)}
 
         chunk_rows = await database.fetch_all(
-            f"SELECT media_id, info_hash, season, episode, file_index, title, seeders, size, tracker, sources, parsed, timestamp FROM torrents WHERE info_hash IN ({placeholders})",
+            f"SELECT media_id, info_hash, season, episode, file_index, title, seeders, size, tracker, sources_json, parsed_json, updated_at FROM torrents WHERE info_hash IN ({placeholders})",
             params,
         )
         existing_rows.extend(chunk_rows)
@@ -757,7 +754,7 @@ async def _execute_sqlite_batched_upsert(rows: list[dict]):
             to_insert.append(row)
             continue
 
-        if existing["timestamp"] < (row["timestamp"] - UPDATE_INTERVAL):
+        if existing["updated_at"] < (row["updated_at"] - UPDATE_INTERVAL):
             to_insert.append(row)
 
     if to_insert:
@@ -838,16 +835,19 @@ async def _execute_batched_upsert(query: str, rows):
         logger.warning(f"Error executing batched upsert: {e}")
 
 
-def _get_torrent_upsert_query(conflict_key: str):
+def _get_torrent_upsert_query():
+    global _POSTGRES_UPSERT_QUERY
+
     if IS_SQLITE:
         return SQLITE_UPSERT_QUERY
 
-    target = POSTGRES_CONFLICT_TARGETS[conflict_key]
-    if conflict_key not in _POSTGRES_UPSERT_CACHE:
-        _POSTGRES_UPSERT_CACHE[conflict_key] = (
-            TORRENT_INSERT_TEMPLATE + f" ON CONFLICT {target} " + POSTGRES_UPDATE_SET
+    if _POSTGRES_UPSERT_QUERY is None:
+        _POSTGRES_UPSERT_QUERY = (
+            TORRENT_INSERT_TEMPLATE
+            + f" ON CONFLICT {POSTGRES_CONFLICT_TARGET} "
+            + POSTGRES_UPDATE_SET
         )
-    return _POSTGRES_UPSERT_CACHE[conflict_key]
+    return _POSTGRES_UPSERT_QUERY
 
 
 async def _upsert_torrent_record(params: dict):
@@ -855,9 +855,7 @@ async def _upsert_torrent_record(params: dict):
         await _execute_sqlite_batched_upsert([params])
         return
 
-    query = _get_torrent_upsert_query(
-        _determine_conflict_key(params.get("season"), params.get("episode"))
-    )
+    query = _get_torrent_upsert_query()
 
     params["update_interval"] = UPDATE_INTERVAL
 

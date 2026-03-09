@@ -5,7 +5,6 @@ import os
 import random
 import re
 import shutil
-import time
 import zipfile
 
 import aiohttp
@@ -141,8 +140,6 @@ class DMMIngester:
 
                     batch_entries = []
                     processed_files_batch = []
-                    current_timestamp = int(time.time())
-
                     for file_path, entries in zip(batch_files, results):
                         if entries:
                             batch_entries.extend(entries)
@@ -150,7 +147,6 @@ class DMMIngester:
                         processed_files_batch.append(
                             {
                                 "filename": os.path.basename(file_path),
-                                "timestamp": current_timestamp,
                             }
                         )
 
@@ -163,8 +159,8 @@ class DMMIngester:
                             if processed_files_batch:
                                 query_files = f"""
                                     INSERT {OR_IGNORE}
-                                    INTO dmm_ingested_files (filename, timestamp) 
-                                    VALUES (:filename, :timestamp)
+                                    INTO dmm_ingested_files (filename) 
+                                    VALUES (:filename)
                                     {ON_CONFLICT_DO_NOTHING}
                                 """
                                 await database.execute_many(
@@ -201,8 +197,6 @@ class DMMIngester:
         chunk_size = 500
         for i in range(0, len(entries), chunk_size):
             chunk = entries[i : i + chunk_size]
-            chunk_timestamp = int(time.time())
-
             values = []
             for entry in chunk:
                 values.append(
@@ -212,13 +206,12 @@ class DMMIngester:
                         "size": entry["size"],
                         "parsed_title": entry["parsed_title"],
                         "parsed_year": entry["parsed_year"],
-                        "created_at": chunk_timestamp,
                     }
                 )
 
             query = f"""
-                INSERT {OR_IGNORE} INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year, created_at)
-                VALUES (:info_hash, :filename, :size, :parsed_title, :parsed_year, :created_at)
+                INSERT {OR_IGNORE} INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year)
+                VALUES (:info_hash, :filename, :size, :parsed_title, :parsed_year)
                 {ON_CONFLICT_DO_NOTHING}
             """
 

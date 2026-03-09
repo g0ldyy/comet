@@ -146,6 +146,10 @@ def _build_stream_response(
     )
 
 
+def _encode_playback_scope(value: int | None) -> str:
+    return str(value) if value is not None else "n"
+
+
 def _select_info_hashes_by_resolution(
     ranked_info_hashes,
     torrents: dict,
@@ -837,8 +841,8 @@ async def stream(
             }
         )
 
-    result_season = search_season if search_season is not None else "n"
-    result_episode = search_episode if search_episode is not None else "n"
+    result_season = _encode_playback_scope(search_season)
+    result_episode = _encode_playback_scope(search_episode)
 
     torrents = torrent_manager.torrents
     base_playback_host = (

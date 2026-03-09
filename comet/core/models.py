@@ -7,6 +7,7 @@ from typing import List, Optional, Union
 
 import RTN
 from databases import Database
+from databases.backends.sqlite import SQLiteConnection
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
@@ -17,6 +18,18 @@ from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
+
+if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
+    _original_sqlite_acquire = SQLiteConnection.acquire
+
+    async def _comet_sqlite_acquire(self):
+        await _original_sqlite_acquire(self)
+        assert self._connection is not None
+        await self._connection.execute("PRAGMA foreign_keys=ON")
+        await self._connection.execute("PRAGMA busy_timeout=30000")
+
+    SQLiteConnection.acquire = _comet_sqlite_acquire
+    SQLiteConnection._comet_pragmas_patched = True
 
 
 class AppSettings(BaseSettings):
