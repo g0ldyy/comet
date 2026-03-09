@@ -12,6 +12,7 @@ import orjson
 import xxhash
 from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
+from sqlalchemy.exc import SQLAlchemyError
 from torf import Magnet
 
 from comet.cometnet import get_active_backend
@@ -538,7 +539,18 @@ class TorrentUpdateQueue:
                 break
 
         if self.upserts:
-            await self._flush_batch()
+            max_flush_attempts = 5
+            for attempt in range(max_flush_attempts):
+                skipped_rows = await self._flush_batch()
+                if not skipped_rows and not self.upserts:
+                    break
+                if attempt < max_flush_attempts - 1 and self.upserts:
+                    await asyncio.sleep(0.05 * (attempt + 1))
+
+            if self.upserts:
+                logger.warning(
+                    f"Stop completed with {len(self.upserts)} pending upserts after {max_flush_attempts} flush attempts"
+                )
 
     async def _flush_batch(self):
         if not self.upserts:
@@ -565,7 +577,7 @@ class TorrentUpdateQueue:
                     )
                     upsert_params = upserts_to_flush.get(upsert_key, skipped)
                     self.upserts.setdefault(upsert_key, upsert_params)
-            except Exception:
+            except SQLAlchemyError as exc:
                 for skipped in skipped_rows:
                     upsert_key = (
                         skipped.get("media_id"),
@@ -577,7 +589,7 @@ class TorrentUpdateQueue:
                     self.upserts.setdefault(upsert_key, upsert_params)
                 for upsert_key, upsert_params in upserts_to_flush.items():
                     self.upserts.setdefault(upsert_key, upsert_params)
-                logger.exception("Error processing upsert batch")
+                logger.exception(f"Error processing upsert batch: {exc}")
 
             total_inserted = len(inserted_rows)
             if total_inserted > 0:
@@ -620,8 +632,6 @@ class TorrentUpdateQueue:
             params = {
                 "info_hash": info_hash,
                 "file_index": file_info["index"],
-                "season": season,
-                "episode": episode,
                 **build_scope_params(season, episode),
                 "title": file_info["title"],
                 "seeders": file_info["seeders"],
