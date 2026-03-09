@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import re
 import time
@@ -135,7 +136,7 @@ async def broadcast_torrents(torrents_params: list[dict]):
                     sources = orjson.loads(sources)
                 except Exception:
                     sources = []
-            elif sources is None:
+            if not isinstance(sources, list):
                 sources = []
 
             parsed = params.get("parsed")
@@ -146,7 +147,7 @@ async def broadcast_torrents(torrents_params: list[dict]):
                     parsed = orjson.loads(parsed)
                 except Exception:
                     parsed = {}
-            elif parsed is None:
+            if not isinstance(parsed, dict):
                 parsed = {}
 
             imdb_id = params.get("media_id")
@@ -549,16 +550,18 @@ class TorrentUpdateQueue:
         self.upserts = {}
 
         try:
+            upsert_succeeded = False
             try:
                 await _execute_batched_upsert(
                     _get_torrent_upsert_query(),
                     list(upserts_to_flush.values()),
                 )
-            except Exception as e:
-                logger.warning(f"Error processing upsert batch: {e}")
+                upsert_succeeded = True
+            except Exception:
+                logger.exception("Error processing upsert batch")
 
             total_upserts = len(upserts_to_flush)
-            if total_upserts > 0:
+            if upsert_succeeded and total_upserts > 0:
                 logger.log(
                     "SCRAPER",
                     f"Upserted {total_upserts} torrents in batch",
@@ -694,8 +697,6 @@ POSTGRES_UPDATE_SET = """
 
 POSTGRES_CONFLICT_TARGET = "(media_id, info_hash, season_norm, episode_norm)"
 
-_POSTGRES_UPSERT_QUERY: str | None = None
-
 
 def _compute_advisory_lock_key(media_id, info_hash, season, episode):
     payload = f"{media_id}|{info_hash}|{season}|{episode}"
@@ -802,60 +803,51 @@ async def _execute_batched_upsert(query: str, rows):
     ordered_rows = sorted(rows, key=lambda row: row.get("lock_key") or 0)
     rows_to_insert = []
 
-    try:
-        async with database.transaction():
-            lock_keys = [
-                row["lock_key"]
-                for row in ordered_rows
-                if row.get("lock_key") is not None
+    async with database.transaction():
+        lock_keys = [
+            row["lock_key"] for row in ordered_rows if row.get("lock_key") is not None
+        ]
+        acquired_keys = set()
+        if lock_keys:
+            unique_keys = list(dict.fromkeys(lock_keys))
+            lock_rows = await database.fetch_all(
+                """
+                SELECT lock_key
+                FROM unnest(CAST(:lock_keys AS BIGINT[])) AS lock_key
+                WHERE pg_try_advisory_xact_lock(lock_key)
+                """,
+                {"lock_keys": unique_keys},
+            )
+            acquired_keys = {row["lock_key"] for row in lock_rows}
+
+        for row in ordered_rows:
+            lock_key = row.get("lock_key")
+            if lock_key is None or lock_key in acquired_keys:
+                rows_to_insert.append(row)
+
+        if rows_to_insert:
+            sanitized_rows = [
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key not in ("lock_key", "_from_cometnet")
+                }
+                for row in rows_to_insert
             ]
-            acquired_keys = set()
-            if lock_keys:
-                unique_keys = list(dict.fromkeys(lock_keys))
-                lock_rows = await database.fetch_all(
-                    """
-                    SELECT lock_key
-                    FROM unnest(CAST(:lock_keys AS BIGINT[])) AS lock_key
-                    WHERE pg_try_advisory_xact_lock(lock_key)
-                    """,
-                    {"lock_keys": unique_keys},
-                )
-                acquired_keys = {row["lock_key"] for row in lock_rows}
 
-            for row in ordered_rows:
-                lock_key = row.get("lock_key")
-                if lock_key is None or lock_key in acquired_keys:
-                    rows_to_insert.append(row)
-
-            if rows_to_insert:
-                sanitized_rows = [
-                    {
-                        key: value
-                        for key, value in row.items()
-                        if key not in ("lock_key", "_from_cometnet")
-                    }
-                    for row in rows_to_insert
-                ]
-
-                await database.execute_many(query, sanitized_rows)
-
-    except Exception as e:
-        logger.warning(f"Error executing batched upsert: {e}")
+            await database.execute_many(query, sanitized_rows)
 
 
+@functools.lru_cache(maxsize=1)
 def _get_torrent_upsert_query():
-    global _POSTGRES_UPSERT_QUERY
-
     if IS_SQLITE:
         return SQLITE_UPSERT_QUERY
 
-    if _POSTGRES_UPSERT_QUERY is None:
-        _POSTGRES_UPSERT_QUERY = (
-            TORRENT_INSERT_TEMPLATE
-            + f" ON CONFLICT {POSTGRES_CONFLICT_TARGET} "
-            + POSTGRES_UPDATE_SET
-        )
-    return _POSTGRES_UPSERT_QUERY
+    return (
+        TORRENT_INSERT_TEMPLATE
+        + f" ON CONFLICT {POSTGRES_CONFLICT_TARGET} "
+        + POSTGRES_UPDATE_SET
+    )
 
 
 async def _upsert_torrent_record(params: dict):
