@@ -21,6 +21,12 @@ from comet.core.logger import logger
 
 _comet_fk_enabled = False
 
+
+def set_comet_foreign_keys_enabled(enabled: bool) -> None:
+    global _comet_fk_enabled
+    _comet_fk_enabled = enabled
+
+
 if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
     _original_sqlite_acquire = SQLiteConnection.acquire
 

@@ -224,16 +224,22 @@ async def backend_lock(
 
     if IS_SQLITE:
         if fcntl is not None:
-            lock_file = open(sqlite_lock_path, "a+")
+            lock_file = None
+            lock_acquired = False
             try:
+                lock_file = open(sqlite_lock_path, "a+")
 
                 async def _try_acquire_sqlite_lock() -> bool:
+                    nonlocal lock_acquired
+                    assert lock_file is not None
+
                     try:
                         await asyncio.to_thread(
                             fcntl.flock,
                             lock_file.fileno(),
                             fcntl.LOCK_EX | fcntl.LOCK_NB,
                         )
+                        lock_acquired = True
                         return True
                     except OSError as exc:
                         if exc.errno not in (errno.EACCES, errno.EAGAIN):
@@ -245,12 +251,14 @@ async def backend_lock(
                 )
                 yield
             finally:
-                try:
-                    await asyncio.to_thread(
-                        fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
-                    )
-                finally:
-                    lock_file.close()
+                if lock_file is not None:
+                    try:
+                        if lock_acquired:
+                            await asyncio.to_thread(
+                                fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
+                            )
+                    finally:
+                        lock_file.close()
             return
 
         fallback_lock_path = f"{sqlite_lock_path}.lock"
@@ -349,7 +357,7 @@ async def setup_database():
             )
 
         if IS_SQLITE:
-            _models_mod._comet_fk_enabled = True
+            _models_mod.set_comet_foreign_keys_enabled(True)
             await _apply_sqlite_pragmas(foreign_keys=True)
 
         await database.execute("DELETE FROM active_connections")
