@@ -127,19 +127,27 @@ async def broadcast_torrents(torrents_params: list[dict]):
         clean_torrents = []
         for params in torrents_params:
             # Prepare clean data
-            sources = params.get("sources", [])
+            sources = params.get("sources")
+            if sources is None:
+                sources = params.get("sources_json", [])
             if isinstance(sources, str):
                 try:
                     sources = orjson.loads(sources)
                 except Exception:
                     sources = []
+            elif sources is None:
+                sources = []
 
-            parsed = params.get("parsed", {})
+            parsed = params.get("parsed")
+            if parsed is None:
+                parsed = params.get("parsed_json", {})
             if isinstance(parsed, str):
                 try:
                     parsed = orjson.loads(parsed)
                 except Exception:
                     parsed = {}
+            elif parsed is None:
+                parsed = {}
 
             imdb_id = params.get("media_id")
             if not (isinstance(imdb_id, str) and imdb_id.startswith("tt")):
