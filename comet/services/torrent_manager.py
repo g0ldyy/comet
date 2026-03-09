@@ -568,6 +568,15 @@ class TorrentUpdateQueue:
                     upsert_params = upserts_to_flush.get(upsert_key, skipped)
                     self.upserts.setdefault(upsert_key, upsert_params)
             except Exception:
+                for skipped in skipped_rows:
+                    upsert_key = (
+                        skipped.get("media_id"),
+                        skipped.get("info_hash"),
+                        skipped.get("season"),
+                        skipped.get("episode"),
+                    )
+                    upsert_params = upserts_to_flush.get(upsert_key, skipped)
+                    self.upserts.setdefault(upsert_key, upsert_params)
                 for upsert_key, upsert_params in upserts_to_flush.items():
                     self.upserts.setdefault(upsert_key, upsert_params)
                 logger.exception("Error processing upsert batch")
