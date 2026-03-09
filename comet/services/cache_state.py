@@ -160,9 +160,8 @@ class CacheStateManager:
             except sqlite3.IntegrityError:
                 pass
             except Exception as exc:
-                logger.debug(
+                logger.opt(exception=True).debug(
                     f"Failed to insert media_demand for {self.media_id}: {exc}",
-                    exc_info=True,
                 )
                 return False
 
@@ -176,9 +175,8 @@ class CacheStateManager:
                     update_params,
                 )
             except Exception as exc:
-                logger.debug(
+                logger.opt(exception=True).debug(
                     f"Failed to update media_demand for {self.media_id}: {exc}",
-                    exc_info=True,
                 )
                 return False
 
@@ -196,9 +194,8 @@ class CacheStateManager:
                 force_primary=True,
             )
         except Exception as exc:
-            logger.debug(
+            logger.opt(exception=True).debug(
                 f"Failed to insert media_demand for {self.media_id}: {exc}",
-                exc_info=True,
             )
             return False
 
@@ -215,9 +212,8 @@ class CacheStateManager:
                 update_params,
             )
         except Exception as exc:
-            logger.debug(
+            logger.opt(exception=True).debug(
                 f"Failed to update media_demand for {self.media_id}: {exc}",
-                exc_info=True,
             )
             return False
         return False
