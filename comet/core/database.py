@@ -80,6 +80,96 @@ def _media_demand_ttl() -> int:
     return max(torrent_ttl, demand_lookback)
 
 
+def _is_process_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as exc:
+        winerror = getattr(exc, "winerror", None)
+        if winerror == 87:
+            return False
+        if winerror == 5:
+            return True
+        if exc.errno == errno.ESRCH:
+            return False
+        if exc.errno == errno.EPERM:
+            return True
+        return True
+
+    return True
+
+
+def _read_sqlite_lockfile_pid(lock_path: str) -> int | None:
+    try:
+        with open(lock_path, "r", encoding="ascii") as lock_file:
+            raw_pid = lock_file.readline().strip()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+    if not raw_pid:
+        return None
+
+    try:
+        pid = int(raw_pid)
+    except ValueError:
+        return None
+
+    return pid if pid > 0 else None
+
+
+def _try_remove_stale_sqlite_lockfile(lock_path: str) -> bool:
+    pid = _read_sqlite_lockfile_pid(lock_path)
+    if pid is None or _is_process_running(pid):
+        return False
+
+    try:
+        os.unlink(lock_path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+    logger.log("DATABASE", f"Removed stale SQLite lock file: {lock_path}")
+    return True
+
+
+def _create_sqlite_lockfile(lock_path: str) -> int | None:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+
+    try:
+        lock_fd = os.open(lock_path, flags, 0o644)
+    except FileExistsError:
+        return None
+    except OSError as exc:
+        if exc.errno == errno.EEXIST:
+            return None
+        raise
+
+    try:
+        os.write(lock_fd, f"{os.getpid()}\n".encode("ascii"))
+    except Exception:
+        try:
+            os.close(lock_fd)
+        finally:
+            try:
+                os.unlink(lock_path)
+            except FileNotFoundError:
+                pass
+        raise
+
+    return lock_fd
+
+
 async def _acquire_backend_lock_with_delayed_log(
     try_acquire, wait_message: str
 ) -> None:
@@ -170,22 +260,22 @@ async def backend_lock(
             async def _try_acquire_sqlite_lockfile() -> bool:
                 nonlocal lock_fd
 
-                def _create_lock_file():
-                    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-                    if hasattr(os, "O_CLOEXEC"):
-                        flags |= os.O_CLOEXEC
-                    try:
-                        return os.open(fallback_lock_path, flags, 0o644)
-                    except FileExistsError:
-                        return None
-                    except OSError as exc:
-                        if exc.errno == errno.EEXIST:
-                            return None
-                        raise
-
-                acquired_fd = await asyncio.to_thread(_create_lock_file)
+                acquired_fd = await asyncio.to_thread(
+                    _create_sqlite_lockfile, fallback_lock_path
+                )
                 if acquired_fd is None:
-                    return False
+                    removed_stale = await asyncio.to_thread(
+                        _try_remove_stale_sqlite_lockfile, fallback_lock_path
+                    )
+                    if not removed_stale:
+                        return False
+
+                    acquired_fd = await asyncio.to_thread(
+                        _create_sqlite_lockfile, fallback_lock_path
+                    )
+                    if acquired_fd is None:
+                        return False
+
                 lock_fd = acquired_fd
                 return True
 
