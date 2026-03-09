@@ -296,8 +296,6 @@ async def add_torrent(
                     "media_id": media_id,
                     "info_hash": info_hash,
                     "file_index": file_index,
-                    "season": season,
-                    "episode": episode_to_insert,
                     "title": title,
                     "seeders": seeders,
                     "size": size,
