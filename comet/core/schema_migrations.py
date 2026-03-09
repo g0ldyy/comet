@@ -521,6 +521,8 @@ async def _migration_foundation(ctx: MigrationContext):
             {"null_sentinel": NULL_SCOPE_SENTINEL},
         )
 
+    if await _table_exists(ctx, "download_links_cache"):
+        await ctx.database.execute("DROP TABLE IF EXISTS download_links_cache")
     await _ensure_table(
         ctx,
         "download_links_cache",
@@ -540,38 +542,6 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
-    await _add_column_if_missing(
-        ctx,
-        "download_links_cache",
-        "debrid_service",
-        "debrid_service TEXT",
-    )
-    await _add_column_if_missing(
-        ctx,
-        "download_links_cache",
-        "account_key_hash",
-        "account_key_hash TEXT",
-    )
-    await _add_column_if_missing(
-        ctx,
-        "download_links_cache",
-        "season_norm",
-        "season_norm INTEGER NOT NULL DEFAULT -1",
-    )
-    await _add_column_if_missing(
-        ctx,
-        "download_links_cache",
-        "episode_norm",
-        "episode_norm INTEGER NOT NULL DEFAULT -1",
-    )
-    await _add_column_if_missing(
-        ctx,
-        "download_links_cache",
-        "updated_at",
-        "updated_at REAL",
-    )
-    if await _table_exists(ctx, "download_links_cache"):
-        await ctx.database.execute("DELETE FROM download_links_cache")
 
     await _ensure_table(
         ctx,
