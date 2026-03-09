@@ -544,37 +544,45 @@ class TorrentUpdateQueue:
 
     async def _flush_batch(self):
         if not self.upserts:
-            return
+            return []
 
         upserts_to_flush = self.upserts
         self.upserts = {}
+        skipped_rows = []
 
         try:
-            upsert_succeeded = False
+            inserted_rows = []
             try:
-                await _execute_batched_upsert(
+                inserted_rows, skipped_rows = await _execute_batched_upsert(
                     _get_torrent_upsert_query(),
                     list(upserts_to_flush.values()),
                 )
-                upsert_succeeded = True
+
+                for skipped in skipped_rows:
+                    upsert_key = (
+                        skipped.get("media_id"),
+                        skipped.get("info_hash"),
+                        skipped.get("season"),
+                        skipped.get("episode"),
+                    )
+                    upsert_params = upserts_to_flush.get(upsert_key, skipped)
+                    self.upserts.setdefault(upsert_key, upsert_params)
             except Exception:
                 for upsert_key, upsert_params in upserts_to_flush.items():
                     self.upserts.setdefault(upsert_key, upsert_params)
                 logger.exception("Error processing upsert batch")
 
-            total_upserts = len(upserts_to_flush)
-            if upsert_succeeded and total_upserts > 0:
+            total_inserted = len(inserted_rows)
+            if total_inserted > 0:
                 logger.log(
                     "SCRAPER",
-                    f"Upserted {total_upserts} torrents in batch",
+                    f"Upserted {total_inserted} torrents in batch",
                 )
 
                 # Broadcast to CometNet P2P network (only for locally discovered torrents)
                 # Filter out torrents that came from CometNet to avoid ping-pong
                 local_torrents = [
-                    p
-                    for p in upserts_to_flush.values()
-                    if not p.get("_from_cometnet", False)
+                    p for p in inserted_rows if not p.get("_from_cometnet", False)
                 ]
 
                 if local_torrents:
@@ -582,6 +590,8 @@ class TorrentUpdateQueue:
 
         except Exception as e:
             logger.warning(f"Error in flush_batch: {e}")
+
+        return skipped_rows
 
     def _process_file_info(
         self, file_info: dict, media_id: str = None, current_time: float = None
@@ -720,13 +730,13 @@ _SQLITE_CHECK_COLS = frozenset(
 
 async def _execute_sqlite_batched_upsert(rows: list[dict]):
     if not rows:
-        return
+        return []
 
     info_hashes = {row["info_hash"] for row in rows}
 
     if not info_hashes:
         await _execute_standard_sqlite_insert(rows)
-        return
+        return rows
 
     info_hashes_list = list(info_hashes)
     chunk_size = 900
@@ -750,7 +760,7 @@ async def _execute_sqlite_batched_upsert(rows: list[dict]):
 
     if not existing_map:
         await _execute_standard_sqlite_insert(rows)
-        return
+        return rows
 
     to_insert = []
     for row in rows:
@@ -771,6 +781,8 @@ async def _execute_sqlite_batched_upsert(rows: list[dict]):
     if to_insert:
         await _execute_standard_sqlite_insert(to_insert)
 
+    return to_insert
+
 
 async def _execute_standard_sqlite_insert(rows: list[dict]):
     keys_to_ignore = {"lock_key", "update_interval", "_from_cometnet"}
@@ -786,7 +798,7 @@ async def _execute_standard_sqlite_insert(rows: list[dict]):
         try:
             async with database.transaction():
                 await database.execute_many(query, sanitized_rows)
-            return
+            return rows
         except Exception:
             if attempt < 4:
                 await asyncio.sleep(0.2 * (attempt + 1))
@@ -796,14 +808,15 @@ async def _execute_standard_sqlite_insert(rows: list[dict]):
 
 async def _execute_batched_upsert(query: str, rows):
     if not rows:
-        return
+        return [], []
 
     if IS_SQLITE:
-        await _execute_sqlite_batched_upsert(rows)
-        return
+        inserted_rows = await _execute_sqlite_batched_upsert(rows)
+        return inserted_rows, []
 
     ordered_rows = sorted(rows, key=lambda row: row.get("lock_key") or 0)
     rows_to_insert = []
+    skipped_rows = []
 
     async with database.transaction():
         lock_keys = [
@@ -826,18 +839,28 @@ async def _execute_batched_upsert(query: str, rows):
             lock_key = row.get("lock_key")
             if lock_key is None or lock_key in acquired_keys:
                 rows_to_insert.append(row)
+            else:
+                skipped_rows.append(row)
 
         if rows_to_insert:
-            sanitized_rows = [
-                {
-                    key: value
-                    for key, value in row.items()
-                    if key not in ("lock_key", "_from_cometnet")
-                }
+            row_insert_pairs = [
+                (
+                    row,
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key not in ("lock_key", "_from_cometnet")
+                    },
+                )
                 for row in rows_to_insert
             ]
+            sanitized_rows = [sanitized for _, sanitized in row_insert_pairs]
 
             await database.execute_many(query, sanitized_rows)
+
+            rows_to_insert = [original for original, _ in row_insert_pairs]
+
+    return rows_to_insert, skipped_rows
 
 
 @functools.lru_cache(maxsize=1)
