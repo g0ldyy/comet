@@ -131,6 +131,25 @@ class CacheStateManager:
 
         return 0
 
+    async def _update_media_demand_last_seen(
+        self, update_params: dict[str, str | float]
+    ) -> bool:
+        try:
+            await database.execute(
+                """
+                UPDATE media_demand
+                SET last_seen_at = :last_seen_at
+                WHERE media_id = :media_id
+                """,
+                update_params,
+            )
+        except Exception as exc:
+            logger.opt(exception=True).debug(
+                f"Failed to update media_demand for {self.media_id}: {exc}",
+            )
+            return False
+        return False
+
     async def check_is_first_search(self) -> bool:
         """
         Check if this is the first search for this media_id.
@@ -165,22 +184,7 @@ class CacheStateManager:
                 )
                 return False
 
-            try:
-                await database.execute(
-                    """
-                    UPDATE media_demand
-                    SET last_seen_at = :last_seen_at
-                    WHERE media_id = :media_id
-                    """,
-                    update_params,
-                )
-            except Exception as exc:
-                logger.opt(exception=True).debug(
-                    f"Failed to update media_demand for {self.media_id}: {exc}",
-                )
-                return False
-
-            return False
+            return await self._update_media_demand_last_seen(update_params)
 
         try:
             inserted = await database.fetch_val(
@@ -202,21 +206,7 @@ class CacheStateManager:
         if inserted == 1:
             return True
 
-        try:
-            await database.execute(
-                """
-                UPDATE media_demand
-                SET last_seen_at = :last_seen_at
-                WHERE media_id = :media_id
-                """,
-                update_params,
-            )
-        except Exception as exc:
-            logger.opt(exception=True).debug(
-                f"Failed to update media_demand for {self.media_id}: {exc}",
-            )
-            return False
-        return False
+        return await self._update_media_demand_last_seen(update_params)
 
     async def _try_acquire_lock(self) -> bool:
         """Attempt to acquire the distributed lock."""
