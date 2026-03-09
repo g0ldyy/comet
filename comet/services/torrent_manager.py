@@ -12,7 +12,6 @@ import orjson
 import xxhash
 from demagnetize.core import Demagnetizer
 from RTN import ParsedData, parse
-from sqlalchemy.exc import SQLAlchemyError
 from torf import Magnet
 
 from comet.cometnet import get_active_backend
@@ -562,31 +561,26 @@ class TorrentUpdateQueue:
 
         try:
             inserted_rows = []
+
+            def requeue_skipped_rows(rows):
+                for skipped in rows:
+                    upsert_key = (
+                        skipped.get("media_id"),
+                        skipped.get("info_hash"),
+                        skipped.get("season"),
+                        skipped.get("episode"),
+                    )
+                    upsert_params = upserts_to_flush.get(upsert_key, skipped)
+                    self.upserts.setdefault(upsert_key, upsert_params)
+
             try:
                 inserted_rows, skipped_rows = await _execute_batched_upsert(
                     _get_torrent_upsert_query(),
                     list(upserts_to_flush.values()),
                 )
-
-                for skipped in skipped_rows:
-                    upsert_key = (
-                        skipped.get("media_id"),
-                        skipped.get("info_hash"),
-                        skipped.get("season"),
-                        skipped.get("episode"),
-                    )
-                    upsert_params = upserts_to_flush.get(upsert_key, skipped)
-                    self.upserts.setdefault(upsert_key, upsert_params)
-            except SQLAlchemyError as exc:
-                for skipped in skipped_rows:
-                    upsert_key = (
-                        skipped.get("media_id"),
-                        skipped.get("info_hash"),
-                        skipped.get("season"),
-                        skipped.get("episode"),
-                    )
-                    upsert_params = upserts_to_flush.get(upsert_key, skipped)
-                    self.upserts.setdefault(upsert_key, upsert_params)
+                requeue_skipped_rows(skipped_rows)
+            except Exception as exc:
+                requeue_skipped_rows(skipped_rows)
                 for upsert_key, upsert_params in upserts_to_flush.items():
                     self.upserts.setdefault(upsert_key, upsert_params)
                 logger.exception(f"Error processing upsert batch: {exc}")
