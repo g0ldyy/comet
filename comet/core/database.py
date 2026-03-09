@@ -73,8 +73,8 @@ def _debrid_account_snapshot_ttl() -> int:
 def _media_demand_ttl() -> int:
     torrent_ttl = settings.TORRENT_CACHE_TTL
     demand_lookback = max(0, settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK)
-    if torrent_ttl is None or torrent_ttl < 0:
-        return demand_lookback
+    if torrent_ttl < 0:
+        return 0
     return max(torrent_ttl, demand_lookback)
 
 

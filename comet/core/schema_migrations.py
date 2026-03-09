@@ -1194,7 +1194,7 @@ async def _ensure_background_scraper_episodes_table(ctx: MigrationContext):
                         ORDER BY COALESCE(updated_at, created_at, 0) DESC, episode_media_id DESC
                     ) AS row_number
                 FROM background_scraper_episodes
-            )
+            ) AS ranked_episodes
             WHERE row_number > 1
         )
         """
