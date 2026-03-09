@@ -37,6 +37,8 @@ __all__ = [
 STARTUP_CLEANUP_LOCK_ID = 0xC0FFEE
 SCHEMA_MIGRATION_LOCK_ID = 0xC0DE7001
 DOWNLOAD_LINK_CACHE_TTL = 3600
+_BACKEND_LOCK_WAIT_LOG_DELAY_SECONDS = 0.5
+_BACKEND_LOCK_RETRY_INTERVAL_SECONDS = 0.1
 
 
 def normalize_scope_value(value: int | None) -> int:
@@ -78,6 +80,29 @@ def _media_demand_ttl() -> int:
     return max(torrent_ttl, demand_lookback)
 
 
+async def _acquire_backend_lock_with_delayed_log(
+    try_acquire, wait_message: str
+) -> None:
+    wait_started = None
+    wait_logged = False
+
+    while True:
+        if await try_acquire():
+            return
+
+        now = time.monotonic()
+        if wait_started is None:
+            wait_started = now
+        elif (
+            not wait_logged
+            and (now - wait_started) >= _BACKEND_LOCK_WAIT_LOG_DELAY_SECONDS
+        ):
+            logger.log("DATABASE", wait_message)
+            wait_logged = True
+
+        await asyncio.sleep(_BACKEND_LOCK_RETRY_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def backend_lock(
     *,
@@ -87,17 +112,17 @@ async def backend_lock(
 ):
     if IS_POSTGRES:
         async with database.connection() as connection:
-            row = await connection.fetch_one(
-                "SELECT pg_try_advisory_lock(:lock_id) AS acquired",
-                {"lock_id": postgres_lock_id},
-            )
-            acquired = bool(row["acquired"])
-            if not acquired:
-                logger.log("DATABASE", wait_message)
-                await connection.execute(
-                    "SELECT pg_advisory_lock(:lock_id)",
+
+            async def _try_acquire_postgres_lock() -> bool:
+                row = await connection.fetch_one(
+                    "SELECT pg_try_advisory_lock(:lock_id) AS acquired",
                     {"lock_id": postgres_lock_id},
                 )
+                return bool(row["acquired"])
+
+            await _acquire_backend_lock_with_delayed_log(
+                _try_acquire_postgres_lock, wait_message
+            )
             try:
                 yield
             finally:
@@ -107,26 +132,78 @@ async def backend_lock(
                 )
         return
 
-    if IS_SQLITE and fcntl is not None:
-        lock_file = open(sqlite_lock_path, "a+")
-        try:
+    if IS_SQLITE:
+        if fcntl is not None:
+            lock_file = open(sqlite_lock_path, "a+")
             try:
-                await asyncio.to_thread(
-                    fcntl.flock,
-                    lock_file.fileno(),
-                    fcntl.LOCK_EX | fcntl.LOCK_NB,
+
+                async def _try_acquire_sqlite_lock() -> bool:
+                    try:
+                        await asyncio.to_thread(
+                            fcntl.flock,
+                            lock_file.fileno(),
+                            fcntl.LOCK_EX | fcntl.LOCK_NB,
+                        )
+                        return True
+                    except OSError as exc:
+                        if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                            raise
+                        return False
+
+                await _acquire_backend_lock_with_delayed_log(
+                    _try_acquire_sqlite_lock, wait_message
                 )
-            except OSError as exc:
-                if exc.errno not in (errno.EACCES, errno.EAGAIN):
-                    raise
-                logger.log("DATABASE", wait_message)
-                await asyncio.to_thread(fcntl.flock, lock_file.fileno(), fcntl.LOCK_EX)
+                yield
+            finally:
+                try:
+                    await asyncio.to_thread(
+                        fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
+                    )
+                finally:
+                    lock_file.close()
+            return
+
+        fallback_lock_path = f"{sqlite_lock_path}.lock"
+        lock_fd = None
+        try:
+
+            async def _try_acquire_sqlite_lockfile() -> bool:
+                nonlocal lock_fd
+
+                def _create_lock_file():
+                    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                    if hasattr(os, "O_CLOEXEC"):
+                        flags |= os.O_CLOEXEC
+                    try:
+                        return os.open(fallback_lock_path, flags, 0o644)
+                    except FileExistsError:
+                        return None
+                    except OSError as exc:
+                        if exc.errno == errno.EEXIST:
+                            return None
+                        raise
+
+                acquired_fd = await asyncio.to_thread(_create_lock_file)
+                if acquired_fd is None:
+                    return False
+                lock_fd = acquired_fd
+                return True
+
+            await _acquire_backend_lock_with_delayed_log(
+                _try_acquire_sqlite_lockfile, wait_message
+            )
             yield
         finally:
-            try:
-                await asyncio.to_thread(fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN)
-            finally:
-                lock_file.close()
+            if lock_fd is not None:
+                await asyncio.to_thread(os.close, lock_fd)
+
+                def _remove_lock_file():
+                    try:
+                        os.unlink(fallback_lock_path)
+                    except FileNotFoundError:
+                        return
+
+                await asyncio.to_thread(_remove_lock_file)
         return
 
     yield
@@ -180,7 +257,6 @@ async def setup_database():
                 is_sqlite=IS_SQLITE,
                 is_postgres=IS_POSTGRES,
             )
-            await _migrate_indexes()
 
         if IS_SQLITE:
             _models_mod._comet_fk_enabled = True
@@ -391,124 +467,6 @@ async def cleanup_expired_kodi_setup_codes():
             logger.log("KODI", f"Error during Kodi setup cleanup: {e}")
 
         await asyncio.sleep(30)
-
-
-async def _migrate_indexes():
-    legacy_indexes = [
-        "torrents_series_both_idx",
-        "torrents_season_only_idx",
-        "torrents_episode_only_idx",
-        "torrents_no_season_episode_idx",
-        "idx_torrents_media_cache_lookup",
-        "idx_torrents_tracker_analytics",
-        "idx_torrents_size_filter",
-        "idx_torrents_seeders_desc",
-        "idx_torrents_quality_cache",
-        "idx_torrents_media_season_episode",
-        "torrents_cache_lookup_idx",
-        "idx_torrents_timestamp",
-        "torrents_seeders_idx",
-        "unq_torrents_series",
-        "unq_torrents_season",
-        "unq_torrents_episode",
-        "unq_torrents_movie",
-        "idx_torrents_lookup",
-        "idx_torrents_info_hash",
-        "debrid_series_both_idx",
-        "debrid_season_only_idx",
-        "debrid_episode_only_idx",
-        "debrid_no_season_episode_idx",
-        "idx_debrid_service_hash_cache",
-        "idx_debrid_season_episode_filter",
-        "idx_debrid_service_timestamp",
-        "idx_debrid_title_filter",
-        "idx_debrid_comprehensive",
-        "idx_debrid_info_hash_season_episode",
-        "idx_debrid_timestamp",
-        "unq_debrid_series",
-        "unq_debrid_season",
-        "unq_debrid_episode",
-        "unq_debrid_movie",
-        "idx_debrid_lookup",
-        "idx_debrid_info_hash",
-        "idx_debrid_hash_season_episode",
-        "download_links_series_both_idx",
-        "download_links_season_only_idx",
-        "download_links_episode_only_idx",
-        "download_links_no_season_episode_idx",
-        "download_links_series_both_v2_idx",
-        "download_links_season_only_v2_idx",
-        "download_links_episode_only_v2_idx",
-        "download_links_no_season_episode_v2_idx",
-        "idx_download_links_playback",
-        "idx_download_links_playback_v2",
-        "idx_download_links_cleanup",
-        "idx_first_searches_cleanup",
-        "idx_metadata_title_search",
-        "idx_metadata_cache_lookup",
-        "idx_digital_release_timestamp",
-        "idx_anime_ids_entry_id",
-        "idx_scrape_locks_expires_at",
-        "idx_scrape_locks_lock_key",
-        "idx_scrape_locks_instance",
-        "idx_connections_timestamp_desc",
-        "idx_connections_ip_filter",
-        "idx_connections_content_monitoring",
-        "idx_kodi_setup_codes_expires",
-        "idx_debrid_account_lookup",
-        "idx_debrid_account_cleanup",
-        "idx_bg_items_media_retry_priority",
-        "idx_bg_items_status",
-        "idx_bg_items_plan_window",
-        "idx_bg_episodes_series_retry",
-        "idx_bg_episodes_plan_window",
-        "idx_bg_runs_started",
-        "idx_bg_runs_status",
-        "idx_anime_ids_entry_provider",
-        "idx_dmm_parsed_title",
-        "idx_dmm_parsed_year",
-    ]
-
-    dropped_count = 0
-    for index_name in legacy_indexes:
-        try:
-            if IS_SQLITE:
-                exists = await database.fetch_val(
-                    """
-                    SELECT 1
-                    FROM sqlite_master
-                    WHERE type = 'index' AND name = :index_name
-                    """,
-                    {"index_name": index_name},
-                    force_primary=True,
-                )
-            else:
-                exists = await database.fetch_val(
-                    """
-                    SELECT 1
-                    FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND indexname = :index_name
-                    """,
-                    {"index_name": index_name},
-                    force_primary=True,
-                )
-            if not exists:
-                continue
-
-            await database.execute(f"DROP INDEX IF EXISTS {index_name}")
-            dropped_count += 1
-        except Exception as exc:
-            logger.debug(
-                f"Failed to drop legacy index {index_name}: {exc}", exc_info=True
-            )
-            continue
-
-    if dropped_count > 0:
-        logger.log(
-            "DATABASE",
-            f"Legacy indexes cleanup completed. Dropped {dropped_count} indexes.",
-        )
 
 
 async def teardown_database():
