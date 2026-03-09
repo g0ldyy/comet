@@ -198,7 +198,11 @@ class CacheStateManager:
                     update_params,
                 )
                 return False
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                f"Error checking cache_state first-search status for {self.media_id}: {exc}",
+                exc_info=True,
+            )
             return False
 
     async def _try_acquire_lock(self) -> bool:
