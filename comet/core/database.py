@@ -343,6 +343,7 @@ async def setup_database():
                 os.makedirs(db_dir, exist_ok=True)
             if not os.path.exists(settings.DATABASE_PATH):
                 open(settings.DATABASE_PATH, "a").close()
+            _models_mod.set_comet_foreign_keys_enabled(False)
 
         await database.connect()
 
