@@ -11,6 +11,8 @@ class MigrationContext:
     database: object
     is_sqlite: bool
     is_postgres: bool
+    sqlite_version: str | None = None
+    sqlite_supports_drop_column: bool | None = None
 
 
 async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool):
@@ -190,8 +192,56 @@ async def _drop_column_if_exists(
     if not await _column_exists(ctx, table_name, column_name):
         return False
 
+    if ctx.is_sqlite and not await _sqlite_supports_drop_column(ctx):
+        logger.log(
+            "DATABASE",
+            (
+                f"Skipping DROP COLUMN {table_name}.{column_name}: "
+                f"SQLite {ctx.sqlite_version} does not support ALTER TABLE DROP COLUMN"
+            ),
+        )
+        return False
+
     await ctx.database.execute(f"ALTER TABLE {table_name} DROP COLUMN {column_name}")
     return True
+
+
+def _parse_sqlite_version(version: str | None) -> tuple[int, int, int]:
+    if not version:
+        return (0, 0, 0)
+
+    parsed = []
+    for part in str(version).split(".")[:3]:
+        try:
+            parsed.append(int(part))
+        except ValueError:
+            parsed.append(0)
+    while len(parsed) < 3:
+        parsed.append(0)
+    return tuple(parsed)
+
+
+async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
+    if ctx.sqlite_supports_drop_column is not None:
+        return ctx.sqlite_supports_drop_column
+
+    row = await ctx.database.fetch_one(
+        "SELECT sqlite_version() AS sqlite_version",
+        force_primary=True,
+    )
+    if not row:
+        ctx.sqlite_version = "unknown"
+        ctx.sqlite_supports_drop_column = False
+        return False
+
+    version = row[0] if isinstance(row, tuple) else row["sqlite_version"]
+    ctx.sqlite_version = str(version)
+    ctx.sqlite_supports_drop_column = _parse_sqlite_version(ctx.sqlite_version) >= (
+        3,
+        35,
+        0,
+    )
+    return ctx.sqlite_supports_drop_column
 
 
 async def _migration_foundation(ctx: MigrationContext):
@@ -771,166 +821,106 @@ async def _migration_foundation(ctx: MigrationContext):
 
 async def _migration_backfill_canonical_tables(ctx: MigrationContext):
     if await _table_exists(ctx, "metadata_cache"):
-        rows = await ctx.database.fetch_all(
+        await ctx.database.execute(
             """
-            SELECT media_id, title, year, year_end, aliases, timestamp
-            FROM metadata_cache
-            """,
-            force_primary=True,
-        )
-        if rows:
-            await ctx.database.execute_many(
-                """
-                INSERT INTO media_metadata_cache (
-                    media_id,
-                    title,
-                    year,
-                    year_end,
-                    aliases_json,
-                    metadata_updated_at
-                )
-                VALUES (
-                    :media_id,
-                    :title,
-                    :year,
-                    :year_end,
-                    :aliases_json,
-                    :metadata_updated_at
-                )
-                ON CONFLICT (media_id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    year = EXCLUDED.year,
-                    year_end = EXCLUDED.year_end,
-                    aliases_json = EXCLUDED.aliases_json,
-                    metadata_updated_at = EXCLUDED.metadata_updated_at
-                """,
-                [
-                    {
-                        "media_id": row["media_id"],
-                        "title": row["title"],
-                        "year": row["year"],
-                        "year_end": row["year_end"],
-                        "aliases_json": row["aliases"],
-                        "metadata_updated_at": row["timestamp"],
-                    }
-                    for row in rows
-                ],
+            INSERT INTO media_metadata_cache (
+                media_id,
+                title,
+                year,
+                year_end,
+                aliases_json,
+                metadata_updated_at
             )
+            SELECT
+                media_id,
+                title,
+                year,
+                year_end,
+                aliases AS aliases_json,
+                timestamp AS metadata_updated_at
+            FROM metadata_cache
+            ON CONFLICT (media_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                year = EXCLUDED.year,
+                year_end = EXCLUDED.year_end,
+                aliases_json = EXCLUDED.aliases_json,
+                metadata_updated_at = EXCLUDED.metadata_updated_at
+            """
+        )
 
     if await _table_exists(ctx, "digital_release_cache"):
-        rows = await ctx.database.fetch_all(
+        await ctx.database.execute(
             """
-            SELECT media_id, release_date, timestamp
-            FROM digital_release_cache
-            """,
-            force_primary=True,
-        )
-        if rows:
-            await ctx.database.execute_many(
-                """
-                INSERT INTO media_metadata_cache (
-                    media_id,
-                    release_date,
-                    release_updated_at
-                )
-                VALUES (:media_id, :release_date, :release_updated_at)
-                ON CONFLICT (media_id) DO UPDATE SET
-                    release_date = EXCLUDED.release_date,
-                    release_updated_at = EXCLUDED.release_updated_at
-                """,
-                [
-                    {
-                        "media_id": row["media_id"],
-                        "release_date": row["release_date"],
-                        "release_updated_at": row["timestamp"],
-                    }
-                    for row in rows
-                ],
+            INSERT INTO media_metadata_cache (
+                media_id,
+                release_date,
+                release_updated_at
             )
+            SELECT
+                media_id,
+                release_date,
+                timestamp AS release_updated_at
+            FROM digital_release_cache
+            ON CONFLICT (media_id) DO UPDATE SET
+                release_date = EXCLUDED.release_date,
+                release_updated_at = EXCLUDED.release_updated_at
+            """,
+        )
 
     if await _table_exists(ctx, "first_searches"):
-        rows = await ctx.database.fetch_all(
+        await ctx.database.execute(
             """
-            SELECT media_id, timestamp
-            FROM first_searches
-            """,
-            force_primary=True,
-        )
-        if rows:
-            await ctx.database.execute_many(
-                """
-                INSERT INTO media_demand (
-                    media_id,
-                    first_seen_at,
-                    last_seen_at
-                )
-                VALUES (:media_id, :first_seen_at, :last_seen_at)
-                ON CONFLICT (media_id) DO UPDATE SET
-                    first_seen_at = CASE
-                        WHEN media_demand.first_seen_at IS NULL
-                          OR media_demand.first_seen_at > EXCLUDED.first_seen_at
-                        THEN EXCLUDED.first_seen_at
-                        ELSE media_demand.first_seen_at
-                    END,
-                    last_seen_at = CASE
-                        WHEN media_demand.last_seen_at < EXCLUDED.last_seen_at
-                        THEN EXCLUDED.last_seen_at
-                        ELSE media_demand.last_seen_at
-                    END
-                """,
-                [
-                    {
-                        "media_id": row["media_id"],
-                        "first_seen_at": row["timestamp"],
-                        "last_seen_at": row["timestamp"],
-                    }
-                    for row in rows
-                ],
+            INSERT INTO media_demand (
+                media_id,
+                first_seen_at,
+                last_seen_at
             )
+            SELECT
+                media_id,
+                timestamp AS first_seen_at,
+                timestamp AS last_seen_at
+            FROM first_searches
+            ON CONFLICT (media_id) DO UPDATE SET
+                first_seen_at = CASE
+                    WHEN media_demand.first_seen_at IS NULL
+                      OR media_demand.first_seen_at > EXCLUDED.first_seen_at
+                    THEN EXCLUDED.first_seen_at
+                    ELSE media_demand.first_seen_at
+                END,
+                last_seen_at = CASE
+                    WHEN media_demand.last_seen_at < EXCLUDED.last_seen_at
+                    THEN EXCLUDED.last_seen_at
+                    ELSE media_demand.last_seen_at
+                END
+            """
+        )
 
     if await _table_exists(ctx, "kitsu_imdb_mapping"):
-        rows = await ctx.database.fetch_all(
+        await ctx.database.execute(
             """
-            SELECT kitsu_id, imdb_id, from_season, from_episode
+            INSERT INTO anime_provider_overrides (
+                source_provider,
+                source_id,
+                target_provider,
+                target_id,
+                from_season,
+                from_episode
+            )
+            SELECT
+                'kitsu',
+                kitsu_id,
+                'imdb',
+                imdb_id,
+                from_season,
+                from_episode
             FROM kitsu_imdb_mapping
             WHERE imdb_id IS NOT NULL
-            """,
-            force_primary=True,
+            ON CONFLICT (source_provider, source_id, target_provider) DO UPDATE SET
+                target_id = EXCLUDED.target_id,
+                from_season = EXCLUDED.from_season,
+                from_episode = EXCLUDED.from_episode
+            """
         )
-        if rows:
-            await ctx.database.execute_many(
-                """
-                INSERT INTO anime_provider_overrides (
-                    source_provider,
-                    source_id,
-                    target_provider,
-                    target_id,
-                    from_season,
-                    from_episode
-                )
-                VALUES (
-                    'kitsu',
-                    :source_id,
-                    'imdb',
-                    :target_id,
-                    :from_season,
-                    :from_episode
-                )
-                ON CONFLICT (source_provider, source_id, target_provider) DO UPDATE SET
-                    target_id = EXCLUDED.target_id,
-                    from_season = EXCLUDED.from_season,
-                    from_episode = EXCLUDED.from_episode
-                """,
-                [
-                    {
-                        "source_id": row["kitsu_id"],
-                        "target_id": row["imdb_id"],
-                        "from_season": row["from_season"],
-                        "from_episode": row["from_episode"],
-                    }
-                    for row in rows
-                ],
-            )
 
 
 async def _replace_table(
