@@ -66,22 +66,26 @@ _CACHE_ALIAS_ENRICH_QUERY = """
     ON CONFLICT (media_id) DO UPDATE SET
         title = CASE
             WHEN media_metadata_cache.metadata_updated_at IS NULL
+                OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.title
             ELSE media_metadata_cache.title
         END,
         year = CASE
             WHEN media_metadata_cache.metadata_updated_at IS NULL
+                OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.year
             ELSE media_metadata_cache.year
         END,
         year_end = CASE
             WHEN media_metadata_cache.metadata_updated_at IS NULL
+                OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.year_end
             ELSE media_metadata_cache.year_end
         END,
         aliases_json = EXCLUDED.aliases_json,
         metadata_updated_at = CASE
             WHEN media_metadata_cache.metadata_updated_at IS NULL
+                OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.metadata_updated_at
             ELSE media_metadata_cache.metadata_updated_at
         END
@@ -174,21 +178,26 @@ class MetadataScraper:
         aliases: dict,
         preserve_existing_metadata: bool = False,
     ):
+        current_time = time.time()
         query = (
             _CACHE_ALIAS_ENRICH_QUERY
             if preserve_existing_metadata
             else _CACHE_UPSERT_QUERY
         )
+        params = {
+            "media_id": media_id,
+            "title": metadata["title"],
+            "year": metadata["year"],
+            "year_end": metadata["year_end"],
+            "aliases_json": orjson.dumps(aliases).decode("utf-8"),
+            "metadata_updated_at": current_time,
+        }
+        if preserve_existing_metadata:
+            params["metadata_stale_before"] = current_time - settings.METADATA_CACHE_TTL
+
         await database.execute(
             query,
-            {
-                "media_id": media_id,
-                "title": metadata["title"],
-                "year": metadata["year"],
-                "year_end": metadata["year_end"],
-                "aliases_json": orjson.dumps(aliases).decode("utf-8"),
-                "metadata_updated_at": time.time(),
-            },
+            params,
         )
 
     def normalize_metadata(self, metadata: dict, season: int, episode: int):
