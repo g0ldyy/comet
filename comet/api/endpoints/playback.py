@@ -45,6 +45,14 @@ async def playback(
             default_key="BAD_REQUEST",
         )
 
+    torrent_name = torrent_name.strip()
+    name = name.strip()
+    if not torrent_name or not name:
+        return build_status_video_response(
+            ["BAD_REQUEST"],
+            default_key="BAD_REQUEST",
+        )
+
     parsed_service_index = parse_optional_int(service_index)
     season = parse_optional_int(season)
     episode = parse_optional_int(episode)
