@@ -4,7 +4,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from comet.core.database import database
+from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.metadata.manager import MetadataScraper
@@ -1568,16 +1568,10 @@ class BackgroundScraperWorker:
 
     async def _insert_first_search(self, media_id: str):
         await database.execute(
-            """
-            INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
+            f"""
+            INSERT {OR_IGNORE} INTO media_demand (media_id, first_seen_at, last_seen_at)
             VALUES (:media_id, :current_time, :current_time)
-            ON CONFLICT(media_id) DO UPDATE SET
-                first_seen_at = CASE
-                    WHEN media_demand.first_seen_at IS NULL
-                    THEN EXCLUDED.first_seen_at
-                    ELSE media_demand.first_seen_at
-                END,
-                last_seen_at = EXCLUDED.last_seen_at
+            {ON_CONFLICT_DO_NOTHING}
             """,
             {"media_id": media_id, "current_time": time.time()},
         )
