@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 @router.get(
-    "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}/{torrent_name:path}",
+    "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}",
     tags=["Stremio"],
     summary="Playback Proxy",
     description="Proxies the playback request to the Debrid service or returns a cached link.",
@@ -35,11 +35,19 @@ async def playback(
     index: str,
     season: str,
     episode: str,
-    torrent_name: str,
-    name_query: str = Query("", alias="name"),
+    torrent_name: str = Query(),
+    name: str = Query(),
 ):
     config = config_check(b64config, strict_b64config=True)
     if not config:
+        return build_status_video_response(
+            ["BAD_REQUEST"],
+            default_key="BAD_REQUEST",
+        )
+
+    torrent_name = torrent_name.strip()
+    name = name.strip()
+    if not torrent_name or not name:
         return build_status_video_response(
             ["BAD_REQUEST"],
             default_key="BAD_REQUEST",
@@ -139,7 +147,7 @@ async def playback(
             download_url = await debrid.generate_download_link(
                 hash,
                 index,
-                name_query,
+                name,
                 torrent_name,
                 season,
                 episode,
@@ -203,34 +211,3 @@ async def playback(
         )
 
     return RedirectResponse(download_url, status_code=302)
-
-
-# Legacy route
-@router.get(
-    "/{b64config}/playback/{hash}/{index}/{season}/{episode}/{torrent_name:path}",
-    tags=["Stremio"],
-    summary="Playback Proxy (Legacy)",
-    description="Legacy playback route for backward compatibility.",
-)
-async def playback_legacy(
-    request: Request,
-    b64config: str,
-    hash: str,
-    index: str,
-    season: str,
-    episode: str,
-    torrent_name: str,
-    name_query: str = Query("", alias="name"),
-):
-    # Call the new playback with service_index="n" (will use first service)
-    return await playback(
-        request=request,
-        b64config=b64config,
-        hash=hash,
-        service_index="n",
-        index=index,
-        season=season,
-        episode=episode,
-        torrent_name=torrent_name,
-        name_query=name_query,
-    )
