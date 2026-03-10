@@ -61,7 +61,7 @@ TORRENT_UPSERT_PARAM_COLUMNS = (
     "parsed_json",
 )
 TORRENT_UPSERT_ROW_PARAM_COUNT = len(TORRENT_UPSERT_PARAM_COLUMNS)
-TORRENT_UPSERT_SHARED_PARAM_COUNT = 1
+TORRENT_UPSERT_SHARED_PARAM_COUNT = 2
 TORRENT_UPSERT_PARAM_COUNT = (
     TORRENT_UPSERT_ROW_PARAM_COUNT + TORRENT_UPSERT_SHARED_PARAM_COUNT
 )
@@ -83,6 +83,9 @@ TORRENT_UPDATE_COLUMNS = tuple(
 TORRENT_CHANGE_DETECTION_COLUMNS = tuple(
     column for column in TORRENT_UPDATE_COLUMNS if column != "updated_at"
 )
+TORRENT_STABLE_REFRESH_INTERVAL = 31536000
+if settings.LIVE_TORRENT_CACHE_TTL is not None and settings.LIVE_TORRENT_CACHE_TTL >= 0:
+    TORRENT_STABLE_REFRESH_INTERVAL = settings.LIVE_TORRENT_CACHE_TTL // 2
 
 DEFAULT_ADD_TORRENT_QUEUE_MAXSIZE = 256
 DEFAULT_ADD_TORRENT_METADATA_CACHE_MAX_ENTRIES = 512
@@ -390,16 +393,61 @@ def _is_valid_imdb_id(value) -> bool:
     return isinstance(value, str) and value.startswith("tt")
 
 
+def _is_empty_merge_value(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value == ""
+    if isinstance(value, (list, tuple, dict, set)):
+        return len(value) == 0
+    return False
+
+
+def _merge_parsed_payloads(existing: dict, incoming: dict) -> dict:
+    if not existing:
+        return incoming
+    if not incoming:
+        return existing
+
+    merged = dict(existing)
+    for key, incoming_value in incoming.items():
+        existing_value = merged.get(key)
+        if key not in merged or _is_empty_merge_value(existing_value):
+            merged[key] = incoming_value
+            continue
+        if _is_empty_merge_value(incoming_value):
+            continue
+        if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
+            merged[key] = _merge_parsed_payloads(existing_value, incoming_value)
+            continue
+        if isinstance(existing_value, list) and isinstance(incoming_value, list):
+            if len(incoming_value) > len(existing_value):
+                merged[key] = incoming_value
+            continue
+        if isinstance(existing_value, str) and isinstance(incoming_value, str):
+            if len(incoming_value) > len(existing_value):
+                merged[key] = incoming_value
+            continue
+        merged[key] = incoming_value
+    return merged
+
+
 def _merge_torrent_updates(
     existing: "_TorrentUpdate", incoming: "_TorrentUpdate"
 ) -> "_TorrentUpdate":
-    existing.file_index = incoming.file_index
-    existing.title = incoming.title
-    existing.seeders = incoming.seeders
-    existing.size = incoming.size
-    existing.tracker = incoming.tracker
-    existing.sources = incoming.sources
-    existing.parsed = incoming.parsed
+    if incoming.file_index is not None:
+        existing.file_index = incoming.file_index
+    if incoming.title:
+        existing.title = incoming.title
+    if incoming.seeders is not None:
+        existing.seeders = incoming.seeders
+    if incoming.size is not None:
+        existing.size = incoming.size
+    if incoming.tracker:
+        existing.tracker = incoming.tracker
+    if incoming.sources:
+        existing.sources = _dedupe_strings([*existing.sources, *incoming.sources])
+    existing.parsed = _merge_parsed_payloads(existing.parsed, incoming.parsed)
     existing.from_cometnet = existing.from_cometnet and incoming.from_cometnet
     if incoming.attempts > existing.attempts:
         existing.attempts = incoming.attempts
@@ -1390,6 +1438,7 @@ POSTGRES_DISTINCT_UPDATE_WHERE_SQL = (
     + ", ".join(f"EXCLUDED.{column}" for column in TORRENT_CHANGE_DETECTION_COLUMNS)
     + ")"
 )
+TORRENT_REFRESH_UPDATE_WHERE_SQL = "COALESCE(torrents.updated_at, 0) < :refresh_before"
 
 
 def estimate_upsert_row_count(params: dict) -> int:
@@ -1437,7 +1486,8 @@ ON CONFLICT {TORRENT_CONFLICT_TARGET}
 DO UPDATE SET
         {TORRENT_UPDATE_SET_SQL}
 WHERE
-    {distinct_where_sql}
+    ({distinct_where_sql})
+    OR ({TORRENT_REFRESH_UPDATE_WHERE_SQL})
 """
 
 
@@ -1478,7 +1528,10 @@ def _build_batched_params(
     sources_json_cache: dict[int, str] | None = None,
     parsed_json_cache: dict[int, str] | None = None,
 ) -> dict:
-    params = {"updated_at": updated_at}
+    params = {
+        "updated_at": updated_at,
+        "refresh_before": updated_at - TORRENT_STABLE_REFRESH_INTERVAL,
+    }
     if sources_json_cache is None:
         sources_json_cache = {}
     if parsed_json_cache is None:
