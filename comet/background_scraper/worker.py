@@ -982,19 +982,6 @@ class BackgroundScraperWorker:
         return round((rating * 10.0) + recency_bonus + votes_bonus + type_bonus, 4)
 
     async def _upsert_discovered_items(self, batch: list[dict]):
-        rows = [
-            {
-                "media_id": item["media_id"],
-                "media_type": item["media_type"],
-                "title": item["title"],
-                "year": item["year"],
-                "year_end": item["year_end"],
-                "priority_score": item["priority_score"],
-                "created_at": item["created_at"],
-                "updated_at": item["updated_at"],
-            }
-            for item in batch
-        ]
         query = """
         INSERT INTO background_scraper_items
         (media_id, media_type, title, year, year_end, priority_score, status,
@@ -1014,7 +1001,7 @@ class BackgroundScraperWorker:
             END,
             updated_at = excluded.updated_at
         """
-        await database.execute_many(query, rows)
+        await database.execute_many(query, batch)
 
     async def _plan_items(self, media_type: str, limit: int):
         if limit <= 0:
@@ -1569,11 +1556,19 @@ class BackgroundScraperWorker:
     async def _insert_first_search(self, media_id: str):
         await database.execute(
             f"""
-            INSERT {OR_IGNORE} INTO media_demand (media_id, first_seen_at)
-            VALUES (:media_id, :current_time)
+            INSERT {OR_IGNORE} INTO media_demand (
+                media_id,
+                first_seen_at,
+                last_seen_at
+            )
+            VALUES (:media_id, :current_time, :last_seen_at)
             {ON_CONFLICT_DO_NOTHING}
             """,
-            {"media_id": media_id, "current_time": time.time()},
+            {
+                "media_id": media_id,
+                "current_time": time.time(),
+                "last_seen_at": 0.0,
+            },
         )
 
     def _compute_backoff(self, failures: int) -> float:
