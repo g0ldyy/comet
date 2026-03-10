@@ -954,7 +954,6 @@ class BackgroundScraperWorker:
             "priority_score": self._calculate_priority(
                 media_item, media_type, year, current_year
             ),
-            "source": "cinemeta",
             "created_at": now,
             "updated_at": now,
         }
@@ -983,6 +982,19 @@ class BackgroundScraperWorker:
         return round((rating * 10.0) + recency_bonus + votes_bonus + type_bonus, 4)
 
     async def _upsert_discovered_items(self, batch: list[dict]):
+        rows = [
+            {
+                "media_id": item["media_id"],
+                "media_type": item["media_type"],
+                "title": item["title"],
+                "year": item["year"],
+                "year_end": item["year_end"],
+                "priority_score": item["priority_score"],
+                "created_at": item["created_at"],
+                "updated_at": item["updated_at"],
+            }
+            for item in batch
+        ]
         query = """
         INSERT INTO background_scraper_items
         (media_id, media_type, title, year, year_end, priority_score, status,
@@ -1002,7 +1014,7 @@ class BackgroundScraperWorker:
             END,
             updated_at = excluded.updated_at
         """
-        await database.execute_many(query, batch)
+        await database.execute_many(query, rows)
 
     async def _plan_items(self, media_type: str, limit: int):
         if limit <= 0:

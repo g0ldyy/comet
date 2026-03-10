@@ -40,9 +40,7 @@ from comet.core.database import setup_database, teardown_database
 from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.services.torrent_manager import (check_torrent_exists,
-                                            check_torrents_exist,
-                                            save_torrent_from_network,
+from comet.services.torrent_manager import (check_torrents_exist,
                                             torrent_update_queue)
 
 
@@ -182,8 +180,9 @@ class StandaloneCometNet:
             await setup_database()
             setup_executor()
 
-            self.service.set_save_torrent_callback(save_torrent_from_network)
-            self.service.set_check_torrent_exists_callback(check_torrent_exists)
+            self.service.set_save_torrent_callback(
+                torrent_update_queue.add_network_torrent
+            )
             self.service.set_check_torrents_exist_callback(check_torrents_exist)
 
             await self.service.start()

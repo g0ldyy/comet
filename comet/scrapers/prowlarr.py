@@ -38,15 +38,15 @@ class ProwlarrScraper(BaseScraper):
             )
 
             if content:
-                metadata = extract_torrent_metadata(content)
+                metadata = await asyncio.to_thread(extract_torrent_metadata, content)
                 if metadata:
                     for file in metadata["files"]:
                         torrent = base_torrent.copy()
-                        torrent["title"] = file["name"]
+                        torrent["title"] = file["title"]
                         torrent["infoHash"] = metadata["info_hash"].lower()
                         torrent["fileIndex"] = file["index"]
                         torrent["size"] = file["size"]
-                        torrent["sources"] = metadata["announce_list"]
+                        torrent["sources"] = metadata["sources"]
                         torrents.append(torrent)
                     return torrents
 
