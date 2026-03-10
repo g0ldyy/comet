@@ -60,6 +60,7 @@ class JackettScraper(BaseScraper):
                     base_torrent["tracker"],
                     media_id,
                     season,
+                    base_torrent["infoHash"],
                 )
 
                 torrents.append(base_torrent)
@@ -78,6 +79,7 @@ class JackettScraper(BaseScraper):
                     base_torrent["tracker"],
                     media_id,
                     season,
+                    base_torrent["infoHash"],
                 )
 
             torrents.append(base_torrent)

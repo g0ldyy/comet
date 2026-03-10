@@ -60,6 +60,7 @@ class ProwlarrScraper(BaseScraper):
                     base_torrent["tracker"],
                     media_id,
                     season,
+                    base_torrent["infoHash"],
                 )
 
                 torrents.append(base_torrent)
@@ -76,6 +77,7 @@ class ProwlarrScraper(BaseScraper):
                     base_torrent["tracker"],
                     media_id,
                     season,
+                    base_torrent["infoHash"],
                 )
 
             torrents.append(base_torrent)
