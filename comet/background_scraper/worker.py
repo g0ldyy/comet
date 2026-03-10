@@ -4,7 +4,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.metadata.manager import MetadataScraper
@@ -1034,12 +1034,19 @@ class BackgroundScraperWorker:
                 FROM media_demand md
                 WHERE :demand_enabled = 1
                   AND md.last_seen_at >= :demand_cutoff
+            ),
+            demand_matches AS (
+                SELECT DISTINCT i.media_id
+                FROM background_scraper_items i
+                JOIN demand_ids d
+                  ON d.media_id = i.media_id
+                  OR d.media_id LIKE i.media_id || ':%'
             )
             SELECT i.media_id, i.media_type, i.title, i.year, i.year_end, i.priority_score,
                    i.consecutive_failures, i.status,
                    CASE WHEN d.media_id IS NOT NULL THEN 100.0 ELSE 0.0 END AS demand_boost
             FROM background_scraper_items i
-            LEFT JOIN demand_ids d ON d.media_id = i.media_id
+            LEFT JOIN demand_matches d ON d.media_id = i.media_id
             WHERE i.media_type = :media_type
               AND (i.next_retry_at IS NULL OR i.next_retry_at <= :now)
               AND (i.last_success_at IS NULL OR i.last_success_at <= :success_cutoff)
@@ -1561,10 +1568,16 @@ class BackgroundScraperWorker:
 
     async def _insert_first_search(self, media_id: str):
         await database.execute(
-            f"""
-            INSERT {OR_IGNORE} INTO media_demand (media_id, first_seen_at, last_seen_at)
+            """
+            INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
             VALUES (:media_id, :current_time, :current_time)
-            {ON_CONFLICT_DO_NOTHING}
+            ON CONFLICT(media_id) DO UPDATE SET
+                first_seen_at = CASE
+                    WHEN media_demand.first_seen_at IS NULL
+                    THEN EXCLUDED.first_seen_at
+                    ELSE media_demand.first_seen_at
+                END,
+                last_seen_at = EXCLUDED.last_seen_at
             """,
             {"media_id": media_id, "current_time": time.time()},
         )
