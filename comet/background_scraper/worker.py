@@ -1569,8 +1569,8 @@ class BackgroundScraperWorker:
     async def _insert_first_search(self, media_id: str):
         await database.execute(
             f"""
-            INSERT {OR_IGNORE} INTO media_demand (media_id, first_seen_at, last_seen_at)
-            VALUES (:media_id, :current_time, :current_time)
+            INSERT {OR_IGNORE} INTO media_demand (media_id, first_seen_at)
+            VALUES (:media_id, :current_time)
             {ON_CONFLICT_DO_NOTHING}
             """,
             {"media_id": media_id, "current_time": time.time()},
