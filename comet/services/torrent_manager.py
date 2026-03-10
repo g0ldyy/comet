@@ -92,6 +92,7 @@ DEFAULT_TORRENT_UPDATE_MAX_RETRIES = None
 DEFAULT_TORRENT_UPDATE_FLUSH_INTERVAL = 0.1
 DEFAULT_TORRENT_BROADCAST_QUEUE_MAXSIZE = 4096
 DEFAULT_TORRENT_BROADCAST_BATCH_QUEUE_MIN_SIZE = 32
+DEFAULT_TORRENT_BROADCAST_MAX_RETRIES = 5
 SQLITE_MAX_VARIABLES = 999
 POSTGRES_MAX_PARAMETERS = 32767
 SQLITE_UPSERT_MAX_ROWS_PER_STATEMENT = max(
@@ -260,26 +261,6 @@ def _build_torrent_metadata_payload(info_hash: str, sources, file_specs) -> dict
     }
 
 
-_TORRENT_METADATA_FIELD_NAMES = (
-    "info_hash",
-    "title",
-    "size",
-    "seeders",
-    "tracker",
-    "imdb_id",
-    "file_index",
-    "season",
-    "episode",
-    "sources",
-    "parsed",
-    "updated_at",
-    "contributor_id",
-    "contributor_public_key",
-    "contributor_signature",
-    "pool_id",
-)
-
-
 def _construct_torrent_metadata(
     *,
     info_hash: str,
@@ -295,37 +276,24 @@ def _construct_torrent_metadata(
     parsed: dict,
     updated_at: float,
 ) -> TorrentMetadata:
-    model = object.__new__(TorrentMetadata)
-    object.__setattr__(
-        model,
-        "__dict__",
-        {
-            "info_hash": info_hash,
-            "title": title,
-            "size": size,
-            "seeders": seeders,
-            "tracker": tracker,
-            "imdb_id": imdb_id,
-            "file_index": file_index,
-            "season": season,
-            "episode": episode,
-            "sources": sources,
-            "parsed": parsed,
-            "updated_at": updated_at,
-            "contributor_id": "",
-            "contributor_public_key": "",
-            "contributor_signature": "",
-            "pool_id": None,
-        },
+    return TorrentMetadata.model_construct(
+        info_hash=info_hash,
+        title=title,
+        size=size,
+        seeders=seeders,
+        tracker=tracker,
+        imdb_id=imdb_id,
+        file_index=file_index,
+        season=season,
+        episode=episode,
+        sources=sources,
+        parsed=parsed,
+        updated_at=updated_at,
+        contributor_id="",
+        contributor_public_key="",
+        contributor_signature="",
+        pool_id=None,
     )
-    object.__setattr__(
-        model,
-        "__pydantic_fields_set__",
-        set(_TORRENT_METADATA_FIELD_NAMES),
-    )
-    object.__setattr__(model, "__pydantic_extra__", None)
-    object.__setattr__(model, "__pydantic_private__", None)
-    return model
 
 
 async def download_torrent(session, url: str):
@@ -574,16 +542,6 @@ class _TorrentUpdate:
     episode_norm: int = field(init=False)
     row_key: tuple[str, str, int, int] = field(init=False)
 
-    def __post_init__(self):
-        self.season_norm = normalize_scope_value(self.season)
-        self.episode_norm = normalize_scope_value(self.episode)
-        self.row_key = (
-            self.media_id,
-            self.info_hash,
-            self.season_norm,
-            self.episode_norm,
-        )
-
     def to_broadcast_payload(self, updated_at: float) -> dict:
         return {
             "info_hash": self.info_hash,
@@ -765,7 +723,7 @@ async def check_torrents_exist(info_hashes: list[str]) -> set[str]:
         return existing_hashes
     except Exception as e:
         logger.warning(f"Error checking batch torrent persistence: {e}")
-        return set(unique_hashes)
+        return set()
 
 
 class AddTorrentQueue:
@@ -775,9 +733,6 @@ class AddTorrentQueue:
         self.queue = asyncio.Queue(maxsize=DEFAULT_ADD_TORRENT_QUEUE_MAXSIZE)
         self.max_concurrent = max(1, max_concurrent)
         self.metadata_cache_max_entries = DEFAULT_ADD_TORRENT_METADATA_CACHE_MAX_ENTRIES
-        self.failed_metadata_cache_max_entries = max(
-            16, self.metadata_cache_max_entries // 4
-        )
         self._lock = asyncio.Lock()
         self._workers = []
         self._stopping = False
@@ -787,7 +742,6 @@ class AddTorrentQueue:
         self._queue_waiters_event = asyncio.Event()
         self._queue_waiters_event.set()
         self._resolved_torrent_cache = OrderedDict()
-        self._failed_resolution_cache = OrderedDict()
         self._inflight_resolutions = {}
 
     def _reset_runtime_state(self):
@@ -797,7 +751,6 @@ class AddTorrentQueue:
         self._queue_waiters_event.set()
         self._inflight_resolutions.clear()
         self._resolved_torrent_cache.clear()
-        self._failed_resolution_cache.clear()
 
     async def add_torrent(
         self,
@@ -901,19 +854,17 @@ class AddTorrentQueue:
 
     async def _get_resolved_torrent(self, magnet_key: str, magnet_url: str) -> dict:
         loop = asyncio.get_running_loop()
+        inflight_key = (magnet_key, magnet_url)
         async with self._lock:
             cached = self._resolved_torrent_cache.get(magnet_key)
             if cached is not None:
                 self._resolved_torrent_cache.move_to_end(magnet_key)
                 return cached
-            if magnet_key in self._failed_resolution_cache:
-                self._failed_resolution_cache.move_to_end(magnet_key)
-                return {}
 
-            future = self._inflight_resolutions.get(magnet_key)
+            future = self._inflight_resolutions.get(inflight_key)
             if future is None:
                 future = loop.create_future()
-                self._inflight_resolutions[magnet_key] = future
+                self._inflight_resolutions[inflight_key] = future
                 owner = True
             else:
                 owner = False
@@ -931,22 +882,14 @@ class AddTorrentQueue:
         finally:
             async with self._lock:
                 if resolved_torrent:
-                    self._failed_resolution_cache.pop(magnet_key, None)
                     self._resolved_torrent_cache[magnet_key] = resolved_torrent
                     self._resolved_torrent_cache.move_to_end(magnet_key)
                     _prune_ordered_dict(
                         self._resolved_torrent_cache,
                         max_entries=self.metadata_cache_max_entries,
                     )
-                else:
-                    self._failed_resolution_cache[magnet_key] = True
-                    self._failed_resolution_cache.move_to_end(magnet_key)
-                    _prune_ordered_dict(
-                        self._failed_resolution_cache,
-                        max_entries=self.failed_metadata_cache_max_entries,
-                    )
 
-                inflight = self._inflight_resolutions.pop(magnet_key, None)
+                inflight = self._inflight_resolutions.pop(inflight_key, None)
                 if inflight is not None and not inflight.done():
                     inflight.set_result(resolved_torrent)
 
@@ -998,6 +941,7 @@ class TorrentUpdateQueue:
         )
         self.flush_interval = max(0.0, flush_interval)
         self.max_retries = DEFAULT_TORRENT_UPDATE_MAX_RETRIES
+        self.broadcast_max_retries = DEFAULT_TORRENT_BROADCAST_MAX_RETRIES
         self._state_lock = asyncio.Lock()
         self._pending_lock = asyncio.Lock()
         self._retry_lock = asyncio.Lock()
@@ -1023,7 +967,7 @@ class TorrentUpdateQueue:
         return not self._stopping and isinstance(media_id, str) and bool(media_id)
 
     async def add_torrent_info(
-        self, file_info: dict, media_id: str = None, from_cometnet: bool = False
+        self, file_info: dict, media_id: str | None = None, from_cometnet: bool = False
     ):
         if not self._can_accept_media_id(media_id):
             return
@@ -1037,7 +981,10 @@ class TorrentUpdateQueue:
         )
 
     async def add_torrent_infos(
-        self, file_infos: list[dict], media_id: str = None, from_cometnet: bool = False
+        self,
+        file_infos: list[dict],
+        media_id: str | None = None,
+        from_cometnet: bool = False,
     ):
         if not file_infos or not self._can_accept_media_id(media_id):
             return
@@ -1339,20 +1286,32 @@ class TorrentUpdateQueue:
                     return
 
                 backend, metadata_batch = payload
-                attempt = 1
-                while True:
-                    try:
-                        await backend.broadcast_torrents(metadata_batch)
-                        break
-                    except Exception as e:
-                        if attempt == 1 or (attempt % 10) == 0:
-                            logger.warning(
-                                "Error while broadcasting torrents "
-                                f"(attempt {attempt}, batch={len(metadata_batch)}): {e}"
-                            )
-                        await asyncio.sleep(self._retry_delay_seconds(attempt))
-                        attempt += 1
-                self._broadcast_queue.task_done()
+                max_attempts = max(1, self.broadcast_max_retries)
+                try:
+                    for attempt in range(1, max_attempts + 1):
+                        try:
+                            await backend.broadcast_torrents(metadata_batch)
+                            break
+                        except Exception as e:
+                            stopping = self._stopping
+                            final_attempt = stopping or attempt >= max_attempts
+                            if attempt == 1 or final_attempt or (attempt % 10) == 0:
+                                logger.warning(
+                                    "Error while broadcasting torrents "
+                                    f"(attempt {attempt}/{max_attempts}, "
+                                    f"batch={len(metadata_batch)}): {e}"
+                                )
+                            if final_attempt:
+                                self._dropped_broadcasts += len(metadata_batch)
+                                logger.warning(
+                                    "Dropping torrent broadcast batch "
+                                    f"(attempts={attempt}, batch={len(metadata_batch)}, "
+                                    f"stopping={stopping})"
+                                )
+                                break
+                            await asyncio.sleep(self._retry_delay_seconds(attempt))
+                finally:
+                    self._broadcast_queue.task_done()
         finally:
             async with self._state_lock:
                 if self._broadcast_worker is asyncio.current_task():
