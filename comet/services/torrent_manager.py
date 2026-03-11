@@ -389,10 +389,6 @@ def extract_torrent_metadata(content: bytes):
         return {}
 
 
-def _is_valid_imdb_id(value) -> bool:
-    return isinstance(value, str) and value.startswith("tt")
-
-
 def _is_empty_merge_value(value) -> bool:
     if value is None:
         return True
@@ -1068,7 +1064,7 @@ class TorrentUpdateQueue:
         )
 
     async def add_network_torrent(self, metadata: TorrentMetadata):
-        if self._stopping or not _is_valid_imdb_id(metadata.imdb_id):
+        if not self._can_accept_media_id(metadata.imdb_id):
             return
 
         await self._enqueue_prepared_item(_build_torrent_update_from_metadata(metadata))
