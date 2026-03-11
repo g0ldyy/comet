@@ -217,6 +217,22 @@ async def _acquire_backend_lock_with_delayed_log(
         await asyncio.sleep(_BACKEND_LOCK_RETRY_INTERVAL_SECONDS)
 
 
+async def _close_sqlite_lock_fd(lock_fd: int | None) -> None:
+    if lock_fd is None:
+        return
+    await asyncio.to_thread(os.close, lock_fd)
+
+
+async def _unlink_if_exists(path: str) -> None:
+    def _unlink():
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            return
+
+    await asyncio.to_thread(_unlink)
+
+
 async def _acquire_backend_lock(
     try_acquire,
     *,
@@ -359,16 +375,9 @@ async def backend_lock(
                 if lock_fd is None:
                     return
 
-                await asyncio.to_thread(os.close, lock_fd)
+                await _close_sqlite_lock_fd(lock_fd)
                 lock_fd = None
-
-                def _remove_lock_file():
-                    try:
-                        os.unlink(fallback_lock_path)
-                    except FileNotFoundError:
-                        return
-
-                await asyncio.to_thread(_remove_lock_file)
+                await _unlink_if_exists(fallback_lock_path)
 
             async with _held_backend_lock(
                 _try_acquire_sqlite_lockfile,
@@ -379,12 +388,9 @@ async def backend_lock(
                 yield acquired
         finally:
             if lock_fd is not None:
-                await asyncio.to_thread(os.close, lock_fd)
+                await _close_sqlite_lock_fd(lock_fd)
                 lock_fd = None
-                try:
-                    os.unlink(fallback_lock_path)
-                except FileNotFoundError:
-                    pass
+                await _unlink_if_exists(fallback_lock_path)
         return
 
     yield
