@@ -1554,6 +1554,7 @@ class BackgroundScraperWorker:
         }
 
     async def _insert_first_search(self, media_id: str):
+        current_time = time.time()
         await database.execute(
             f"""
             INSERT {OR_IGNORE} INTO media_demand (
@@ -1566,8 +1567,8 @@ class BackgroundScraperWorker:
             """,
             {
                 "media_id": media_id,
-                "current_time": time.time(),
-                "last_seen_at": 0.0,
+                "current_time": current_time,
+                "last_seen_at": current_time,
             },
         )
 
