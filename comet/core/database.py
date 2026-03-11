@@ -217,12 +217,49 @@ async def _acquire_backend_lock_with_delayed_log(
         await asyncio.sleep(_BACKEND_LOCK_RETRY_INTERVAL_SECONDS)
 
 
+async def _acquire_backend_lock(
+    try_acquire,
+    *,
+    wait_message: str,
+    wait: bool,
+) -> bool:
+    if wait:
+        await _acquire_backend_lock_with_delayed_log(try_acquire, wait_message)
+        return True
+
+    return await try_acquire()
+
+
+@asynccontextmanager
+async def _held_backend_lock(
+    try_acquire,
+    release,
+    *,
+    wait_message: str,
+    wait: bool,
+):
+    acquired = await _acquire_backend_lock(
+        try_acquire,
+        wait_message=wait_message,
+        wait=wait,
+    )
+    if not acquired:
+        yield False
+        return
+
+    try:
+        yield True
+    finally:
+        await release()
+
+
 @asynccontextmanager
 async def backend_lock(
     *,
     postgres_lock_id: int,
     sqlite_lock_path: str,
     wait_message: str,
+    wait: bool = True,
 ):
     if IS_POSTGRES:
         async with database.connection() as connection:
@@ -234,16 +271,19 @@ async def backend_lock(
                 )
                 return bool(row["acquired"])
 
-            await _acquire_backend_lock_with_delayed_log(
-                _try_acquire_postgres_lock, wait_message
-            )
-            try:
-                yield
-            finally:
+            async def _release_postgres_lock():
                 await connection.execute(
                     "SELECT pg_advisory_unlock(:lock_id)",
                     {"lock_id": postgres_lock_id},
                 )
+
+            async with _held_backend_lock(
+                _try_acquire_postgres_lock,
+                _release_postgres_lock,
+                wait_message=wait_message,
+                wait=wait,
+            ) as acquired:
+                yield acquired
         return
 
     if IS_SQLITE:
@@ -270,19 +310,22 @@ async def backend_lock(
                             raise
                         return False
 
-                await _acquire_backend_lock_with_delayed_log(
-                    _try_acquire_sqlite_lock, wait_message
-                )
-                yield
+                async def _release_sqlite_lock():
+                    if lock_file is not None and lock_acquired:
+                        await asyncio.to_thread(
+                            fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
+                        )
+
+                async with _held_backend_lock(
+                    _try_acquire_sqlite_lock,
+                    _release_sqlite_lock,
+                    wait_message=wait_message,
+                    wait=wait,
+                ) as acquired:
+                    yield acquired
             finally:
                 if lock_file is not None:
-                    try:
-                        if lock_acquired:
-                            await asyncio.to_thread(
-                                fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
-                            )
-                    finally:
-                        lock_file.close()
+                    lock_file.close()
             return
 
         fallback_lock_path = f"{sqlite_lock_path}.lock"
@@ -311,13 +354,13 @@ async def backend_lock(
                 lock_fd = acquired_fd
                 return True
 
-            await _acquire_backend_lock_with_delayed_log(
-                _try_acquire_sqlite_lockfile, wait_message
-            )
-            yield
-        finally:
-            if lock_fd is not None:
+            async def _release_sqlite_lockfile():
+                nonlocal lock_fd
+                if lock_fd is None:
+                    return
+
                 await asyncio.to_thread(os.close, lock_fd)
+                lock_fd = None
 
                 def _remove_lock_file():
                     try:
@@ -326,6 +369,22 @@ async def backend_lock(
                         return
 
                 await asyncio.to_thread(_remove_lock_file)
+
+            async with _held_backend_lock(
+                _try_acquire_sqlite_lockfile,
+                _release_sqlite_lockfile,
+                wait_message=wait_message,
+                wait=wait,
+            ) as acquired:
+                yield acquired
+        finally:
+            if lock_fd is not None:
+                await asyncio.to_thread(os.close, lock_fd)
+                lock_fd = None
+                try:
+                    os.unlink(fallback_lock_path)
+                except FileNotFoundError:
+                    pass
         return
 
     yield
@@ -343,6 +402,32 @@ async def _schema_migration_lock():
         ),
     ):
         yield
+
+
+@asynccontextmanager
+async def _startup_cleanup_lock():
+    if IS_POSTGRES:
+        async with database.transaction():
+            acquired = await database.fetch_val(
+                "SELECT pg_try_advisory_xact_lock(:lock_id)",
+                {"lock_id": STARTUP_CLEANUP_LOCK_ID},
+                force_primary=True,
+            )
+            yield bool(acquired)
+        return
+
+    async with backend_lock(
+        postgres_lock_id=STARTUP_CLEANUP_LOCK_ID,
+        sqlite_lock_path=f"{settings.DATABASE_PATH}.startup_cleanup.lock",
+        wait_message="Waiting for SQLite startup cleanup lock",
+        wait=False,
+    ) as acquired:
+        if not acquired:
+            yield False
+            return
+
+        async with database.transaction():
+            yield True
 
 
 async def _apply_sqlite_pragmas(
@@ -426,28 +511,17 @@ async def _run_startup_cleanup():
         return
 
     try:
-        if IS_POSTGRES:
-            async with database.transaction():
-                acquired = await database.fetch_val(
-                    "SELECT pg_try_advisory_xact_lock(:lock_id)",
-                    {"lock_id": STARTUP_CLEANUP_LOCK_ID},
-                    force_primary=True,
+        async with _startup_cleanup_lock() as acquired:
+            if not acquired:
+                logger.log(
+                    "DATABASE",
+                    "Startup cleanup already running elsewhere; skipping",
                 )
-                if not acquired:
-                    logger.log(
-                        "DATABASE",
-                        "Startup cleanup already running elsewhere; skipping",
-                    )
-                    return
+                return
 
-                logger.log("DATABASE", "Running startup cleanup sweep")
-                await _perform_startup_cleanup(current_time)
-                await _record_startup_cleanup(current_time)
-            return
-
-        logger.log("DATABASE", "Running startup cleanup sweep")
-        await _perform_startup_cleanup(current_time)
-        await _record_startup_cleanup(current_time)
+            logger.log("DATABASE", "Running startup cleanup sweep")
+            await _perform_startup_cleanup(current_time)
+            await _record_startup_cleanup(current_time)
     except Exception as e:
         logger.error(f"Error executing startup cleanup: {e}")
 
