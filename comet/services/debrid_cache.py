@@ -11,7 +11,24 @@ DEBRID_UPDATE_INTERVAL = (
     settings.DEBRID_CACHE_TTL // 2 if settings.DEBRID_CACHE_TTL > 0 else 31536000
 )
 
-CONDITIONAL_UPDATE = """
+DEBRID_CHANGE_DETECTION_COLUMNS = (
+    "title",
+    "file_index",
+    "size",
+    "parsed_json",
+)
+SQLITE_DISTINCT_UPDATE_WHERE_SQL = " OR ".join(
+    f"debrid_availability.{column} IS NOT EXCLUDED.{column}"
+    for column in DEBRID_CHANGE_DETECTION_COLUMNS
+)
+POSTGRES_DISTINCT_UPDATE_WHERE_SQL = " OR ".join(
+    f"debrid_availability.{column} IS DISTINCT FROM EXCLUDED.{column}"
+    for column in DEBRID_CHANGE_DETECTION_COLUMNS
+)
+
+
+def _build_conditional_update(distinct_where_sql: str) -> str:
+    return f"""
         DO UPDATE SET
             title = EXCLUDED.title,
             file_index = EXCLUDED.file_index,
@@ -19,37 +36,22 @@ CONDITIONAL_UPDATE = """
             parsed_json = EXCLUDED.parsed_json,
             updated_at = EXCLUDED.updated_at
         WHERE
-            debrid_availability.title IS DISTINCT FROM EXCLUDED.title
-            OR debrid_availability.file_index IS DISTINCT FROM EXCLUDED.file_index
-            OR debrid_availability.size IS DISTINCT FROM EXCLUDED.size
-            OR debrid_availability.parsed_json IS DISTINCT FROM EXCLUDED.parsed_json
+            {distinct_where_sql}
             OR COALESCE(debrid_availability.updated_at, 0) < (EXCLUDED.updated_at - :update_interval)
 """
 
 
-async def cache_availability(debrid_service: str, availability: list):
-    current_time = time.time()
+SQLITE_CONDITIONAL_UPDATE = _build_conditional_update(SQLITE_DISTINCT_UPDATE_WHERE_SQL)
+POSTGRES_CONDITIONAL_UPDATE = _build_conditional_update(
+    POSTGRES_DISTINCT_UPDATE_WHERE_SQL
+)
 
-    values = [
-        {
-            "debrid_service": debrid_service,
-            "info_hash": file["info_hash"],
-            "file_index": str(file["index"]) if file["index"] is not None else None,
-            "title": file["title"],
-            "season": file["season"],
-            "episode": file["episode"],
-            **build_scope_params(file["season"], file["episode"]),
-            "size": file["size"] if file["index"] is not None else None,
-            "parsed_json": orjson.dumps(file["parsed"], default_dump).decode("utf-8")
-            if file["parsed"] is not None
-            else None,
-            "updated_at": current_time,
-            "update_interval": DEBRID_UPDATE_INTERVAL,
-        }
-        for file in availability
-    ]
 
-    query = f"""
+def _build_cache_availability_query() -> str:
+    conditional_update = (
+        SQLITE_CONDITIONAL_UPDATE if IS_SQLITE else POSTGRES_CONDITIONAL_UPDATE
+    )
+    return f"""
         INSERT INTO debrid_availability (
             debrid_service,
             info_hash,
@@ -77,14 +79,33 @@ async def cache_availability(debrid_service: str, availability: list):
             :updated_at
         )
         ON CONFLICT (debrid_service, info_hash, season_norm, episode_norm)
-        {CONDITIONAL_UPDATE}
+        {conditional_update}
     """
 
-    if IS_SQLITE:
-        sqlite_values = list(values)
-        await database.execute_many(query, sqlite_values)
-    else:
-        await database.execute_many(query, values)
+
+async def cache_availability(debrid_service: str, availability: list):
+    current_time = time.time()
+
+    values = [
+        {
+            "debrid_service": debrid_service,
+            "info_hash": file["info_hash"],
+            "file_index": str(file["index"]) if file["index"] is not None else None,
+            "title": file["title"],
+            "season": file["season"],
+            "episode": file["episode"],
+            **build_scope_params(file["season"], file["episode"]),
+            "size": file["size"] if file["index"] is not None else None,
+            "parsed_json": orjson.dumps(file["parsed"], default_dump).decode("utf-8")
+            if file["parsed"] is not None
+            else None,
+            "updated_at": current_time,
+            "update_interval": DEBRID_UPDATE_INTERVAL,
+        }
+        for file in availability
+    ]
+
+    await database.execute_many(_build_cache_availability_query(), values)
 
 
 async def get_cached_availability(
