@@ -238,7 +238,12 @@ def _extract_info_hash_from_magnet(magnet_uri: str) -> str | None:
 
     info_hash = match.group(1)
     if len(info_hash) == 32:
-        info_hash = normalize_info_hash(info_hash)
+        try:
+            info_hash = normalize_info_hash(info_hash)
+        except (TypeError, ValueError):
+            return None
+        if len(info_hash) != 40:
+            return None
     return info_hash.lower()
 
 
