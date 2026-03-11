@@ -206,6 +206,202 @@ async def _drop_column_if_exists(
     return True
 
 
+async def _rename_column_if_missing(
+    ctx: MigrationContext,
+    table_name: str,
+    old_name: str,
+    new_name: str,
+) -> bool:
+    if not await _column_exists(ctx, table_name, old_name):
+        return False
+    if await _column_exists(ctx, table_name, new_name):
+        return False
+
+    try:
+        await ctx.database.execute(
+            f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
+        )
+    except Exception as exc:
+        if ctx.is_sqlite and "syntax error" in str(exc).lower():
+            return False
+        raise
+    return True
+
+
+LEGACY_INDEX_NAMES = [
+    "torrents_series_both_idx",
+    "torrents_season_only_idx",
+    "torrents_episode_only_idx",
+    "torrents_no_season_episode_idx",
+    "idx_torrents_media_cache_lookup",
+    "idx_torrents_tracker_analytics",
+    "idx_torrents_size_filter",
+    "idx_torrents_seeders_desc",
+    "idx_torrents_quality_cache",
+    "idx_torrents_media_season_episode",
+    "torrents_cache_lookup_idx",
+    "idx_torrents_timestamp",
+    "torrents_seeders_idx",
+    "unq_torrents_series",
+    "unq_torrents_season",
+    "unq_torrents_episode",
+    "unq_torrents_movie",
+    "idx_torrents_lookup",
+    "idx_torrents_info_hash",
+    "debrid_series_both_idx",
+    "debrid_season_only_idx",
+    "debrid_episode_only_idx",
+    "debrid_no_season_episode_idx",
+    "idx_debrid_service_hash_cache",
+    "idx_debrid_season_episode_filter",
+    "idx_debrid_service_timestamp",
+    "idx_debrid_title_filter",
+    "idx_debrid_comprehensive",
+    "idx_debrid_info_hash_season_episode",
+    "idx_debrid_timestamp",
+    "unq_debrid_series",
+    "unq_debrid_season",
+    "unq_debrid_episode",
+    "unq_debrid_movie",
+    "idx_debrid_lookup",
+    "idx_debrid_info_hash",
+    "idx_debrid_hash_season_episode",
+    "download_links_series_both_idx",
+    "download_links_season_only_idx",
+    "download_links_episode_only_idx",
+    "download_links_no_season_episode_idx",
+    "download_links_series_both_v2_idx",
+    "download_links_season_only_v2_idx",
+    "download_links_episode_only_v2_idx",
+    "download_links_no_season_episode_v2_idx",
+    "idx_download_links_playback",
+    "idx_download_links_playback_v2",
+    "idx_download_links_cleanup",
+    "idx_first_searches_cleanup",
+    "idx_metadata_title_search",
+    "idx_metadata_cache_lookup",
+    "idx_digital_release_timestamp",
+    "idx_anime_ids_entry_id",
+    "idx_scrape_locks_expires_at",
+    "idx_scrape_locks_lock_key",
+    "idx_scrape_locks_instance",
+    "idx_debrid_account_lookup",
+    "idx_debrid_account_cleanup",
+    "idx_connections_timestamp_desc",
+    "idx_connections_ip_filter",
+    "idx_connections_content_monitoring",
+    "idx_kodi_setup_codes_expires",
+    "idx_bg_items_media_retry_priority",
+    "idx_bg_items_status",
+    "idx_bg_items_plan_window",
+    "idx_bg_episodes_series_retry",
+    "idx_bg_episodes_plan_window",
+    "idx_bg_runs_started",
+    "idx_bg_runs_status",
+    "idx_anime_ids_entry_provider",
+    "idx_dmm_parsed_title",
+    "idx_dmm_parsed_year",
+]
+
+
+async def _backfill_torrents_foundation_columns(ctx: MigrationContext):
+    has_sources = await _column_exists(ctx, "torrents", "sources")
+    has_parsed = await _column_exists(ctx, "torrents", "parsed")
+    has_timestamp = await _column_exists(ctx, "torrents", "timestamp")
+
+    set_clauses = [
+        (
+            "sources_json = COALESCE(sources_json, sources, '[]')"
+            if has_sources
+            else "sources_json = COALESCE(sources_json, '[]')"
+        ),
+        "season_norm = COALESCE(season, :null_sentinel)",
+        "episode_norm = COALESCE(episode, :null_sentinel)",
+    ]
+    where_clauses = [
+        "sources_json IS NULL",
+        "season_norm != COALESCE(season, :null_sentinel)",
+        "episode_norm != COALESCE(episode, :null_sentinel)",
+    ]
+
+    if has_parsed:
+        set_clauses.append("parsed_json = COALESCE(parsed_json, parsed)")
+        where_clauses.append("parsed_json IS NULL AND parsed IS NOT NULL")
+
+    if has_timestamp:
+        set_clauses.append("updated_at = COALESCE(updated_at, timestamp)")
+        where_clauses.append("updated_at IS NULL AND timestamp IS NOT NULL")
+
+    await ctx.database.execute(
+        f"""
+        UPDATE torrents
+        SET {", ".join(set_clauses)}
+        WHERE {" OR ".join(where_clauses)}
+        """,
+        {"null_sentinel": NULL_SCOPE_SENTINEL},
+    )
+
+
+async def _backfill_debrid_foundation_columns(ctx: MigrationContext):
+    has_parsed = await _column_exists(ctx, "debrid_availability", "parsed")
+    has_timestamp = await _column_exists(ctx, "debrid_availability", "timestamp")
+
+    set_clauses = [
+        "season_norm = COALESCE(season, :null_sentinel)",
+        "episode_norm = COALESCE(episode, :null_sentinel)",
+    ]
+    where_clauses = [
+        "season_norm != COALESCE(season, :null_sentinel)",
+        "episode_norm != COALESCE(episode, :null_sentinel)",
+    ]
+
+    if has_parsed:
+        set_clauses.append("parsed_json = COALESCE(parsed_json, parsed)")
+        where_clauses.append("parsed_json IS NULL AND parsed IS NOT NULL")
+
+    if has_timestamp:
+        set_clauses.append("updated_at = COALESCE(updated_at, timestamp)")
+        where_clauses.append("updated_at IS NULL AND timestamp IS NOT NULL")
+
+    await ctx.database.execute(
+        f"""
+        UPDATE debrid_availability
+        SET {", ".join(set_clauses)}
+        WHERE {" OR ".join(where_clauses)}
+        """,
+        {"null_sentinel": NULL_SCOPE_SENTINEL},
+    )
+
+
+async def _dedupe_scope_rows(
+    ctx: MigrationContext,
+    table_name: str,
+    partition_columns: tuple[str, ...],
+    order_by_sql: str,
+):
+    row_identity = "ctid" if ctx.is_postgres else "rowid"
+    partition_sql = ", ".join(partition_columns)
+
+    await ctx.database.execute(
+        f"""
+        DELETE FROM {table_name}
+        WHERE {row_identity} IN (
+            SELECT {row_identity}
+            FROM (
+                SELECT
+                    {row_identity},
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {partition_sql}
+                        ORDER BY {order_by_sql}
+                    ) AS duplicate_rank
+                FROM {table_name}
+            ) AS ranked_rows
+            WHERE duplicate_rank > 1
+        )
+        """
+    )
+
+
 def _parse_sqlite_version(version: str | None) -> tuple[int, int, int]:
     if not version:
         return (0, 0, 0)
@@ -255,6 +451,12 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
+    await _rename_column_if_missing(
+        ctx,
+        "db_maintenance",
+        "last_startup_cleanup",
+        "last_startup_cleanup_at",
+    )
     await _add_column_if_missing(
         ctx,
         "db_maintenance",
@@ -284,6 +486,12 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
+    await _rename_column_if_missing(
+        ctx,
+        "scrape_locks",
+        "timestamp",
+        "updated_at",
+    )
     await _add_column_if_missing(
         ctx,
         "scrape_locks",
@@ -310,6 +518,12 @@ async def _migration_foundation(ctx: MigrationContext):
             consumed_at REAL
         )
         """,
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "kodi_setup_codes",
+        "b64config",
+        "config_b64",
     )
     await _add_column_if_missing(
         ctx,
@@ -378,6 +592,9 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
+    await _rename_column_if_missing(ctx, "torrents", "sources", "sources_json")
+    await _rename_column_if_missing(ctx, "torrents", "parsed", "parsed_json")
+    await _rename_column_if_missing(ctx, "torrents", "timestamp", "updated_at")
     await _add_column_if_missing(
         ctx,
         "torrents",
@@ -408,46 +625,7 @@ async def _migration_foundation(ctx: MigrationContext):
         "updated_at",
         "updated_at REAL",
     )
-    if await _column_exists(ctx, "torrents", "sources"):
-        await ctx.database.execute(
-            """
-            UPDATE torrents
-            SET sources_json = COALESCE(sources_json, sources, '[]')
-            """
-        )
-    else:
-        await ctx.database.execute(
-            """
-            UPDATE torrents
-            SET sources_json = COALESCE(sources_json, '[]')
-            """
-        )
-    if await _column_exists(ctx, "torrents", "parsed"):
-        await ctx.database.execute(
-            """
-            UPDATE torrents
-            SET parsed_json = COALESCE(parsed_json, parsed)
-            """
-        )
-    if await _column_exists(ctx, "torrents", "timestamp"):
-        await ctx.database.execute(
-            """
-            UPDATE torrents
-            SET season_norm = COALESCE(season, :null_sentinel),
-                episode_norm = COALESCE(episode, :null_sentinel),
-                updated_at = COALESCE(updated_at, timestamp)
-            """,
-            {"null_sentinel": NULL_SCOPE_SENTINEL},
-        )
-    else:
-        await ctx.database.execute(
-            """
-            UPDATE torrents
-            SET season_norm = COALESCE(season, :null_sentinel),
-                episode_norm = COALESCE(episode, :null_sentinel)
-            """,
-            {"null_sentinel": NULL_SCOPE_SENTINEL},
-        )
+    await _backfill_torrents_foundation_columns(ctx)
 
     await _ensure_table(
         ctx,
@@ -469,6 +647,18 @@ async def _migration_foundation(ctx: MigrationContext):
             CHECK ((episode IS NULL AND episode_norm = -1) OR episode = episode_norm)
         )
         """,
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "debrid_availability",
+        "parsed",
+        "parsed_json",
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "debrid_availability",
+        "timestamp",
+        "updated_at",
     )
     await _add_column_if_missing(
         ctx,
@@ -494,32 +684,7 @@ async def _migration_foundation(ctx: MigrationContext):
         "updated_at",
         "updated_at REAL",
     )
-    if await _column_exists(ctx, "debrid_availability", "parsed"):
-        await ctx.database.execute(
-            """
-            UPDATE debrid_availability
-            SET parsed_json = COALESCE(parsed_json, parsed)
-            """
-        )
-    if await _column_exists(ctx, "debrid_availability", "timestamp"):
-        await ctx.database.execute(
-            """
-            UPDATE debrid_availability
-            SET season_norm = COALESCE(season, :null_sentinel),
-                episode_norm = COALESCE(episode, :null_sentinel),
-                updated_at = COALESCE(updated_at, timestamp)
-            """,
-            {"null_sentinel": NULL_SCOPE_SENTINEL},
-        )
-    else:
-        await ctx.database.execute(
-            """
-            UPDATE debrid_availability
-            SET season_norm = COALESCE(season, :null_sentinel),
-                episode_norm = COALESCE(episode, :null_sentinel)
-            """,
-            {"null_sentinel": NULL_SCOPE_SENTINEL},
-        )
+    await _backfill_debrid_foundation_columns(ctx)
 
     if await _table_exists(ctx, "download_links_cache"):
         await ctx.database.execute("DROP TABLE IF EXISTS download_links_cache")
@@ -561,6 +726,12 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
+    await _rename_column_if_missing(
+        ctx,
+        "debrid_account_magnets",
+        "timestamp",
+        "synced_at",
+    )
     await _add_column_if_missing(
         ctx,
         "debrid_account_magnets",
@@ -586,6 +757,12 @@ async def _migration_foundation(ctx: MigrationContext):
             PRIMARY KEY (debrid_service, account_key_hash)
         )
         """,
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "debrid_account_sync_state",
+        "last_sync",
+        "last_sync_at",
     )
     await _add_column_if_missing(
         ctx,
@@ -613,6 +790,12 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
+    await _rename_column_if_missing(
+        ctx,
+        "active_connections",
+        "timestamp",
+        "started_at",
+    )
     await _add_column_if_missing(
         ctx,
         "active_connections",
@@ -637,6 +820,12 @@ async def _migration_foundation(ctx: MigrationContext):
             updated_at REAL
         )
         """,
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "bandwidth_stats",
+        "last_updated",
+        "updated_at",
     )
     await _add_column_if_missing(
         ctx,
@@ -687,6 +876,18 @@ async def _migration_foundation(ctx: MigrationContext):
         )
         """,
     )
+    await _rename_column_if_missing(
+        ctx,
+        "metrics_cache",
+        "data",
+        "payload_json",
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "metrics_cache",
+        "timestamp",
+        "refreshed_at",
+    )
     await _add_column_if_missing(
         ctx,
         "metrics_cache",
@@ -723,6 +924,12 @@ async def _migration_foundation(ctx: MigrationContext):
             data_json TEXT NOT NULL
         )
         """,
+    )
+    await _rename_column_if_missing(
+        ctx,
+        "anime_entries",
+        "data",
+        "data_json",
     )
     await _add_column_if_missing(
         ctx,
@@ -1228,6 +1435,34 @@ async def _ensure_background_scraper_episodes_table(ctx: MigrationContext):
 
 
 async def _migration_indexes(ctx: MigrationContext):
+    await _dedupe_scope_rows(
+        ctx,
+        "torrents",
+        ("media_id", "info_hash", "season_norm", "episode_norm"),
+        "COALESCE(updated_at, 0) DESC, COALESCE(seeders, -1) DESC, title DESC",
+    )
+    await _dedupe_scope_rows(
+        ctx,
+        "debrid_availability",
+        ("debrid_service", "info_hash", "season_norm", "episode_norm"),
+        "COALESCE(updated_at, 0) DESC, COALESCE(size, -1) DESC, COALESCE(title, '') DESC",
+    )
+    await _dedupe_scope_rows(
+        ctx,
+        "download_links_cache",
+        (
+            "debrid_service",
+            "account_key_hash",
+            "info_hash",
+            "season_norm",
+            "episode_norm",
+        ),
+        "COALESCE(updated_at, 0) DESC, download_url DESC",
+    )
+
+    for index_name in LEGACY_INDEX_NAMES:
+        await _drop_index_if_exists(ctx, index_name)
+
     index_statements = [
         """
         CREATE INDEX IF NOT EXISTS idx_scrape_locks_expires_v2
@@ -1366,81 +1601,7 @@ async def _migration_indexes(ctx: MigrationContext):
 
 
 async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
-    # Legacy indexes may still reference renamed columns and block DROP COLUMN.
-    for index_name in [
-        "torrents_series_both_idx",
-        "torrents_season_only_idx",
-        "torrents_episode_only_idx",
-        "torrents_no_season_episode_idx",
-        "idx_torrents_media_cache_lookup",
-        "idx_torrents_tracker_analytics",
-        "idx_torrents_size_filter",
-        "idx_torrents_seeders_desc",
-        "idx_torrents_quality_cache",
-        "idx_torrents_media_season_episode",
-        "torrents_cache_lookup_idx",
-        "idx_torrents_timestamp",
-        "torrents_seeders_idx",
-        "unq_torrents_series",
-        "unq_torrents_season",
-        "unq_torrents_episode",
-        "unq_torrents_movie",
-        "idx_torrents_lookup",
-        "idx_torrents_info_hash",
-        "debrid_series_both_idx",
-        "debrid_season_only_idx",
-        "debrid_episode_only_idx",
-        "debrid_no_season_episode_idx",
-        "idx_debrid_service_hash_cache",
-        "idx_debrid_season_episode_filter",
-        "idx_debrid_service_timestamp",
-        "idx_debrid_title_filter",
-        "idx_debrid_comprehensive",
-        "idx_debrid_info_hash_season_episode",
-        "idx_debrid_timestamp",
-        "unq_debrid_series",
-        "unq_debrid_season",
-        "unq_debrid_episode",
-        "unq_debrid_movie",
-        "idx_debrid_lookup",
-        "idx_debrid_info_hash",
-        "idx_debrid_hash_season_episode",
-        "download_links_series_both_idx",
-        "download_links_season_only_idx",
-        "download_links_episode_only_idx",
-        "download_links_no_season_episode_idx",
-        "download_links_series_both_v2_idx",
-        "download_links_season_only_v2_idx",
-        "download_links_episode_only_v2_idx",
-        "download_links_no_season_episode_v2_idx",
-        "idx_download_links_playback",
-        "idx_download_links_playback_v2",
-        "idx_download_links_cleanup",
-        "idx_first_searches_cleanup",
-        "idx_metadata_title_search",
-        "idx_metadata_cache_lookup",
-        "idx_digital_release_timestamp",
-        "idx_anime_ids_entry_id",
-        "idx_scrape_locks_expires_at",
-        "idx_scrape_locks_lock_key",
-        "idx_scrape_locks_instance",
-        "idx_debrid_account_lookup",
-        "idx_debrid_account_cleanup",
-        "idx_connections_timestamp_desc",
-        "idx_connections_ip_filter",
-        "idx_connections_content_monitoring",
-        "idx_kodi_setup_codes_expires",
-        "idx_bg_items_media_retry_priority",
-        "idx_bg_items_status",
-        "idx_bg_items_plan_window",
-        "idx_bg_episodes_series_retry",
-        "idx_bg_episodes_plan_window",
-        "idx_bg_runs_started",
-        "idx_bg_runs_status",
-        "idx_anime_ids_entry_provider",
-        "idx_dmm_parsed_title",
-        "idx_dmm_parsed_year",
-    ]:
+    for index_name in LEGACY_INDEX_NAMES:
         await _drop_index_if_exists(ctx, index_name)
 
     dropped_any = False
