@@ -343,12 +343,9 @@ async def _rename_column_if_missing(
         )
         return False
 
-    try:
-        await ctx.database.execute(
-            f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
-        )
-    except Exception:
-        raise
+    await ctx.database.execute(
+        f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
+    )
     return True
 
 
