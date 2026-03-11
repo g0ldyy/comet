@@ -14,6 +14,7 @@ class MigrationContext:
     sqlite_version: str | None = None
     sqlite_journal_mode: str | None = None
     sqlite_supports_drop_column: bool | None = None
+    sqlite_supports_rename_column: bool | None = None
 
 
 async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool):
@@ -31,8 +32,17 @@ async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool)
             continue
 
         logger.log("DATABASE", f"Applying schema migration {version}")
-        await migration(ctx)
+        applied_migration = await migration(ctx)
         await _checkpoint_sqlite(ctx)
+        if applied_migration is False:
+            logger.log(
+                "DATABASE",
+                (
+                    f"Deferred schema migration {version}; "
+                    "manual follow-up is still required."
+                ),
+            )
+            continue
         await ctx.database.execute(
             """
             INSERT INTO schema_migrations (version, applied_at)
@@ -218,14 +228,22 @@ async def _rename_column_if_missing(
         return False
     if await _column_exists(ctx, table_name, new_name):
         return False
+    if ctx.is_sqlite and not await _sqlite_supports_rename_column(ctx):
+        logger.log(
+            "DATABASE",
+            (
+                f"Skipping RENAME COLUMN {table_name}.{old_name}: "
+                f"SQLite {ctx.sqlite_version} does not support ALTER TABLE "
+                "RENAME COLUMN"
+            ),
+        )
+        return False
 
     try:
         await ctx.database.execute(
             f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
         )
-    except Exception as exc:
-        if ctx.is_sqlite and "syntax error" in str(exc).lower():
-            return False
+    except Exception:
         raise
     return True
 
@@ -567,9 +585,9 @@ def _parse_sqlite_version(version: str | None) -> tuple[int, int, int]:
     return (parsed[0], parsed[1], parsed[2])
 
 
-async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
-    if ctx.sqlite_supports_drop_column is not None:
-        return ctx.sqlite_supports_drop_column
+async def _get_sqlite_version(ctx: MigrationContext) -> str:
+    if ctx.sqlite_version is not None:
+        return ctx.sqlite_version
 
     row = await ctx.database.fetch_one(
         "SELECT sqlite_version() AS sqlite_version",
@@ -577,17 +595,31 @@ async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
     )
     if not row:
         ctx.sqlite_version = "unknown"
-        ctx.sqlite_supports_drop_column = False
-        return False
+        return ctx.sqlite_version
 
     version = row[0] if isinstance(row, tuple) else row["sqlite_version"]
     ctx.sqlite_version = str(version)
-    ctx.sqlite_supports_drop_column = _parse_sqlite_version(ctx.sqlite_version) >= (
-        3,
-        35,
-        0,
-    )
+    return ctx.sqlite_version
+
+
+async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
+    if ctx.sqlite_supports_drop_column is not None:
+        return ctx.sqlite_supports_drop_column
+
+    ctx.sqlite_supports_drop_column = _parse_sqlite_version(
+        await _get_sqlite_version(ctx)
+    ) >= (3, 35, 0)
     return ctx.sqlite_supports_drop_column
+
+
+async def _sqlite_supports_rename_column(ctx: MigrationContext) -> bool:
+    if ctx.sqlite_supports_rename_column is not None:
+        return ctx.sqlite_supports_rename_column
+
+    ctx.sqlite_supports_rename_column = _parse_sqlite_version(
+        await _get_sqlite_version(ctx)
+    ) >= (3, 25, 0)
+    return ctx.sqlite_supports_rename_column
 
 
 async def _migration_foundation(ctx: MigrationContext):
@@ -1740,10 +1772,66 @@ async def _migration_indexes(ctx: MigrationContext):
         await _ensure_index(ctx, statement)
 
 
-async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
-    await _drop_legacy_indexes(ctx)
+LEGACY_STORAGE_COLUMN_CLEANUP = [
+    ("db_maintenance", ["last_startup_cleanup"]),
+    ("scrape_locks", ["timestamp"]),
+    ("kodi_setup_codes", ["b64config", "created_at"]),
+    ("torrents", ["sources", "parsed", "timestamp"]),
+    ("debrid_availability", ["parsed", "timestamp"]),
+    ("download_links_cache", ["timestamp"]),
+    ("debrid_account_magnets", ["timestamp"]),
+    ("debrid_account_sync_state", ["last_sync"]),
+    ("active_connections", ["timestamp"]),
+    ("bandwidth_stats", ["last_updated"]),
+    ("background_scraper_items", ["source"]),
+    ("metrics_cache", ["data", "timestamp"]),
+    ("anime_entries", ["data"]),
+    ("dmm_ingested_files", ["timestamp"]),
+]
+
+
+async def _manual_cleanup_legacy_storage(ctx: MigrationContext) -> bool:
+    if ctx.is_sqlite and not await _sqlite_supports_drop_column(ctx):
+        logger.log(
+            "DATABASE",
+            (
+                "manual_cleanup_legacy_storage requires SQLite 3.35.0 or newer "
+                f"for DROP COLUMN support; current version is {ctx.sqlite_version}."
+            ),
+        )
+        return False
 
     dropped_any = False
+    for table_name, columns in LEGACY_STORAGE_COLUMN_CLEANUP:
+        for column_name in columns:
+            dropped_any = (
+                await _drop_column_if_exists(ctx, table_name, column_name)
+                or dropped_any
+            )
+
+    if dropped_any and ctx.is_sqlite:
+        logger.log(
+            "DATABASE",
+            "Legacy schema storage cleanup completed. Run VACUUM once to reclaim SQLite file space.",
+        )
+    return dropped_any
+
+
+async def manual_cleanup_legacy_storage(
+    database, *, is_sqlite: bool, is_postgres: bool
+) -> bool:
+    ctx = MigrationContext(
+        database=database,
+        is_sqlite=is_sqlite,
+        is_postgres=is_postgres,
+    )
+    dropped_any = await _manual_cleanup_legacy_storage(ctx)
+    await _checkpoint_sqlite(ctx)
+    return dropped_any
+
+
+async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
+    await _drop_legacy_indexes(ctx)
 
     for table_name in [
         "db_version",
@@ -1752,44 +1840,22 @@ async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
         "first_searches",
         "kitsu_imdb_mapping",
     ]:
-        dropped_any = await _drop_table_if_exists(ctx, table_name) or dropped_any
+        await _drop_table_if_exists(ctx, table_name)
 
     if ctx.is_sqlite:
         logger.log(
             "DATABASE",
             (
                 "Skipping automatic legacy column cleanup on SQLite to avoid "
-                "full-table rewrites. Legacy columns remain inert."
+                "full-table rewrites. Legacy columns remain inert. Run "
+                "manual_cleanup_legacy_storage(...) after upgrading SQLite "
+                "to 3.35.0 or newer."
             ),
         )
-    else:
-        for table_name, columns in [
-            ("db_maintenance", ["last_startup_cleanup"]),
-            ("scrape_locks", ["timestamp"]),
-            ("kodi_setup_codes", ["b64config", "created_at"]),
-            ("torrents", ["sources", "parsed", "timestamp"]),
-            ("debrid_availability", ["parsed", "timestamp"]),
-            ("download_links_cache", ["timestamp"]),
-            ("debrid_account_magnets", ["timestamp"]),
-            ("debrid_account_sync_state", ["last_sync"]),
-            ("active_connections", ["timestamp"]),
-            ("bandwidth_stats", ["last_updated"]),
-            ("background_scraper_items", ["source"]),
-            ("metrics_cache", ["data", "timestamp"]),
-            ("anime_entries", ["data"]),
-            ("dmm_ingested_files", ["timestamp"]),
-        ]:
-            for column_name in columns:
-                dropped_any = (
-                    await _drop_column_if_exists(ctx, table_name, column_name)
-                    or dropped_any
-                )
+        return False
 
-    if dropped_any and ctx.is_sqlite:
-        logger.log(
-            "DATABASE",
-            "Legacy schema storage cleanup completed. Run VACUUM once to reclaim SQLite file space.",
-        )
+    await _manual_cleanup_legacy_storage(ctx)
+    return True
 
 
 MIGRATIONS = [
