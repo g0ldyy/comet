@@ -1411,6 +1411,12 @@ class TorrentUpdateQueue:
             await asyncio.gather(retry_worker, return_exceptions=True)
 
         async with self._retry_lock:
+            discarded_retry_count = len(self._retry_heap)
+            if discarded_retry_count:
+                logger.debug(
+                    "Discarding pending torrent retry entries during shutdown "
+                    f"(count={discarded_retry_count})"
+                )
             self._retry_heap.clear()
             self._retry_event.clear()
 
