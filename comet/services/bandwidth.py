@@ -4,7 +4,26 @@ import time
 from dataclasses import dataclass, field
 
 from comet.core.logger import logger
-from comet.core.models import database, settings
+from comet.core.models import IS_SQLITE, database, settings
+
+SQLITE_UPDATE_BANDWIDTH_STATS_QUERY = """
+    UPDATE bandwidth_stats
+    SET total_bytes = :total_bytes, updated_at = :timestamp
+    WHERE id = 1
+"""
+
+SQLITE_INSERT_BANDWIDTH_STATS_QUERY = """
+    INSERT OR IGNORE INTO bandwidth_stats (id, total_bytes, updated_at)
+    VALUES (1, :total_bytes, :timestamp)
+"""
+
+POSTGRES_UPSERT_BANDWIDTH_STATS_QUERY = """
+    INSERT INTO bandwidth_stats (id, total_bytes, updated_at)
+    VALUES (1, :total_bytes, :timestamp)
+    ON CONFLICT (id) DO UPDATE SET
+        total_bytes = EXCLUDED.total_bytes,
+        updated_at = EXCLUDED.updated_at
+"""
 
 
 @dataclass
@@ -197,6 +216,16 @@ class BandwidthMonitor:
             except Exception as e:
                 logger.warning(f"Error in bandwidth monitor cleanup: {e}")
 
+    async def _persist_total_bytes(self, total_bytes: int, sync_timestamp: float):
+        params = {"total_bytes": total_bytes, "timestamp": sync_timestamp}
+
+        if IS_SQLITE:
+            await database.execute(SQLITE_UPDATE_BANDWIDTH_STATS_QUERY, params)
+            await database.execute(SQLITE_INSERT_BANDWIDTH_STATS_QUERY, params)
+            return
+
+        await database.execute(POSTGRES_UPSERT_BANDWIDTH_STATS_QUERY, params)
+
     async def _sync_to_database(self):
         while True:
             try:
@@ -210,18 +239,7 @@ class BandwidthMonitor:
 
                 # Update database with alltime total
                 sync_timestamp = time.time()
-                try:
-                    # Try to insert first
-                    await database.execute(
-                        "INSERT INTO bandwidth_stats (id, total_bytes, updated_at) VALUES (1, :total_bytes, :timestamp)",
-                        {"total_bytes": total_bytes, "timestamp": sync_timestamp},
-                    )
-                except Exception:
-                    # If insert fails (record exists), update instead
-                    await database.execute(
-                        "UPDATE bandwidth_stats SET total_bytes = :total_bytes, updated_at = :timestamp WHERE id = 1",
-                        {"total_bytes": total_bytes, "timestamp": sync_timestamp},
-                    )
+                await self._persist_total_bytes(total_bytes, sync_timestamp)
 
                 with self._lock:
                     self._last_synced_bytes = total_bytes
