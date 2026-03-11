@@ -173,6 +173,18 @@ class MetadataScraper:
 
         return None
 
+    @staticmethod
+    def _load_cached_aliases(aliases_json) -> dict:
+        if aliases_json is None:
+            return {}
+
+        try:
+            aliases = orjson.loads(aliases_json)
+        except (TypeError, orjson.JSONDecodeError):
+            return {}
+
+        return aliases if isinstance(aliases, dict) else {}
+
     async def get_cached(self, media_id: str, season: int, episode: int):
         row = await database.fetch_one(
             _CACHE_SELECT_QUERY,
@@ -192,7 +204,7 @@ class MetadataScraper:
                 "season": season,
                 "episode": episode,
             },
-            orjson.loads(row["aliases_json"]),
+            self._load_cached_aliases(row["aliases_json"]),
         )
 
     async def cache_metadata(
