@@ -49,71 +49,41 @@ async def cache_availability(debrid_service: str, availability: list):
         for file in availability
     ]
 
+    query = f"""
+        INSERT INTO debrid_availability (
+            debrid_service,
+            info_hash,
+            season,
+            episode,
+            season_norm,
+            episode_norm,
+            file_index,
+            title,
+            size,
+            parsed_json,
+            updated_at
+        )
+        VALUES (
+            :debrid_service,
+            :info_hash,
+            :season,
+            :episode,
+            :season_norm,
+            :episode_norm,
+            :file_index,
+            :title,
+            :size,
+            :parsed_json,
+            :updated_at
+        )
+        ON CONFLICT (debrid_service, info_hash, season_norm, episode_norm)
+        {CONDITIONAL_UPDATE}
+    """
+
     if IS_SQLITE:
-        query = """
-            INSERT OR REPLACE
-            INTO debrid_availability (
-                debrid_service,
-                info_hash,
-                season,
-                episode,
-                season_norm,
-                episode_norm,
-                file_index,
-                title,
-                size,
-                parsed_json,
-                updated_at
-            )
-            VALUES (
-                :debrid_service,
-                :info_hash,
-                :season,
-                :episode,
-                :season_norm,
-                :episode_norm,
-                :file_index,
-                :title,
-                :size,
-                :parsed_json,
-                :updated_at
-            )
-        """
-        sqlite_values = [
-            {k: v for k, v in val.items() if k != "update_interval"} for val in values
-        ]
+        sqlite_values = list(values)
         await database.execute_many(query, sqlite_values)
     else:
-        query = f"""
-            INSERT INTO debrid_availability (
-                debrid_service,
-                info_hash,
-                season,
-                episode,
-                season_norm,
-                episode_norm,
-                file_index,
-                title,
-                size,
-                parsed_json,
-                updated_at
-            )
-            VALUES (
-                :debrid_service,
-                :info_hash,
-                :season,
-                :episode,
-                :season_norm,
-                :episode_norm,
-                :file_index,
-                :title,
-                :size,
-                :parsed_json,
-                :updated_at
-            )
-            ON CONFLICT (debrid_service, info_hash, season_norm, episode_norm)
-            {CONDITIONAL_UPDATE}
-        """
         await database.execute_many(query, values)
 
 

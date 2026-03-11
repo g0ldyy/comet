@@ -12,6 +12,7 @@ class MigrationContext:
     is_sqlite: bool
     is_postgres: bool
     sqlite_version: str | None = None
+    sqlite_journal_mode: str | None = None
     sqlite_supports_drop_column: bool | None = None
 
 
@@ -31,6 +32,7 @@ async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool)
 
         logger.log("DATABASE", f"Applying schema migration {version}")
         await migration(ctx)
+        await _checkpoint_sqlite(ctx)
         await ctx.database.execute(
             """
             INSERT INTO schema_migrations (version, applied_at)
@@ -303,6 +305,156 @@ LEGACY_INDEX_NAMES = [
     "idx_dmm_parsed_year",
 ]
 
+SQLITE_LARGE_MUTATION_BATCH_SIZE = 25000
+SQLITE_LARGE_MUTATION_CHECKPOINT_INTERVAL = 8
+
+
+def _is_duplicate_data_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "unique constraint failed" in message
+        or "duplicate key value violates unique constraint" in message
+        or "could not create unique index" in message
+    )
+
+
+async def _get_sqlite_journal_mode(ctx: MigrationContext) -> str | None:
+    if not ctx.is_sqlite:
+        return None
+    if ctx.sqlite_journal_mode is not None:
+        return ctx.sqlite_journal_mode
+
+    row = await ctx.database.fetch_one("PRAGMA journal_mode", force_primary=True)
+    if not row:
+        return None
+
+    if isinstance(row, tuple):
+        value = row[0]
+    else:
+        row_mapping = dict(row)
+        value = row_mapping.get("journal_mode")
+        if value is None:
+            value = next(iter(row_mapping.values()), None)
+
+    ctx.sqlite_journal_mode = None if value is None else str(value).lower()
+    return ctx.sqlite_journal_mode
+
+
+async def _checkpoint_sqlite(ctx: MigrationContext):
+    if not ctx.is_sqlite:
+        return
+    if await _get_sqlite_journal_mode(ctx) != "wal":
+        return
+    await ctx.database.execute("PRAGMA wal_checkpoint(TRUNCATE)", force_primary=True)
+
+
+async def _drop_legacy_indexes(ctx: MigrationContext):
+    for index_name in LEGACY_INDEX_NAMES:
+        await _drop_index_if_exists(ctx, index_name)
+
+
+async def _execute_large_table_update(
+    ctx: MigrationContext,
+    *,
+    table_name: str,
+    set_clauses: list[str],
+    where_clauses: list[str],
+    params: dict[str, object] | None = None,
+):
+    params = {} if params is None else dict(params)
+    set_sql = ", ".join(set_clauses)
+    where_sql = " OR ".join(where_clauses)
+
+    if not ctx.is_sqlite:
+        await ctx.database.execute(
+            f"""
+            UPDATE {table_name}
+            SET {set_sql}
+            WHERE {where_sql}
+            """,
+            params,
+        )
+        return
+
+    last_rowid = 0
+    batches = 0
+
+    while True:
+        batch_params = {
+            **params,
+            "batch_size": SQLITE_LARGE_MUTATION_BATCH_SIZE,
+            "last_rowid": last_rowid,
+        }
+        batch_row = await ctx.database.fetch_one(
+            f"""
+            SELECT COUNT(*) AS row_count, MAX(rowid) AS max_rowid
+            FROM (
+                SELECT rowid
+                FROM {table_name}
+                WHERE rowid > :last_rowid
+                  AND ({where_sql})
+                ORDER BY rowid
+                LIMIT :batch_size
+            ) AS migration_batch
+            """,
+            batch_params,
+            force_primary=True,
+        )
+
+        if not batch_row or not batch_row["row_count"]:
+            break
+
+        await ctx.database.execute(
+            f"""
+            UPDATE {table_name}
+            SET {set_sql}
+            WHERE rowid IN (
+                SELECT rowid
+                FROM {table_name}
+                WHERE rowid > :last_rowid
+                  AND ({where_sql})
+                ORDER BY rowid
+                LIMIT :batch_size
+            )
+            """,
+            batch_params,
+        )
+
+        last_rowid = int(batch_row["max_rowid"])
+        batches += 1
+        if batches % SQLITE_LARGE_MUTATION_CHECKPOINT_INTERVAL == 0:
+            await _checkpoint_sqlite(ctx)
+
+    await _checkpoint_sqlite(ctx)
+
+
+async def _ensure_unique_index_with_dedupe(
+    ctx: MigrationContext,
+    *,
+    table_name: str,
+    index_name: str,
+    index_sql: str,
+    partition_columns: tuple[str, ...],
+    order_by_sql: str,
+):
+    if await _index_exists(ctx, index_name):
+        return
+
+    try:
+        await _ensure_index(ctx, index_sql)
+        return
+    except Exception as exc:
+        if not _is_duplicate_data_error(exc):
+            raise
+
+    logger.log(
+        "DATABASE",
+        f"Detected duplicate rows while building {index_name}; deduplicating {table_name}",
+    )
+    await _dedupe_scope_rows(ctx, table_name, partition_columns, order_by_sql)
+    await _checkpoint_sqlite(ctx)
+    await _ensure_index(ctx, index_sql)
+
 
 async def _backfill_torrents_foundation_columns(ctx: MigrationContext):
     has_sources = await _column_exists(ctx, "torrents", "sources")
@@ -332,13 +484,12 @@ async def _backfill_torrents_foundation_columns(ctx: MigrationContext):
         set_clauses.append("updated_at = COALESCE(updated_at, timestamp)")
         where_clauses.append("updated_at IS NULL AND timestamp IS NOT NULL")
 
-    await ctx.database.execute(
-        f"""
-        UPDATE torrents
-        SET {", ".join(set_clauses)}
-        WHERE {" OR ".join(where_clauses)}
-        """,
-        {"null_sentinel": NULL_SCOPE_SENTINEL},
+    await _execute_large_table_update(
+        ctx,
+        table_name="torrents",
+        set_clauses=set_clauses,
+        where_clauses=where_clauses,
+        params={"null_sentinel": NULL_SCOPE_SENTINEL},
     )
 
 
@@ -363,13 +514,12 @@ async def _backfill_debrid_foundation_columns(ctx: MigrationContext):
         set_clauses.append("updated_at = COALESCE(updated_at, timestamp)")
         where_clauses.append("updated_at IS NULL AND timestamp IS NOT NULL")
 
-    await ctx.database.execute(
-        f"""
-        UPDATE debrid_availability
-        SET {", ".join(set_clauses)}
-        WHERE {" OR ".join(where_clauses)}
-        """,
-        {"null_sentinel": NULL_SCOPE_SENTINEL},
+    await _execute_large_table_update(
+        ctx,
+        table_name="debrid_availability",
+        set_clauses=set_clauses,
+        where_clauses=where_clauses,
+        params={"null_sentinel": NULL_SCOPE_SENTINEL},
     )
 
 
@@ -441,6 +591,8 @@ async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
 
 
 async def _migration_foundation(ctx: MigrationContext):
+    await _drop_legacy_indexes(ctx)
+
     await _ensure_table(
         ctx,
         "db_maintenance",
@@ -1435,33 +1587,58 @@ async def _ensure_background_scraper_episodes_table(ctx: MigrationContext):
 
 
 async def _migration_indexes(ctx: MigrationContext):
-    await _dedupe_scope_rows(
+    await _drop_legacy_indexes(ctx)
+
+    await _ensure_unique_index_with_dedupe(
         ctx,
-        "torrents",
-        ("media_id", "info_hash", "season_norm", "episode_norm"),
-        "COALESCE(updated_at, 0) DESC, COALESCE(seeders, -1) DESC, title DESC",
+        table_name="torrents",
+        index_name="unq_torrents_scope_v3",
+        index_sql="""
+        CREATE UNIQUE INDEX IF NOT EXISTS unq_torrents_scope_v3
+        ON torrents (media_id, info_hash, season_norm, episode_norm)
+        """,
+        partition_columns=("media_id", "info_hash", "season_norm", "episode_norm"),
+        order_by_sql="COALESCE(updated_at, 0) DESC, COALESCE(seeders, -1) DESC, title DESC",
     )
-    await _dedupe_scope_rows(
+    await _ensure_unique_index_with_dedupe(
         ctx,
-        "debrid_availability",
-        ("debrid_service", "info_hash", "season_norm", "episode_norm"),
-        "COALESCE(updated_at, 0) DESC, COALESCE(size, -1) DESC, COALESCE(title, '') DESC",
+        table_name="debrid_availability",
+        index_name="unq_debrid_scope_v3",
+        index_sql="""
+        CREATE UNIQUE INDEX IF NOT EXISTS unq_debrid_scope_v3
+        ON debrid_availability (debrid_service, info_hash, season_norm, episode_norm)
+        """,
+        partition_columns=(
+            "debrid_service",
+            "info_hash",
+            "season_norm",
+            "episode_norm",
+        ),
+        order_by_sql="COALESCE(updated_at, 0) DESC, COALESCE(size, -1) DESC, COALESCE(title, '') DESC",
     )
-    await _dedupe_scope_rows(
+    await _ensure_unique_index_with_dedupe(
         ctx,
-        "download_links_cache",
-        (
+        table_name="download_links_cache",
+        index_name="unq_download_links_scope_v3",
+        index_sql="""
+        CREATE UNIQUE INDEX IF NOT EXISTS unq_download_links_scope_v3
+        ON download_links_cache (
+            debrid_service,
+            account_key_hash,
+            info_hash,
+            season_norm,
+            episode_norm
+        )
+        """,
+        partition_columns=(
             "debrid_service",
             "account_key_hash",
             "info_hash",
             "season_norm",
             "episode_norm",
         ),
-        "COALESCE(updated_at, 0) DESC, download_url DESC",
+        order_by_sql="COALESCE(updated_at, 0) DESC, download_url DESC",
     )
-
-    for index_name in LEGACY_INDEX_NAMES:
-        await _drop_index_if_exists(ctx, index_name)
 
     index_statements = [
         """
@@ -1485,12 +1662,8 @@ async def _migration_indexes(ctx: MigrationContext):
         ON media_demand (last_seen_at)
         """,
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS unq_torrents_scope_v3
-        ON torrents (media_id, info_hash, season_norm, episode_norm)
-        """,
-        """
         CREATE INDEX IF NOT EXISTS idx_torrents_lookup_v3
-        ON torrents (media_id, season, episode, updated_at DESC)
+        ON torrents (media_id, season, episode)
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_torrents_info_hash_v3
@@ -1501,45 +1674,12 @@ async def _migration_indexes(ctx: MigrationContext):
         ON torrents (updated_at)
         """,
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS unq_debrid_scope_v3
-        ON debrid_availability (debrid_service, info_hash, season_norm, episode_norm)
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_debrid_lookup_v3
-        ON debrid_availability (debrid_service, info_hash, updated_at DESC)
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_debrid_info_hash_v3
-        ON debrid_availability (info_hash)
-        """,
-        """
         CREATE INDEX IF NOT EXISTS idx_debrid_scope_lookup_v3
-        ON debrid_availability (info_hash, season, episode, updated_at DESC)
+        ON debrid_availability (info_hash, season_norm, episode_norm, updated_at DESC)
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_debrid_updated_at_v1
         ON debrid_availability (updated_at)
-        """,
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS unq_download_links_scope_v3
-        ON download_links_cache (
-            debrid_service,
-            account_key_hash,
-            info_hash,
-            season_norm,
-            episode_norm
-        )
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_download_links_lookup_v3
-        ON download_links_cache (
-            debrid_service,
-            account_key_hash,
-            info_hash,
-            season_norm,
-            episode_norm,
-            updated_at DESC
-        )
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_download_links_updated_at_v1
@@ -1601,8 +1741,7 @@ async def _migration_indexes(ctx: MigrationContext):
 
 
 async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
-    for index_name in LEGACY_INDEX_NAMES:
-        await _drop_index_if_exists(ctx, index_name)
+    await _drop_legacy_indexes(ctx)
 
     dropped_any = False
 
@@ -1615,27 +1754,36 @@ async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
     ]:
         dropped_any = await _drop_table_if_exists(ctx, table_name) or dropped_any
 
-    for table_name, columns in [
-        ("db_maintenance", ["last_startup_cleanup"]),
-        ("scrape_locks", ["timestamp"]),
-        ("kodi_setup_codes", ["b64config", "created_at"]),
-        ("torrents", ["sources", "parsed", "timestamp"]),
-        ("debrid_availability", ["parsed", "timestamp"]),
-        ("download_links_cache", ["timestamp"]),
-        ("debrid_account_magnets", ["timestamp"]),
-        ("debrid_account_sync_state", ["last_sync"]),
-        ("active_connections", ["timestamp"]),
-        ("bandwidth_stats", ["last_updated"]),
-        ("background_scraper_items", ["source"]),
-        ("metrics_cache", ["data", "timestamp"]),
-        ("anime_entries", ["data"]),
-        ("dmm_ingested_files", ["timestamp"]),
-    ]:
-        for column_name in columns:
-            dropped_any = (
-                await _drop_column_if_exists(ctx, table_name, column_name)
-                or dropped_any
-            )
+    if ctx.is_sqlite:
+        logger.log(
+            "DATABASE",
+            (
+                "Skipping automatic legacy column cleanup on SQLite to avoid "
+                "full-table rewrites. Legacy columns remain inert."
+            ),
+        )
+    else:
+        for table_name, columns in [
+            ("db_maintenance", ["last_startup_cleanup"]),
+            ("scrape_locks", ["timestamp"]),
+            ("kodi_setup_codes", ["b64config", "created_at"]),
+            ("torrents", ["sources", "parsed", "timestamp"]),
+            ("debrid_availability", ["parsed", "timestamp"]),
+            ("download_links_cache", ["timestamp"]),
+            ("debrid_account_magnets", ["timestamp"]),
+            ("debrid_account_sync_state", ["last_sync"]),
+            ("active_connections", ["timestamp"]),
+            ("bandwidth_stats", ["last_updated"]),
+            ("background_scraper_items", ["source"]),
+            ("metrics_cache", ["data", "timestamp"]),
+            ("anime_entries", ["data"]),
+            ("dmm_ingested_files", ["timestamp"]),
+        ]:
+            for column_name in columns:
+                dropped_any = (
+                    await _drop_column_if_exists(ctx, table_name, column_name)
+                    or dropped_any
+                )
 
     if dropped_any and ctx.is_sqlite:
         logger.log(
