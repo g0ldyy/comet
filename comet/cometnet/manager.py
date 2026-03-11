@@ -87,8 +87,6 @@ class CometNetService(CometNetBackend):
 
         # Callback for saving torrents to database
         self._save_torrent_callback = None
-        # Callback for checking if torrent exists
-        self._check_torrent_exists_callback = None
         self._check_torrents_exist_callback = None
 
         # Running state
@@ -109,15 +107,6 @@ class CometNetService(CometNetBackend):
         and saves it to the database.
         """
         self._save_torrent_callback = callback
-
-    def set_check_torrent_exists_callback(self, callback) -> None:
-        """
-        Set the callback for checking if a torrent exists locally.
-
-        The callback should be an async function that takes an info_hash (str)
-        and returns a boolean.
-        """
-        self._check_torrent_exists_callback = callback
 
     def set_check_torrents_exist_callback(self, callback) -> None:
         """
@@ -812,23 +801,11 @@ class CometNetService(CometNetBackend):
 
     async def _handle_check_torrents_exist(self, info_hashes: List[str]) -> Set[str]:
         """Check if torrents exist locally."""
-        # Prefer batch callback
         if self._check_torrents_exist_callback:
             try:
                 return await self._check_torrents_exist_callback(info_hashes)
             except Exception:
                 return set()
-
-        # Fallback to legacy single callback loop if batch not set
-        if self._check_torrent_exists_callback:
-            existing = set()
-            for ih in info_hashes:
-                try:
-                    if await self._check_torrent_exists_callback(ih):
-                        existing.add(ih)
-                except Exception:
-                    pass
-            return existing
 
         return set()
 

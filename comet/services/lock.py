@@ -134,24 +134,3 @@ class DistributedLock:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.release()
-
-
-async def is_scrape_in_progress(media_id: str):
-    try:
-        # Clean up expired locks first
-        current_time = time.time()
-        await database.execute(
-            "DELETE FROM scrape_locks WHERE expires_at < :current_time",
-            {"current_time": current_time},
-        )
-
-        # Check if a lock exists for this media_id
-        row = await database.fetch_one(
-            "SELECT instance_id FROM scrape_locks WHERE lock_key = :lock_key",
-            {"lock_key": media_id},
-            force_primary=True,
-        )
-        return row is not None
-    except Exception as e:
-        logger.log("LOCK", f"❌ Error checking scrape status for {media_id}: {e}")
-        return False

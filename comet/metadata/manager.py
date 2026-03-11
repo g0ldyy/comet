@@ -129,15 +129,6 @@ class MetadataScraper:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
 
-    async def get_from_cache_by_media_id(
-        self, media_id: str, id: str, season: int | None, episode: int | None
-    ):
-        provider = self._extract_provider(media_id)
-        cache_id = f"{provider}:{id}" if provider else id
-        cache_season = 1 if provider == "kitsu" else season
-
-        return await self.get_cached(cache_id, cache_season, episode)
-
     async def fetch_metadata_and_aliases(
         self,
         media_type: str,

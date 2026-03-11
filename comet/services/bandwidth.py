@@ -122,10 +122,6 @@ class BandwidthMonitor:
 
             return metrics
 
-    def get_connection_metrics(self, connection_id: str):
-        with self._lock:
-            return self._connections.get(connection_id)
-
     def get_all_active_connections(self):
         with self._lock:
             return self._connections.copy()
