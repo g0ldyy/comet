@@ -17,6 +17,14 @@ from .cinemata_client import CinemataClient
 
 LOCK_KEY = "background_scraper_lock"
 LOCK_TTL = 60
+BACKGROUND_SCRAPER_RUNS_PROJECTION = """
+            run_id, started_at, finished_at, status,
+            processed_count AS processed,
+            success_count AS success,
+            failed_count AS failed,
+            torrents_found_count AS torrents_found,
+            duration_ms, worker_count, last_error
+"""
 
 
 @dataclass
@@ -452,13 +460,8 @@ class BackgroundScraperWorker:
         lookback_24h = now - 86400
 
         latest_run = await database.fetch_one(
-            """
-            SELECT run_id, started_at, finished_at, status,
-                   processed_count AS processed,
-                   success_count AS success,
-                   failed_count AS failed,
-                   torrents_found_count AS torrents_found,
-                   duration_ms, worker_count, last_error
+            f"""
+            SELECT {BACKGROUND_SCRAPER_RUNS_PROJECTION}
             FROM background_scraper_runs
             ORDER BY started_at DESC
             LIMIT 1
@@ -573,13 +576,8 @@ class BackgroundScraperWorker:
 
     async def get_recent_runs(self, limit: int = 20):
         rows = await database.fetch_all(
-            """
-            SELECT run_id, started_at, finished_at, status,
-                   processed_count AS processed,
-                   success_count AS success,
-                   failed_count AS failed,
-                   torrents_found_count AS torrents_found,
-                   duration_ms, worker_count, last_error
+            f"""
+            SELECT {BACKGROUND_SCRAPER_RUNS_PROJECTION}
             FROM background_scraper_runs
             ORDER BY started_at DESC
             LIMIT :limit
@@ -1568,7 +1566,7 @@ class BackgroundScraperWorker:
             {
                 "media_id": media_id,
                 "current_time": current_time,
-                "last_seen_at": current_time,
+                "last_seen_at": 0.0,
             },
         )
 
