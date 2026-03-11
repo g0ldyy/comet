@@ -5,100 +5,32 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
-env:
-  IMAGE_NAME: g0ldyy/comet
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build-and-push-release:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ghcr.io/${{ env.IMAGE_NAME }}
-            docker.io/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            type=ref,event=branch
-
-      - id: date
-        run: echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
-
-      - uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            COMET_COMMIT_HASH=${{ github.sha }}
-            COMET_BUILD_DATE=${{ steps.date.outputs.date }}
-            COMET_BRANCH=${{ github.ref_name }}
+    uses: ./.github/workflows/docker-build-common.yml
+    with:
+      push-to-dockerhub: true
+      tags: |
+        type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+        type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
+        type=ref,event=branch
+      build-args: |
+        COMET_BRANCH=${{ github.ref_name }}
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKER_HUB_USERNAME }}
+      dockerhub_access_token: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
   build-and-push-branch:
     if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/development'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=sha-
-
-      - id: date
-        run: echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
-
-      - uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            COMET_COMMIT_HASH=${{ github.sha }}
-            COMET_BUILD_DATE=${{ steps.date.outputs.date }}
-            COMET_BRANCH=${{ github.ref_name }}
+    uses: ./.github/workflows/docker-build-common.yml
+    with:
+      tags: |
+        type=ref,event=branch
+        type=sha,prefix=sha-
+      build-args: |
+        COMET_BRANCH=${{ github.ref_name }}
