@@ -21,7 +21,30 @@ _CACHE_SELECT_QUERY = """
     AND metadata_updated_at >= :min_timestamp
 """
 
-_CACHE_UPSERT_QUERY = """
+_PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION = """
+EXCLUDED.aliases_json = '{}'
+                AND media_metadata_cache.aliases_json IS NOT NULL
+                AND media_metadata_cache.aliases_json != '{}'
+"""
+
+_ALIASES_JSON_UPSERT_ASSIGNMENT = f"""
+        aliases_json = CASE
+            WHEN {_PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION}
+            THEN media_metadata_cache.aliases_json
+            ELSE EXCLUDED.aliases_json
+        END
+"""
+
+_METADATA_UPDATED_AT_UPSERT_ASSIGNMENT = f"""
+        metadata_updated_at = CASE
+            WHEN {_PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION}
+            THEN media_metadata_cache.metadata_updated_at
+            ELSE EXCLUDED.metadata_updated_at
+        END
+"""
+
+_CACHE_UPSERT_QUERY = (
+    """
     INSERT INTO media_metadata_cache (
         media_id,
         title,
@@ -42,11 +65,14 @@ _CACHE_UPSERT_QUERY = """
         title = EXCLUDED.title,
         year = EXCLUDED.year,
         year_end = EXCLUDED.year_end,
-        aliases_json = EXCLUDED.aliases_json,
-        metadata_updated_at = EXCLUDED.metadata_updated_at
 """
+    + _ALIASES_JSON_UPSERT_ASSIGNMENT
+    + ","
+    + _METADATA_UPDATED_AT_UPSERT_ASSIGNMENT
+)
 
-_CACHE_ALIAS_ENRICH_QUERY = """
+_CACHE_ALIAS_ENRICH_QUERY = (
+    """
     INSERT INTO media_metadata_cache (
         media_id,
         title,
@@ -82,14 +108,21 @@ _CACHE_ALIAS_ENRICH_QUERY = """
             THEN EXCLUDED.year_end
             ELSE media_metadata_cache.year_end
         END,
-        aliases_json = EXCLUDED.aliases_json,
+"""
+    + _ALIASES_JSON_UPSERT_ASSIGNMENT
+    + """,
         metadata_updated_at = CASE
+            WHEN """
+    + _PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION
+    + """
+            THEN media_metadata_cache.metadata_updated_at
             WHEN media_metadata_cache.metadata_updated_at IS NULL
                 OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.metadata_updated_at
             ELSE media_metadata_cache.metadata_updated_at
         END
 """
+)
 
 
 class MetadataScraper:
