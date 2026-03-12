@@ -1255,6 +1255,10 @@ class TorrentUpdateQueue:
         await self._ensure_task("_retry_worker", self._process_retry_queue)
 
     async def _requeue_batch_items(self, batch_items: list[_TorrentUpdate]):
+        if self._stopping:
+            self._dropped_requeues += len(batch_items)
+            return
+
         requeue_candidates = []
         for item in batch_items:
             if self.max_retries is not None and item.attempts >= self.max_retries:
@@ -1266,11 +1270,13 @@ class TorrentUpdateQueue:
         if not requeue_candidates:
             return
 
+        if self._stopping:
+            self._dropped_requeues += len(requeue_candidates)
+            return
+
         await self._schedule_requeue_batch(
             requeue_candidates,
-            0.0
-            if self._stopping
-            else self._retry_delay_seconds(
+            self._retry_delay_seconds(
                 max(item.attempts for item in requeue_candidates)
             ),
         )
