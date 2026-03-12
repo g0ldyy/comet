@@ -4,7 +4,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.metadata.manager import MetadataScraper
@@ -1555,14 +1555,14 @@ class BackgroundScraperWorker:
     async def _seed_media_demand(self, media_id: str):
         current_time = time.time()
         await database.execute(
-            f"""
-            INSERT {OR_IGNORE} INTO media_demand (
+            """
+            INSERT INTO media_demand (
                 media_id,
                 first_seen_at,
                 last_seen_at
             )
             VALUES (:media_id, :current_time, :last_seen_at)
-            {ON_CONFLICT_DO_NOTHING}
+            ON CONFLICT DO NOTHING
             """,
             {
                 "media_id": media_id,

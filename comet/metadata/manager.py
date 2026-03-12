@@ -4,10 +4,9 @@ import time
 import aiohttp
 import orjson
 
-from comet.core.database import IS_SQLITE, database
+from comet.core.database import database
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.core.sqlite_compat import sqlite_supports_returning
 from comet.services.anime import anime_mapper
 from comet.utils.parsing import parse_media_id
 
@@ -20,12 +19,6 @@ _CACHE_SELECT_QUERY = """
     FROM media_metadata_cache
     WHERE media_id = :media_id
     AND metadata_updated_at >= :min_timestamp
-"""
-
-_CACHE_ALIASES_SELECT_QUERY = """
-    SELECT aliases_json
-    FROM media_metadata_cache
-    WHERE media_id = :media_id
 """
 
 _PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION = """
@@ -188,17 +181,6 @@ class MetadataScraper:
 
         return aliases if isinstance(aliases, dict) else {}
 
-    async def _get_cached_aliases(self, media_id: str) -> dict:
-        row = await database.fetch_one(
-            _CACHE_ALIASES_SELECT_QUERY,
-            {"media_id": media_id},
-            force_primary=True,
-        )
-        if row is None:
-            return {}
-
-        return self._load_cached_aliases(row["aliases_json"])
-
     async def get_cached(self, media_id: str, season: int, episode: int):
         row = await database.fetch_one(
             _CACHE_SELECT_QUERY,
@@ -229,19 +211,10 @@ class MetadataScraper:
         preserve_existing_metadata: bool = False,
     ) -> dict:
         current_time = time.time()
-        supports_returning = not IS_SQLITE or await sqlite_supports_returning(database)
         if preserve_existing_metadata:
-            query = (
-                _CACHE_ALIAS_ENRICH_RETURNING_QUERY
-                if supports_returning
-                else _CACHE_ALIAS_ENRICH_QUERY
-            )
+            query = _CACHE_ALIAS_ENRICH_RETURNING_QUERY
         else:
-            query = (
-                _CACHE_UPSERT_RETURNING_QUERY
-                if supports_returning
-                else _CACHE_UPSERT_QUERY
-            )
+            query = _CACHE_UPSERT_RETURNING_QUERY
         params = {
             "media_id": media_id,
             "title": metadata["title"],
@@ -253,26 +226,8 @@ class MetadataScraper:
         if preserve_existing_metadata:
             params["metadata_stale_before"] = current_time - settings.METADATA_CACHE_TTL
 
-        if supports_returning:
-            row = await database.fetch_one(
-                query,
-                params,
-                force_primary=True,
-            )
-            return (
-                self._load_cached_aliases(row["aliases_json"])
-                if row is not None
-                else {}
-            )
-
-        await database.execute(
-            query,
-            params,
-        )
-        if preserve_existing_metadata and not aliases:
-            return await self._get_cached_aliases(media_id)
-
-        return aliases
+        row = await database.fetch_one(query, params, force_primary=True)
+        return self._load_cached_aliases(row["aliases_json"]) if row is not None else {}
 
     def normalize_metadata(self, metadata: dict, season: int, episode: int):
         if not metadata:

@@ -32,7 +32,6 @@ from comet.core.schema_specs import (ACTIVE_CONNECTIONS_TABLE_SPEC,
                                      SCRAPE_LOCKS_TABLE_SPEC,
                                      TORRENTS_TABLE_SPEC, UNIQUE_INDEX_SPECS,
                                      LegacyColumnMigration, ManagedTableSpec)
-from comet.core.sqlite_compat import parse_sqlite_version
 
 
 @dataclass(slots=True)
@@ -40,10 +39,7 @@ class MigrationContext:
     database: object
     is_sqlite: bool
     is_postgres: bool
-    sqlite_version: str | None = None
     sqlite_journal_mode: str | None = None
-    sqlite_supports_drop_column: bool | None = None
-    sqlite_supports_rename_column: bool | None = None
 
 
 async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool):
@@ -96,18 +92,11 @@ async def _get_applied_migrations(ctx: MigrationContext) -> set[str]:
 
 
 async def _record_schema_migration(ctx: MigrationContext, version: str):
-    insert_sql = (
-        """
-        INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-        VALUES (:version, :applied_at)
-        """
-        if ctx.is_sqlite
-        else """
+    insert_sql = """
         INSERT INTO schema_migrations (version, applied_at)
         VALUES (:version, :applied_at)
         ON CONFLICT (version) DO NOTHING
-        """
-    )
+    """
     await ctx.database.execute(
         insert_sql,
         {"version": version, "applied_at": time.time()},
@@ -309,16 +298,6 @@ async def _drop_column_if_exists(
     if not await _column_exists(ctx, table_name, column_name):
         return False
 
-    if ctx.is_sqlite and not await _sqlite_supports_drop_column(ctx):
-        logger.log(
-            "DATABASE",
-            (
-                f"Skipping DROP COLUMN {table_name}.{column_name}: "
-                f"SQLite {ctx.sqlite_version} does not support ALTER TABLE DROP COLUMN"
-            ),
-        )
-        return False
-
     await ctx.database.execute(f"ALTER TABLE {table_name} DROP COLUMN {column_name}")
     return True
 
@@ -332,16 +311,6 @@ async def _rename_column_if_missing(
     if not await _column_exists(ctx, table_name, old_name):
         return False
     if await _column_exists(ctx, table_name, new_name):
-        return False
-    if ctx.is_sqlite and not await _sqlite_supports_rename_column(ctx):
-        logger.log(
-            "DATABASE",
-            (
-                f"Skipping RENAME COLUMN {table_name}.{old_name}: "
-                f"SQLite {ctx.sqlite_version} does not support ALTER TABLE "
-                "RENAME COLUMN"
-            ),
-        )
         return False
 
     await ctx.database.execute(
@@ -592,54 +561,6 @@ async def _dedupe_scope_rows(
             WHERE duplicate_rank > 1
         )
         """
-    )
-
-
-async def _get_sqlite_version(ctx: MigrationContext) -> str:
-    if ctx.sqlite_version is not None:
-        return ctx.sqlite_version
-
-    row = await ctx.database.fetch_one(
-        "SELECT sqlite_version() AS sqlite_version",
-        force_primary=True,
-    )
-    if not row:
-        ctx.sqlite_version = "unknown"
-        return ctx.sqlite_version
-
-    version = row[0] if isinstance(row, tuple) else row["sqlite_version"]
-    ctx.sqlite_version = str(version)
-    return ctx.sqlite_version
-
-
-async def _sqlite_supports_feature(
-    ctx: MigrationContext,
-    *,
-    min_version: tuple[int, int, int],
-    cache_attr: str,
-) -> bool:
-    cached = getattr(ctx, cache_attr)
-    if cached is not None:
-        return cached
-
-    supported = parse_sqlite_version(await _get_sqlite_version(ctx)) >= min_version
-    setattr(ctx, cache_attr, supported)
-    return supported
-
-
-async def _sqlite_supports_drop_column(ctx: MigrationContext) -> bool:
-    return await _sqlite_supports_feature(
-        ctx,
-        min_version=(3, 35, 0),
-        cache_attr="sqlite_supports_drop_column",
-    )
-
-
-async def _sqlite_supports_rename_column(ctx: MigrationContext) -> bool:
-    return await _sqlite_supports_feature(
-        ctx,
-        min_version=(3, 25, 0),
-        cache_attr="sqlite_supports_rename_column",
     )
 
 
@@ -947,16 +868,6 @@ async def _migration_indexes(ctx: MigrationContext):
 
 
 async def _cleanup_legacy_storage_columns(ctx: MigrationContext):
-    if ctx.is_sqlite and not await _sqlite_supports_drop_column(ctx):
-        logger.log(
-            "DATABASE",
-            (
-                "Legacy column cleanup requires SQLite 3.35.0 or newer for "
-                f"DROP COLUMN support; current version is {ctx.sqlite_version}."
-            ),
-        )
-        return
-
     dropped_any = False
     for table_name, columns in LEGACY_STORAGE_COLUMN_CLEANUP:
         for column_name in columns:
@@ -983,19 +894,6 @@ async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
         "kitsu_imdb_mapping",
     ]:
         await _drop_table_if_exists(ctx, table_name)
-
-    if ctx.is_sqlite and not await _sqlite_supports_drop_column(ctx):
-        logger.log(
-            "DATABASE",
-            (
-                "Legacy table cleanup completed, but legacy column cleanup is "
-                "deferred because SQLite "
-                f"{ctx.sqlite_version} does not support ALTER TABLE DROP COLUMN. "
-                "Legacy columns remain inert until a future startup on SQLite "
-                "3.35.0 or newer can finish the cleanup."
-            ),
-        )
-        return False
 
     await _cleanup_legacy_storage_columns(ctx)
     return True

@@ -11,7 +11,7 @@ import aiofiles
 import orjson
 from databases import Database
 
-from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, OR_IGNORE
+from comet.core.database import IS_SQLITE
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -302,9 +302,9 @@ class DatabaseManager:
         placeholders = ", ".join([":" + col for col in columns])
 
         return f"""
-            INSERT {OR_IGNORE} INTO {table_name} ({", ".join(columns)})
+            INSERT INTO {table_name} ({", ".join(columns)})
             VALUES ({placeholders})
-            {ON_CONFLICT_DO_NOTHING}
+            ON CONFLICT DO NOTHING
         """
 
     async def import_table(

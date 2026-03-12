@@ -1,14 +1,14 @@
 import secrets
 import time
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 
 KODI_SETUP_CODE_TTL_SECONDS = 300
 KODI_SETUP_CODE_BYTES = 4
 KODI_SETUP_MAX_GENERATION_ATTEMPTS = 8
 
-_INSERT_SETUP_CODE_QUERY = f"""
-INSERT {OR_IGNORE} INTO kodi_setup_codes (
+_INSERT_SETUP_CODE_QUERY = """
+INSERT INTO kodi_setup_codes (
     code,
     nonce,
     config_b64,
@@ -21,14 +21,8 @@ INSERT {OR_IGNORE} INTO kodi_setup_codes (
     :expires_at,
     NULL
 )
-{ON_CONFLICT_DO_NOTHING}
-"""
-
-_SELECT_INSERTED_SETUP_CODE_QUERY = """
-SELECT code
-FROM kodi_setup_codes
-WHERE code = :code
-  AND nonce = :nonce
+ON CONFLICT DO NOTHING
+RETURNING code
 """
 
 _ASSOCIATE_SETUP_CODE_QUERY = """
@@ -37,15 +31,7 @@ SET config_b64 = :b64config
 WHERE code = :code
   AND consumed_at IS NULL
   AND expires_at >= :now
-"""
-
-_SELECT_ASSOCIATED_SETUP_CODE_QUERY = """
-SELECT code
-FROM kodi_setup_codes
-WHERE code = :code
-  AND config_b64 = :b64config
-  AND consumed_at IS NULL
-  AND expires_at >= :now
+RETURNING code
 """
 
 _SELECT_CONSUMABLE_SETUP_CODE_QUERY = """
@@ -64,14 +50,7 @@ WHERE code = :code
   AND consumed_at IS NULL
   AND nonce = :current_nonce
   AND config_b64 = :b64config
-"""
-
-_SELECT_CONSUMED_SETUP_CODE_QUERY = """
-SELECT code
-FROM kodi_setup_codes
-WHERE code = :code
-  AND nonce = :consumed_nonce
-  AND consumed_at IS NOT NULL
+RETURNING code
 """
 
 _DELETE_SETUP_CODE_QUERY = """
@@ -88,18 +67,13 @@ async def create_setup_code(ttl_seconds: int = KODI_SETUP_CODE_TTL_SECONDS):
         code = secrets.token_hex(KODI_SETUP_CODE_BYTES)
         nonce = secrets.token_hex(8)
 
-        await database.execute(
+        inserted_row = await database.fetch_one(
             _INSERT_SETUP_CODE_QUERY,
             {
                 "code": code,
                 "nonce": nonce,
                 "expires_at": expires_at,
             },
-        )
-
-        inserted_row = await database.fetch_one(
-            _SELECT_INSERTED_SETUP_CODE_QUERY,
-            {"code": code, "nonce": nonce},
             force_primary=True,
         )
         if inserted_row:
@@ -111,13 +85,8 @@ async def create_setup_code(ttl_seconds: int = KODI_SETUP_CODE_TTL_SECONDS):
 async def associate_setup_code_with_b64config(code: str, b64config: str):
     now = time.time()
 
-    await database.execute(
-        _ASSOCIATE_SETUP_CODE_QUERY,
-        {"code": code, "b64config": b64config, "now": now},
-    )
-
     associated_row = await database.fetch_one(
-        _SELECT_ASSOCIATED_SETUP_CODE_QUERY,
+        _ASSOCIATE_SETUP_CODE_QUERY,
         {"code": code, "b64config": b64config, "now": now},
         force_primary=True,
     )
@@ -142,7 +111,7 @@ async def consume_b64config_for_setup_code(code: str):
             return None
 
         current_nonce = row["nonce"]
-        await database.execute(
+        consumed_row = await database.fetch_one(
             _CONSUME_SETUP_CODE_QUERY,
             {
                 "code": code,
@@ -151,10 +120,6 @@ async def consume_b64config_for_setup_code(code: str):
                 "current_nonce": current_nonce,
                 "b64config": b64config,
             },
-        )
-        consumed_row = await database.fetch_one(
-            _SELECT_CONSUMED_SETUP_CODE_QUERY,
-            {"code": code, "consumed_nonce": consumed_nonce},
             force_primary=True,
         )
         if consumed_row is None:

@@ -2,10 +2,9 @@ import asyncio
 import time
 import uuid
 
-from comet.core.database import (IS_POSTGRES, IS_SQLITE,
-                                 ON_CONFLICT_DO_NOTHING, OR_IGNORE)
+from comet.core.database import database
 from comet.core.logger import logger
-from comet.core.models import database, settings
+from comet.core.models import settings
 
 
 class DistributedLock:
@@ -43,23 +42,22 @@ class DistributedLock:
                         "expires_at": expires_at,
                     }
 
-                    if IS_POSTGRES:
-                        if await database.fetch_val(query + " RETURNING 1", params):
-                            return True
-                    else:
-                        result = await database.execute(query, params)
-                        if result > 0:
-                            return True
+                    if await database.fetch_val(
+                        query + " RETURNING 1",
+                        params,
+                        force_primary=True,
+                    ):
+                        return True
 
                     self.acquired = False
 
                 # Attempt to acquire the lock
-                result = await database.execute(
-                    f"""
-                    INSERT {OR_IGNORE}
-                    INTO scrape_locks (lock_key, instance_id, updated_at, expires_at)
+                inserted = await database.fetch_val(
+                    """
+                    INSERT INTO scrape_locks (lock_key, instance_id, updated_at, expires_at)
                     VALUES (:lock_key, :instance_id, :updated_at, :expires_at)
-                    {ON_CONFLICT_DO_NOTHING}
+                    ON CONFLICT DO NOTHING
+                    RETURNING 1
                     """,
                     {
                         "lock_key": self.lock_key,
@@ -67,21 +65,10 @@ class DistributedLock:
                         "updated_at": loop_time,
                         "expires_at": expires_at,
                     },
+                    force_primary=True,
                 )
 
-                # Check if we successfully acquired the lock
-                if IS_SQLITE:
-                    success = result > 0
-                else:
-                    # For PostgreSQL, check if our instance owns the lock
-                    row = await database.fetch_one(
-                        "SELECT instance_id FROM scrape_locks WHERE lock_key = :lock_key",
-                        {"lock_key": self.lock_key},
-                        force_primary=True,
-                    )
-                    success = row and row["instance_id"] == self.instance_id
-
-                if success:
+                if inserted == 1:
                     self.acquired = True
                     return True
 

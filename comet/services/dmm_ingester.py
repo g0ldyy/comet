@@ -10,7 +10,7 @@ import zipfile
 import aiohttp
 import RTN
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -157,11 +157,10 @@ class DMMIngester:
                                 total_inserted += len(batch_entries)
 
                             if processed_files_batch:
-                                query_files = f"""
-                                    INSERT {OR_IGNORE}
-                                    INTO dmm_ingested_files (filename) 
+                                query_files = """
+                                    INSERT INTO dmm_ingested_files (filename) 
                                     VALUES (:filename)
-                                    {ON_CONFLICT_DO_NOTHING}
+                                    ON CONFLICT DO NOTHING
                                 """
                                 await database.execute_many(
                                     query_files,
@@ -209,10 +208,10 @@ class DMMIngester:
                     }
                 )
 
-            query = f"""
-                INSERT {OR_IGNORE} INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year)
+            query = """
+                INSERT INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year)
                 VALUES (:info_hash, :filename, :size, :parsed_title, :parsed_year)
-                {ON_CONFLICT_DO_NOTHING}
+                ON CONFLICT DO NOTHING
             """
 
             await database.execute_many(query, values)

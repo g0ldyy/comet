@@ -535,8 +535,6 @@ IS_POSTGRES = settings.DATABASE_TYPE == "postgresql"
 IS_SQLITE = settings.DATABASE_TYPE == "sqlite"
 
 JSON_FUNC = "json_array_elements_text" if IS_POSTGRES else "json_each"
-OR_IGNORE = "" if IS_POSTGRES else "OR IGNORE"
-ON_CONFLICT_DO_NOTHING = "ON CONFLICT DO NOTHING" if IS_POSTGRES else ""
 
 
 class CometSettingsModel(SettingsModel):

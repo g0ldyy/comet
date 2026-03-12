@@ -9,8 +9,7 @@ from contextlib import asynccontextmanager
 import aiohttp
 import orjson
 
-from comet.core.database import (ON_CONFLICT_DO_NOTHING, OR_IGNORE,
-                                 backend_lock, database)
+from comet.core.database import backend_lock, database
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -467,10 +466,10 @@ class AnimeMapper:
             VALUES (:id, :data_json)
             ON CONFLICT (id) DO UPDATE SET data_json = EXCLUDED.data_json
         """
-        ids_query = f"""
-            INSERT {OR_IGNORE} INTO anime_ids (provider, provider_id, entry_id) 
+        ids_query = """
+            INSERT INTO anime_ids (provider, provider_id, entry_id) 
             VALUES (:provider, :provider_id, :entry_id)
-            {ON_CONFLICT_DO_NOTHING}
+            ON CONFLICT DO NOTHING
         """
 
         try:
