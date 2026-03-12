@@ -355,25 +355,27 @@ async def admin_api_metrics(
     """)
 
     # 🔍 SEARCH METRICS
-    total_unique_searches = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand"
+    search_metrics = await database.fetch_one(
+        """
+        SELECT
+            COUNT(*) AS total_unique_searches,
+            COALESCE(SUM(CASE WHEN first_seen_at >= :time_24h THEN 1 ELSE 0 END), 0) AS searches_24h,
+            COALESCE(SUM(CASE WHEN first_seen_at >= :time_7d THEN 1 ELSE 0 END), 0) AS searches_7d,
+            COALESCE(SUM(CASE WHEN first_seen_at >= :time_30d THEN 1 ELSE 0 END), 0) AS searches_30d
+        FROM media_demand
+        """,
+        {
+            "time_24h": current_time - 86400,
+            "time_7d": current_time - 604800,
+            "time_30d": current_time - 2592000,
+        },
     )
-
-    # Recent searches (last 24h, 7d, 30d)
-    searches_24h = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand WHERE first_seen_at >= :time_24h",
-        {"time_24h": current_time - 86400},
+    total_unique_searches = (
+        search_metrics["total_unique_searches"] if search_metrics else 0
     )
-
-    searches_7d = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand WHERE first_seen_at >= :time_7d",
-        {"time_7d": current_time - 604800},
-    )
-
-    searches_30d = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand WHERE first_seen_at >= :time_30d",
-        {"time_30d": current_time - 2592000},
-    )
+    searches_24h = search_metrics["searches_24h"] if search_metrics else 0
+    searches_7d = search_metrics["searches_7d"] if search_metrics else 0
+    searches_30d = search_metrics["searches_30d"] if search_metrics else 0
 
     # 🔧 SCRAPER METRICS
     active_locks = await database.fetch_val(
