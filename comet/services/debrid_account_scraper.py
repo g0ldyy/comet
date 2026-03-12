@@ -2,10 +2,9 @@ import asyncio
 import time
 from datetime import datetime
 
-import orjson
-
-from comet.core.database import (IS_SQLITE, JSON_FUNC,
-                                 _debrid_account_snapshot_ttl, database)
+from comet.core.database import (_debrid_account_snapshot_ttl,
+                                 build_json_list_membership_predicate,
+                                 database, encode_json_param)
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -19,6 +18,53 @@ from comet.utils.parsing import parsed_matches_target
 _SYNC_LOCK_PREFIX = "debrid-account-sync"
 _CACHED_STATUSES = frozenset({"cached", "downloaded"})
 _background_tasks: set[asyncio.Task] = set()
+TORRENT_INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "info_hash", "info_hashes"
+)
+_UPSERT_ACCOUNT_MAGNET_QUERY = """
+    INSERT INTO debrid_account_magnets (
+        debrid_service,
+        account_key_hash,
+        magnet_id,
+        info_hash,
+        name,
+        size,
+        status,
+        added_at,
+        synced_at
+    ) VALUES (
+        :debrid_service,
+        :account_key_hash,
+        :magnet_id,
+        :info_hash,
+        :name,
+        :size,
+        :status,
+        :added_at,
+        :synced_at
+    )
+    ON CONFLICT (debrid_service, account_key_hash, magnet_id)
+    DO UPDATE SET
+        info_hash = EXCLUDED.info_hash,
+        name = EXCLUDED.name,
+        size = EXCLUDED.size,
+        status = EXCLUDED.status,
+        added_at = EXCLUDED.added_at,
+        synced_at = EXCLUDED.synced_at
+"""
+_UPSERT_ACCOUNT_SYNC_STATE_QUERY = """
+    INSERT INTO debrid_account_sync_state (
+        debrid_service,
+        account_key_hash,
+        last_sync_at
+    ) VALUES (
+        :debrid_service,
+        :account_key_hash,
+        :last_sync_at
+    )
+    ON CONFLICT (debrid_service, account_key_hash)
+    DO UPDATE SET last_sync_at = EXCLUDED.last_sync_at
+"""
 
 
 def _dedupe_accounts(debrid_entries: list[dict]) -> list[tuple[str, str, str]]:
@@ -84,91 +130,12 @@ async def _upsert_snapshot_rows(rows: list[dict]):
     if not rows:
         return
 
-    if IS_SQLITE:
-        query = """
-            INSERT OR REPLACE INTO debrid_account_magnets (
-                debrid_service,
-                account_key_hash,
-                magnet_id,
-                info_hash,
-                name,
-                size,
-                status,
-                added_at,
-                synced_at
-            ) VALUES (
-                :debrid_service,
-                :account_key_hash,
-                :magnet_id,
-                :info_hash,
-                :name,
-                :size,
-                :status,
-                :added_at,
-                :synced_at
-            )
-        """
-    else:
-        query = """
-            INSERT INTO debrid_account_magnets (
-                debrid_service,
-                account_key_hash,
-                magnet_id,
-                info_hash,
-                name,
-                size,
-                status,
-                added_at,
-                synced_at
-            ) VALUES (
-                :debrid_service,
-                :account_key_hash,
-                :magnet_id,
-                :info_hash,
-                :name,
-                :size,
-                :status,
-                :added_at,
-                :synced_at
-            )
-            ON CONFLICT (debrid_service, account_key_hash, magnet_id)
-            DO UPDATE SET
-                info_hash = EXCLUDED.info_hash,
-                name = EXCLUDED.name,
-                size = EXCLUDED.size,
-                status = EXCLUDED.status,
-                added_at = EXCLUDED.added_at,
-                synced_at = EXCLUDED.synced_at
-        """
-
-    params_per_row = 9
-
-    if IS_SQLITE:
-        max_params = 999
-        chunk_size = max_params // params_per_row
-        for i in range(0, len(rows), chunk_size):
-            await database.execute_many(query, rows[i : i + chunk_size])
-        return
-
-    await database.execute_many(query, rows)
+    await database.execute_many(_UPSERT_ACCOUNT_MAGNET_QUERY, rows)
 
 
 async def _set_last_sync(service: str, account_key_hash: str, last_sync: float):
-    if IS_SQLITE:
-        query = """
-            INSERT OR REPLACE INTO debrid_account_sync_state
-            VALUES (:debrid_service, :account_key_hash, :last_sync_at)
-        """
-    else:
-        query = """
-            INSERT INTO debrid_account_sync_state
-            VALUES (:debrid_service, :account_key_hash, :last_sync_at)
-            ON CONFLICT (debrid_service, account_key_hash)
-            DO UPDATE SET last_sync_at = EXCLUDED.last_sync_at
-        """
-
     await database.execute(
-        query,
+        _UPSERT_ACCOUNT_SYNC_STATE_QUERY,
         {
             "debrid_service": service,
             "account_key_hash": account_key_hash,
@@ -405,14 +372,11 @@ async def _fetch_existing_media_torrent_keys(
         SELECT info_hash, season, episode
         FROM torrents
         WHERE media_id = :media_id
-          AND info_hash IN (
-              SELECT CAST(value as TEXT)
-              FROM {JSON_FUNC}(:info_hashes)
-          )
+          AND {TORRENT_INFO_HASH_MEMBERSHIP_SQL}
         """,
         {
             "media_id": media_id,
-            "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
+            "info_hashes": encode_json_param(info_hashes),
         },
         force_primary=True,
     )

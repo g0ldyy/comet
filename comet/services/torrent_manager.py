@@ -23,6 +23,9 @@ from comet.cometnet import CometNetService, get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.database import (IS_SQLITE, NULL_SCOPE_SENTINEL,
+                                 build_distinct_from_predicate,
+                                 build_json_list_membership_predicate,
+                                 build_upsert_assignments, encode_json_param,
                                  normalize_scope_value)
 from comet.core.logger import logger
 from comet.core.models import database, settings
@@ -96,16 +99,13 @@ DEFAULT_TORRENT_UPDATE_FLUSH_INTERVAL = 0.1
 DEFAULT_TORRENT_BROADCAST_QUEUE_MAXSIZE = 4096
 DEFAULT_TORRENT_BROADCAST_BATCH_QUEUE_MIN_SIZE = 32
 DEFAULT_TORRENT_BROADCAST_MAX_RETRIES = 5
-SQLITE_MAX_VARIABLES = 999
+CHECK_TORRENTS_EXIST_CHUNK_SIZE = 4096
+SQLITE_MAX_VARIABLES = 32766
 POSTGRES_MAX_PARAMETERS = 32767
-SQLITE_UPSERT_MAX_ROWS_PER_STATEMENT = max(
+DB_MAX_PARAMETERS = SQLITE_MAX_VARIABLES if IS_SQLITE else POSTGRES_MAX_PARAMETERS
+UPSERT_MAX_ROWS_PER_STATEMENT = max(
     1,
-    (SQLITE_MAX_VARIABLES - TORRENT_UPSERT_SHARED_PARAM_COUNT)
-    // TORRENT_UPSERT_ROW_PARAM_COUNT,
-)
-POSTGRES_UPSERT_MAX_ROWS_PER_STATEMENT = max(
-    1,
-    (POSTGRES_MAX_PARAMETERS - TORRENT_UPSERT_SHARED_PARAM_COUNT)
+    (DB_MAX_PARAMETERS - TORRENT_UPSERT_SHARED_PARAM_COUNT)
     // TORRENT_UPSERT_ROW_PARAM_COUNT,
 )
 DEFAULT_TORRENT_UPDATE_RETRY_BASE_DELAY = 0.05
@@ -728,26 +728,9 @@ def _compute_batched_queue_maxsize(
     return max(min_batches, total_slots // max(1, min(batch_size, 128)))
 
 
-@lru_cache(maxsize=32)
-def _build_check_torrents_exist_query(hash_count: int) -> str:
-    placeholders = ", ".join(f":info_hash_{index}" for index in range(hash_count))
-    return f"""
-SELECT info_hash
-FROM torrents
-WHERE info_hash IN ({placeholders})
-"""
-
-
-@lru_cache(maxsize=4096)
-def _build_check_torrents_exist_param_key(index: int) -> str:
-    return f"info_hash_{index}"
-
-
-def _build_check_torrents_exist_params(info_hashes: list[str]) -> dict:
-    return {
-        _build_check_torrents_exist_param_key(index): info_hash
-        for index, info_hash in enumerate(info_hashes)
-    }
+TORRENT_INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "info_hash", "info_hashes"
+)
 
 
 def _normalize_unique_info_hashes(info_hashes: Iterable[str]) -> tuple[str, ...]:
@@ -770,15 +753,18 @@ async def check_torrents_exist(info_hashes: list[str]) -> set[str]:
     if not unique_hashes:
         return set()
 
-    chunk_size = SQLITE_MAX_VARIABLES if IS_SQLITE else POSTGRES_MAX_PARAMETERS
     existing_hashes = set()
 
     try:
-        for start in range(0, len(unique_hashes), chunk_size):
-            chunk = unique_hashes[start : start + chunk_size]
+        for start in range(0, len(unique_hashes), CHECK_TORRENTS_EXIST_CHUNK_SIZE):
+            chunk = unique_hashes[start : start + CHECK_TORRENTS_EXIST_CHUNK_SIZE]
             rows = await database.fetch_all(
-                _build_check_torrents_exist_query(len(chunk)),
-                _build_check_torrents_exist_params(chunk),
+                f"""
+                SELECT info_hash
+                FROM torrents
+                WHERE {TORRENT_INFO_HASH_MEMBERSHIP_SQL}
+                """,
+                {"info_hashes": encode_json_param(chunk)},
             )
             existing_hashes.update(row["info_hash"] for row in rows)
         return existing_hashes
@@ -1496,27 +1482,17 @@ class TorrentUpdateQueue:
 
 
 TORRENT_COLUMNS_SQL = ",\n    ".join(TORRENT_DB_COLUMNS)
-TORRENT_UPDATE_SET_SQL = ",\n        ".join(
-    f"{column} = EXCLUDED.{column}" for column in TORRENT_UPDATE_COLUMNS
-)
-SQLITE_DISTINCT_UPDATE_WHERE_SQL = " OR ".join(
-    f"torrents.{column} IS NOT excluded.{column}"
-    for column in TORRENT_CHANGE_DETECTION_COLUMNS
-)
-POSTGRES_DISTINCT_UPDATE_WHERE_SQL = (
-    "ROW("
-    + ", ".join(f"torrents.{column}" for column in TORRENT_CHANGE_DETECTION_COLUMNS)
-    + ") IS DISTINCT FROM ROW("
-    + ", ".join(f"EXCLUDED.{column}" for column in TORRENT_CHANGE_DETECTION_COLUMNS)
-    + ")"
+TORRENT_UPDATE_SET_SQL = build_upsert_assignments(TORRENT_UPDATE_COLUMNS)
+TORRENT_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
+    "torrents",
+    "EXCLUDED",
+    TORRENT_CHANGE_DETECTION_COLUMNS,
 )
 TORRENT_REFRESH_UPDATE_WHERE_SQL = "COALESCE(torrents.updated_at, 0) < :refresh_before"
 
 
 def _build_batched_upsert_query(
     row_count: int,
-    *,
-    distinct_where_sql: str,
 ) -> str:
     values_sql = ",\n".join(
         "(\n    "
@@ -1550,25 +1526,14 @@ ON CONFLICT {TORRENT_CONFLICT_TARGET}
 DO UPDATE SET
         {TORRENT_UPDATE_SET_SQL}
 WHERE
-    ({distinct_where_sql})
+    ({TORRENT_DISTINCT_UPDATE_WHERE_SQL})
     OR ({TORRENT_REFRESH_UPDATE_WHERE_SQL})
 """
 
 
 @lru_cache(maxsize=64)
-def _build_sqlite_batched_upsert_query(row_count: int) -> str:
-    return _build_batched_upsert_query(
-        row_count,
-        distinct_where_sql=SQLITE_DISTINCT_UPDATE_WHERE_SQL,
-    )
-
-
-@lru_cache(maxsize=64)
-def _build_postgres_batched_upsert_query(row_count: int) -> str:
-    return _build_batched_upsert_query(
-        row_count,
-        distinct_where_sql=POSTGRES_DISTINCT_UPDATE_WHERE_SQL,
-    )
+def _build_batched_upsert_statement(row_count: int) -> str:
+    return _build_batched_upsert_query(row_count)
 
 
 @lru_cache(maxsize=8192)
@@ -1658,24 +1623,14 @@ async def _execute_batched_upsert(rows: list[_TorrentUpdate], *, updated_at: flo
     if not rows:
         return
 
-    max_rows_per_statement = (
-        SQLITE_UPSERT_MAX_ROWS_PER_STATEMENT
-        if IS_SQLITE
-        else POSTGRES_UPSERT_MAX_ROWS_PER_STATEMENT
-    )
-    query_builder = (
-        _build_sqlite_batched_upsert_query
-        if IS_SQLITE
-        else _build_postgres_batched_upsert_query
-    )
     sources_json_cache = {}
     parsed_json_cache = {}
 
     async with database.transaction():
-        for start in range(0, len(rows), max_rows_per_statement):
-            chunk = rows[start : start + max_rows_per_statement]
+        for start in range(0, len(rows), UPSERT_MAX_ROWS_PER_STATEMENT):
+            chunk = rows[start : start + UPSERT_MAX_ROWS_PER_STATEMENT]
             await database.execute(
-                query_builder(len(chunk)),
+                _build_batched_upsert_statement(len(chunk)),
                 _build_batched_params(
                     chunk,
                     updated_at=updated_at,

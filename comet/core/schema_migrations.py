@@ -191,16 +191,10 @@ async def _add_column_if_missing(
         return
 
     if ctx.is_postgres:
-        await ctx.database.execute(
-            f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_sql}"
-        )
-        return
-
-    try:
-        await ctx.database.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
-    except Exception as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
+        sql = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_sql}"
+    else:
+        sql = f"ALTER TABLE {table_name} ADD COLUMN {column_sql}"
+    await ctx.database.execute(sql)
 
 
 async def _drop_index_if_exists(ctx: MigrationContext, index_name: str):
@@ -342,14 +336,8 @@ async def _get_sqlite_journal_mode(ctx: MigrationContext) -> str | None:
     if not row:
         return None
 
-    if isinstance(row, tuple):
-        value = row[0]
-    else:
-        row_mapping = dict(row)
-        value = row_mapping.get("journal_mode")
-        if value is None:
-            value = next(iter(row_mapping.values()), None)
-
+    row_mapping = dict(row)
+    value = row_mapping.get("journal_mode")
     ctx.sqlite_journal_mode = None if value is None else str(value).lower()
     return ctx.sqlite_journal_mode
 
@@ -636,7 +624,6 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 {aliases_select} AS aliases_json,
                 timestamp AS metadata_updated_at
             FROM metadata_cache
-            WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
                 title = EXCLUDED.title,
                 year = EXCLUDED.year,
@@ -659,7 +646,6 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 release_date,
                 timestamp AS release_updated_at
             FROM digital_release_cache
-            WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
                 release_date = EXCLUDED.release_date,
                 release_updated_at = EXCLUDED.release_updated_at
@@ -679,7 +665,6 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 timestamp AS first_seen_at,
                 timestamp AS last_seen_at
             FROM first_searches
-            WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
                 first_seen_at = CASE
                     WHEN media_demand.first_seen_at IS NULL
@@ -899,10 +884,24 @@ async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
     return True
 
 
+async def _migration_remove_dead_kodi_columns(ctx: MigrationContext):
+    dropped_any = False
+    for column_name in ("nonce", "consumed_at"):
+        dropped_any = (
+            await _drop_column_if_exists(ctx, "kodi_setup_codes", column_name)
+            or dropped_any
+        )
+
+    if dropped_any and ctx.is_sqlite:
+        await _checkpoint_sqlite(ctx)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
     ("2026030903_integrity_rollout", _migration_integrity_rollout),
     ("2026030904_indexes", _migration_indexes),
     (LEGACY_STORAGE_CLEANUP_MIGRATION, _migration_cleanup_legacy_storage),
+    ("2026031201_remove_dead_kodi_columns", _migration_remove_dead_kodi_columns),
 ]

@@ -4,7 +4,8 @@ import time
 import aiohttp
 import orjson
 
-from comet.core.database import database
+from comet.core.database import (build_upsert_assignments, database,
+                                 encode_json_param)
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
@@ -27,71 +28,40 @@ EXCLUDED.aliases_json = '{}'
                 AND media_metadata_cache.aliases_json != '{}'
 """
 
-_ALIASES_JSON_UPSERT_ASSIGNMENT = f"""
-        aliases_json = CASE
+_CACHE_INSERT_SQL = """
+    INSERT INTO media_metadata_cache (
+        media_id,
+        title,
+        year,
+        year_end,
+        aliases_json,
+        metadata_updated_at
+    )
+    VALUES (
+        :media_id,
+        :title,
+        :year,
+        :year_end,
+        :aliases_json,
+        :metadata_updated_at
+    )
+"""
+
+_ALIASES_JSON_UPSERT_ASSIGNMENT = f"""        aliases_json = CASE
             WHEN {_PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION}
             THEN media_metadata_cache.aliases_json
             ELSE EXCLUDED.aliases_json
-        END
-"""
+        END"""
 
-_METADATA_UPDATED_AT_UPSERT_ASSIGNMENT = """
-        metadata_updated_at = EXCLUDED.metadata_updated_at
-"""
-
-_RETURNING_ALIASES_JSON_CLAUSE = """
-    RETURNING aliases_json
-"""
-
-_CACHE_UPSERT_QUERY = (
-    """
-    INSERT INTO media_metadata_cache (
-        media_id,
-        title,
-        year,
-        year_end,
-        aliases_json,
-        metadata_updated_at
-    )
-    VALUES (
-        :media_id,
-        :title,
-        :year,
-        :year_end,
-        :aliases_json,
-        :metadata_updated_at
-    )
-    ON CONFLICT (media_id) DO UPDATE SET
-        title = EXCLUDED.title,
-        year = EXCLUDED.year,
-        year_end = EXCLUDED.year_end,
-"""
-    + _ALIASES_JSON_UPSERT_ASSIGNMENT
-    + ","
-    + _METADATA_UPDATED_AT_UPSERT_ASSIGNMENT
+_METADATA_UPDATED_AT_UPSERT_ASSIGNMENT = (
+    "        metadata_updated_at = EXCLUDED.metadata_updated_at"
 )
 
-_CACHE_UPSERT_RETURNING_QUERY = _CACHE_UPSERT_QUERY + _RETURNING_ALIASES_JSON_CLAUSE
+_CACHE_STANDARD_METADATA_ASSIGNMENTS = build_upsert_assignments(
+    ("title", "year", "year_end")
+)
 
-_CACHE_ALIAS_ENRICH_QUERY = (
-    """
-    INSERT INTO media_metadata_cache (
-        media_id,
-        title,
-        year,
-        year_end,
-        aliases_json,
-        metadata_updated_at
-    )
-    VALUES (
-        :media_id,
-        :title,
-        :year,
-        :year_end,
-        :aliases_json,
-        :metadata_updated_at
-    )
-    ON CONFLICT (media_id) DO UPDATE SET
+_CACHE_ALIAS_ENRICH_METADATA_ASSIGNMENTS = """
         title = CASE
             WHEN media_metadata_cache.metadata_updated_at IS NULL
                 OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
@@ -109,15 +79,26 @@ _CACHE_ALIAS_ENRICH_QUERY = (
                 OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.year_end
             ELSE media_metadata_cache.year_end
-        END,
-"""
-    + _ALIASES_JSON_UPSERT_ASSIGNMENT
-    + ","
-    + _METADATA_UPDATED_AT_UPSERT_ASSIGNMENT
-)
+        END
+""".strip()
 
-_CACHE_ALIAS_ENRICH_RETURNING_QUERY = (
-    _CACHE_ALIAS_ENRICH_QUERY + _RETURNING_ALIASES_JSON_CLAUSE
+
+def _build_cache_upsert_query(metadata_assignments: str) -> str:
+    return f"""
+{_CACHE_INSERT_SQL}
+    ON CONFLICT (media_id) DO UPDATE SET
+{metadata_assignments},
+{_ALIASES_JSON_UPSERT_ASSIGNMENT},
+{_METADATA_UPDATED_AT_UPSERT_ASSIGNMENT}
+    RETURNING aliases_json
+"""
+
+
+_CACHE_UPSERT_RETURNING_QUERY = _build_cache_upsert_query(
+    _CACHE_STANDARD_METADATA_ASSIGNMENTS
+)
+_CACHE_ALIAS_ENRICH_RETURNING_QUERY = _build_cache_upsert_query(
+    _CACHE_ALIAS_ENRICH_METADATA_ASSIGNMENTS
 )
 
 
@@ -220,7 +201,7 @@ class MetadataScraper:
             "title": metadata["title"],
             "year": metadata["year"],
             "year_end": metadata["year_end"],
-            "aliases_json": orjson.dumps(aliases).decode("utf-8"),
+            "aliases_json": encode_json_param(aliases),
             "metadata_updated_at": current_time,
         }
         if preserve_existing_metadata:

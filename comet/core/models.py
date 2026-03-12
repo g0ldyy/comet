@@ -3,6 +3,7 @@ import random
 import secrets
 import string
 import time
+from collections.abc import Awaitable, Callable
 from typing import List, Optional, Union
 
 import RTN
@@ -20,11 +21,21 @@ from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
 
 _comet_fk_enabled = False
+_SQLITE_BUSY_TIMEOUT_MS = 30000
 
 
 def set_comet_foreign_keys_enabled(enabled: bool) -> None:
     global _comet_fk_enabled
     _comet_fk_enabled = enabled
+
+
+async def apply_sqlite_connection_pragmas(
+    execute: Callable[[str], Awaitable[object]],
+    *,
+    foreign_keys_enabled: bool,
+) -> None:
+    await execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
+    await execute(f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}")
 
 
 if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
@@ -33,9 +44,10 @@ if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
     async def _comet_sqlite_acquire(self):
         await _original_sqlite_acquire(self)
         assert self._connection is not None
-        await self._connection.execute("PRAGMA busy_timeout=30000")
-        if _comet_fk_enabled:
-            await self._connection.execute("PRAGMA foreign_keys=ON")
+        await apply_sqlite_connection_pragmas(
+            self._connection.execute,
+            foreign_keys_enabled=_comet_fk_enabled,
+        )
 
     SQLiteConnection.acquire = _comet_sqlite_acquire
     SQLiteConnection._comet_pragmas_patched = True

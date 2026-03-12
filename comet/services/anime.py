@@ -248,7 +248,7 @@ class AnimeMapper:
         if not row:
             return True
 
-        last_refresh = row[0] if isinstance(row, tuple) else row["refreshed_at"]
+        last_refresh = row["refreshed_at"]
         if last_refresh is None:
             return True
 
@@ -259,9 +259,7 @@ class AnimeMapper:
             query = "SELECT provider_id FROM anime_ids WHERE provider = 'imdb'"
             rows = await database.fetch_all(query)
 
-            self.anime_imdb_ids = {
-                row[0] if isinstance(row, tuple) else row["provider_id"] for row in rows
-            }
+            self.anime_imdb_ids = {row["provider_id"] for row in rows}
         except Exception as e:
             logger.error(f"Failed to load anime provider IDs: {e}")
 

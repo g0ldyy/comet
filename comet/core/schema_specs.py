@@ -158,10 +158,8 @@ KODI_SETUP_CODES_TABLE_SPEC = ManagedTableSpec(
     create_sql="""
         CREATE TABLE {table_name} (
             code TEXT PRIMARY KEY,
-            nonce TEXT NOT NULL,
             config_b64 TEXT,
-            expires_at REAL NOT NULL,
-            consumed_at REAL
+            expires_at REAL NOT NULL
         )
     """,
     legacy_columns=(

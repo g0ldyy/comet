@@ -3,13 +3,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from comet.core.database import database
+from comet.core.database import (build_json_list_membership_predicate,
+                                 database, encode_json_param, fetch_flag)
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
 from comet.utils.media_ids import normalize_cache_media_ids
-from comet.utils.torrent_cache import (build_torrent_cache_where,
-                                       normalize_search_params)
+from comet.utils.torrent_cache import normalize_search_params
+
+CACHE_MEDIA_ID_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "media_id", "cache_media_ids"
+)
 
 
 class CacheState(Enum):
@@ -111,24 +115,31 @@ class CacheStateManager:
         if settings.LIVE_TORRENT_CACHE_TTL >= 0:
             min_timestamp = time.time() - settings.LIVE_TORRENT_CACHE_TTL
 
-        for cache_media_id in self.cache_media_ids:
-            where_clause, params = build_torrent_cache_where(
-                cache_media_id, self.search_season, self.search_episode
-            )
-            base_query = "SELECT 1 " + where_clause
+        if not self.cache_media_ids:
+            return 0
 
-            if min_timestamp is not None:
-                ttl_condition = " AND updated_at >= :min_timestamp"
-                params["min_timestamp"] = min_timestamp
-                query = base_query + ttl_condition
-            else:
-                query = base_query
+        params = {
+            "cache_media_ids": encode_json_param(self.cache_media_ids),
+            "episode": self.search_episode,
+        }
+        query = f"""
+            SELECT 1
+            FROM torrents
+            WHERE {CACHE_MEDIA_ID_MEMBERSHIP_SQL}
+        """
+        if self.search_season is not None:
+            query += "\n            AND season = CAST(:season as INTEGER)"
+            params["season"] = self.search_season
 
-            result = await database.fetch_one(query + " LIMIT 1", params)
-            if result:
-                return 1
+        query += (
+            "\n            AND (episode IS NULL OR episode = CAST(:episode as INTEGER))"
+        )
+        if min_timestamp is not None:
+            query += "\n            AND updated_at >= :min_timestamp"
+            params["min_timestamp"] = min_timestamp
 
-        return 0
+        result = await database.fetch_one(query + "\n            LIMIT 1", params)
+        return 1 if result else 0
 
     async def _update_media_demand_last_seen(
         self, update_params: dict[str, str | float]
@@ -161,7 +172,7 @@ class CacheStateManager:
         update_params = {"media_id": self.media_id, "last_seen_at": current_time}
 
         try:
-            inserted = await database.fetch_val(
+            inserted = await fetch_flag(
                 """
                 INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
                 VALUES (:media_id, :first_seen_at, :last_seen_at)
@@ -177,7 +188,7 @@ class CacheStateManager:
             )
             return False
 
-        if inserted == 1:
+        if inserted:
             return True
 
         await self._update_media_demand_last_seen(update_params)

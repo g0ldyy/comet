@@ -3,15 +3,16 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from comet.core.database import build_upsert_assignments
 from comet.core.logger import logger
 from comet.core.models import database, settings
 
-UPSERT_BANDWIDTH_STATS_QUERY = """
+_BANDWIDTH_UPSERT_ASSIGNMENTS = build_upsert_assignments(("total_bytes", "updated_at"))
+UPSERT_BANDWIDTH_STATS_QUERY = f"""
     INSERT INTO bandwidth_stats (id, total_bytes, updated_at)
     VALUES (1, :total_bytes, :timestamp)
     ON CONFLICT (id) DO UPDATE SET
-        total_bytes = EXCLUDED.total_bytes,
-        updated_at = EXCLUDED.updated_at
+{_BANDWIDTH_UPSERT_ASSIGNMENTS}
 """
 
 

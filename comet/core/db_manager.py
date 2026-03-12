@@ -50,144 +50,150 @@ class DatabaseManager:
         self.batch_size = settings.DATABASE_BATCH_SIZE
         self._lock_retry_count = 0
 
-    async def get_table_info(self, table_name: str):
-        if IS_SQLITE:
-            # Get column information
-            columns_result = await self.database.fetch_all(
-                f"PRAGMA table_info({table_name})"
-            )
-            columns = [row["name"] for row in columns_result]
-            primary_key = [row["name"] for row in columns_result if row["pk"]]
-
-            # Get unique indexes/constraints
-            indexes_result = await self.database.fetch_all(
-                f"PRAGMA index_list({table_name})"
-            )
-            unique_constraints = []
-
-            for index in indexes_result:
-                if index["unique"]:
-                    index_info = await self.database.fetch_all(
-                        f"PRAGMA index_info({index['name']})"
-                    )
-                    constraint_columns = [col["name"] for col in index_info]
-
-                    # Try to get partial index condition
-                    try:
-                        sql_result = await self.database.fetch_one(
-                            "SELECT sql FROM sqlite_master WHERE type='index' AND name=:name",
-                            {"name": index["name"]},
-                        )
-                        condition = None
-                        if (
-                            sql_result
-                            and sql_result["sql"]
-                            and "WHERE" in sql_result["sql"]
-                        ):
-                            condition = sql_result["sql"].split("WHERE", 1)[1].strip()
-
-                        unique_constraints.append(
-                            {
-                                "name": index["name"],
-                                "columns": constraint_columns,
-                                "condition": condition,
-                            }
-                        )
-                    except Exception:
-                        unique_constraints.append(
-                            {
-                                "name": index["name"],
-                                "columns": constraint_columns,
-                                "condition": None,
-                            }
-                        )
-
-        else:  # PostgreSQL
-            # Get column information
-            columns_result = await self.database.fetch_all(
-                """
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = :table_name 
-                ORDER BY ordinal_position
-            """,
-                {"table_name": table_name},
-            )
-            columns = [row["column_name"] for row in columns_result]
-
-            # Get primary key
-            pk_result = await self.database.fetch_all(
-                """
-                SELECT kcu.column_name
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage kcu 
-                  ON tc.constraint_name = kcu.constraint_name
-                WHERE tc.table_name = :table_name 
-                  AND tc.constraint_type = 'PRIMARY KEY'
-                ORDER BY kcu.ordinal_position
-            """,
-                {"table_name": table_name},
-            )
-            primary_key = [row["column_name"] for row in pk_result]
-
-            # Get unique constraints and indexes
-            unique_result = await self.database.fetch_all(
-                """
-                SELECT 
-                    c.conname as constraint_name,
-                    array_agg(a.attname ORDER BY k.ordinality) as columns,
-                    pg_get_expr(c.conbin, c.conrelid) as condition
-                FROM pg_constraint c
-                JOIN pg_class t ON c.conrelid = t.oid
-                JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
-                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
-                WHERE t.relname = :table_name 
-                  AND c.contype IN ('u', 'p')
-                  AND c.conname != :primary_key_name
-                GROUP BY c.conname, c.conbin, c.conrelid
-                
-                UNION ALL
-                
-                SELECT 
-                    idx.indexname as constraint_name,
-                    array_agg(a.attname ORDER BY k.ordinality) as columns,
-                    pg_get_expr(i.indpred, i.indrelid) as condition
-                FROM pg_indexes idx
-                JOIN pg_class t ON t.relname = idx.tablename
-                JOIN pg_index i ON i.indrelid = t.oid
-                JOIN pg_class ic ON ic.oid = i.indexrelid AND ic.relname = idx.indexname
-                JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
-                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
-                WHERE idx.tablename = :table_name 
-                  AND i.indisunique = true
-                  AND NOT i.indisprimary
-                GROUP BY idx.indexname, i.indpred, i.indrelid
-            """,
-                {"table_name": table_name, "primary_key_name": f"{table_name}_pkey"},
-            )
-
-            unique_constraints = []
-            for row in unique_result:
-                unique_constraints.append(
-                    {
-                        "name": row["constraint_name"],
-                        "columns": row["columns"],
-                        "condition": row["condition"],
-                    }
-                )
-
-        # Get row count
-        count_result = await self.database.fetch_val(
-            f"SELECT COUNT(*) FROM {table_name}"
+    async def _get_sqlite_table_info(self, table_name: str) -> TableInfo:
+        columns_result = await self.database.fetch_all(
+            f"PRAGMA table_info({table_name})"
         )
+        columns = [row["name"] for row in columns_result]
+        primary_key = [row["name"] for row in columns_result if row["pk"]]
+
+        indexes_result = await self.database.fetch_all(
+            f"PRAGMA index_list({table_name})"
+        )
+        unique_constraints = []
+        for index in indexes_result:
+            if not index["unique"]:
+                continue
+
+            index_name = index["name"]
+            index_info = await self.database.fetch_all(
+                f"PRAGMA index_info({index_name})"
+            )
+            sql_result = await self.database.fetch_one(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND name=:name",
+                {"name": index_name},
+            )
+            condition = None
+            if sql_result and sql_result["sql"] and "WHERE" in sql_result["sql"]:
+                condition = sql_result["sql"].split("WHERE", 1)[1].strip()
+
+            unique_constraints.append(
+                {
+                    "name": index_name,
+                    "columns": [col["name"] for col in index_info],
+                    "condition": condition,
+                }
+            )
 
         return TableInfo(
             name=table_name,
             columns=columns,
             primary_key=primary_key,
             unique_constraints=unique_constraints,
-            row_count=count_result or 0,
         )
+
+    async def _get_postgres_table_info(self, table_name: str) -> TableInfo:
+        columns_result = await self.database.fetch_all(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = :table_name
+              AND table_schema = current_schema()
+            ORDER BY ordinal_position
+        """,
+            {"table_name": table_name},
+        )
+        pk_result = await self.database.fetch_all(
+            """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+             AND tc.table_name = kcu.table_name
+            WHERE tc.table_name = :table_name
+              AND tc.table_schema = current_schema()
+              AND tc.constraint_type = 'PRIMARY KEY'
+            ORDER BY kcu.ordinal_position
+        """,
+            {"table_name": table_name},
+        )
+        unique_result = await self.database.fetch_all(
+            """
+            SELECT
+                c.conname as constraint_name,
+                array_agg(a.attname ORDER BY k.ordinality) as columns,
+                pg_get_expr(c.conbin, c.conrelid) as condition
+            FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+            WHERE t.relname = :table_name
+              AND n.nspname = current_schema()
+              AND c.contype = 'u'
+            GROUP BY c.conname, c.conbin, c.conrelid
+
+            UNION ALL
+
+            SELECT
+                idx.indexname as constraint_name,
+                array_agg(a.attname ORDER BY k.ordinality) as columns,
+                pg_get_expr(i.indpred, i.indrelid) as condition
+            FROM pg_indexes idx
+            JOIN pg_class t ON t.relname = idx.tablename
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN pg_index i ON i.indrelid = t.oid
+            JOIN pg_class ic ON ic.oid = i.indexrelid AND ic.relname = idx.indexname
+            JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+            WHERE idx.tablename = :table_name
+              AND idx.schemaname = current_schema()
+              AND n.nspname = current_schema()
+              AND i.indisunique = true
+              AND NOT i.indisprimary
+            GROUP BY idx.indexname, i.indpred, i.indrelid
+        """,
+            {"table_name": table_name},
+        )
+        return TableInfo(
+            name=table_name,
+            columns=[row["column_name"] for row in columns_result],
+            primary_key=[row["column_name"] for row in pk_result],
+            unique_constraints=[
+                {
+                    "name": row["constraint_name"],
+                    "columns": row["columns"],
+                    "condition": row["condition"],
+                }
+                for row in unique_result
+            ],
+        )
+
+    async def get_table_info(self, table_name: str):
+        table_info = (
+            await self._get_sqlite_table_info(table_name)
+            if IS_SQLITE
+            else await self._get_postgres_table_info(table_name)
+        )
+
+        # Get row count
+        count_result = await self.database.fetch_val(
+            f"SELECT COUNT(*) FROM {table_name}"
+        )
+
+        table_info.row_count = count_result or 0
+        return table_info
+
+    def _build_export_query(
+        self, table_name: str, primary_key: List[str], batch_size: int, offset: int
+    ) -> str:
+        if primary_key:
+            return (
+                f"SELECT * FROM {table_name} ORDER BY {', '.join(primary_key)} "
+                f"LIMIT {batch_size} OFFSET {offset}"
+            )
+        return f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
 
     async def list_tables(self):
         if IS_SQLITE:
@@ -200,7 +206,7 @@ class DatabaseManager:
             result = await self.database.fetch_all("""
                 SELECT table_name as name
                 FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
                 ORDER BY table_name
             """)
 
@@ -238,16 +244,14 @@ class DatabaseManager:
                     # Export data in batches
                     offset = 0
                     while True:
-                        if IS_SQLITE:
-                            query = f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
-                        else:
-                            if table_info.primary_key:
-                                query = f"SELECT * FROM {table_name} ORDER BY {', '.join(table_info.primary_key)} LIMIT {batch_size} OFFSET {offset}"
-                            else:
-                                # No primary key, use simple pagination without ORDER BY
-                                query = f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
-
-                        rows = await self.database.fetch_all(query)
+                        rows = await self.database.fetch_all(
+                            self._build_export_query(
+                                table_name,
+                                table_info.primary_key,
+                                batch_size,
+                                offset,
+                            )
+                        )
                         if not rows:
                             break
 
@@ -264,16 +268,14 @@ class DatabaseManager:
 
                 offset = 0
                 while True:
-                    if IS_SQLITE:
-                        query = f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
-                    else:
-                        if table_info.primary_key:
-                            query = f"SELECT * FROM {table_name} ORDER BY {', '.join(table_info.primary_key)} LIMIT {batch_size} OFFSET {offset}"
-                        else:
-                            # No primary key, use simple pagination without ORDER BY
-                            query = f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
-
-                    rows = await self.database.fetch_all(query)
+                    rows = await self.database.fetch_all(
+                        self._build_export_query(
+                            table_name,
+                            table_info.primary_key,
+                            batch_size,
+                            offset,
+                        )
+                    )
                     if not rows:
                         break
 

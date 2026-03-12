@@ -11,6 +11,8 @@ try:
 except ImportError:
     fcntl = None
 
+import orjson
+
 import comet.core.models as _models_mod
 from comet.core.logger import logger
 from comet.core.models import (IS_POSTGRES, IS_SQLITE, JSON_FUNC, database,
@@ -25,9 +27,14 @@ __all__ = [
     "JSON_FUNC",
     "NULL_SCOPE_SENTINEL",
     "backend_lock",
+    "build_distinct_from_predicate",
+    "build_json_list_membership_predicate",
     "build_scope_lookup_params",
     "build_scope_params",
+    "build_upsert_assignments",
     "database",
+    "encode_json_param",
+    "fetch_flag",
     "normalize_scope_value",
     "settings",
 ]
@@ -67,6 +74,49 @@ def build_scope_lookup_params(
         "season_norm": normalize_scope_value(season),
         "episode_norm": normalize_scope_value(episode),
     }
+
+
+def build_distinct_from_predicate(
+    table_name: str,
+    compared_alias: str,
+    columns: tuple[str, ...],
+) -> str:
+    return " OR ".join(
+        f"{table_name}.{column} IS DISTINCT FROM {compared_alias}.{column}"
+        for column in columns
+    )
+
+
+def build_upsert_assignments(
+    columns: tuple[str, ...] | list[str],
+    *,
+    source_alias: str = "EXCLUDED",
+    indent: str = "        ",
+) -> str:
+    return ",\n".join(
+        f"{indent}{column} = {source_alias}.{column}" for column in columns
+    )
+
+
+def encode_json_param(value, *, default=None) -> str:
+    return orjson.dumps(value, default=default).decode("utf-8")
+
+
+def build_json_list_membership_predicate(column_name: str, param_name: str) -> str:
+    return (
+        f"{column_name} IN (SELECT CAST(value AS TEXT) FROM {JSON_FUNC}(:{param_name}))"
+    )
+
+
+async def fetch_flag(
+    query: str,
+    values: dict[str, object] | None = None,
+    *,
+    force_primary: bool = False,
+) -> bool:
+    return (
+        await database.fetch_one(query, values, force_primary=force_primary)
+    ) is not None
 
 
 def _debrid_account_snapshot_ttl() -> int:
@@ -438,7 +488,10 @@ async def _apply_sqlite_pragmas(
     foreign_keys: bool,
     journal_mode: str = _SQLITE_DEFAULT_JOURNAL_MODE,
 ):
-    await database.execute("PRAGMA busy_timeout=30000")
+    await _models_mod.apply_sqlite_connection_pragmas(
+        database.execute,
+        foreign_keys_enabled=foreign_keys,
+    )
     await database.execute(f"PRAGMA journal_mode={journal_mode}")
     await database.execute("PRAGMA synchronous=OFF")
     await database.execute("PRAGMA temp_store=MEMORY")
@@ -448,7 +501,6 @@ async def _apply_sqlite_pragmas(
     await database.execute(
         f"PRAGMA journal_size_limit={_SQLITE_JOURNAL_SIZE_LIMIT_BYTES}"
     )
-    await database.execute(f"PRAGMA foreign_keys={'ON' if foreign_keys else 'OFF'}")
     await database.execute("PRAGMA count_changes=OFF")
     await database.execute("PRAGMA secure_delete=OFF")
     await database.execute("PRAGMA auto_vacuum=OFF")
@@ -691,7 +743,7 @@ async def _perform_startup_cleanup(current_time: float):
 
     await _delete_where(
         "kodi_setup_codes",
-        "expires_at < :current_time OR consumed_at IS NOT NULL",
+        "expires_at < :current_time",
         {"current_time": current_time},
     )
 
@@ -740,7 +792,6 @@ async def cleanup_expired_kodi_setup_codes():
                 """
                 DELETE FROM kodi_setup_codes
                 WHERE expires_at < :current_time
-                   OR consumed_at IS NOT NULL
                 """,
                 {"current_time": current_time},
             )
