@@ -1119,7 +1119,7 @@ class TorrentUpdateQueue:
 
     async def add_network_torrent(self, metadata: TorrentMetadata):
         if not self._can_accept_media_id(metadata.imdb_id):
-            return
+            raise ValueError("Network torrent metadata requires imdb_id")
 
         await self._enqueue_prepared_item(_build_torrent_update_from_metadata(metadata))
 

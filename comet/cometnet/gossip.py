@@ -435,6 +435,10 @@ class GossipEngine:
             if not torrent.tracker:
                 return False
 
+            # Local storage requires a media identifier for persistence.
+            if not torrent.imdb_id:
+                return False
+
             # Timestamp should be reasonable
             now = time.time()
             if (

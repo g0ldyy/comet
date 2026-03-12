@@ -105,6 +105,11 @@ class UpdateMemberRoleRequest(BaseModel):
 _api_key: str = settings.COMETNET_API_KEY
 
 
+def _require_broadcast_media_id(imdb_id: Optional[str]) -> None:
+    if not imdb_id:
+        raise HTTPException(status_code=400, detail="imdb_id is required")
+
+
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
     """
     Verify API key.
@@ -394,6 +399,8 @@ class StandaloneCometNet:
                     status_code=503, detail="CometNet service not running"
                 )
 
+            _require_broadcast_media_id(request.imdb_id)
+
             try:
                 metadata = TorrentMetadata(**request.model_dump())
 
@@ -428,11 +435,14 @@ class StandaloneCometNet:
 
             for torrent in request.torrents:
                 try:
+                    _require_broadcast_media_id(torrent.imdb_id)
                     metadata = TorrentMetadata(**torrent.model_dump())
 
                     await self.service.broadcast_torrent(metadata)
                     queued += 1
                     self._broadcasts_success += 1
+                except HTTPException as e:
+                    errors.append({"info_hash": torrent.info_hash, "error": e.detail})
                 except Exception as e:
                     errors.append({"info_hash": torrent.info_hash, "error": str(e)})
 
