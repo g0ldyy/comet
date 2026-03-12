@@ -1567,7 +1567,7 @@ class BackgroundScraperWorker:
             {
                 "media_id": media_id,
                 "current_time": current_time,
-                "last_seen_at": 0.0,
+                "last_seen_at": current_time,
             },
         )
 
