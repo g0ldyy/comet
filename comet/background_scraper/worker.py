@@ -1025,7 +1025,7 @@ class BackgroundScraperWorker:
                 FROM background_scraper_items i
                 JOIN demand_ids d
                   ON d.media_id = i.media_id
-                  OR d.media_id LIKE i.media_id || ':%'
+                  OR d.media_id LIKE i.media_id || :series_media_id_like_suffix
             )
             SELECT i.media_id, i.media_type, i.title, i.year, i.year_end, i.priority_score,
                    i.consecutive_failures, i.status,
@@ -1055,6 +1055,7 @@ class BackgroundScraperWorker:
                 "limit": limit,
                 "demand_enabled": demand_enabled,
                 "min_priority_score": min_priority_score,
+                "series_media_id_like_suffix": ":%",
             },
         )
 
