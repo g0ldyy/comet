@@ -220,8 +220,8 @@ class BandwidthMonitor:
         params = {"total_bytes": total_bytes, "timestamp": sync_timestamp}
 
         if IS_SQLITE:
-            await database.execute(SQLITE_UPDATE_BANDWIDTH_STATS_QUERY, params)
             await database.execute(SQLITE_INSERT_BANDWIDTH_STATS_QUERY, params)
+            await database.execute(SQLITE_UPDATE_BANDWIDTH_STATS_QUERY, params)
             return
 
         await database.execute(POSTGRES_UPSERT_BANDWIDTH_STATS_QUERY, params)
