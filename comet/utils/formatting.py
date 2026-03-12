@@ -2,6 +2,7 @@ import base64
 
 from RTN import ParsedData
 
+from comet.core.logger import logger
 from comet.core.models import settings
 
 
@@ -12,7 +13,9 @@ def normalize_info_hash(info_hash: str) -> str:
                 "utf-8"
             )
         except Exception:
-            pass
+            logger.opt(exception=True).debug(
+                f"Failed to normalize base32 info_hash {info_hash!r} to hex"
+            )
 
     if len(info_hash) == 80:
         try:
@@ -22,7 +25,9 @@ def normalize_info_hash(info_hash: str) -> str:
                 int(decoded_str, 16)  # Validate it's hex
                 info_hash = decoded_str
         except Exception:
-            pass
+            logger.opt(exception=True).debug(
+                f"Failed to validate hex/ascii info_hash {info_hash!r}"
+            )
 
     return info_hash.lower()
 
