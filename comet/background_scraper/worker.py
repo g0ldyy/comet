@@ -1142,7 +1142,7 @@ class BackgroundScraperWorker:
         await manager.scrape_torrents()
         torrents_found = len(manager.torrents)
         if torrents_found > 0:
-            await self._insert_first_search(media_id)
+            await self._seed_media_demand(media_id)
         return torrents_found
 
     async def _scrape_series(self, item: dict, deadline: float | None) -> int:
@@ -1208,7 +1208,7 @@ class BackgroundScraperWorker:
             )
 
             if success:
-                await self._insert_first_search(episode_media_id)
+                await self._seed_media_demand(episode_media_id)
             total_torrents += episode_torrents
 
         return total_torrents
@@ -1552,7 +1552,7 @@ class BackgroundScraperWorker:
             "reasons": reasons,
         }
 
-    async def _insert_first_search(self, media_id: str):
+    async def _seed_media_demand(self, media_id: str):
         current_time = time.time()
         await database.execute(
             f"""
