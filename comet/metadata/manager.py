@@ -35,12 +35,8 @@ _ALIASES_JSON_UPSERT_ASSIGNMENT = f"""
         END
 """
 
-_METADATA_UPDATED_AT_UPSERT_ASSIGNMENT = f"""
-        metadata_updated_at = CASE
-            WHEN {_PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION}
-            THEN media_metadata_cache.metadata_updated_at
-            ELSE EXCLUDED.metadata_updated_at
-        END
+_METADATA_UPDATED_AT_UPSERT_ASSIGNMENT = """
+        metadata_updated_at = EXCLUDED.metadata_updated_at
 """
 
 _CACHE_UPSERT_QUERY = (
@@ -112,10 +108,6 @@ _CACHE_ALIAS_ENRICH_QUERY = (
     + _ALIASES_JSON_UPSERT_ASSIGNMENT
     + """,
         metadata_updated_at = CASE
-            WHEN """
-    + _PRESERVE_ALIASES_ON_EMPTY_REFRESH_CONDITION
-    + """
-            THEN media_metadata_cache.metadata_updated_at
             WHEN media_metadata_cache.metadata_updated_at IS NULL
                 OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
             THEN EXCLUDED.metadata_updated_at
