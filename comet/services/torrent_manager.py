@@ -197,7 +197,8 @@ def _normalize_valid_info_hash(info_hash) -> str | None:
     if not isinstance(info_hash, str):
         return None
 
-    normalized_info_hash = normalize_info_hash(info_hash).lower()
+    normalized_info_hash = normalize_info_hash(info_hash)
+
     if len(normalized_info_hash) != 40:
         return None
     return normalized_info_hash
@@ -236,15 +237,7 @@ def _extract_info_hash_from_magnet(magnet_uri: str) -> str | None:
     if not match:
         return None
 
-    info_hash = match.group(1)
-    if len(info_hash) == 32:
-        try:
-            info_hash = normalize_info_hash(info_hash)
-        except (TypeError, ValueError):
-            return None
-        if len(info_hash) != 40:
-            return None
-    return info_hash.lower()
+    return _normalize_valid_info_hash(match.group(1))
 
 
 def _extract_relevant_file_entries(file_specs) -> list[dict]:
@@ -341,10 +334,7 @@ async def get_torrent_from_magnet(magnet_uri: str):
 
 
 def _resolve_torrent_metadata(torrent) -> dict:
-    try:
-        info_hash = normalize_info_hash(torrent.infohash).lower()
-    except Exception:
-        return {}
+    info_hash = normalize_info_hash(torrent.infohash)
 
     trackers = []
     for tier in torrent.trackers:
@@ -535,8 +525,8 @@ def _build_torrent_update_from_source(
 def _build_torrent_update_from_metadata(
     metadata: TorrentMetadata,
 ) -> "_TorrentUpdate | None":
-    info_hash = metadata.info_hash.lower()
-    if len(info_hash) != 40 or not metadata.title:
+    info_hash = _normalize_valid_info_hash(metadata.info_hash)
+    if info_hash is None or not metadata.title:
         return None
 
     return _construct_torrent_update(
@@ -786,7 +776,7 @@ class AddTorrentQueue:
         self._workers = []
         self._stopping = False
         self._dropped_torrents = 0
-        self._pending_torrents = set()
+        self._pending_torrents = {}
         self._queue_waiters = 0
         self._queue_waiters_event = asyncio.Event()
         self._queue_waiters_event.set()
@@ -800,6 +790,29 @@ class AddTorrentQueue:
         self._queue_waiters_event.set()
         self._inflight_resolutions.clear()
         self._resolved_torrent_cache.clear()
+
+    @staticmethod
+    def _build_pending_metadata(seeders: int, tracker: str) -> dict[str, int | str]:
+        return {
+            "seeders": seeders,
+            "tracker": tracker,
+        }
+
+    @staticmethod
+    def _merge_pending_metadata(
+        current: dict[str, int | str],
+        *,
+        seeders: int,
+        tracker: str,
+    ) -> None:
+        current_seeders = current.get("seeders")
+        if seeders is not None and (
+            current_seeders is None or seeders > current_seeders
+        ):
+            current["seeders"] = seeders
+
+        if tracker:
+            current["tracker"] = tracker
 
     async def add_torrent(
         self,
@@ -820,9 +833,17 @@ class AddTorrentQueue:
         queue_key = (media_id, magnet_key, search_season)
 
         async with self._lock:
-            if queue_key in self._pending_torrents:
+            pending_metadata = self._pending_torrents.get(queue_key)
+            if pending_metadata is not None:
+                self._merge_pending_metadata(
+                    pending_metadata,
+                    seeders=seeders,
+                    tracker=tracker,
+                )
                 return
-            self._pending_torrents.add(queue_key)
+            self._pending_torrents[queue_key] = self._build_pending_metadata(
+                seeders, tracker
+            )
 
         await self._ensure_workers()
 
@@ -841,7 +862,7 @@ class AddTorrentQueue:
                 await self.queue.put(payload)
             except asyncio.CancelledError:
                 async with self._lock:
-                    self._pending_torrents.discard(queue_key)
+                    self._pending_torrents.pop(queue_key, None)
                 raise
             finally:
                 self._queue_waiters -= 1
@@ -877,8 +898,8 @@ class AddTorrentQueue:
             (
                 queue_key,
                 magnet_url,
-                seeders,
-                tracker,
+                _seeders,
+                _tracker,
             ) = item
             media_id, magnet_key, search_season = queue_key
 
@@ -886,19 +907,26 @@ class AddTorrentQueue:
                 resolved_torrent = await self._get_resolved_torrent(
                     magnet_key, magnet_url
                 )
+                async with self._lock:
+                    pending_metadata = self._pending_torrents.get(queue_key)
+
                 if resolved_torrent:
+                    if pending_metadata is None:
+                        pending_metadata = self._build_pending_metadata(
+                            _seeders, _tracker
+                        )
                     await torrent_update_queue.add_resolved_torrent(
                         resolved_torrent,
                         media_id=media_id,
-                        seeders=seeders,
-                        tracker=tracker,
+                        seeders=pending_metadata["seeders"],
+                        tracker=pending_metadata["tracker"],
                         search_season=search_season,
                     )
             except Exception as e:
                 logger.warning(f"Error while processing magnet torrent: {e}")
             finally:
                 async with self._lock:
-                    self._pending_torrents.discard(queue_key)
+                    self._pending_torrents.pop(queue_key, None)
                 self.queue.task_done()
 
     async def _get_resolved_torrent(self, magnet_key: str, magnet_url: str) -> dict:

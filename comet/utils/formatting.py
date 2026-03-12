@@ -21,10 +21,10 @@ def normalize_info_hash(info_hash: str) -> str:
             if len(decoded_str) == 40:
                 int(decoded_str, 16)  # Validate it's hex
                 info_hash = decoded_str
-        except (ValueError, UnicodeDecodeError):
+        except Exception:
             pass
 
-    return info_hash
+    return info_hash.lower()
 
 
 def format_bytes(bytes_value):
