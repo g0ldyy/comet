@@ -5,7 +5,7 @@ import random
 import re
 import time
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import chain
@@ -697,6 +697,27 @@ async def _collect_queue_batch(
     return batch
 
 
+async def _wait_for_tracked_queue_drain(
+    queue: asyncio.Queue,
+    *,
+    waiters_count: Callable[[], int],
+    waiters_event: asyncio.Event,
+    extra_idle_check: Callable[[], Awaitable[bool]] | None = None,
+    extra_idle_wait: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    while True:
+        while waiters_count() > 0:
+            await waiters_event.wait()
+
+        await queue.join()
+        if waiters_count() != 0:
+            continue
+        if extra_idle_check is None or await extra_idle_check():
+            return
+        if extra_idle_wait is not None:
+            await extra_idle_wait()
+
+
 def _compute_batched_queue_maxsize(
     batch_size: int,
     *,
@@ -775,7 +796,6 @@ class AddTorrentQueue:
         self._lock = asyncio.Lock()
         self._workers = []
         self._stopping = False
-        self._dropped_torrents = 0
         self._pending_torrents = {}
         self._queue_waiters = 0
         self._queue_waiters_event = asyncio.Event()
@@ -790,6 +810,15 @@ class AddTorrentQueue:
         self._queue_waiters_event.set()
         self._inflight_resolutions.clear()
         self._resolved_torrent_cache.clear()
+
+    def _begin_queue_wait(self):
+        self._queue_waiters += 1
+        self._queue_waiters_event.clear()
+
+    def _end_queue_wait(self):
+        self._queue_waiters -= 1
+        if self._queue_waiters == 0:
+            self._queue_waiters_event.set()
 
     @staticmethod
     def _build_pending_metadata(seeders: int, tracker: str) -> dict[str, int | str]:
@@ -847,17 +876,11 @@ class AddTorrentQueue:
 
         await self._ensure_workers()
 
-        payload = (
-            queue_key,
-            magnet_url,
-            seeders,
-            tracker,
-        )
+        payload = (queue_key, magnet_url)
         try:
             self.queue.put_nowait(payload)
         except asyncio.QueueFull:
-            self._queue_waiters += 1
-            self._queue_waiters_event.clear()
+            self._begin_queue_wait()
             try:
                 await self.queue.put(payload)
             except asyncio.CancelledError:
@@ -865,9 +888,7 @@ class AddTorrentQueue:
                     self._pending_torrents.pop(queue_key, None)
                 raise
             finally:
-                self._queue_waiters -= 1
-                if self._queue_waiters == 0:
-                    self._queue_waiters_event.set()
+                self._end_queue_wait()
 
     async def _ensure_workers(self):
         workers = self._workers
@@ -895,12 +916,7 @@ class AddTorrentQueue:
                 self.queue.task_done()
                 return
 
-            (
-                queue_key,
-                magnet_url,
-                _seeders,
-                _tracker,
-            ) = item
+            queue_key, magnet_url = item
             media_id, magnet_key, search_season = queue_key
 
             try:
@@ -910,11 +926,7 @@ class AddTorrentQueue:
                 async with self._lock:
                     pending_metadata = self._pending_torrents.get(queue_key)
 
-                if resolved_torrent:
-                    if pending_metadata is None:
-                        pending_metadata = self._build_pending_metadata(
-                            _seeders, _tracker
-                        )
+                if resolved_torrent and pending_metadata is not None:
                     await torrent_update_queue.add_resolved_torrent(
                         resolved_torrent,
                         media_id=media_id,
@@ -982,12 +994,11 @@ class AddTorrentQueue:
                 self._reset_runtime_state()
             return
 
-        while True:
-            while self._queue_waiters > 0:
-                await self._queue_waiters_event.wait()
-            await self.queue.join()
-            if self._queue_waiters == 0:
-                break
+        await _wait_for_tracked_queue_drain(
+            self.queue,
+            waiters_count=lambda: self._queue_waiters,
+            waiters_event=self._queue_waiters_event,
+        )
         for _ in active_workers:
             await self.queue.put(self._STOP)
         await asyncio.gather(*active_workers, return_exceptions=True)
@@ -1026,9 +1037,6 @@ class TorrentUpdateQueue:
         self._broadcast_worker = None
         self._retry_worker = None
         self._stopping = False
-        self._dropped_updates = 0
-        self._dropped_requeues = 0
-        self._dropped_broadcasts = 0
         self._pending_updates = {}
         self._queue_waiters = 0
         self._queue_waiters_event = asyncio.Event()
@@ -1042,6 +1050,16 @@ class TorrentUpdateQueue:
         self._retry_idle_event.set()
         self._retry_inflight = 0
         self._retry_sequence = 0
+
+    def _begin_waiting(self, count_attr: str, event_attr: str):
+        setattr(self, count_attr, getattr(self, count_attr) + 1)
+        getattr(self, event_attr).clear()
+
+    def _end_waiting(self, count_attr: str, event_attr: str):
+        waiters = getattr(self, count_attr) - 1
+        setattr(self, count_attr, waiters)
+        if waiters == 0:
+            getattr(self, event_attr).set()
 
     def _can_accept_media_id(self, media_id: str | None) -> bool:
         return not self._stopping and isinstance(media_id, str) and bool(media_id)
@@ -1160,11 +1178,6 @@ class TorrentUpdateQueue:
                 except asyncio.QueueFull:
                     queue_full = True
                     slow_items.append(item)
-
-            if slow_items:
-                self._queue_waiters += 1
-                self._queue_waiters_event.clear()
-
         return slow_items
 
     async def _discard_pending_item(self, item: _TorrentUpdate):
@@ -1183,6 +1196,7 @@ class TorrentUpdateQueue:
             return
 
         queued_count = 0
+        self._begin_waiting("_queue_waiters", "_queue_waiters_event")
         try:
             for item in slow_items:
                 await self.queue.put(item)
@@ -1192,9 +1206,7 @@ class TorrentUpdateQueue:
                 await self._discard_pending_item(item)
             raise
         finally:
-            self._queue_waiters -= 1
-            if self._queue_waiters == 0:
-                self._queue_waiters_event.set()
+            self._end_waiting("_queue_waiters", "_queue_waiters_event")
 
     async def _enqueue_broadcast_items(
         self, batch_items: list[_TorrentUpdate], updated_at: float
@@ -1223,14 +1235,11 @@ class TorrentUpdateQueue:
         try:
             self._broadcast_queue.put_nowait((backend, metadata_batch))
         except asyncio.QueueFull:
-            self._broadcast_waiters += 1
-            self._broadcast_waiters_event.clear()
+            self._begin_waiting("_broadcast_waiters", "_broadcast_waiters_event")
             try:
                 await self._broadcast_queue.put((backend, metadata_batch))
             finally:
-                self._broadcast_waiters -= 1
-                if self._broadcast_waiters == 0:
-                    self._broadcast_waiters_event.set()
+                self._end_waiting("_broadcast_waiters", "_broadcast_waiters_event")
 
     def _retry_delay_seconds(self, attempt: int) -> float:
         delay = min(
@@ -1256,13 +1265,11 @@ class TorrentUpdateQueue:
 
     async def _requeue_batch_items(self, batch_items: list[_TorrentUpdate]):
         if self._stopping:
-            self._dropped_requeues += len(batch_items)
             return
 
         requeue_candidates = []
         for item in batch_items:
             if self.max_retries is not None and item.attempts >= self.max_retries:
-                self._dropped_requeues += 1
                 continue
             item.attempts += 1
             requeue_candidates.append(item)
@@ -1271,7 +1278,6 @@ class TorrentUpdateQueue:
             return
 
         if self._stopping:
-            self._dropped_requeues += len(requeue_candidates)
             return
 
         await self._schedule_requeue_batch(
@@ -1412,7 +1418,6 @@ class TorrentUpdateQueue:
                                     f"batch={len(metadata_batch)}): {e}"
                                 )
                             if final_attempt:
-                                self._dropped_broadcasts += len(metadata_batch)
                                 logger.warning(
                                     "Dropping torrent broadcast batch "
                                     f"(attempts={attempt}, batch={len(metadata_batch)}, "
@@ -1437,13 +1442,13 @@ class TorrentUpdateQueue:
             )
 
         if worker is not None:
-            while True:
-                while self._queue_waiters > 0:
-                    await self._queue_waiters_event.wait()
-                await self.queue.join()
-                if self._queue_waiters == 0 and await self._retry_is_idle():
-                    break
-                await self._wait_for_retry_drain()
+            await _wait_for_tracked_queue_drain(
+                self.queue,
+                waiters_count=lambda: self._queue_waiters,
+                waiters_event=self._queue_waiters_event,
+                extra_idle_check=self._retry_is_idle,
+                extra_idle_wait=self._wait_for_retry_drain,
+            )
             await self.queue.put(self._STOP)
             await asyncio.gather(worker, return_exceptions=True)
 
@@ -1455,12 +1460,11 @@ class TorrentUpdateQueue:
                 else None
             )
         if broadcast_worker is not None:
-            while True:
-                while self._broadcast_waiters > 0:
-                    await self._broadcast_waiters_event.wait()
-                await self._broadcast_queue.join()
-                if self._broadcast_waiters == 0:
-                    break
+            await _wait_for_tracked_queue_drain(
+                self._broadcast_queue,
+                waiters_count=lambda: self._broadcast_waiters,
+                waiters_event=self._broadcast_waiters_event,
+            )
             await self._broadcast_queue.put(self._STOP)
             await asyncio.gather(broadcast_worker, return_exceptions=True)
 
@@ -1506,14 +1510,6 @@ POSTGRES_DISTINCT_UPDATE_WHERE_SQL = (
     + ")"
 )
 TORRENT_REFRESH_UPDATE_WHERE_SQL = "COALESCE(torrents.updated_at, 0) < :refresh_before"
-
-
-def estimate_upsert_row_count(params: dict) -> int:
-    return max(
-        0,
-        (len(params) - TORRENT_UPSERT_SHARED_PARAM_COUNT)
-        // TORRENT_UPSERT_ROW_PARAM_COUNT,
-    )
 
 
 def _build_batched_upsert_query(
