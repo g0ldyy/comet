@@ -185,6 +185,12 @@ class GossipEngine:
 
         valid_list = []
         for metadata in metadata_list:
+            if not metadata.imdb_id:
+                logger.debug(
+                    f"Skipping torrent without imdb_id in gossip queue: {metadata.info_hash}"
+                )
+                continue
+
             # Sign the torrent with our identity
             metadata.contributor_id = self.identity.node_id
             metadata.contributor_public_key = self.identity.public_key_hex

@@ -269,7 +269,7 @@ def _construct_torrent_metadata(
     size: int,
     seeders: int | None,
     tracker: str,
-    imdb_id: str | None,
+    imdb_id: str,
     file_index: int | None,
     season: int | None,
     episode: int | None,
@@ -277,7 +277,7 @@ def _construct_torrent_metadata(
     parsed: dict,
     updated_at: float,
 ) -> TorrentMetadata:
-    return TorrentMetadata.model_construct(
+    return TorrentMetadata(
         info_hash=info_hash,
         title=title,
         size=size,
@@ -526,11 +526,12 @@ def _build_torrent_update_from_metadata(
     metadata: TorrentMetadata,
 ) -> "_TorrentUpdate | None":
     info_hash = _normalize_valid_info_hash(metadata.info_hash)
-    if info_hash is None or not metadata.title:
+    media_id = metadata.imdb_id
+    if info_hash is None or not metadata.title or not media_id:
         return None
 
     return _construct_torrent_update(
-        media_id=metadata.imdb_id,
+        media_id=media_id,
         info_hash=info_hash,
         season=metadata.season,
         episode=metadata.episode,
