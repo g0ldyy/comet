@@ -70,7 +70,7 @@ async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool)
                     "a later startup is still required to finish it."
                 ),
             )
-            continue
+            break
         await _record_schema_migration(ctx, version)
         logger.log("DATABASE", f"Applied schema migration {version}")
 
