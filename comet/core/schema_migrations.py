@@ -32,6 +32,7 @@ from comet.core.schema_specs import (ACTIVE_CONNECTIONS_TABLE_SPEC,
                                      SCRAPE_LOCKS_TABLE_SPEC,
                                      TORRENTS_TABLE_SPEC, UNIQUE_INDEX_SPECS,
                                      LegacyColumnMigration, ManagedTableSpec)
+from comet.core.sqlite_compat import parse_sqlite_version
 
 
 @dataclass(slots=True)
@@ -594,21 +595,6 @@ async def _dedupe_scope_rows(
     )
 
 
-def _parse_sqlite_version(version: str | None) -> tuple[int, int, int]:
-    if not version:
-        return (0, 0, 0)
-
-    parsed = []
-    for part in str(version).split(".")[:3]:
-        try:
-            parsed.append(int(part))
-        except ValueError:
-            parsed.append(0)
-    while len(parsed) < 3:
-        parsed.append(0)
-    return (parsed[0], parsed[1], parsed[2])
-
-
 async def _get_sqlite_version(ctx: MigrationContext) -> str:
     if ctx.sqlite_version is not None:
         return ctx.sqlite_version
@@ -636,7 +622,7 @@ async def _sqlite_supports_feature(
     if cached is not None:
         return cached
 
-    supported = _parse_sqlite_version(await _get_sqlite_version(ctx)) >= min_version
+    supported = parse_sqlite_version(await _get_sqlite_version(ctx)) >= min_version
     setattr(ctx, cache_attr, supported)
     return supported
 
