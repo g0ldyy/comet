@@ -107,12 +107,7 @@ _CACHE_ALIAS_ENRICH_QUERY = (
 """
     + _ALIASES_JSON_UPSERT_ASSIGNMENT
     + """,
-        metadata_updated_at = CASE
-            WHEN media_metadata_cache.metadata_updated_at IS NULL
-                OR media_metadata_cache.metadata_updated_at < :metadata_stale_before
-            THEN EXCLUDED.metadata_updated_at
-            ELSE media_metadata_cache.metadata_updated_at
-        END
+        metadata_updated_at = EXCLUDED.metadata_updated_at
 """
 )
 
