@@ -361,17 +361,17 @@ async def admin_api_metrics(
 
     # Recent searches (last 24h, 7d, 30d)
     searches_24h = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand WHERE last_seen_at >= :time_24h",
+        "SELECT COUNT(*) FROM media_demand WHERE first_seen_at >= :time_24h",
         {"time_24h": current_time - 86400},
     )
 
     searches_7d = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand WHERE last_seen_at >= :time_7d",
+        "SELECT COUNT(*) FROM media_demand WHERE first_seen_at >= :time_7d",
         {"time_7d": current_time - 604800},
     )
 
     searches_30d = await database.fetch_val(
-        "SELECT COUNT(*) FROM media_demand WHERE last_seen_at >= :time_30d",
+        "SELECT COUNT(*) FROM media_demand WHERE first_seen_at >= :time_30d",
         {"time_30d": current_time - 2592000},
     )
 
