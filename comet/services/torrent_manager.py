@@ -1038,6 +1038,9 @@ class TorrentUpdateQueue:
         self._broadcast_waiters_event.set()
         self._retry_heap = []
         self._retry_event = asyncio.Event()
+        self._retry_idle_event = asyncio.Event()
+        self._retry_idle_event.set()
+        self._retry_inflight = 0
         self._retry_sequence = 0
 
     def _can_accept_media_id(self, media_id: str | None) -> bool:
@@ -1169,8 +1172,10 @@ class TorrentUpdateQueue:
             if self._pending_updates.get(item.row_key) is item:
                 self._pending_updates.pop(item.row_key, None)
 
-    async def _queue_items(self, items: Iterable[_TorrentUpdate]):
-        if self._stopping:
+    async def _queue_items(
+        self, items: Iterable[_TorrentUpdate], *, force: bool = False
+    ):
+        if self._stopping and not force:
             return
 
         slow_items = await self._stage_pending_items(items)
@@ -1244,14 +1249,12 @@ class TorrentUpdateQueue:
                 (ready_at, self._retry_sequence, batch_items),
             )
             self._retry_sequence += 1
+            self._retry_idle_event.clear()
             self._retry_event.set()
 
         await self._ensure_task("_retry_worker", self._process_retry_queue)
 
     async def _requeue_batch_items(self, batch_items: list[_TorrentUpdate]):
-        if self._stopping:
-            return
-
         requeue_candidates = []
         for item in batch_items:
             if self.max_retries is not None and item.attempts >= self.max_retries:
@@ -1265,10 +1268,25 @@ class TorrentUpdateQueue:
 
         await self._schedule_requeue_batch(
             requeue_candidates,
-            self._retry_delay_seconds(
+            0.0
+            if self._stopping
+            else self._retry_delay_seconds(
                 max(item.attempts for item in requeue_candidates)
             ),
         )
+
+    async def _retry_is_idle(self) -> bool:
+        async with self._retry_lock:
+            return not self._retry_heap and self._retry_inflight == 0
+
+    async def _wait_for_retry_drain(self):
+        while True:
+            async with self._retry_lock:
+                if not self._retry_heap and self._retry_inflight == 0:
+                    self._retry_idle_event.set()
+                    return
+                retry_idle_event = self._retry_idle_event
+            await retry_idle_event.wait()
 
     async def _process_retry_queue(self):
         try:
@@ -1281,14 +1299,23 @@ class TorrentUpdateQueue:
                         wait_timeout = ready_at - time.monotonic()
                         if wait_timeout <= 0:
                             _, _, batch_items = heapq.heappop(self._retry_heap)
+                            self._retry_inflight += 1
                         else:
                             self._retry_event.clear()
+                            self._retry_idle_event.clear()
                     else:
                         self._retry_event.clear()
+                        if self._retry_inflight == 0:
+                            self._retry_idle_event.set()
 
                 if batch_items is not None:
-                    if not self._stopping:
-                        await self._queue_items(batch_items)
+                    try:
+                        await self._queue_items(batch_items, force=True)
+                    finally:
+                        async with self._retry_lock:
+                            self._retry_inflight -= 1
+                            if not self._retry_heap and self._retry_inflight == 0:
+                                self._retry_idle_event.set()
                     continue
 
                 if wait_timeout is None:
@@ -1402,28 +1429,25 @@ class TorrentUpdateQueue:
                 if self._worker is not None and not self._worker.done()
                 else None
             )
-            broadcast_worker = (
-                self._broadcast_worker
-                if self._broadcast_worker is not None
-                and not self._broadcast_worker.done()
-                else None
-            )
-            retry_worker = (
-                self._retry_worker
-                if self._retry_worker is not None and not self._retry_worker.done()
-                else None
-            )
 
         if worker is not None:
             while True:
                 while self._queue_waiters > 0:
                     await self._queue_waiters_event.wait()
                 await self.queue.join()
-                if self._queue_waiters == 0:
+                if self._queue_waiters == 0 and await self._retry_is_idle():
                     break
+                await self._wait_for_retry_drain()
             await self.queue.put(self._STOP)
             await asyncio.gather(worker, return_exceptions=True)
 
+        async with self._state_lock:
+            broadcast_worker = (
+                self._broadcast_worker
+                if self._broadcast_worker is not None
+                and not self._broadcast_worker.done()
+                else None
+            )
         if broadcast_worker is not None:
             while True:
                 while self._broadcast_waiters > 0:
@@ -1434,19 +1458,21 @@ class TorrentUpdateQueue:
             await self._broadcast_queue.put(self._STOP)
             await asyncio.gather(broadcast_worker, return_exceptions=True)
 
+        async with self._state_lock:
+            retry_worker = (
+                self._retry_worker
+                if self._retry_worker is not None and not self._retry_worker.done()
+                else None
+            )
         if retry_worker is not None:
             retry_worker.cancel()
             await asyncio.gather(retry_worker, return_exceptions=True)
 
         async with self._retry_lock:
-            discarded_retry_count = len(self._retry_heap)
-            if discarded_retry_count:
-                logger.debug(
-                    "Discarding pending torrent retry entries during shutdown "
-                    f"(count={discarded_retry_count})"
-                )
             self._retry_heap.clear()
             self._retry_event.clear()
+            self._retry_idle_event.set()
+            self._retry_inflight = 0
 
         async with self._pending_lock:
             self._pending_updates.clear()
