@@ -518,25 +518,25 @@ async def setup_database():
 
         await database.connect()
 
-        if IS_SQLITE:
-            await _apply_sqlite_pragmas(
-                foreign_keys=False,
-                journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
-            )
-
         async with _schema_migration_lock():
+            if IS_SQLITE:
+                await _apply_sqlite_pragmas(
+                    foreign_keys=False,
+                    journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
+                )
+
             await run_schema_migrations(
                 database,
                 is_sqlite=IS_SQLITE,
                 is_postgres=IS_POSTGRES,
             )
 
-        if IS_SQLITE:
-            _models_mod.set_comet_foreign_keys_enabled(True)
-            await _apply_sqlite_pragmas(
-                foreign_keys=True,
-                journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
-            )
+            if IS_SQLITE:
+                _models_mod.set_comet_foreign_keys_enabled(True)
+                await _apply_sqlite_pragmas(
+                    foreign_keys=True,
+                    journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
+                )
 
         await database.execute("DELETE FROM active_connections")
         await database.execute("DELETE FROM metrics_cache")
