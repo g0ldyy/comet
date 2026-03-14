@@ -49,7 +49,6 @@ _SQLITE_DEFAULT_JOURNAL_MODE = "WAL"
 _SQLITE_MIGRATION_JOURNAL_MODE = "DELETE"
 _SQLITE_JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
 _SQLITE_CLEANUP_BATCH_SIZE = 50000
-_SQLITE_CLEANUP_CHECKPOINT_INTERVAL = 8
 
 
 def normalize_scope_value(value: int | None) -> int:
@@ -542,8 +541,6 @@ async def setup_database():
         await database.execute("DELETE FROM metrics_cache")
 
         await _run_startup_cleanup()
-        if IS_SQLITE:
-            await database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
         logger.exception(traceback.format_exc())
@@ -556,6 +553,7 @@ async def _run_startup_cleanup():
         return
 
     current_time = time.time()
+    cleanup_performed = False
     should_run = (
         True
         if interval == 0
@@ -577,8 +575,12 @@ async def _run_startup_cleanup():
             logger.log("DATABASE", "Running startup cleanup sweep")
             await _perform_startup_cleanup(current_time)
             await _record_startup_cleanup(current_time)
+            cleanup_performed = True
     except Exception as e:
         logger.error(f"Error executing startup cleanup: {e}")
+
+    if IS_SQLITE and cleanup_performed:
+        await database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
 
 async def _sqlite_batched_delete(
@@ -587,7 +589,6 @@ async def _sqlite_batched_delete(
     params: dict[str, float | int | str],
 ):
     last_rowid = 0
-    batches = 0
 
     while True:
         batch_params = {
@@ -630,12 +631,6 @@ async def _sqlite_batched_delete(
         )
 
         last_rowid = int(batch_row["max_rowid"])
-        batches += 1
-        if batches % _SQLITE_CLEANUP_CHECKPOINT_INTERVAL == 0:
-            await database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-
-    if batches:
-        await database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
 
 async def _delete_where(
