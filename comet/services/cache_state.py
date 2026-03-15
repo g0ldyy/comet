@@ -3,12 +3,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from comet.core.database import IS_SQLITE, ON_CONFLICT_DO_NOTHING, database
+from comet.core.database import (build_json_list_membership_predicate,
+                                 database, encode_json_param, fetch_flag)
+from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
 from comet.utils.media_ids import normalize_cache_media_ids
-from comet.utils.torrent_cache import (build_torrent_cache_where,
-                                       normalize_search_params)
+from comet.utils.torrent_cache import normalize_search_params
+
+CACHE_MEDIA_ID_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "media_id", "cache_media_ids"
+)
 
 
 class CacheState(Enum):
@@ -110,55 +115,84 @@ class CacheStateManager:
         if settings.LIVE_TORRENT_CACHE_TTL >= 0:
             min_timestamp = time.time() - settings.LIVE_TORRENT_CACHE_TTL
 
-        for cache_media_id in self.cache_media_ids:
-            where_clause, params = build_torrent_cache_where(
-                cache_media_id, self.search_season, self.search_episode
+        if not self.cache_media_ids:
+            return 0
+
+        params = {
+            "cache_media_ids": encode_json_param(self.cache_media_ids),
+            "episode": self.search_episode,
+        }
+        query = f"""
+            SELECT 1
+            FROM torrents
+            WHERE {CACHE_MEDIA_ID_MEMBERSHIP_SQL}
+        """
+        if self.search_season is not None:
+            query += "\n            AND season = CAST(:season as INTEGER)"
+            params["season"] = self.search_season
+
+        query += (
+            "\n            AND (episode IS NULL OR episode = CAST(:episode as INTEGER))"
+        )
+        if min_timestamp is not None:
+            query += "\n            AND updated_at >= :min_timestamp"
+            params["min_timestamp"] = min_timestamp
+
+        result = await database.fetch_one(query + "\n            LIMIT 1", params)
+        return 1 if result else 0
+
+    async def _update_media_demand_last_seen(
+        self, update_params: dict[str, str | float]
+    ) -> None:
+        try:
+            await database.execute(
+                """
+                UPDATE media_demand
+                SET last_seen_at = :last_seen_at
+                WHERE media_id = :media_id
+                """,
+                update_params,
             )
-            base_query = "SELECT 1 " + where_clause
-
-            if min_timestamp is not None:
-                ttl_condition = " AND timestamp >= :min_timestamp"
-                params["min_timestamp"] = min_timestamp
-                query = base_query + ttl_condition
-            else:
-                query = base_query
-
-            result = await database.fetch_one(query + " LIMIT 1", params)
-            if result:
-                return 1
-
-        return 0
+        except Exception as exc:
+            logger.opt(exception=True).debug(
+                f"Failed to update media_demand for {self.media_id}: {exc}",
+            )
+            return
 
     async def check_is_first_search(self) -> bool:
         """
         Check if this is the first search for this media_id.
         """
-        params = {"media_id": self.media_id, "timestamp": time.time()}
+        current_time = time.time()
+        insert_params = {
+            "media_id": self.media_id,
+            "first_seen_at": current_time,
+            "last_seen_at": current_time,
+        }
+        update_params = {"media_id": self.media_id, "last_seen_at": current_time}
 
         try:
-            if IS_SQLITE:
-                try:
-                    await database.execute(
-                        "INSERT INTO first_searches VALUES (:media_id, :timestamp)",
-                        params,
-                    )
-                    return True
-                except Exception:
-                    return False
-
-            inserted = await database.fetch_val(
-                f"""
-                INSERT INTO first_searches (media_id, timestamp)
-                VALUES (:media_id, :timestamp)
-                {ON_CONFLICT_DO_NOTHING}
+            inserted = await fetch_flag(
+                """
+                INSERT INTO media_demand (media_id, first_seen_at, last_seen_at)
+                VALUES (:media_id, :first_seen_at, :last_seen_at)
+                ON CONFLICT DO NOTHING
                 RETURNING 1
                 """,
-                params,
+                insert_params,
                 force_primary=True,
             )
-            return inserted == 1
-        except Exception:
+        except Exception as exc:
+            logger.opt(exception=True).debug(
+                f"Failed to insert media_demand for {self.media_id}: {exc}",
+            )
             return False
+
+        if inserted:
+            return True
+
+        await self._update_media_demand_last_seen(update_params)
+        return False
 
     async def _try_acquire_lock(self) -> bool:
         """Attempt to acquire the distributed lock."""

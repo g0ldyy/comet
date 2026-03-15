@@ -40,9 +40,7 @@ from comet.core.database import setup_database, teardown_database
 from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.services.torrent_manager import (check_torrent_exists,
-                                            check_torrents_exist,
-                                            save_torrent_from_network,
+from comet.services.torrent_manager import (check_torrents_exist,
                                             torrent_update_queue)
 
 
@@ -105,6 +103,11 @@ class UpdateMemberRoleRequest(BaseModel):
 
 
 _api_key: str = settings.COMETNET_API_KEY
+
+
+def _require_broadcast_media_id(imdb_id: Optional[str]) -> None:
+    if not imdb_id:
+        raise HTTPException(status_code=400, detail="imdb_id is required")
 
 
 async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
@@ -182,8 +185,9 @@ class StandaloneCometNet:
             await setup_database()
             setup_executor()
 
-            self.service.set_save_torrent_callback(save_torrent_from_network)
-            self.service.set_check_torrent_exists_callback(check_torrent_exists)
+            self.service.set_save_torrent_callback(
+                torrent_update_queue.add_network_torrent
+            )
             self.service.set_check_torrents_exist_callback(check_torrents_exist)
 
             await self.service.start()
@@ -395,6 +399,8 @@ class StandaloneCometNet:
                     status_code=503, detail="CometNet service not running"
                 )
 
+            _require_broadcast_media_id(request.imdb_id)
+
             try:
                 metadata = TorrentMetadata(**request.model_dump())
 
@@ -429,11 +435,14 @@ class StandaloneCometNet:
 
             for torrent in request.torrents:
                 try:
+                    _require_broadcast_media_id(torrent.imdb_id)
                     metadata = TorrentMetadata(**torrent.model_dump())
 
                     await self.service.broadcast_torrent(metadata)
                     queued += 1
                     self._broadcasts_success += 1
+                except HTTPException as e:
+                    errors.append({"info_hash": torrent.info_hash, "error": e.detail})
                 except Exception as e:
                     errors.append({"info_hash": torrent.info_hash, "error": str(e)})
 

@@ -5,7 +5,7 @@ description = "Stremio's fastest torrent/debrid search add-on."
 authors = [
     { name = "Goldy", email = "153996346+g0ldyy@users.noreply.github.com" }
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "aiohttp",
     "aiosqlite",

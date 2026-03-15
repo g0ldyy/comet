@@ -14,8 +14,8 @@ Production recommendation from runtime logs and code path: PostgreSQL for concur
 At startup, Comet:
 
 1. connects database(s)
-2. ensures schema/tables/indexes
-3. performs legacy index migration cleanup
+2. applies additive schema migrations tracked in `schema_migrations`
+3. ensures current indexes and removes legacy superseded indexes
 4. clears transient tables (`active_connections`, `metrics_cache`)
 5. runs startup cleanup sweep depending on `DATABASE_STARTUP_CLEANUP_INTERVAL`
 
@@ -34,7 +34,7 @@ Configured via `DATABASE_READ_REPLICA_URLS`.
 
 ## SQLite Notes
 
-When SQLite is used, startup applies PRAGMA tuning and still supports all core features, but high-concurrency operation is limited.
+When SQLite is used, two layers of PRAGMA configuration apply. Per-connection PRAGMAs (`foreign_keys` and `busy_timeout`) are enforced on each acquired connection via the acquire hook in `comet.core.models`. Broader PRAGMA tuning (`journal_mode`, `synchronous`, `mmap_size`, `page_size`, `cache_size`, etc.) is configured once at startup in the database initialization code in `comet.core.database`. Core features still work, but high-concurrency operation is limited compared with PostgreSQL.
 
 ## DB Import/Export CLI
 

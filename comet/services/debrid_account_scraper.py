@@ -2,10 +2,9 @@ import asyncio
 import time
 from datetime import datetime
 
-import orjson
-
-from comet.core.database import (IS_SQLITE, JSON_FUNC,
-                                 _debrid_account_snapshot_ttl, database)
+from comet.core.database import (_debrid_account_snapshot_ttl,
+                                 build_json_list_membership_predicate,
+                                 database, encode_json_param)
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -19,6 +18,53 @@ from comet.utils.parsing import parsed_matches_target
 _SYNC_LOCK_PREFIX = "debrid-account-sync"
 _CACHED_STATUSES = frozenset({"cached", "downloaded"})
 _background_tasks: set[asyncio.Task] = set()
+TORRENT_INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "info_hash", "info_hashes"
+)
+_UPSERT_ACCOUNT_MAGNET_QUERY = """
+    INSERT INTO debrid_account_magnets (
+        debrid_service,
+        account_key_hash,
+        magnet_id,
+        info_hash,
+        name,
+        size,
+        status,
+        added_at,
+        synced_at
+    ) VALUES (
+        :debrid_service,
+        :account_key_hash,
+        :magnet_id,
+        :info_hash,
+        :name,
+        :size,
+        :status,
+        :added_at,
+        :synced_at
+    )
+    ON CONFLICT (debrid_service, account_key_hash, magnet_id)
+    DO UPDATE SET
+        info_hash = EXCLUDED.info_hash,
+        name = EXCLUDED.name,
+        size = EXCLUDED.size,
+        status = EXCLUDED.status,
+        added_at = EXCLUDED.added_at,
+        synced_at = EXCLUDED.synced_at
+"""
+_UPSERT_ACCOUNT_SYNC_STATE_QUERY = """
+    INSERT INTO debrid_account_sync_state (
+        debrid_service,
+        account_key_hash,
+        last_sync_at
+    ) VALUES (
+        :debrid_service,
+        :account_key_hash,
+        :last_sync_at
+    )
+    ON CONFLICT (debrid_service, account_key_hash)
+    DO UPDATE SET last_sync_at = EXCLUDED.last_sync_at
+"""
 
 
 def _dedupe_accounts(debrid_entries: list[dict]) -> list[tuple[str, str, str]]:
@@ -84,95 +130,16 @@ async def _upsert_snapshot_rows(rows: list[dict]):
     if not rows:
         return
 
-    if IS_SQLITE:
-        query = """
-            INSERT OR REPLACE INTO debrid_account_magnets (
-                debrid_service,
-                account_key_hash,
-                magnet_id,
-                info_hash,
-                name,
-                size,
-                status,
-                added_at,
-                timestamp
-            ) VALUES (
-                :debrid_service,
-                :account_key_hash,
-                :magnet_id,
-                :info_hash,
-                :name,
-                :size,
-                :status,
-                :added_at,
-                :timestamp
-            )
-        """
-    else:
-        query = """
-            INSERT INTO debrid_account_magnets (
-                debrid_service,
-                account_key_hash,
-                magnet_id,
-                info_hash,
-                name,
-                size,
-                status,
-                added_at,
-                timestamp
-            ) VALUES (
-                :debrid_service,
-                :account_key_hash,
-                :magnet_id,
-                :info_hash,
-                :name,
-                :size,
-                :status,
-                :added_at,
-                :timestamp
-            )
-            ON CONFLICT (debrid_service, account_key_hash, magnet_id)
-            DO UPDATE SET
-                info_hash = EXCLUDED.info_hash,
-                name = EXCLUDED.name,
-                size = EXCLUDED.size,
-                status = EXCLUDED.status,
-                added_at = EXCLUDED.added_at,
-                timestamp = EXCLUDED.timestamp
-        """
-
-    params_per_row = 9
-
-    if IS_SQLITE:
-        max_params = 999
-        chunk_size = max_params // params_per_row
-        for i in range(0, len(rows), chunk_size):
-            await database.execute_many(query, rows[i : i + chunk_size])
-        return
-
-    await database.execute_many(query, rows)
+    await database.execute_many(_UPSERT_ACCOUNT_MAGNET_QUERY, rows)
 
 
 async def _set_last_sync(service: str, account_key_hash: str, last_sync: float):
-    if IS_SQLITE:
-        query = """
-            INSERT OR REPLACE INTO debrid_account_sync_state
-            VALUES (:debrid_service, :account_key_hash, :last_sync)
-        """
-    else:
-        query = """
-            INSERT INTO debrid_account_sync_state
-            VALUES (:debrid_service, :account_key_hash, :last_sync)
-            ON CONFLICT (debrid_service, account_key_hash)
-            DO UPDATE SET last_sync = EXCLUDED.last_sync
-        """
-
     await database.execute(
-        query,
+        _UPSERT_ACCOUNT_SYNC_STATE_QUERY,
         {
             "debrid_service": service,
             "account_key_hash": account_key_hash,
-            "last_sync": last_sync,
+            "last_sync_at": last_sync,
         },
     )
 
@@ -209,7 +176,7 @@ async def _sync_single_account(
                 "size": item["size"],
                 "status": item["status"],
                 "added_at": _to_epoch(item.get("added_at")),
-                "timestamp": synced_at,
+                "synced_at": synced_at,
             }
         )
 
@@ -220,12 +187,12 @@ async def _sync_single_account(
         DELETE FROM debrid_account_magnets
         WHERE debrid_service = :debrid_service
           AND account_key_hash = :account_key_hash
-          AND timestamp < :timestamp
+          AND synced_at < :synced_at
         """,
         {
             "debrid_service": service,
             "account_key_hash": account_key_hash,
-            "timestamp": synced_at,
+            "synced_at": synced_at,
         },
     )
 
@@ -281,14 +248,14 @@ async def _has_fresh_snapshot(
             FROM debrid_account_sync_state
             WHERE debrid_service = :debrid_service
               AND account_key_hash = :account_key_hash
-              AND last_sync >= :min_timestamp
+              AND last_sync_at >= :min_timestamp
         )
         OR EXISTS (
             SELECT 1
             FROM debrid_account_magnets
             WHERE debrid_service = :debrid_service
               AND account_key_hash = :account_key_hash
-              AND timestamp >= :min_timestamp
+              AND synced_at >= :min_timestamp
         )
         """,
         {
@@ -405,14 +372,11 @@ async def _fetch_existing_media_torrent_keys(
         SELECT info_hash, season, episode
         FROM torrents
         WHERE media_id = :media_id
-          AND info_hash IN (
-              SELECT CAST(value as TEXT)
-              FROM {JSON_FUNC}(:info_hashes)
-          )
+          AND {TORRENT_INFO_HASH_MEMBERSHIP_SQL}
         """,
         {
             "media_id": media_id,
-            "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
+            "info_hashes": encode_json_param(info_hashes),
         },
         force_primary=True,
     )
@@ -473,7 +437,7 @@ async def schedule_account_snapshot_refresh(
     for service, api_key, account_key_hash in _dedupe_accounts(debrid_entries):
         row = await database.fetch_one(
             """
-            SELECT last_sync
+            SELECT last_sync_at
             FROM debrid_account_sync_state
             WHERE debrid_service = :debrid_service
               AND account_key_hash = :account_key_hash
@@ -487,9 +451,10 @@ async def schedule_account_snapshot_refresh(
 
         if (
             row
-            and row["last_sync"]
+            and row["last_sync_at"]
             and (
-                now - row["last_sync"] < settings.DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL
+                now - row["last_sync_at"]
+                < settings.DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL
             )
         ):
             continue
@@ -538,7 +503,7 @@ async def get_account_torrents_for_media(
             FROM debrid_account_magnets
             WHERE debrid_service = :debrid_service
               AND account_key_hash = :account_key_hash
-              AND timestamp >= :min_timestamp
+              AND synced_at >= :min_timestamp
             ORDER BY added_at DESC
             LIMIT :limit
             """,

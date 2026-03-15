@@ -1,0 +1,75 @@
+name: Docker Build Common
+
+on:
+  workflow_call:
+    inputs:
+      push-to-dockerhub:
+        description: Also publish the image to Docker Hub
+        required: false
+        default: false
+        type: boolean
+      tags:
+        description: Tags passed to docker/metadata-action
+        required: true
+        type: string
+      build-args:
+        description: Additional build args appended to the shared defaults
+        required: true
+        type: string
+    secrets:
+      dockerhub_username:
+        required: false
+      dockerhub_access_token:
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: g0ldyy/comet
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: ${{ inputs.push-to-dockerhub }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.dockerhub_username }}
+          password: ${{ secrets.dockerhub_access_token }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ env.IMAGE_NAME }}
+            ${{ inputs.push-to-dockerhub && format('docker.io/{0}', env.IMAGE_NAME) || '' }}
+          tags: ${{ inputs.tags }}
+
+      - id: date
+        run: echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            COMET_COMMIT_HASH=${{ github.sha }}
+            COMET_BUILD_DATE=${{ steps.date.outputs.date }}
+            ${{ inputs.build-args }}

@@ -21,9 +21,9 @@ class DigitalReleaseFilter:
         try:
             cached_date = await database.fetch_val(
                 """
-                SELECT release_date FROM digital_release_cache 
+                SELECT release_date FROM media_metadata_cache 
                 WHERE media_id = :media_id
-                AND timestamp >= :min_timestamp
+                AND release_updated_at >= :min_timestamp
                 """,
                 {
                     "media_id": media_id,
@@ -78,14 +78,20 @@ class DigitalReleaseFilter:
 
             await database.execute(
                 """
-                INSERT INTO digital_release_cache (media_id, release_date, timestamp)
-                VALUES (:media_id, :release_date, :timestamp)
-                ON CONFLICT (media_id) DO UPDATE SET release_date = :release_date, timestamp = :timestamp
+                INSERT INTO media_metadata_cache (
+                    media_id,
+                    release_date,
+                    release_updated_at
+                )
+                VALUES (:media_id, :release_date, :release_updated_at)
+                ON CONFLICT (media_id) DO UPDATE SET
+                    release_date = EXCLUDED.release_date,
+                    release_updated_at = EXCLUDED.release_updated_at
                 """,
                 {
                     "media_id": media_id,
                     "release_date": release_date_timestamp,
-                    "timestamp": cache_timestamp,
+                    "release_updated_at": cache_timestamp,
                 },
             )
 

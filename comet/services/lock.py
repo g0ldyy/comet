@@ -2,10 +2,21 @@ import asyncio
 import time
 import uuid
 
-from comet.core.database import (IS_POSTGRES, IS_SQLITE,
-                                 ON_CONFLICT_DO_NOTHING, OR_IGNORE)
+from comet.core.database import database, fetch_flag
 from comet.core.logger import logger
-from comet.core.models import database, settings
+from comet.core.models import settings
+
+_ACQUIRE_OR_REFRESH_LOCK_QUERY = """
+    INSERT INTO scrape_locks (lock_key, instance_id, updated_at, expires_at)
+    VALUES (:lock_key, :instance_id, :updated_at, :expires_at)
+    ON CONFLICT (lock_key) DO UPDATE SET
+        instance_id = EXCLUDED.instance_id,
+        updated_at = EXCLUDED.updated_at,
+        expires_at = EXCLUDED.expires_at
+    WHERE scrape_locks.expires_at < :updated_at
+       OR scrape_locks.instance_id = EXCLUDED.instance_id
+    RETURNING 1
+"""
 
 
 class DistributedLock:
@@ -29,61 +40,24 @@ class DistributedLock:
 
         while True:
             try:
-                await self._cleanup_expired_locks()
                 loop_time = time.time()
                 expires_at = int(loop_time + self.timeout)
-
-                # If already acquired, refresh the lock
-                if self.acquired:
-                    query = "UPDATE scrape_locks SET expires_at = :expires_at, timestamp = :timestamp WHERE lock_key = :lock_key AND instance_id = :instance_id"
-                    params = {
-                        "lock_key": self.lock_key,
-                        "instance_id": self.instance_id,
-                        "timestamp": loop_time,
-                        "expires_at": expires_at,
-                    }
-
-                    if IS_POSTGRES:
-                        if await database.fetch_val(query + " RETURNING 1", params):
-                            return True
-                    else:
-                        result = await database.execute(query, params)
-                        if result > 0:
-                            return True
-
-                    self.acquired = False
-
-                # Attempt to acquire the lock
-                result = await database.execute(
-                    f"""
-                    INSERT {OR_IGNORE}
-                    INTO scrape_locks (lock_key, instance_id, timestamp, expires_at)
-                    VALUES (:lock_key, :instance_id, :timestamp, :expires_at)
-                    {ON_CONFLICT_DO_NOTHING}
-                    """,
+                acquired = await fetch_flag(
+                    _ACQUIRE_OR_REFRESH_LOCK_QUERY,
                     {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "timestamp": loop_time,
+                        "updated_at": loop_time,
                         "expires_at": expires_at,
                     },
+                    force_primary=True,
                 )
 
-                # Check if we successfully acquired the lock
-                if IS_SQLITE:
-                    success = result > 0
-                else:
-                    # For PostgreSQL, check if our instance owns the lock
-                    row = await database.fetch_one(
-                        "SELECT instance_id FROM scrape_locks WHERE lock_key = :lock_key",
-                        {"lock_key": self.lock_key},
-                        force_primary=True,
-                    )
-                    success = row and row["instance_id"] == self.instance_id
-
-                if success:
+                if acquired:
                     self.acquired = True
                     return True
+
+                self.acquired = False
 
                 # If we don't want to wait
                 if wait_timeout is None:
@@ -116,16 +90,6 @@ class DistributedLock:
         except Exception as e:
             logger.log("LOCK", f"❌ Error releasing lock for {self.lock_key}: {e}")
 
-    async def _cleanup_expired_locks(self):
-        try:
-            current_time = time.time()
-            await database.execute(
-                "DELETE FROM scrape_locks WHERE expires_at < :current_time",
-                {"current_time": current_time},
-            )
-        except Exception as e:
-            logger.log("LOCK", f"❌ Error cleaning up expired locks: {e}")
-
     async def __aenter__(self):
         success = await self.acquire()
         if not success:
@@ -134,24 +98,3 @@ class DistributedLock:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.release()
-
-
-async def is_scrape_in_progress(media_id: str):
-    try:
-        # Clean up expired locks first
-        current_time = time.time()
-        await database.execute(
-            "DELETE FROM scrape_locks WHERE expires_at < :current_time",
-            {"current_time": current_time},
-        )
-
-        # Check if a lock exists for this media_id
-        row = await database.fetch_one(
-            "SELECT instance_id FROM scrape_locks WHERE lock_key = :lock_key",
-            {"lock_key": media_id},
-            force_primary=True,
-        )
-        return row is not None
-    except Exception as e:
-        logger.log("LOCK", f"❌ Error checking scrape status for {media_id}: {e}")
-        return False

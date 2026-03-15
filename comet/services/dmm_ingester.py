@@ -5,13 +5,12 @@ import os
 import random
 import re
 import shutil
-import time
 import zipfile
 
 import aiohttp
 import RTN
 
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import database
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -141,8 +140,6 @@ class DMMIngester:
 
                     batch_entries = []
                     processed_files_batch = []
-                    current_timestamp = int(time.time())
-
                     for file_path, entries in zip(batch_files, results):
                         if entries:
                             batch_entries.extend(entries)
@@ -150,7 +147,6 @@ class DMMIngester:
                         processed_files_batch.append(
                             {
                                 "filename": os.path.basename(file_path),
-                                "timestamp": current_timestamp,
                             }
                         )
 
@@ -161,11 +157,10 @@ class DMMIngester:
                                 total_inserted += len(batch_entries)
 
                             if processed_files_batch:
-                                query_files = f"""
-                                    INSERT {OR_IGNORE}
-                                    INTO dmm_ingested_files (filename, timestamp) 
-                                    VALUES (:filename, :timestamp)
-                                    {ON_CONFLICT_DO_NOTHING}
+                                query_files = """
+                                    INSERT INTO dmm_ingested_files (filename) 
+                                    VALUES (:filename)
+                                    ON CONFLICT DO NOTHING
                                 """
                                 await database.execute_many(
                                     query_files,
@@ -201,8 +196,6 @@ class DMMIngester:
         chunk_size = 500
         for i in range(0, len(entries), chunk_size):
             chunk = entries[i : i + chunk_size]
-            chunk_timestamp = int(time.time())
-
             values = []
             for entry in chunk:
                 values.append(
@@ -212,14 +205,13 @@ class DMMIngester:
                         "size": entry["size"],
                         "parsed_title": entry["parsed_title"],
                         "parsed_year": entry["parsed_year"],
-                        "created_at": chunk_timestamp,
                     }
                 )
 
-            query = f"""
-                INSERT {OR_IGNORE} INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year, created_at)
-                VALUES (:info_hash, :filename, :size, :parsed_title, :parsed_year, :created_at)
-                {ON_CONFLICT_DO_NOTHING}
+            query = """
+                INSERT INTO dmm_entries (info_hash, filename, size, parsed_title, parsed_year)
+                VALUES (:info_hash, :filename, :size, :parsed_title, :parsed_year)
+                ON CONFLICT DO NOTHING
             """
 
             await database.execute_many(query, values)

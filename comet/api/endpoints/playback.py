@@ -6,7 +6,9 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
 from comet.core.config_validation import config_check
-from comet.core.database import ON_CONFLICT_DO_NOTHING, OR_IGNORE, database
+from comet.core.database import (DOWNLOAD_LINK_CACHE_TTL,
+                                 build_scope_lookup_params, build_scope_params,
+                                 database)
 from comet.core.models import settings
 from comet.debrid.exceptions import DebridLinkGenerationError
 from comet.debrid.manager import (build_account_key_hash, get_debrid,
@@ -19,6 +21,61 @@ from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_optional_int
 
 router = APIRouter()
+
+
+async def cache_download_link(
+    *,
+    debrid_service: str,
+    account_key_hash: str,
+    info_hash: str,
+    season: int | None,
+    episode: int | None,
+    download_url: str,
+):
+    params = {
+        "debrid_service": debrid_service,
+        "account_key_hash": account_key_hash,
+        "info_hash": info_hash,
+        "download_url": download_url,
+        "updated_at": time.time(),
+        **build_scope_params(season, episode),
+    }
+    await database.execute(
+        """
+        INSERT INTO download_links_cache (
+            debrid_service,
+            account_key_hash,
+            info_hash,
+            season,
+            episode,
+            season_norm,
+            episode_norm,
+            download_url,
+            updated_at
+        )
+        VALUES (
+            :debrid_service,
+            :account_key_hash,
+            :info_hash,
+            :season,
+            :episode,
+            :season_norm,
+            :episode_norm,
+            :download_url,
+            :updated_at
+        )
+        ON CONFLICT (
+            debrid_service,
+            account_key_hash,
+            info_hash,
+            season_norm,
+            episode_norm
+        ) DO UPDATE SET
+            download_url = EXCLUDED.download_url,
+            updated_at = EXCLUDED.updated_at
+        """,
+        params,
+    )
 
 
 @router.get(
@@ -63,7 +120,8 @@ async def playback(
     account_key_hash = build_account_key_hash(debrid_api_key)
 
     session = await http_client_manager.get_session()
-    min_timestamp = time.time() - 3600
+    min_timestamp = time.time() - DOWNLOAD_LINK_CACHE_TTL
+    scope_params = build_scope_lookup_params(season, episode)
     cached_link = await database.fetch_one(
         """
         SELECT download_url
@@ -71,17 +129,16 @@ async def playback(
         WHERE debrid_service = :debrid_service
         AND account_key_hash = :account_key_hash
         AND info_hash = :info_hash
-        AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
-        AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
-        AND timestamp >= :min_timestamp
+        AND season_norm = :season_norm
+        AND episode_norm = :episode_norm
+        AND updated_at >= :min_timestamp
         """,
         {
             "debrid_service": debrid_service,
             "account_key_hash": account_key_hash,
             "info_hash": hash,
-            "season": season,
-            "episode": episode,
             "min_timestamp": min_timestamp,
+            **scope_params,
         },
     )
 
@@ -98,7 +155,7 @@ async def playback(
         # Retrieve torrent sources from database for private trackers
         torrent_data = await database.fetch_one(
             """
-            SELECT sources, media_id
+            SELECT sources_json, media_id
             FROM torrents
             WHERE info_hash = :info_hash
             LIMIT 1
@@ -109,8 +166,8 @@ async def playback(
         sources = []
         media_id = None
         if torrent_data:
-            if torrent_data["sources"]:
-                sources = orjson.loads(torrent_data["sources"])
+            if torrent_data["sources_json"]:
+                sources = orjson.loads(torrent_data["sources_json"])
             media_id = torrent_data["media_id"]
 
         aliases = {}
@@ -167,38 +224,13 @@ async def playback(
                 default_key="UNKNOWN",
             )
 
-        await database.execute(
-            f"""
-                INSERT {OR_IGNORE}
-                INTO download_links_cache (
-                    debrid_service,
-                    account_key_hash,
-                    info_hash,
-                    season,
-                    episode,
-                    download_url,
-                    timestamp
-                )
-                VALUES (
-                    :debrid_service,
-                    :account_key_hash,
-                    :info_hash,
-                    :season,
-                    :episode,
-                    :download_url,
-                    :timestamp
-                )
-                {ON_CONFLICT_DO_NOTHING}
-            """,
-            {
-                "debrid_service": debrid_service,
-                "account_key_hash": account_key_hash,
-                "info_hash": hash,
-                "season": season,
-                "episode": episode,
-                "download_url": download_url,
-                "timestamp": time.time(),
-            },
+        await cache_download_link(
+            debrid_service=debrid_service,
+            account_key_hash=account_key_hash,
+            info_hash=hash,
+            season=season,
+            episode=episode,
+            download_url=download_url,
         )
 
     if should_proxy:

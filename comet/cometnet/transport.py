@@ -26,7 +26,7 @@ from websockets.http11 import Response
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
                                      PingMessage, PongMessage, parse_message)
-from comet.cometnet.utils import extract_ip_from_address
+from comet.cometnet.utils import extract_ip_from_address, is_valid_peer_address
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.network import extract_ip_from_headers
@@ -54,6 +54,31 @@ class WebSocketHeadFilter(logging.Filter):
 
 # Apply filter to websockets logger
 logging.getLogger("websockets.server").addFilter(WebSocketHeadFilter())
+
+
+async def resolve_effective_peer_address(
+    public_url: Optional[str],
+    connectable_address: Optional[str],
+    allow_private: bool,
+) -> str:
+    """
+    Pick the best address to associate with a peer connection.
+
+    A peer-supplied public URL is only trusted if it is a syntactically valid
+    WebSocket address and matches the current private-network policy.
+    """
+    if public_url:
+        normalized_public_url = public_url.strip()
+        if await is_valid_peer_address(
+            normalized_public_url, allow_private=allow_private
+        ):
+            return normalized_public_url
+
+        logger.warning(
+            "Ignoring invalid peer public_url during handshake: {!r}", public_url
+        )
+
+    return connectable_address or ""
 
 
 @dataclass
@@ -723,8 +748,13 @@ class ConnectionManager:
                     )
                     return None
 
-            # Determine effective address
-            effective_address = peer_handshake.public_url or connectable_address
+            effective_address = await resolve_effective_peer_address(
+                peer_handshake.public_url,
+                connectable_address,
+                allow_private=(
+                    self._private_network or settings.COMETNET_ALLOW_PRIVATE_PEX
+                ),
+            )
 
             # Create connection record
             conn = PeerConnection(

@@ -3,8 +3,17 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from comet.core.database import build_upsert_assignments
 from comet.core.logger import logger
 from comet.core.models import database, settings
+
+_BANDWIDTH_UPSERT_ASSIGNMENTS = build_upsert_assignments(("total_bytes", "updated_at"))
+UPSERT_BANDWIDTH_STATS_QUERY = f"""
+    INSERT INTO bandwidth_stats (id, total_bytes, updated_at)
+    VALUES (1, :total_bytes, :timestamp)
+    ON CONFLICT (id) DO UPDATE SET
+{_BANDWIDTH_UPSERT_ASSIGNMENTS}
+"""
 
 
 @dataclass
@@ -122,10 +131,6 @@ class BandwidthMonitor:
 
             return metrics
 
-    def get_connection_metrics(self, connection_id: str):
-        with self._lock:
-            return self._connections.get(connection_id)
-
     def get_all_active_connections(self):
         with self._lock:
             return self._connections.copy()
@@ -201,6 +206,10 @@ class BandwidthMonitor:
             except Exception as e:
                 logger.warning(f"Error in bandwidth monitor cleanup: {e}")
 
+    async def _persist_total_bytes(self, total_bytes: int, sync_timestamp: float):
+        params = {"total_bytes": total_bytes, "timestamp": sync_timestamp}
+        await database.execute(UPSERT_BANDWIDTH_STATS_QUERY, params)
+
     async def _sync_to_database(self):
         while True:
             try:
@@ -214,18 +223,7 @@ class BandwidthMonitor:
 
                 # Update database with alltime total
                 sync_timestamp = time.time()
-                try:
-                    # Try to insert first
-                    await database.execute(
-                        "INSERT INTO bandwidth_stats (id, total_bytes, last_updated) VALUES (1, :total_bytes, :timestamp)",
-                        {"total_bytes": total_bytes, "timestamp": sync_timestamp},
-                    )
-                except Exception:
-                    # If insert fails (record exists), update instead
-                    await database.execute(
-                        "UPDATE bandwidth_stats SET total_bytes = :total_bytes, last_updated = :timestamp WHERE id = 1",
-                        {"total_bytes": total_bytes, "timestamp": sync_timestamp},
-                    )
+                await self._persist_total_bytes(total_bytes, sync_timestamp)
 
                 with self._lock:
                     self._last_synced_bytes = total_bytes

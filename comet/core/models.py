@@ -3,10 +3,12 @@ import random
 import secrets
 import string
 import time
+from collections.abc import Awaitable, Callable
 from typing import List, Optional, Union
 
 import RTN
 from databases import Database
+from databases.backends.sqlite import SQLiteConnection
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
@@ -17,6 +19,38 @@ from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
+
+_comet_fk_enabled = False
+_SQLITE_BUSY_TIMEOUT_MS = 30000
+
+
+def set_comet_foreign_keys_enabled(enabled: bool) -> None:
+    global _comet_fk_enabled
+    _comet_fk_enabled = enabled
+
+
+async def apply_sqlite_connection_pragmas(
+    execute: Callable[[str], Awaitable[object]],
+    *,
+    foreign_keys_enabled: bool,
+) -> None:
+    await execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
+    await execute(f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}")
+
+
+if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
+    _original_sqlite_acquire = SQLiteConnection.acquire
+
+    async def _comet_sqlite_acquire(self):
+        await _original_sqlite_acquire(self)
+        assert self._connection is not None
+        await apply_sqlite_connection_pragmas(
+            self._connection.execute,
+            foreign_keys_enabled=_comet_fk_enabled,
+        )
+
+    SQLiteConnection.acquire = _comet_sqlite_acquire
+    SQLiteConnection._comet_pragmas_patched = True
 
 
 class AppSettings(BaseSettings):
@@ -47,6 +81,7 @@ class AppSettings(BaseSettings):
     DATABASE_BATCH_SIZE: Optional[int] = 20000
     DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
     DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
+    MEMORY_TRIM_INTERVAL: Optional[int] = 300
     DATABASE_FORCE_IPV4_RESOLUTION: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days
@@ -513,8 +548,6 @@ IS_POSTGRES = settings.DATABASE_TYPE == "postgresql"
 IS_SQLITE = settings.DATABASE_TYPE == "sqlite"
 
 JSON_FUNC = "json_array_elements_text" if IS_POSTGRES else "json_each"
-OR_IGNORE = "" if IS_POSTGRES else "OR IGNORE"
-ON_CONFLICT_DO_NOTHING = "ON CONFLICT DO NOTHING" if IS_POSTGRES else ""
 
 
 class CometSettingsModel(SettingsModel):

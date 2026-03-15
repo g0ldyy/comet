@@ -54,12 +54,12 @@ async def add_active_connection(media_id: str, ip: str):
     connection_id = str(uuid.uuid4())
 
     await database.execute(
-        "INSERT INTO active_connections (id, ip, content, timestamp) VALUES (:connection_id, :ip, :content, :timestamp)",
+        "INSERT INTO active_connections (id, ip, content, started_at) VALUES (:connection_id, :ip, :content, :started_at)",
         {
             "connection_id": connection_id,
             "ip": ip,
             "content": media_id,
-            "timestamp": time.time(),
+            "started_at": time.time(),
         },
     )
 

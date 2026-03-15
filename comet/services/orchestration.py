@@ -104,7 +104,7 @@ class TorrentManager:
             media_id, self.search_season, self.search_episode
         )
         query = (
-            "SELECT info_hash, file_index, title, seeders, size, tracker, sources, parsed, episode "
+            "SELECT info_hash, file_index, title, seeders, size, tracker, sources_json, parsed_json, episode, updated_at "
             + where_clause
         )
         return await database.fetch_all(query, params)
@@ -117,20 +117,36 @@ class TorrentManager:
                 self.primary_cached = True
             rows.extend(cache_rows)
 
-        rows = sorted(rows, key=lambda r: (r["episode"] is not None, r["episode"]))
         if rows:
-            seen_info_hashes = set()
-            deduped_rows = []
+            best_rows = {}
+
+            def row_priority(row):
+                exact_episode_match = (
+                    self.search_episode is not None
+                    and row["episode"] == self.search_episode
+                )
+                has_episode_scope = row["episode"] is not None
+                has_file_index = row["file_index"] is not None
+                has_specific_title = bool(row["title"])
+                updated_at = row["updated_at"] or 0
+                return (
+                    exact_episode_match,
+                    has_episode_scope,
+                    has_file_index,
+                    has_specific_title,
+                    updated_at,
+                )
+
             for row in rows:
                 info_hash = row["info_hash"]
-                if info_hash in seen_info_hashes:
-                    continue
-                seen_info_hashes.add(info_hash)
-                deduped_rows.append(row)
-            rows = list(deduped_rows)
+                current = best_rows.get(info_hash)
+                if current is None or row_priority(row) > row_priority(current):
+                    best_rows[info_hash] = row
+
+            rows = list(best_rows.values())
 
         for row in rows:
-            parsed_data = ParsedData(**orjson.loads(row["parsed"]))
+            parsed_data = ParsedData(**orjson.loads(row["parsed_json"]))
             ensure_multi_language(parsed_data)
 
             target_season = self.search_season
@@ -152,48 +168,48 @@ class TorrentManager:
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": orjson.loads(row["sources"]),
+                "sources": orjson.loads(row["sources_json"]),
                 "parsed": parsed_data,
             }
 
-    async def cache_torrents(self):
-        for torrent in self.ready_to_cache:
-            parsed_seasons = torrent["parsed"].seasons
-            if parsed_seasons:
-                cache_seasons = parsed_seasons
-            else:
-                cache_season = (
-                    self.search_season
-                    if self.search_season is not None
-                    else self.season
-                )
-                cache_seasons = [cache_season]
+    def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):
+        parsed = torrent["parsed"]
+        cache_seasons = parsed.seasons or [
+            self.search_season if self.search_season is not None else self.season
+        ]
+        parsed_episodes = parsed.episodes or [None]
+        episode = None if len(parsed_episodes) > 1 else parsed_episodes[0]
+        info_hash = torrent["infoHash"]
+        file_index = torrent["fileIndex"]
+        title = torrent["title"]
+        size = torrent["size"]
+        seeders = torrent["seeders"]
+        tracker = torrent["tracker"]
+        sources = torrent["sources"]
 
-            parsed_episodes = (
-                torrent["parsed"].episodes if torrent["parsed"].episodes else [None]
-            )
-
-            if len(parsed_episodes) > 1:
-                episode = None
-            else:
-                episode = parsed_episodes[0]
-
-            for season in cache_seasons:
-                file_info = {
-                    "info_hash": torrent["infoHash"],
-                    "index": torrent["fileIndex"],
-                    "title": torrent["title"],
-                    "size": torrent["size"],
+        for season in cache_seasons:
+            file_infos.append(
+                {
+                    "info_hash": info_hash,
+                    "index": file_index,
+                    "title": title,
+                    "size": size,
                     "season": season,
                     "episode": episode,
-                    "parsed": torrent["parsed"],
-                    "seeders": torrent["seeders"],
-                    "tracker": torrent["tracker"],
-                    "sources": torrent["sources"],
+                    "parsed": parsed,
+                    "seeders": seeders,
+                    "tracker": tracker,
+                    "sources": sources,
                 }
-                await torrent_update_queue.add_torrent_info(
-                    file_info, self.media_only_id
-                )
+            )
+
+    async def cache_torrents(self):
+        file_infos = []
+        for torrent in self.ready_to_cache:
+            self._append_cache_file_infos(file_infos, torrent)
+
+        if file_infos:
+            await torrent_update_queue.add_torrent_infos(file_infos, self.media_only_id)
 
     async def filter_manager(self, scraper_name: str, torrents: list):
         if len(torrents) == 0:

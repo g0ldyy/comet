@@ -72,8 +72,3 @@ async def monitored_handle_stream_request(
         )
 
     return response
-
-
-async def create_monitoring_wrapper():
-    if not bandwidth_monitor._initialized:
-        await bandwidth_monitor.initialize()
