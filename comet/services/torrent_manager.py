@@ -424,10 +424,11 @@ class TorrentUpdateQueue:
         "_event",
         "upserts",
         "_is_postgresql",
+        "dropped_cometnet",
     )
 
     def __init__(self, batch_size: int = 1000, flush_interval: float = 5.0):
-        self.queue = asyncio.Queue()
+        self.queue = asyncio.Queue(maxsize=10000)
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.is_running = False
@@ -435,6 +436,23 @@ class TorrentUpdateQueue:
         self._event = asyncio.Event()
         self.upserts = {}
         self._is_postgresql = IS_POSTGRES
+        self.dropped_cometnet = 0
+
+    def get_stats(self) -> dict:
+        return {
+            "queue_size": self.queue.qsize(),
+            "queue_maxsize": self.queue.maxsize,
+            "dropped_cometnet": self.dropped_cometnet,
+            "is_running": self.is_running,
+        }
+
+    async def _ensure_running(self):
+        """Start the queue processor if not already running."""
+        if not self.is_running:
+            async with self._lock:
+                if not self.is_running:
+                    self.is_running = True
+                    asyncio.create_task(self._process_queue())
 
     async def add_torrent_info(
         self, file_info: dict, media_id: str = None, from_cometnet: bool = False
@@ -447,18 +465,21 @@ class TorrentUpdateQueue:
         if not file_infos:
             return
 
-        # Mark if this torrent came from CometNet (to avoid re-broadcasting)
-        for file_info in file_infos:
+        # Ensure consumer is running before any potentially blocking put()
+        await self._ensure_running()
+
+        for i, file_info in enumerate(file_infos):
             file_info["_from_cometnet"] = from_cometnet
-            self.queue.put_nowait((file_info, media_id))
+            if from_cometnet:
+                try:
+                    self.queue.put_nowait((file_info, media_id))
+                except asyncio.QueueFull:
+                    self.dropped_cometnet += len(file_infos) - i
+                    break
+            else:
+                await self.queue.put((file_info, media_id))
 
         self._event.set()
-
-        if not self.is_running:
-            async with self._lock:
-                if not self.is_running:
-                    self.is_running = True
-                    asyncio.create_task(self._process_queue())
 
     async def _process_queue(self):
         last_flush_time = time.time()

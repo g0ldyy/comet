@@ -6,6 +6,7 @@ Orchestrates all components: Identity, Transport, Discovery, Gossip, Reputation,
 """
 
 import asyncio
+import gc
 import hashlib
 import hmac
 import json
@@ -540,6 +541,16 @@ class CometNetService(CometNetBackend):
                 # Save pools data
                 if self.pool_store:
                     await self.pool_store.save()
+
+                # Return freed heap pages to the OS (same pattern as anime.py:371)
+                gc.collect()
+                if sys.platform == "linux":
+                    try:
+                        import ctypes
+
+                        ctypes.CDLL("libc.so.6").malloc_trim(0)
+                    except Exception:
+                        pass
 
                 logger.log("COMETNET", "Periodic state save completed")
             except asyncio.CancelledError:
@@ -1476,6 +1487,14 @@ class CometNetService(CometNetBackend):
                 }
             )
 
+        # Torrent update queue stats (shared infrastructure)
+        tuq_stats = {}
+        try:
+            from comet.services.torrent_manager import torrent_update_queue
+            tuq_stats = torrent_update_queue.get_stats()
+        except Exception:
+            pass
+
         return {
             "enabled": True,
             "node_id": self.identity.node_id if self.identity else None,
@@ -1490,6 +1509,7 @@ class CometNetService(CometNetBackend):
             # stats
             "contribution_mode": settings.COMETNET_CONTRIBUTION_MODE,
             "pool_stats": self.pool_store.get_stats() if self.pool_store else {},
+            "torrent_update_queue": tuq_stats,
             # Private network info
             "private_network": settings.COMETNET_PRIVATE_NETWORK,
             "network_id": settings.COMETNET_NETWORK_ID
