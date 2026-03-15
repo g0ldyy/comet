@@ -304,10 +304,14 @@ def log_startup_info(settings):
         if not IS_SQLITE
         else ""
     )
+    memory_trim_interval = settings.MEMORY_TRIM_INTERVAL
+    memory_trim_value = (
+        f"{memory_trim_interval}s" if memory_trim_interval > 0 else "disabled"
+    )
 
     logger.log(
         "COMET",
-        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if IS_SQLITE else censor_url(settings.DATABASE_URL)} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s{force_ipv4_info}{replicas}",
+        f"Database ({settings.DATABASE_TYPE}): {settings.DATABASE_PATH if IS_SQLITE else censor_url(settings.DATABASE_URL)} - Batch Size: {settings.DATABASE_BATCH_SIZE} - TTL: metadata={settings.METADATA_CACHE_TTL}s, torrents={settings.TORRENT_CACHE_TTL}s, live_torrents={settings.LIVE_TORRENT_CACHE_TTL}s, debrid={settings.DEBRID_CACHE_TTL}s, metrics={settings.METRICS_CACHE_TTL}s - Debrid Ratio: {settings.DEBRID_CACHE_CHECK_RATIO} - Startup Cleanup Interval: {settings.DATABASE_STARTUP_CLEANUP_INTERVAL}s - Memory Trim Interval: {memory_trim_value}{force_ipv4_info}{replicas}",
     )
 
     if IS_SQLITE:
