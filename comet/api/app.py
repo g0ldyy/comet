@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from comet.api.endpoints import (admin, base, chilllink, cometnet, cometnet_ui,
-                                 config, debrid_sync, kodi, manifest, playback)
+                                 config, custom_catalog, debrid_sync, kodi, manifest, playback)
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
 from comet.cometnet.manager import init_cometnet_service
@@ -80,7 +80,8 @@ async def lifespan(app: FastAPI):
     if settings.BACKGROUND_SCRAPER_ENABLED:
         background_scraper.clear_finished_task()
         if not background_scraper.task:
-            background_scraper.task = asyncio.create_task(background_scraper.start())
+            background_scraper.task = asyncio.create_task(
+                background_scraper.start())
 
     # Start DMM Ingester if enabled
     dmm_ingester_task = None
@@ -108,8 +109,10 @@ async def lifespan(app: FastAPI):
 
         # Set callback to save torrents received from the network
         cometnet_service.set_save_torrent_callback(save_torrent_from_network)
-        cometnet_service.set_check_torrent_exists_callback(check_torrent_exists)
-        cometnet_service.set_check_torrents_exist_callback(check_torrents_exist)
+        cometnet_service.set_check_torrent_exists_callback(
+            check_torrent_exists)
+        cometnet_service.set_check_torrents_exist_callback(
+            check_torrents_exist)
         await cometnet_service.start()
 
     # Start indexer manager
@@ -231,6 +234,7 @@ stremio_routers = (
     debrid_sync.router,
     streams_router.streams,
     chilllink.router,
+    custom_catalog.router,
 )
 
 for stremio_router in stremio_routers:
