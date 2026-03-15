@@ -81,6 +81,7 @@ class AppSettings(BaseSettings):
     DATABASE_BATCH_SIZE: Optional[int] = 20000
     DATABASE_READ_REPLICA_URLS: List[str] = Field(default_factory=list)
     DATABASE_STARTUP_CLEANUP_INTERVAL: Optional[int] = 3600
+    MEMORY_TRIM_INTERVAL: Optional[int] = 300
     DATABASE_FORCE_IPV4_RESOLUTION: Optional[bool] = False
     METADATA_CACHE_TTL: Optional[int] = 2592000  # 30 days
     TORRENT_CACHE_TTL: Optional[int] = 2592000  # 30 days

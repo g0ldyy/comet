@@ -30,6 +30,7 @@ from comet.services.torrent_manager import (add_torrent_queue,
                                             torrent_update_queue)
 from comet.services.trackers import download_best_trackers
 from comet.utils.http_client import http_client_manager
+from comet.utils.memory import periodic_memory_trim
 from comet.utils.network_manager import network_manager
 
 
@@ -73,6 +74,12 @@ async def lifespan(app: FastAPI):
     # Start background cleanup tasks
     cleanup_locks_task = asyncio.create_task(cleanup_expired_locks())
     cleanup_kodi_task = asyncio.create_task(cleanup_expired_kodi_setup_codes())
+    memory_trim_task = None
+    memory_trim_interval = settings.MEMORY_TRIM_INTERVAL
+    if memory_trim_interval > 0:
+        memory_trim_task = asyncio.create_task(
+            periodic_memory_trim(memory_trim_interval)
+        )
 
     # Start background scraper if enabled
     if settings.BACKGROUND_SCRAPER_ENABLED:
@@ -137,6 +144,8 @@ async def lifespan(app: FastAPI):
 
         cleanup_locks_task.cancel()
         cleanup_kodi_task.cancel()
+        if memory_trim_task:
+            memory_trim_task.cancel()
         try:
             await cleanup_locks_task
         except asyncio.CancelledError:
@@ -145,6 +154,11 @@ async def lifespan(app: FastAPI):
             await cleanup_kodi_task
         except asyncio.CancelledError:
             pass
+        if memory_trim_task:
+            try:
+                await memory_trim_task
+            except asyncio.CancelledError:
+                pass
 
         if settings.PROXY_DEBRID_STREAM:
             await bandwidth_monitor.shutdown()

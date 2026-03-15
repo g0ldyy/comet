@@ -1,8 +1,5 @@
 import asyncio
-import ctypes
-import gc
 import os
-import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -12,6 +9,7 @@ import orjson
 from comet.core.database import backend_lock, database
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.memory import trim_process_memory
 
 _PROVIDER_URL_PATTERNS = (
     ("anilist.co/anime/", "anilist"),
@@ -418,20 +416,7 @@ class AnimeMapper:
                     del data_fribb
                     del data_kitsu_imdb
                     del anime_list
-                    gc.collect()
-
-                    if sys.platform == "linux":
-                        try:
-                            ctypes.CDLL("libc.so.6").malloc_trim(0)
-                        except Exception:
-                            pass
-                    elif sys.platform == "win32":
-                        try:
-                            ctypes.windll.psapi.EmptyWorkingSet(
-                                ctypes.windll.kernel32.GetCurrentProcess()
-                            )
-                        except Exception:
-                            pass
+                    trim_process_memory()
 
                     await self._load_provider_ids()
                     await self._load_kitsu_mapping_cache()
