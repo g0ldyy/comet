@@ -7,6 +7,8 @@ from ctypes.util import find_library
 from functools import lru_cache
 from typing import Optional
 
+from comet.core.logger import logger
+
 
 def _env_contains(name: str, needle: str) -> bool:
     value = os.environ.get(name, "")
@@ -102,7 +104,8 @@ def _trim_with_libc() -> bool:
         if malloc_trim is None:
             return False
         try:
-            return bool(malloc_trim(0))
+            malloc_trim(0)
+            return True
         except Exception:
             return False
 
@@ -137,4 +140,9 @@ async def periodic_memory_trim(interval_seconds: float | int | None) -> None:
 
     while True:
         await asyncio.sleep(interval)
-        trim_process_memory(aggressive=False)
+        try:
+            await asyncio.to_thread(trim_process_memory, aggressive=False)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Periodic memory trim failed")
