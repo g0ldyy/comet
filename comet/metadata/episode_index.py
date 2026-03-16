@@ -18,9 +18,9 @@ _TARGET_EPISODE_AIR_DATE_QUERY = """
       AND (:min_timestamp IS NULL OR updated_at >= :min_timestamp)
 """
 
-_SERIES_INDEX_MAX_UPDATED_AT_QUERY = """
-    SELECT MAX(updated_at)
-    FROM series_episode_index
+_SERIES_INDEX_LAST_REFRESH_QUERY = """
+    SELECT refreshed_at
+    FROM series_episode_index_refresh
     WHERE series_id = :series_id
 """
 
@@ -42,6 +42,19 @@ _UPSERT_SERIES_EPISODE_INDEX_QUERY = """
     ON CONFLICT (series_id, season, episode) DO UPDATE SET
         air_date = EXCLUDED.air_date,
         updated_at = EXCLUDED.updated_at
+"""
+
+_UPSERT_SERIES_INDEX_REFRESH_QUERY = """
+    INSERT INTO series_episode_index_refresh (
+        series_id,
+        refreshed_at
+    )
+    VALUES (
+        :series_id,
+        :refreshed_at
+    )
+    ON CONFLICT (series_id) DO UPDATE SET
+        refreshed_at = EXCLUDED.refreshed_at
 """
 
 
@@ -84,16 +97,22 @@ class EpisodeIndexService:
     async def _is_series_index_fresh(
         self, series_id: str, min_timestamp: float
     ) -> bool:
-        last_updated = await database.fetch_val(
-            _SERIES_INDEX_MAX_UPDATED_AT_QUERY,
+        last_refreshed = await database.fetch_val(
+            _SERIES_INDEX_LAST_REFRESH_QUERY,
             {"series_id": series_id},
         )
-        return last_updated is not None and float(last_updated) >= min_timestamp
+        return last_refreshed is not None and float(last_refreshed) >= min_timestamp
 
     async def _upsert_series_air_dates(self, rows: list[dict]) -> None:
         if not rows:
             return
         await database.execute_many(_UPSERT_SERIES_EPISODE_INDEX_QUERY, rows)
+
+    async def _upsert_series_refresh(self, series_id: str, refreshed_at: float) -> None:
+        await database.execute(
+            _UPSERT_SERIES_INDEX_REFRESH_QUERY,
+            {"series_id": series_id, "refreshed_at": refreshed_at},
+        )
 
     async def _refresh_from_cinemeta(self, series_id: str) -> None:
         try:
@@ -147,6 +166,7 @@ class EpisodeIndexService:
             }
 
         await self._upsert_series_air_dates(list(unique_rows.values()))
+        await self._upsert_series_refresh(series_id, now)
 
     async def _refresh_single_episode_from_tmdb(
         self,
