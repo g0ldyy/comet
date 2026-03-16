@@ -200,7 +200,6 @@ def filter_worker(
                 tz_aliases.add(scrub(t))
 
     ez_aliases_normalized = list(tz_aliases)
-
     min_year = 0
     max_year = float("inf")
 

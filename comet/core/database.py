@@ -702,6 +702,11 @@ async def _perform_startup_cleanup(current_time: float):
         "metadata_updated_at IS NULL AND release_updated_at IS NULL",
         {},
     )
+    await _delete_where(
+        "series_episode_index",
+        "updated_at < :min_timestamp",
+        {"min_timestamp": metadata_cutoff},
+    )
 
     if settings.TORRENT_CACHE_TTL >= 0:
         await _delete_where(

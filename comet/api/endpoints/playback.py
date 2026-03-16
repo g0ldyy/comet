@@ -94,6 +94,7 @@ async def playback(
     episode: str,
     torrent_name: str = Query(),
     name: str = Query(),
+    media_id: str | None = Query(default=None),
 ):
     config = config_check(b64config, strict_b64config=True)
     if not config:
@@ -104,6 +105,7 @@ async def playback(
 
     torrent_name = torrent_name.strip()
     name = name.strip()
+    media_id = media_id.strip() if media_id else None
     if not torrent_name or not name:
         return build_status_video_response(
             ["BAD_REQUEST"],
@@ -152,50 +154,79 @@ async def playback(
         and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
     )
     if download_url is None:
-        # Retrieve torrent sources from database for private trackers
-        torrent_data = await database.fetch_one(
-            """
-            SELECT sources_json, media_id
-            FROM torrents
-            WHERE info_hash = :info_hash
-            LIMIT 1
-            """,
-            {"info_hash": hash},
-        )
+        # Retrieve torrent sources from database for private trackers.
+        if media_id:
+            torrent_data = await database.fetch_one(
+                """
+                SELECT sources_json
+                FROM torrents
+                WHERE info_hash = :info_hash
+                AND media_id = :media_id
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                {"info_hash": hash, "media_id": media_id},
+            )
+            if torrent_data is None:
+                torrent_data = await database.fetch_one(
+                    """
+                    SELECT sources_json
+                    FROM torrents
+                    WHERE info_hash = :info_hash
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    {"info_hash": hash},
+                )
+        else:
+            torrent_data = await database.fetch_one(
+                """
+                SELECT sources_json, media_id
+                FROM torrents
+                WHERE info_hash = :info_hash
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                {"info_hash": hash},
+            )
 
         sources = []
-        media_id = None
+        context_media_id = media_id
         if torrent_data:
             if torrent_data["sources_json"]:
                 sources = orjson.loads(torrent_data["sources_json"])
-            media_id = torrent_data["media_id"]
+            if context_media_id is None:
+                context_media_id = torrent_data["media_id"]
 
         aliases = {}
-        if media_id:
+        debrid_video_id = None
+        debrid_media_only_id = context_media_id
+        if context_media_id:
             metadata_scraper = MetadataScraper(session)
             media_type = "series" if season is not None else "movie"
 
-            if "tt" in media_id:
+            if "tt" in context_media_id:
                 full_media_id = (
-                    f"{media_id}:{season}:{episode}"
+                    f"{context_media_id}:{season}:{episode}"
                     if media_type == "series"
-                    else media_id
+                    else context_media_id
                 )
             else:
                 full_media_id = (
-                    f"kitsu:{media_id}:{episode}"
+                    f"kitsu:{context_media_id}:{episode}"
                     if media_type == "series"
-                    else f"kitsu:{media_id}"
+                    else f"kitsu:{context_media_id}"
                 )
 
+            debrid_video_id = full_media_id
             _, aliases = await metadata_scraper.fetch_metadata_and_aliases(
                 media_type, full_media_id
             )
 
         debrid = get_debrid(
             session,
-            None,
-            None,
+            debrid_video_id,
+            debrid_media_only_id,
             debrid_service,
             debrid_api_key,
             ip if not should_proxy else "",

@@ -100,16 +100,61 @@ def parse_media_id(media_type: str, media_id: str):
     return media_id, None, None
 
 
+def match_parsed_episode_target(
+    parsed: ParsedData,
+    season: int | None,
+    episode: int | None,
+    target_air_date: str | None = None,
+    reject_unknown_episode_files: bool = False,
+) -> bool:
+    parsed_seasons = parsed.seasons
+
+    if episode is None:
+        if parsed.episodes:
+            return False
+        return not parsed_seasons or season in parsed_seasons
+
+    parsed_episodes = parsed.episodes
+
+    if parsed_seasons and season not in parsed_seasons:
+        return False
+    if parsed_episodes and episode not in parsed_episodes:
+        return False
+
+    if parsed_seasons or parsed_episodes:
+        if reject_unknown_episode_files and not (parsed_seasons and parsed_episodes):
+            return False
+        return True
+
+    parsed_date = parsed.date
+    if isinstance(parsed_date, str) and parsed_date:
+        if target_air_date is None:
+            return not reject_unknown_episode_files
+        return parsed_date == target_air_date
+
+    parsed_year = parsed.year
+    if parsed.complete and parsed_year and target_air_date:
+        target_year_str = target_air_date[:4]
+        if target_year_str.isdigit():
+            return parsed_year == int(target_year_str)
+
+    return not reject_unknown_episode_files
+
+
 def parsed_matches_target(
     parsed: ParsedData,
     season: int | None,
     episode: int | None,
+    target_air_date: str | None = None,
+    reject_unknown_episode_files: bool = False,
 ) -> bool:
-    if parsed.seasons and season not in parsed.seasons:
-        return False
-    if parsed.episodes and episode not in parsed.episodes:
-        return False
-    return True
+    return match_parsed_episode_target(
+        parsed,
+        season,
+        episode,
+        target_air_date=target_air_date,
+        reject_unknown_episode_files=reject_unknown_episode_files,
+    )
 
 
 @lru_cache(maxsize=1024)

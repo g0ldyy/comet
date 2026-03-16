@@ -9,6 +9,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
+from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
 from comet.services.anime import anime_mapper
@@ -251,6 +252,7 @@ async def background_scrape(
                 torrent_manager.search_season,
                 torrent_manager.search_episode,
                 ip,
+                target_air_date=torrent_manager.target_air_date,
             )
 
         logger.log(
@@ -313,6 +315,7 @@ async def get_and_cache_multi_service_availability(
     season: int,
     episode: int,
     ip: str,
+    target_air_date: str | None = None,
 ):
     service_cache_status = defaultdict(dict)
     errors = {}
@@ -344,6 +347,7 @@ async def get_and_cache_multi_service_availability(
                 media_only_id,
                 season,
                 episode,
+                target_air_date=target_air_date,
             )
 
             return service, cached_hashes, None
@@ -553,6 +557,30 @@ async def stream(
             if kitsu_id and kitsu_id not in cache_media_ids:
                 cache_media_ids.append(kitsu_id)
 
+    strict_episode_matching = (
+        media_type == "series"
+        and search_season is not None
+        and search_episode is not None
+        and media_only_id.startswith("tt")
+    )
+    target_air_date = None
+    if strict_episode_matching:
+        target_air_date = await EpisodeIndexService(session).get_target_air_date(
+            media_only_id,
+            search_season,
+            search_episode,
+        )
+        if target_air_date:
+            logger.log(
+                "SCRAPER",
+                f"📅 Episode target air date: {target_air_date} for {media_only_id} S{search_season:02d}E{search_episode:02d}",
+            )
+        else:
+            logger.log(
+                "SCRAPER",
+                f"📅 Episode target air date unavailable for {media_only_id} S{search_season:02d}E{search_episode:02d} (strict mode active)",
+            )
+
     remove_adult_content = settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
     torrent_manager = TorrentManager(
         media_type,
@@ -569,6 +597,8 @@ async def stream(
         search_episode=search_episode,
         search_season=search_season,
         cache_media_ids=cache_media_ids,
+        target_air_date=target_air_date,
+        reject_unknown_episode_files=strict_episode_matching,
     )
 
     await torrent_manager.get_cached_torrents()
@@ -687,6 +717,8 @@ async def stream(
             search_episode,
             aliases,
             remove_adult_content,
+            target_air_date=target_air_date,
+            reject_unknown_episode_files=strict_episode_matching,
         )
 
         for info_hash, account_torrent in account_torrents.items():
@@ -782,6 +814,7 @@ async def stream(
             search_season,
             search_episode,
             ip,
+            target_air_date=target_air_date,
         )
         _merge_service_cache_status(service_cache_status, fresh_service_cache_status)
 
@@ -843,6 +876,7 @@ async def stream(
 
     result_season = _encode_playback_scope(search_season)
     result_episode = _encode_playback_scope(search_episode)
+    quoted_media_only_id = quote(media_only_id, safe="")
 
     torrents = torrent_manager.torrents
     base_playback_host = (
@@ -965,7 +999,8 @@ async def stream(
                 str(file_index) if is_cached and file_index is not None else "n"
             )
             the_stream["url"] = (
-                f"{playback_base_url}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}?torrent_name={quoted_torrent_title}&name={quoted_title}"
+                f"{playback_base_url}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}"
+                f"?torrent_name={quoted_torrent_title}&name={quoted_title}&media_id={quoted_media_only_id}"
             )
 
             if is_cached:

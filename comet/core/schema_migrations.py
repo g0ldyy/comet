@@ -30,6 +30,7 @@ from comet.core.schema_specs import (ACTIVE_CONNECTIONS_TABLE_SPEC,
                                      METRICS_CACHE_TABLE_SPEC,
                                      NULL_SCOPE_SENTINEL,
                                      SCRAPE_LOCKS_TABLE_SPEC,
+                                     SERIES_EPISODE_INDEX_TABLE_SPEC,
                                      TORRENTS_TABLE_SPEC, UNIQUE_INDEX_SPECS,
                                      LegacyColumnMigration, ManagedTableSpec)
 
@@ -560,6 +561,7 @@ async def _migration_foundation(ctx: MigrationContext):
         SCRAPE_LOCKS_TABLE_SPEC,
         KODI_SETUP_CODES_TABLE_SPEC,
         MEDIA_METADATA_CACHE_TABLE_SPEC,
+        SERIES_EPISODE_INDEX_TABLE_SPEC,
         MEDIA_DEMAND_TABLE_SPEC,
     ):
         await _ensure_managed_table(ctx, spec, ensure_indexes=False)
@@ -897,6 +899,11 @@ async def _migration_remove_dead_kodi_columns(ctx: MigrationContext):
     return True
 
 
+async def _migration_series_episode_index(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, SERIES_EPISODE_INDEX_TABLE_SPEC)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -904,4 +911,5 @@ MIGRATIONS = [
     ("2026030904_indexes", _migration_indexes),
     (LEGACY_STORAGE_CLEANUP_MIGRATION, _migration_cleanup_legacy_storage),
     ("2026031201_remove_dead_kodi_columns", _migration_remove_dead_kodi_columns),
+    ("2026031601_series_episode_index", _migration_series_episode_index),
 ]
