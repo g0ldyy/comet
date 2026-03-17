@@ -13,9 +13,12 @@ _TARGET_EPISODE_AIR_DATE_QUERY = """
     SELECT air_date
     FROM series_episode_index
     WHERE series_id = :series_id
-      AND season = :season
-      AND episode = :episode
-      AND (:min_timestamp IS NULL OR updated_at >= :min_timestamp)
+      AND season = CAST(:season AS INTEGER)
+      AND episode = CAST(:episode AS INTEGER)
+      AND (
+          CAST(:min_timestamp AS REAL) IS NULL
+          OR updated_at >= CAST(:min_timestamp AS REAL)
+      )
 """
 
 _SERIES_INDEX_LAST_REFRESH_QUERY = """
