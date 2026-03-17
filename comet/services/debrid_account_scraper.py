@@ -98,6 +98,34 @@ def _to_epoch(value) -> float:
     return time.time()
 
 
+def _should_force_requested_episode_scope(
+    parsed,
+    season: int | None,
+    episode: int | None,
+    reject_unknown_episode_files: bool,
+) -> bool:
+    return (
+        reject_unknown_episode_files
+        and season is not None
+        and episode is not None
+        and not (parsed.seasons and parsed.episodes)
+    )
+
+
+def _resolve_cache_scope(
+    parsed,
+    search_season: int | None,
+    resolved_season: int | None,
+    resolved_episode: int | None,
+) -> tuple[list[int | None], list[int | None]]:
+    if resolved_season is not None or resolved_episode is not None:
+        return [resolved_season], [resolved_episode]
+    return (
+        parsed.seasons if parsed.seasons else [search_season],
+        parsed.episodes if parsed.episodes else [None],
+    )
+
+
 async def _fetch_all_magnets(client: StremThru, max_items: int):
     limit = 500
     items_by_id = {}
@@ -398,8 +426,12 @@ async def ingest_account_torrents_to_public_cache(
     file_infos_to_enqueue = []
     for info_hash, torrent in account_torrents.items():
         parsed = torrent["parsed"]
-        parsed_seasons = parsed.seasons if parsed.seasons else [search_season]
-        parsed_episodes = parsed.episodes if parsed.episodes else [None]
+        parsed_seasons, parsed_episodes = _resolve_cache_scope(
+            parsed,
+            search_season,
+            torrent.get("season"),
+            torrent.get("episode"),
+        )
         episode = None if len(parsed_episodes) > 1 else parsed_episodes[0]
 
         for season in parsed_seasons:
@@ -485,6 +517,8 @@ async def get_account_torrents_for_media(
     episode: int | None,
     aliases: dict | None,
     remove_adult_content: bool,
+    target_air_date: str | None = None,
+    reject_unknown_episode_files: bool = False,
 ):
     account_torrents = {}
     service_cache_status = {}
@@ -575,7 +609,13 @@ async def get_account_torrents_for_media(
 
         for torrent in filtered_torrents:
             parsed = torrent["parsed"]
-            if not parsed_matches_target(parsed, season, episode):
+            if not parsed_matches_target(
+                parsed,
+                season,
+                episode,
+                target_air_date=target_air_date,
+                reject_unknown_episode_files=reject_unknown_episode_files,
+            ):
                 continue
 
             info_hash = torrent["infoHash"]
@@ -589,6 +629,12 @@ async def get_account_torrents_for_media(
             if info_hash in account_torrents:
                 continue
 
+            force_requested_scope = _should_force_requested_episode_scope(
+                parsed,
+                season,
+                episode,
+                reject_unknown_episode_files,
+            )
             account_torrents[info_hash] = {
                 "fileIndex": torrent["fileIndex"],
                 "title": torrent["title"],
@@ -597,6 +643,8 @@ async def get_account_torrents_for_media(
                 "tracker": torrent["tracker"],
                 "sources": torrent["sources"],
                 "parsed": parsed,
+                "season": season if force_requested_scope else None,
+                "episode": episode if force_requested_scope else None,
             }
 
     return account_torrents, service_cache_status

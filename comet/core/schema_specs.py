@@ -102,6 +102,7 @@ LEGACY_INDEX_NAMES = [
     "idx_anime_ids_entry_provider",
     "idx_dmm_parsed_title",
     "idx_dmm_parsed_year",
+    "idx_series_episode_air_date_lookup_v1",
 ]
 
 
@@ -200,6 +201,42 @@ MEDIA_METADATA_CACHE_TABLE_SPEC = ManagedTableSpec(
         """
             CREATE INDEX IF NOT EXISTS idx_media_metadata_release_updated_at_v1
             ON {table_name} (release_updated_at)
+        """,
+    ),
+)
+
+SERIES_EPISODE_INDEX_TABLE_SPEC = ManagedTableSpec(
+    table_name="series_episode_index",
+    create_sql="""
+        CREATE TABLE {table_name} (
+            series_id TEXT NOT NULL,
+            season INTEGER NOT NULL,
+            episode INTEGER NOT NULL,
+            air_date TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (series_id, season, episode)
+        )
+    """,
+    index_sql=(
+        """
+            CREATE INDEX IF NOT EXISTS idx_series_episode_updated_at_v1
+            ON {table_name} (updated_at)
+        """,
+    ),
+)
+
+SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC = ManagedTableSpec(
+    table_name="series_episode_index_refresh",
+    create_sql="""
+        CREATE TABLE {table_name} (
+            series_id TEXT PRIMARY KEY,
+            refreshed_at REAL NOT NULL
+        )
+    """,
+    index_sql=(
+        """
+            CREATE INDEX IF NOT EXISTS idx_series_episode_refresh_refreshed_at_v1
+            ON {table_name} (refreshed_at)
         """,
     ),
 )
@@ -762,6 +799,8 @@ CURRENT_NON_UNIQUE_INDEX_SPECS = (
     SCRAPE_LOCKS_TABLE_SPEC,
     KODI_SETUP_CODES_TABLE_SPEC,
     MEDIA_METADATA_CACHE_TABLE_SPEC,
+    SERIES_EPISODE_INDEX_TABLE_SPEC,
+    SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC,
     MEDIA_DEMAND_TABLE_SPEC,
     TORRENTS_TABLE_SPEC,
     DEBRID_AVAILABILITY_TABLE_SPEC,

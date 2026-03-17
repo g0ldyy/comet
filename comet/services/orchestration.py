@@ -35,6 +35,8 @@ class TorrentManager:
         search_episode: int | None = None,
         search_season: int | None = None,
         cache_media_ids: list[str] | None = None,
+        target_air_date: str | None = None,
+        reject_unknown_episode_files: bool = False,
     ):
         self.media_type = media_type
         self.media_id = media_full_id
@@ -55,12 +57,33 @@ class TorrentManager:
         self.cache_media_ids = normalize_cache_media_ids(
             self.media_only_id, cache_media_ids
         )
+        self.target_air_date = target_air_date
+        self.reject_unknown_episode_files = reject_unknown_episode_files
 
         self.seen_hashes = set()
         self.torrents = {}
         self.ready_to_cache = []
         self.ranked_torrents = {}
         self.primary_cached = False
+
+    def _matches_requested_scope(
+        self,
+        parsed: ParsedData,
+        *,
+        reject_unknown_override: bool | None = None,
+    ) -> bool:
+        reject_unknown = (
+            self.reject_unknown_episode_files
+            if reject_unknown_override is None
+            else reject_unknown_override
+        )
+        return parsed_matches_target(
+            parsed,
+            self.search_season,
+            self.search_episode,
+            target_air_date=self.target_air_date,
+            reject_unknown_episode_files=reject_unknown,
+        )
 
     async def scrape_torrents(
         self,
@@ -83,9 +106,7 @@ class TorrentManager:
         asyncio.create_task(self.cache_torrents())
 
         for torrent in self.ready_to_cache:
-            if not parsed_matches_target(
-                torrent["parsed"], self.search_season, self.search_episode
-            ):
+            if not self._matches_requested_scope(torrent["parsed"]):
                 continue
 
             info_hash = torrent["infoHash"]
@@ -157,9 +178,15 @@ class TorrentManager:
             ):
                 continue
 
-            if row["episode"] is None and parsed_data.episodes:
-                if self.search_episode not in parsed_data.episodes:
-                    continue
+            reject_unknown_override = (
+                True
+                if self.reject_unknown_episode_files and self.search_episode is not None
+                else None
+            )
+            if not self._matches_requested_scope(
+                parsed_data, reject_unknown_override=reject_unknown_override
+            ):
+                continue
 
             info_hash = row["info_hash"]
             self.torrents[info_hash] = {
@@ -178,6 +205,14 @@ class TorrentManager:
             self.search_season if self.search_season is not None else self.season
         ]
         parsed_episodes = parsed.episodes or [None]
+
+        if self.reject_unknown_episode_files and self.search_episode is not None:
+            if not self._matches_requested_scope(parsed, reject_unknown_override=True):
+                return
+
+            cache_seasons = [self.search_season]
+            parsed_episodes = [self.search_episode]
+
         episode = None if len(parsed_episodes) > 1 else parsed_episodes[0]
         info_hash = torrent["infoHash"]
         file_index = torrent["fileIndex"]
