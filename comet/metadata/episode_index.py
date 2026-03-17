@@ -115,25 +115,31 @@ class EpisodeIndexService:
         )
 
     async def _refresh_from_cinemeta(self, series_id: str) -> None:
+        refresh_index = False
         try:
             async with self.session.get(
                 _CINEMETA_SERIES_META_URL.format(series_id=series_id)
             ) as response:
                 if response.status == 404:
+                    refresh_index = True
                     return
                 response.raise_for_status()
                 payload = await response.json()
+                refresh_index = True
         except Exception as exc:
             logger.warning(
                 f"EpisodeIndex: Failed to fetch Cinemeta episode data for {series_id}: {exc}"
             )
             return
+        finally:
+            if refresh_index:
+                await self._upsert_series_refresh(series_id, time.time())
 
         videos = payload.get("meta", {}).get("videos") or []
         if not isinstance(videos, list):
             return
 
-        now = time.time()
+        updated_at = time.time()
         unique_rows: dict[tuple[int, int], dict] = {}
         for video in videos:
             if not isinstance(video, dict):
@@ -162,11 +168,10 @@ class EpisodeIndexService:
                 "season": season_int,
                 "episode": episode_int,
                 "air_date": air_date,
-                "updated_at": now,
+                "updated_at": updated_at,
             }
 
         await self._upsert_series_air_dates(list(unique_rows.values()))
-        await self._upsert_series_refresh(series_id, now)
 
     async def _refresh_single_episode_from_tmdb(
         self,
