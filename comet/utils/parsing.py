@@ -117,7 +117,7 @@ def match_parsed_episode_target(
 
     parsed_episodes = parsed.episodes
 
-    if parsed_seasons and season not in parsed_seasons:
+    if parsed_seasons and season is not None and season not in parsed_seasons:
         return False
     if parsed_episodes and episode not in parsed_episodes:
         return False
