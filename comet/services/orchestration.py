@@ -178,17 +178,15 @@ class TorrentManager:
             ):
                 continue
 
-            if row["episode"] is None:
-                reject_unknown_override = (
-                    True
-                    if self.reject_unknown_episode_files
-                    and self.search_episode is not None
-                    else None
-                )
-                if not self._matches_requested_scope(
-                    parsed_data, reject_unknown_override=reject_unknown_override
-                ):
-                    continue
+            reject_unknown_override = (
+                True
+                if self.reject_unknown_episode_files and self.search_episode is not None
+                else None
+            )
+            if not self._matches_requested_scope(
+                parsed_data, reject_unknown_override=reject_unknown_override
+            ):
+                continue
 
             info_hash = row["info_hash"]
             self.torrents[info_hash] = {
