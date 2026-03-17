@@ -125,7 +125,7 @@ def match_parsed_episode_target(
         return False
 
     if parsed_seasons or parsed_episodes:
-        if reject_unknown_episode_files and not parsed_episodes:
+        if reject_unknown_episode_files and (not parsed_episodes or not parsed_seasons):
             return False
         return True
 
