@@ -563,6 +563,7 @@ async def _migration_foundation(ctx: MigrationContext):
         KODI_SETUP_CODES_TABLE_SPEC,
         MEDIA_METADATA_CACHE_TABLE_SPEC,
         SERIES_EPISODE_INDEX_TABLE_SPEC,
+        SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC,
         MEDIA_DEMAND_TABLE_SPEC,
     ):
         await _ensure_managed_table(ctx, spec, ensure_indexes=False)
