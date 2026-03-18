@@ -19,7 +19,7 @@
 - Blazing Fast Background Scraper
 - Debrid Account Scraper: Scrape torrents directly from your debrid account library
 - [DMM](https://github.com/debridmediamanager/hashlists) Ingester: Automatically download and index Debrid Media Manager hashlists
-- Smart Torrent Ranking powered by [RTN](https://github.com/dreulavelle/rank-torrent-name)
+- Smart Torrent Ranking powered by [TPR](https://github.com/g0ldyy/torrent-parse-rank)
 - Proxy support to bypass debrid restrictions
 - Real-Debrid, All-Debrid, Premiumize, TorBox, Debrid-Link, Debrider, EasyDebrid, OffCloud and PikPak supported
 - Direct Torrent supported
