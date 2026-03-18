@@ -16,6 +16,11 @@ on:
         description: Additional build args appended to the shared defaults
         required: true
         type: string
+      platforms:
+        description: Platforms passed to docker/build-push-action
+        required: false
+        default: linux/amd64,linux/arm64
+        type: string
     secrets:
       dockerhub_username:
         required: false
@@ -63,7 +68,7 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ inputs.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
