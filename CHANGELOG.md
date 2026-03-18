@@ -2,6 +2,55 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.53.0](https://github.com/g0ldyy/comet/compare/v2.52.0...v2.53.0) (2026-03-18)
+
+
+### Features
+
+* add effective peer address resolution for WebSocket connections ([0a80dd4](https://github.com/g0ldyy/comet/commit/0a80dd4092e6e1e4d714da613e609148a1abd01e))
+* add live preview for result format selection in the UI ([5394a40](https://github.com/g0ldyy/comet/commit/5394a40777d864b281c0ec112ca3989038e66e7f))
+* add live preview for result format selection in the UI ([8d5ef18](https://github.com/g0ldyy/comet/commit/8d5ef18843947a49e003add3f142c09a27eba4e9))
+* add memory management features to optimize resource usage ([76ccb4d](https://github.com/g0ldyy/comet/commit/76ccb4d690670745096bf67720db0537e9687880))
+* add series episode index refresh functionality ([f028b22](https://github.com/g0ldyy/comet/commit/f028b2209e0e8b0a4eb33d823ce2780e40f9438d))
+* add series episode index refresh table to migration schema ([ac232f5](https://github.com/g0ldyy/comet/commit/ac232f5fca9cb123b3ec7d7d3688fd8029632c0d))
+* enforce strict episode matching with air-date indexing ([d74d2ee](https://github.com/g0ldyy/comet/commit/d74d2ee8745839fe8f577089fdd4833601938cc1))
+* enforce strict episode matching with air-date indexing ([aebaf73](https://github.com/g0ldyy/comet/commit/aebaf7390d40eb806d65751ca678f9855d1122ed))
+* enhance database functionality with new predicates and JSON handling ([21ebac8](https://github.com/g0ldyy/comet/commit/21ebac83524923e754726d91770b9c33503cc7d1))
+* enhance memory management with mimalloc support ([54f3f06](https://github.com/g0ldyy/comet/commit/54f3f062e71b2ec0e2d4fd46fe2a84888696cfa7))
+* enhance URL handling in scrapers with context-aware parsing ([8546296](https://github.com/g0ldyy/comet/commit/8546296d3394df2a8c84679dc1bb6513002567c9))
+* improve periodic memory trimming with enhanced error handling ([5af2dbe](https://github.com/g0ldyy/comet/commit/5af2dbe64f1a6a2384f1f105dff1ff9a28381f5c))
+* introduce common Docker build workflow and streamline existing workflows ([ca28fb8](https://github.com/g0ldyy/comet/commit/ca28fb8e49bfd853d806c4c2bf5e9540d7b7b2da))
+* log memory trim interval in startup information ([e7288c1](https://github.com/g0ldyy/comet/commit/e7288c1ab4d0768ee02096ad4acbbc6dc8dbdecb))
+* switch to the Rust filename parser ([d12f80c](https://github.com/g0ldyy/comet/commit/d12f80cf9dea7b391aceed6ee012122410522e52))
+* update TPR link ([bc012df](https://github.com/g0ldyy/comet/commit/bc012dfbfd69e67fc8783e43c75b4a51bff65f91))
+
+
+### Bug Fixes
+
+* add missing API key header in Trakt aliases request ([3db3769](https://github.com/g0ldyy/comet/commit/3db37694df23054e5206254dfebdea6f680114de))
+* correct bandwidth statistics update logic ([d1e37bb](https://github.com/g0ldyy/comet/commit/d1e37bb81e7f7fcea24cce36de896b231da3e3b7))
+* don't use DOMContentLoaded as it isn't needed ([a30637c](https://github.com/g0ldyy/comet/commit/a30637c6025f11f2ec3b98b2e6732fd342f125aa))
+* don't use DOMContentLoaded as it isn't needed ([15d405e](https://github.com/g0ldyy/comet/commit/15d405efdff7627ea710910672f866eaf677096a))
+* enforce media ID requirement for torrent operations ([44f423d](https://github.com/g0ldyy/comet/commit/44f423d4be229b487de1863ac903da2232f997ee))
+* enforce non-empty imdb_id requirement in torrent metadata ([386b4dd](https://github.com/g0ldyy/comet/commit/386b4dd1ad75badd43031c73cfc445aa4f37f168))
+* enhance error logging in info hash normalization ([26ecdf2](https://github.com/g0ldyy/comet/commit/26ecdf2310c36afaf10dd15c41c20721dfc0d7ab))
+* exclude miniupnpc version 2.3.3 and update to 2.3.2 ([a168860](https://github.com/g0ldyy/comet/commit/a1688600238666e812e8f597d17aa934369ddd1e))
+* handle missing video size in torrent behavior hints ([bab5445](https://github.com/g0ldyy/comet/commit/bab5445a785c46bd4ad1e67198af088692d0a2fd))
+* import gunicorn in run_with_gunicorn function to fix windows issues ([7f89f7a](https://github.com/g0ldyy/comet/commit/7f89f7a1ee2c09dcfc8f0dcb2799de060ffd365b))
+* import gunicorn in run_with_gunicorn function to fix windows issues ([cecb61e](https://github.com/g0ldyy/comet/commit/cecb61e8d85c5387f4ae6a46a4aec0831dd7e17c))
+* optimize search metrics query in admin API ([610f7e7](https://github.com/g0ldyy/comet/commit/610f7e7fb9fcc0be7ecd3e2cc9cd31c49cb9568d))
+* **playback:** Fix name_query not being parsed ([798bf80](https://github.com/g0ldyy/comet/commit/798bf8002c6f98646a4986c9cef919b515aa93b6))
+* **playback:** Fix name_query not being parsed ([458be8c](https://github.com/g0ldyy/comet/commit/458be8c857cc9f5716aab87f26378090431fa6f0))
+* **playback:** Validate and strip torrent name and video name parameters ([2476bb0](https://github.com/g0ldyy/comet/commit/2476bb02de86c96d6d606fa70d8cd3083e6218e3))
+* prevent auto-scrolling when new logs are appended if not at the bottom ([5457db0](https://github.com/g0ldyy/comet/commit/5457db0143fa19cd6056d8531f0fe20860cb10e1))
+* prevent auto-scrolling when new logs are appended if not at the bottom ([19bf51f](https://github.com/g0ldyy/comet/commit/19bf51f64d981d07c37a94811fcf0f687ff10c37))
+* simplify metadata_updated_at assignment in SQL queries ([952217e](https://github.com/g0ldyy/comet/commit/952217ece69d76377054e79d85d43a5c00a2724d))
+* simplify metadata_updated_at assignment in SQL queries ([6298755](https://github.com/g0ldyy/comet/commit/6298755ea0382b778551020924231fd723ebd354))
+* update last_seen_at timestamp in background scraper ([b1fbab5](https://github.com/g0ldyy/comet/commit/b1fbab57f1fbde799d0acb573f4aabacac72fbfa))
+* update media ID matching logic in background scraper ([52dca3b](https://github.com/g0ldyy/comet/commit/52dca3b1f0c02d39560693335a8b0452894c759b))
+* update miniupnpc dependency and Dockerfile cache configuration ([c31bfe1](https://github.com/g0ldyy/comet/commit/c31bfe16707c46354b420dd8cdbc6a4e48ecad52))
+* update search query timestamps in admin API metrics ([44b7432](https://github.com/g0ldyy/comet/commit/44b7432f018f310a5448bca04c70b88ba353e653))
+
 ## [2.52.0](https://github.com/g0ldyy/comet/compare/v2.51.0...v2.52.0) (2026-02-19)
 
 
