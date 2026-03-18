@@ -371,7 +371,7 @@ requires-dist = [
     { name = "jinja2" },
     { name = "loguru" },
     { name = "mediaflow-proxy", specifier = "==2.4.1" },
-    { name = "miniupnpc" },
+    { name = "miniupnpc", specifier = "!=2.3.3" },
     { name = "msgpack" },
     { name = "orjson" },
     { name = "pydantic-settings" },
@@ -833,17 +833,17 @@ wheels = [
 
 [[package]]
 name = "miniupnpc"
-version = "2.3.3"
+version = "2.3.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/73/8f/4d7964914386dcd82da566e04af9a8744d2025e2d68fa37689d5c4e152cf/miniupnpc-2.3.3.tar.gz", hash = "sha256:ee5e957df828d2fa1cc364e60c583d10439110888f086c9182071c96a374b2ad", size = 79010, upload-time = "2025-05-26T23:01:39.214Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/70/006c6142854d285e3317a8d9155098fe9c7034c1f3eccbdd50e11828da0f/miniupnpc-2.3.2.tar.gz", hash = "sha256:5c21d12b05049b5026a2d8747a4cd80b07b9ae61b898b5dc662497cc7b1b9935", size = 78378, upload-time = "2025-03-05T10:38:18.925Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/e5/78fc19acb51dd19d2493309e0ae228ce7475f53a8796769c18bade7fd4af/miniupnpc-2.3.3-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:7ba6d2bc1809f6699ce151455ce58c0a26f7d1a6febc0175c10b990b2bf9cf75", size = 29521, upload-time = "2025-05-26T23:08:19.074Z" },
-    { url = "https://files.pythonhosted.org/packages/27/94/7142d42763f076c731bf4cacbc805fb85f734386b7546969729b06c6e7cf/miniupnpc-2.3.3-cp313-cp313-macosx_13_0_universal2.whl", hash = "sha256:6d606171dbe9b8ceb9cc5d9eb07035013a9ff2b58704a55466deec53795006d6", size = 36509, upload-time = "2025-05-26T23:08:20.645Z" },
-    { url = "https://files.pythonhosted.org/packages/fd/6c/ecaa3dff14bdd9ac1b963e6e457aa39766a42a45a1b7a28bc5f4f7ae0cf1/miniupnpc-2.3.3-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:1bdf467cd1b656750f2f011b0ab8971cf726b3e8a454189f85e551f1a03bbf7f", size = 30210, upload-time = "2025-05-26T23:08:21.822Z" },
-    { url = "https://files.pythonhosted.org/packages/28/f6/f73048a6359d539d418c136fb201367e71e02d716fa4cd6862eec5f1ce97/miniupnpc-2.3.3-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:191013f4533e5eece06292ea1f5a692de0f5daa436b5d2774ed72eb56014f4d1", size = 47476, upload-time = "2025-05-26T23:08:23.425Z" },
-    { url = "https://files.pythonhosted.org/packages/43/bc/f8311b8d5312530a44527e3f226cf9e49c3a878508ca389cbf0c14d44522/miniupnpc-2.3.3-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:56f2818da9a13dfd80e3e5f3a6036f27f2eec0f0fa0c6657ffa9bdc0d331bdf0", size = 47797, upload-time = "2025-05-26T23:08:27.272Z" },
-    { url = "https://files.pythonhosted.org/packages/57/62/9376b83824805dbf4102ecc1ff52fd88f1b2c5f4a0b464601face50f4512/miniupnpc-2.3.3-cp313-cp313-win32.whl", hash = "sha256:19e01f00cdcf63d98b19b75756ebc199dffe69bf33e55828241dbebeb385f61b", size = 213140, upload-time = "2025-05-26T23:16:25.667Z" },
-    { url = "https://files.pythonhosted.org/packages/7b/48/dee5063f100313737e089f71ebeec4617996ae808a21ba5e8e2c406f75df/miniupnpc-2.3.3-cp313-cp313-win_amd64.whl", hash = "sha256:53f7f1aae294754db13e7f109c34137d6c00640597aa66f66d4ca57aae1b12b9", size = 214603, upload-time = "2025-05-26T23:21:12.467Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/d6/6ce1fdd498555c5b16d6edacdc68a558b3e1689d11c387d8662fb14ea2f7/miniupnpc-2.3.2-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:4801cb8dc2877086a1035fd316a8df17a0e02d671afe88681c94bfe31199d39f", size = 29522, upload-time = "2025-04-03T21:32:24.75Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/16/28a8ce0a8e6de0c8d2ff90d742d3f1e83aca396046950321c258cd3c0646/miniupnpc-2.3.2-cp313-cp313-macosx_13_0_universal2.whl", hash = "sha256:d3e28cc17d0d475426651ed9d05f2b3248641cd70fd79b8e1f819d403f5118bd", size = 36524, upload-time = "2025-04-03T21:32:25.709Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/4e/236624df4e59378f12f3ac3a08dda83855b715409288055a2c9df2dfb7cb/miniupnpc-2.3.2-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:41cd1a6d3b6fae4d83360bf9e0f05f93067c798eb2062cbd73ee946cf9d09bcd", size = 30216, upload-time = "2025-04-03T21:32:26.661Z" },
+    { url = "https://files.pythonhosted.org/packages/42/a3/65ac2fcdea290de319fdcd18a5b66bbb23d04eaeee2231dd79a270d08d8a/miniupnpc-2.3.2-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1d95647976cf2a6d2cdb6928624ba3b2481bcb0dfa74439854be1b046e801b09", size = 47506, upload-time = "2025-04-03T21:32:27.591Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/25/f33e8d04d77ccb366d5a0cc0898e4452950080a0c32dcbd2b21a3ba051cd/miniupnpc-2.3.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4d2f425d24869488480fb5a9890a1b82fb3a686b7c4c6e0c248b6566e2a39b39", size = 47816, upload-time = "2025-04-03T21:32:28.582Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/81/84302847fdedb2c1c49836ca75b3c46c2a51b0cf742b0fbbaf4d6af36998/miniupnpc-2.3.2-cp313-cp313-win32.whl", hash = "sha256:d7bc56c3852445796ad046200d4c0872e266ac906f011e6589205eabdaa5e0ae", size = 212712, upload-time = "2025-03-05T16:18:12.584Z" },
+    { url = "https://files.pythonhosted.org/packages/52/10/d932964c5f1b52b476b94bd2bbfb8baa970ffe09b9770c2dfa09018fd809/miniupnpc-2.3.2-cp313-cp313-win_amd64.whl", hash = "sha256:6c333904ec8bef2f09a0322b4a9760b857933a03fbcb21390a7b67521b51b1c7", size = 214270, upload-time = "2025-03-05T16:20:38.163Z" },
 ]
 
 [[package]]

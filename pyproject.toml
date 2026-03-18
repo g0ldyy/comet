@@ -28,7 +28,7 @@ dependencies = [
     "cryptography",
     "websockets",
     "msgpack",
-    "miniupnpc",
+    "miniupnpc!=2.3.3",
     "aiofiles",
     "torrent-parse-rank",
 ]
