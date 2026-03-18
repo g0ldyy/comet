@@ -30,19 +30,6 @@
 # Installation
 To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!
 
-## ElfHosted
-
-A free, public Comet instance is available at https://comet.elfhosted.com, but if you need custom indexers, higher-rate-limits, or proxystreaming in a "turn-key" fashion, consider ElfHosted...
-
-[ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (*hosting, security, updates, etc*) for your self-hosted apps.
-
-ElfHosted offer "one-click" [private Comet instances](https://elfhosted.com/app/comet/) bundled with Jackett and 64Mbps proxystreaming, allowing you to customize your indexers and streaming from multiple source IPs with the same RD token, without risking an account ban! (bandwidth boosters are available)
-
-> [!IMPORTANT]
-> Comet is a top-tier app in the [ElfHosted app catalogue](https://elfhosted.com/apps/). 30% of your subscription goes to the app developer :heart:
-
-(*[ElfHosted Discord](https://discord.elfhosted.com)*)
-
 ## Self Hosted
 ### From source (developers)
 - Clone the repository and enter the folder
