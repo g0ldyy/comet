@@ -29,6 +29,7 @@ jobs:
     if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/development'
     uses: ./.github/workflows/docker-build-common.yml
     with:
+      platforms: linux/amd64
       tags: |
         type=ref,event=branch
         type=sha,prefix=sha-

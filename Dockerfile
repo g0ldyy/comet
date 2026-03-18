@@ -7,22 +7,23 @@ RUN apk add --no-cache gcc python3-dev musl-dev linux-headers git make tzdata mi
 
 WORKDIR /app
 
+COPY pyproject.toml uv.lock ./
+
+ENV TZ=UTC \
+    UV_HTTP_TIMEOUT=300 \
+    PYTHONMALLOC=malloc \
+    LD_PRELOAD=/usr/lib/libmimalloc.so.2
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
+
+COPY . .
+
 ARG DATABASE_PATH
 ARG COMET_COMMIT_HASH
 ARG COMET_BUILD_DATE
 ARG COMET_BRANCH
 
-COPY pyproject.toml .
-
-ENV TZ=UTC \
-    UV_HTTP_TIMEOUT=300 \
-    PYTHONMALLOC=malloc \
-    LD_PRELOAD=/usr/lib/libmimalloc.so.2 \
-    COMET_COMMIT_HASH=${COMET_COMMIT_HASH} \
+ENV COMET_COMMIT_HASH=${COMET_COMMIT_HASH} \
     COMET_BUILD_DATE=${COMET_BUILD_DATE} \
     COMET_BRANCH=${COMET_BRANCH}
-RUN uv sync
-
-COPY . .
 
 ENTRYPOINT ["uv", "run", "python", "-m", "comet.main"]
