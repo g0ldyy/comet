@@ -1,8 +1,9 @@
 import time
 
-import orjson
-
-from comet.core.database import IS_SQLITE, JSON_FUNC
+from comet.core.database import (build_distinct_from_predicate,
+                                 build_json_list_membership_predicate,
+                                 build_scope_lookup_params, build_scope_params,
+                                 build_upsert_assignments, encode_json_param)
 from comet.core.models import database, settings
 from comet.utils.parsing import default_dump
 
@@ -10,19 +11,68 @@ DEBRID_UPDATE_INTERVAL = (
     settings.DEBRID_CACHE_TTL // 2 if settings.DEBRID_CACHE_TTL > 0 else 31536000
 )
 
-CONDITIONAL_UPDATE = """
+DEBRID_CHANGE_DETECTION_COLUMNS = (
+    "title",
+    "file_index",
+    "size",
+    "parsed_json",
+)
+DEBRID_UPDATE_COLUMNS = (*DEBRID_CHANGE_DETECTION_COLUMNS, "updated_at")
+DEBRID_UPDATE_SET_SQL = build_upsert_assignments(DEBRID_UPDATE_COLUMNS)
+DEBRID_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
+    "debrid_availability",
+    "EXCLUDED",
+    DEBRID_CHANGE_DETECTION_COLUMNS,
+)
+INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "info_hash", "info_hashes"
+)
+SCOPE_FILTER_SQL = """
+season_norm = :season_norm
+AND episode_norm = :episode_norm
+"""
+
+
+def _build_conditional_update() -> str:
+    return f"""
         DO UPDATE SET
-            title = EXCLUDED.title,
-            file_index = EXCLUDED.file_index,
-            size = EXCLUDED.size,
-            parsed = EXCLUDED.parsed,
-            timestamp = EXCLUDED.timestamp
+{DEBRID_UPDATE_SET_SQL}
         WHERE
-            debrid_availability.title IS DISTINCT FROM EXCLUDED.title
-            OR debrid_availability.file_index IS DISTINCT FROM EXCLUDED.file_index
-            OR debrid_availability.size IS DISTINCT FROM EXCLUDED.size
-            OR debrid_availability.parsed IS DISTINCT FROM EXCLUDED.parsed
-            OR COALESCE(debrid_availability.timestamp, 0) < (EXCLUDED.timestamp - :update_interval)
+            {DEBRID_DISTINCT_UPDATE_WHERE_SQL}
+            OR COALESCE(debrid_availability.updated_at, 0) < (EXCLUDED.updated_at - :update_interval)
+"""
+
+
+CONDITIONAL_UPDATE_SQL = _build_conditional_update()
+CACHE_AVAILABILITY_QUERY = f"""
+    INSERT INTO debrid_availability (
+        debrid_service,
+        info_hash,
+        season,
+        episode,
+        season_norm,
+        episode_norm,
+        file_index,
+        title,
+        size,
+        parsed_json,
+        updated_at
+    )
+    VALUES (
+        :debrid_service,
+        :info_hash,
+        :season,
+        :episode,
+        :season_norm,
+        :episode_norm,
+        :file_index,
+        :title,
+        :size,
+        :parsed_json,
+        :updated_at
+    )
+    ON CONFLICT (debrid_service, info_hash, season_norm, episode_norm)
+    {CONDITIONAL_UPDATE_SQL}
 """
 
 
@@ -37,137 +87,77 @@ async def cache_availability(debrid_service: str, availability: list):
             "title": file["title"],
             "season": file["season"],
             "episode": file["episode"],
+            **build_scope_params(file["season"], file["episode"]),
             "size": file["size"] if file["index"] is not None else None,
-            "parsed": orjson.dumps(file["parsed"], default_dump).decode("utf-8")
-            if file["parsed"] is not None
-            else None,
-            "timestamp": current_time,
+            "parsed_json": (
+                encode_json_param(file["parsed"], default=default_dump)
+                if file["parsed"] is not None
+                else None
+            ),
+            "updated_at": current_time,
             "update_interval": DEBRID_UPDATE_INTERVAL,
         }
         for file in availability
     ]
 
-    if IS_SQLITE:
-        query = """
-            INSERT OR REPLACE
-            INTO debrid_availability
-            VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-        """
-        sqlite_values = [
-            {k: v for k, v in val.items() if k != "update_interval"} for val in values
-        ]
-        await database.execute_many(query, sqlite_values)
-    else:
-        both_values = []
-        season_only_values = []
-        episode_only_values = []
-        no_season_episode_values = []
-
-        for val in values:
-            if val["season"] is not None and val["episode"] is not None:
-                both_values.append(val)
-            elif val["season"] is not None and val["episode"] is None:
-                season_only_values.append(val)
-            elif val["season"] is None and val["episode"] is not None:
-                episode_only_values.append(val)
-            else:
-                no_season_episode_values.append(val)
-
-        if both_values:
-            query = f"""
-                INSERT INTO debrid_availability
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-                ON CONFLICT (debrid_service, info_hash, season, episode) 
-                WHERE season IS NOT NULL AND episode IS NOT NULL
-                {CONDITIONAL_UPDATE}
-            """
-            await database.execute_many(query, both_values)
-
-        if season_only_values:
-            query = f"""
-                INSERT INTO debrid_availability
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-                ON CONFLICT (debrid_service, info_hash, season) 
-                WHERE season IS NOT NULL AND episode IS NULL
-                {CONDITIONAL_UPDATE}
-            """
-            await database.execute_many(query, season_only_values)
-
-        if episode_only_values:
-            query = f"""
-                INSERT INTO debrid_availability
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-                ON CONFLICT (debrid_service, info_hash, episode) 
-                WHERE season IS NULL AND episode IS NOT NULL
-                {CONDITIONAL_UPDATE}
-            """
-            await database.execute_many(query, episode_only_values)
-
-        if no_season_episode_values:
-            query = f"""
-                INSERT INTO debrid_availability
-                VALUES (:debrid_service, :info_hash, :file_index, :title, :season, :episode, :size, :parsed, :timestamp)
-                ON CONFLICT (debrid_service, info_hash) 
-                WHERE season IS NULL AND episode IS NULL
-                {CONDITIONAL_UPDATE}
-            """
-            await database.execute_many(query, no_season_episode_values)
+    await database.execute_many(CACHE_AVAILABILITY_QUERY, values)
 
 
 async def get_cached_availability(
-    debrid_service: str, info_hashes: list, season: int = None, episode: int = None
+    debrid_service: str,
+    info_hashes: list[str],
+    season: int | None = None,
+    episode: int | None = None,
 ):
-    select_clause = "SELECT info_hash, file_index, title, size, parsed"
+    select_clause = "SELECT info_hash, file_index, title, size, parsed_json AS parsed"
 
     min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
     base_from_where = f"""
         FROM debrid_availability
-        WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {JSON_FUNC}(:info_hashes))
-        AND timestamp >= :min_timestamp
+        WHERE {INFO_HASH_MEMBERSHIP_SQL}
+        AND updated_at >= :min_timestamp
     """
 
     params = {
-        "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
+        "info_hashes": encode_json_param(info_hashes),
         "min_timestamp": min_timestamp,
-        "season": season,
-        "episode": episode,
+        **build_scope_lookup_params(season, episode),
     }
 
     base_from_where += " AND debrid_service = :debrid_service"
     params["debrid_service"] = debrid_service
 
     if debrid_service == "offcloud":
-        season_episode_filter = """
-            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
-            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
+        query = f"""
+            SELECT info_hash, file_index, title, size, parsed
+            FROM (
+                SELECT
+                    info_hash,
+                    file_index,
+                    title,
+                    size,
+                    parsed_json AS parsed,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY info_hash
+                        ORDER BY
+                            CASE WHEN {SCOPE_FILTER_SQL} THEN 0 ELSE 1 END,
+                            updated_at DESC
+                    ) AS row_number
+                {base_from_where}
+                AND (
+                    ({SCOPE_FILTER_SQL})
+                    OR title IS NULL
+                )
+            ) ranked_offcloud_availability
+            WHERE row_number = 1
         """
-        query = select_clause + base_from_where + season_episode_filter
-
         results = await database.fetch_all(query, params)
-
-        found_hashes = {r["info_hash"] for r in results}
-        remaining_hashes = [h for h in info_hashes if h not in found_hashes]
-
-        if remaining_hashes:
-            null_title_params = {
-                "info_hashes": orjson.dumps(remaining_hashes).decode("utf-8"),
-                "min_timestamp": min_timestamp,
-            }
-            if debrid_service != "torrent":
-                null_title_params["debrid_service"] = debrid_service
-
-            null_title_query = select_clause + base_from_where + " AND title IS NULL"
-            null_results = await database.fetch_all(null_title_query, null_title_params)
-            results.extend(null_results)
     else:
-        query = (
-            select_clause
-            + base_from_where
-            + """
-            AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
-            AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
+        query = f"""
+            {select_clause}
+            {base_from_where}
+            AND {SCOPE_FILTER_SQL}
         """
-        )
         results = await database.fetch_all(query, params)
 
     return results
@@ -179,33 +169,34 @@ async def get_cached_availability_any_service(
     min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
     base_from_where = f"""
         FROM debrid_availability
-        WHERE info_hash IN (SELECT CAST(value as TEXT) FROM {JSON_FUNC}(:info_hashes))
-        AND timestamp >= :min_timestamp
-        AND ((CAST(:season as INTEGER) IS NULL AND season IS NULL) OR season = CAST(:season as INTEGER))
-        AND ((CAST(:episode as INTEGER) IS NULL AND episode IS NULL) OR episode = CAST(:episode as INTEGER))
+        WHERE {INFO_HASH_MEMBERSHIP_SQL}
+        AND updated_at >= :min_timestamp
+        AND season_norm = :season_norm
+        AND episode_norm = :episode_norm
     """
 
     params = {
-        "info_hashes": orjson.dumps(info_hashes).decode("utf-8"),
+        "info_hashes": encode_json_param(info_hashes),
         "min_timestamp": min_timestamp,
-        "season": season,
-        "episode": episode,
+        **build_scope_lookup_params(season, episode),
     }
 
-    if IS_SQLITE:
-        query = f"""
-            SELECT info_hash, file_index, title, size, parsed
-            FROM (
-                SELECT info_hash, file_index, title, size, parsed,
-                       ROW_NUMBER() OVER (PARTITION BY info_hash ORDER BY timestamp DESC) AS rn
-                {base_from_where}
-            ) WHERE rn = 1
-        """
-    else:
-        query = (
-            "SELECT DISTINCT ON (info_hash) info_hash, file_index, title, size, parsed "
-            + base_from_where
-            + " ORDER BY info_hash, timestamp DESC"
-        )
+    query = f"""
+        SELECT info_hash, file_index, title, size, parsed
+        FROM (
+            SELECT
+                info_hash,
+                file_index,
+                title,
+                size,
+                parsed_json AS parsed,
+                ROW_NUMBER() OVER (
+                    PARTITION BY info_hash
+                    ORDER BY updated_at DESC
+                ) AS row_number
+            {base_from_where}
+        ) latest_debrid_availability
+        WHERE row_number = 1
+    """
 
     return await database.fetch_all(query, params)

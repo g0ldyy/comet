@@ -135,7 +135,7 @@ class TorrentMetadata(BaseModel):
     size: int  # Size in bytes
     seeders: Optional[int] = None
     tracker: str  # Source/tracker name
-    imdb_id: Optional[str] = None
+    imdb_id: str
     file_index: Optional[int] = None
     season: Optional[int] = None
     episode: Optional[int] = None
@@ -173,6 +173,14 @@ class TorrentMetadata(BaseModel):
             raise ValueError("size must be non-negative")
         if v > 1024 * 1024 * 1024 * 1024 * 10:  # 10 TB max
             raise ValueError("size exceeds maximum allowed value")
+        return v
+
+    @field_validator("imdb_id")
+    @classmethod
+    def validate_imdb_id(cls, v: str) -> str:
+        """Require a non-empty media identifier for network torrent metadata."""
+        if not v:
+            raise ValueError("imdb_id is required")
         return v
 
     def to_signable_bytes(self) -> bytes:

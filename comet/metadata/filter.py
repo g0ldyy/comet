@@ -3,6 +3,7 @@ from datetime import datetime
 
 from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.tmdb import TMDBApi
 
 
@@ -21,9 +22,9 @@ class DigitalReleaseFilter:
         try:
             cached_date = await database.fetch_val(
                 """
-                SELECT release_date FROM digital_release_cache 
+                SELECT release_date FROM media_metadata_cache
                 WHERE media_id = :media_id
-                AND timestamp >= :min_timestamp
+                AND release_updated_at >= :min_timestamp
                 """,
                 {
                     "media_id": media_id,
@@ -34,21 +35,16 @@ class DigitalReleaseFilter:
             if cached_date is not None:
                 return self._is_released(cached_date)
 
-            tmdb_id = None
-
-            tmdb = TMDBApi(session)
-
-            imdb_id = media_id.partition(":")[0]
-            tmdb_id = await tmdb.get_tmdb_id_from_imdb(imdb_id)
-
-            if not tmdb_id:
-                logger.warning(
-                    f"DigitalReleaseFilter: Could not resolve {media_id} to TMDB ID. Allowing search."
-                )
-                return True
-
             release_date_str = None
+            imdb_id = media_id.partition(":")[0]
             if media_type == "movie":
+                tmdb = TMDBApi(session)
+                tmdb_id = await tmdb.get_tmdb_id_from_imdb(imdb_id)
+                if not tmdb_id:
+                    logger.warning(
+                        f"DigitalReleaseFilter: Could not resolve {media_id} to TMDB ID. Allowing search."
+                    )
+                    return True
                 release_date_str = await tmdb.get_upcoming_movie_release_date(tmdb_id)
                 if not release_date_str:
                     # Check watch providers as fallback
@@ -58,9 +54,15 @@ class DigitalReleaseFilter:
                         release_date_str = "1970-01-01"
 
             elif media_type == "series":
-                release_date_str = await tmdb.get_episode_air_date(
-                    tmdb_id, season, episode
-                )
+                release_date_str = await EpisodeIndexService(
+                    session
+                ).get_target_air_date(imdb_id, season, episode)
+                if not release_date_str:
+                    logger.warning(
+                        "DigitalReleaseFilter: Could not resolve series air date for "
+                        f"{media_id} S{season}E{episode}. Allowing search."
+                    )
+                    return True
 
             cache_timestamp = int(time.time())
             if release_date_str is None:
@@ -78,14 +80,20 @@ class DigitalReleaseFilter:
 
             await database.execute(
                 """
-                INSERT INTO digital_release_cache (media_id, release_date, timestamp)
-                VALUES (:media_id, :release_date, :timestamp)
-                ON CONFLICT (media_id) DO UPDATE SET release_date = :release_date, timestamp = :timestamp
+                INSERT INTO media_metadata_cache (
+                    media_id,
+                    release_date,
+                    release_updated_at
+                )
+                VALUES (:media_id, :release_date, :release_updated_at)
+                ON CONFLICT (media_id) DO UPDATE SET
+                    release_date = EXCLUDED.release_date,
+                    release_updated_at = EXCLUDED.release_updated_at
                 """,
                 {
                     "media_id": media_id,
                     "release_date": release_date_timestamp,
-                    "timestamp": cache_timestamp,
+                    "release_updated_at": cache_timestamp,
                 },
             )
 

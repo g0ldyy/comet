@@ -32,10 +32,6 @@ class ReplicaAwareDatabase:
         )
 
     @property
-    def has_replicas(self):
-        return bool(self._active_replicas)
-
-    @property
     def is_connected(self):
         return self._primary.is_connected
 

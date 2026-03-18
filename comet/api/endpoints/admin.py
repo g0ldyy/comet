@@ -170,7 +170,7 @@ async def admin_api_connections(
 ):
     require_admin_auth(admin_session)
     rows = await database.fetch_all(
-        "SELECT id, ip, content, timestamp FROM active_connections ORDER BY timestamp DESC"
+        "SELECT id, ip, content, started_at AS timestamp FROM active_connections ORDER BY started_at DESC"
     )
 
     bandwidth_metrics = bandwidth_monitor.get_all_active_connections()
@@ -286,13 +286,13 @@ async def admin_api_metrics(
 
     # Try to get from cache
     cached_metrics = await database.fetch_one(
-        "SELECT data, timestamp FROM metrics_cache WHERE id = 1"
+        "SELECT payload_json, refreshed_at FROM metrics_cache WHERE id = 1"
     )
     if (
         cached_metrics
-        and cached_metrics["timestamp"] + settings.METRICS_CACHE_TTL > current_time
+        and cached_metrics["refreshed_at"] + settings.METRICS_CACHE_TTL > current_time
     ):
-        return JSONResponse(orjson.loads(cached_metrics["data"]))
+        return JSONResponse(orjson.loads(cached_metrics["payload_json"]))
 
     # 📊 TORRENTS METRICS
     total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
@@ -355,25 +355,27 @@ async def admin_api_metrics(
     """)
 
     # 🔍 SEARCH METRICS
-    total_unique_searches = await database.fetch_val(
-        "SELECT COUNT(*) FROM first_searches"
+    search_metrics = await database.fetch_one(
+        """
+        SELECT
+            COUNT(*) AS total_unique_searches,
+            COALESCE(SUM(CASE WHEN first_seen_at >= :time_24h THEN 1 ELSE 0 END), 0) AS searches_24h,
+            COALESCE(SUM(CASE WHEN first_seen_at >= :time_7d THEN 1 ELSE 0 END), 0) AS searches_7d,
+            COALESCE(SUM(CASE WHEN first_seen_at >= :time_30d THEN 1 ELSE 0 END), 0) AS searches_30d
+        FROM media_demand
+        """,
+        {
+            "time_24h": current_time - 86400,
+            "time_7d": current_time - 604800,
+            "time_30d": current_time - 2592000,
+        },
     )
-
-    # Recent searches (last 24h, 7d, 30d)
-    searches_24h = await database.fetch_val(
-        "SELECT COUNT(*) FROM first_searches WHERE timestamp >= :time_24h",
-        {"time_24h": current_time - 86400},
+    total_unique_searches = (
+        search_metrics["total_unique_searches"] if search_metrics else 0
     )
-
-    searches_7d = await database.fetch_val(
-        "SELECT COUNT(*) FROM first_searches WHERE timestamp >= :time_7d",
-        {"time_7d": current_time - 604800},
-    )
-
-    searches_30d = await database.fetch_val(
-        "SELECT COUNT(*) FROM first_searches WHERE timestamp >= :time_30d",
-        {"time_30d": current_time - 2592000},
-    )
+    searches_24h = search_metrics["searches_24h"] if search_metrics else 0
+    searches_7d = search_metrics["searches_7d"] if search_metrics else 0
+    searches_30d = search_metrics["searches_30d"] if search_metrics else 0
 
     # 🔧 SCRAPER METRICS
     active_locks = await database.fetch_val(
@@ -391,7 +393,7 @@ async def admin_api_metrics(
         """
         SELECT debrid_service, COUNT(*) as count, AVG(size) as avg_size, SUM(size) as total_size
         FROM debrid_availability 
-        WHERE timestamp >= :min_timestamp
+        WHERE updated_at >= :min_timestamp
         GROUP BY debrid_service 
         ORDER BY count DESC
     """,
@@ -464,11 +466,16 @@ async def admin_api_metrics(
     # Save to cache
     await database.execute(
         """
-            INSERT INTO metrics_cache (id, data, timestamp) 
-            VALUES (1, :data, :timestamp)
-            ON CONFLICT(id) DO UPDATE SET data = :data, timestamp = :timestamp
+            INSERT INTO metrics_cache (id, payload_json, refreshed_at) 
+            VALUES (1, :payload_json, :refreshed_at)
+            ON CONFLICT(id) DO UPDATE SET
+                payload_json = :payload_json,
+                refreshed_at = :refreshed_at
         """,
-        {"data": orjson.dumps(metrics_data).decode("utf-8"), "timestamp": current_time},
+        {
+            "payload_json": orjson.dumps(metrics_data).decode("utf-8"),
+            "refreshed_at": current_time,
+        },
     )
 
     return JSONResponse(metrics_data)

@@ -8,10 +8,12 @@ from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.exceptions import DebridAuthError, DebridLinkGenerationError
+from comet.metadata.episode_index import EpisodeIndexService
 from comet.services.debrid_cache import cache_availability
 from comet.services.filtering import quick_alias_match
 from comet.services.torrent_manager import torrent_update_queue
-from comet.utils.parsing import ensure_multi_language, is_video
+from comet.utils.parsing import (ensure_multi_language, is_video,
+                                 match_parsed_episode_target, parse_media_id)
 
 
 def batch_parse(filenames):
@@ -65,6 +67,49 @@ class StremThru:
         if not isinstance(upstream_error, dict):
             return None
         return upstream_error.get("code") or upstream_error.get("error")
+
+    def _requested_episode_scope(self) -> tuple[str | None, int | None, int | None]:
+        if not isinstance(self.sid, str) or ":" not in self.sid:
+            return None, None, None
+        series_id, season, episode = parse_media_id("series", self.sid)
+        return series_id, season, episode
+
+    @staticmethod
+    def _strict_episode_match(
+        parsed,
+        season: int,
+        episode: int,
+        target_air_date: str | None,
+    ) -> bool:
+        return match_parsed_episode_target(
+            parsed,
+            season,
+            episode,
+            target_air_date=target_air_date,
+            reject_unknown_episode_files=True,
+        )
+
+    async def _episode_request_context(
+        self,
+        series_id: str | None,
+        season: int | None,
+        episode: int | None,
+        target_air_date: str | None = None,
+    ) -> tuple[bool, int | None, int | None, str | None]:
+        is_episode_request = (
+            isinstance(series_id, str)
+            and series_id.startswith("tt")
+            and season is not None
+            and episode is not None
+        )
+        if not is_episode_request:
+            return False, season, episode, None
+
+        if target_air_date is None:
+            target_air_date = await EpisodeIndexService(
+                self.session
+            ).get_target_air_date(series_id, season, episode)
+        return True, season, episode, target_air_date
 
     async def _post_store_json(self, endpoint: str, payload: dict, action: str) -> dict:
         response = await self.session.post(
@@ -176,6 +221,7 @@ class StremThru:
         seeders_map: dict,
         tracker_map: dict,
         sources_map: dict,
+        target_air_date: str | None = None,
     ):
         await self.check_premium()
 
@@ -198,6 +244,20 @@ class StremThru:
         ]
 
         is_offcloud = self.store_name == "offcloud"
+        requested_series_id, requested_season, requested_episode = (
+            self._requested_episode_scope()
+        )
+        (
+            is_episode_request,
+            requested_season,
+            requested_episode,
+            target_air_date,
+        ) = await self._episode_request_context(
+            requested_series_id,
+            requested_season,
+            requested_episode,
+            target_air_date=target_air_date,
+        )
 
         filenames_to_parse = []
         if not is_offcloud:
@@ -233,6 +293,10 @@ class StremThru:
                 sources = sources_map.get(hash, [])
 
                 if is_offcloud:
+                    if is_episode_request:
+                        # Strict matching for episode requests: offcloud does not expose
+                        # per-file metadata here, so we cannot map a specific episode.
+                        continue
                     file_info = {
                         "info_hash": hash,
                         "index": None,
@@ -253,18 +317,30 @@ class StremThru:
 
                         filename_parsed = next(parsed_iter)
 
-                        season = (
+                        parsed_season = (
                             filename_parsed.seasons[0]
                             if filename_parsed.seasons
                             else None
                         )
-                        episode = (
+                        parsed_episode = (
                             filename_parsed.episodes[0]
                             if filename_parsed.episodes
                             else None
                         )
-                        if ":" in self.sid and (season is None or episode is None):
-                            continue
+
+                        if is_episode_request:
+                            if not self._strict_episode_match(
+                                filename_parsed,
+                                requested_season,
+                                requested_episode,
+                                target_air_date,
+                            ):
+                                continue
+                            season = requested_season
+                            episode = requested_episode
+                        else:
+                            season = parsed_season
+                            episode = parsed_episode
 
                         index = file["index"] if file["index"] != -1 else None
                         size = file["size"] if file["size"] != -1 else None
@@ -355,6 +431,7 @@ class StremThru:
             name = unquote(name)
             torrent_name = unquote(torrent_name)
 
+            aliases = aliases or {}
             ez_aliases = aliases.get("ez", [])
             if ez_aliases:
                 ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
@@ -386,6 +463,12 @@ class StremThru:
             )
 
             scored_files = []
+            (
+                is_episode_request,
+                season,
+                episode,
+                target_air_date,
+            ) = await self._episode_request_context(self.media_only_id, season, episode)
 
             for file, filename, parsed in zip(
                 video_files, filenames_to_parse, parsed_results
@@ -399,6 +482,17 @@ class StremThru:
 
                 file_season = parsed.seasons[0] if parsed.seasons else None
                 file_episode = parsed.episodes[0] if parsed.episodes else None
+
+                if is_episode_request:
+                    if not self._strict_episode_match(
+                        parsed,
+                        season,
+                        episode,
+                        target_air_date,
+                    ):
+                        continue
+                    file_season = season
+                    file_episode = episode
 
                 # Calculate score
                 score = 0
@@ -464,6 +558,18 @@ class StremThru:
                 scored_files.append(enriched_file)
 
             if not scored_files:
+                if is_episode_request:
+                    raise DebridLinkGenerationError(
+                        self.store_name,
+                        f"{self.store_name}: No file matched requested episode.",
+                        upstream_error_code="EPISODE_MATCH_NOT_FOUND",
+                        payload={
+                            "hash": hash,
+                            "season": season,
+                            "episode": episode,
+                            "target_air_date": target_air_date,
+                        },
+                    )
                 logger.log(
                     "PLAYBACK",
                     f"No valid video files with links found in torrent {hash}",

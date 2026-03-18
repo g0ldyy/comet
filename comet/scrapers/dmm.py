@@ -15,7 +15,8 @@ class DMMScraper(BaseScraper):
         torrents = []
         try:
             query = """
-                SELECT * FROM dmm_entries 
+                SELECT info_hash, filename, size
+                FROM dmm_entries
                 WHERE parsed_title LIKE :title_query
             """
             params = {"title_query": f"%{request.title}%"}

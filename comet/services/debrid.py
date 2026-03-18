@@ -84,6 +84,7 @@ class DebridService:
         media_only_id: str,
         season: int,
         episode: int,
+        target_air_date: str | None = None,
     ) -> set[str]:
         availability = await retrieve_debrid_availability(
             session,
@@ -96,6 +97,7 @@ class DebridService:
             seeders_map,
             tracker_map,
             sources_map,
+            target_air_date=target_air_date,
         )
 
         if len(availability) == 0:

@@ -2546,6 +2546,7 @@
 
       function appendLogs(logs) {
         const container = document.getElementById("logs-container");
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
         const hideApiLogs = document.getElementById("hide-api-logs").checked;
 
         if (container.querySelector(".empty-state")) {
@@ -2577,7 +2578,9 @@
           container.appendChild(logEntry);
         });
 
-        container.scrollTop = container.scrollHeight;
+        if (isAtBottom) {
+          container.scrollTop = container.scrollHeight;
+        }
 
         const maxEntries = 500;
         while (container.children.length > maxEntries) {
@@ -2766,13 +2769,21 @@
               peer.last_activity * 1000,
             ).toLocaleTimeString();
             const type = peer.is_outbound ? "Outbound" : "Inbound";
+            const safeAddress = escapeHtml(peer.address || "");
+            const safeNodeId = escapeHtml(peer.node_id || "");
+            const safeShortNodeId = escapeHtml(
+              (peer.node_id || "").substring(0, 8),
+            );
+            const displayName = peer.alias
+              ? `<strong>${escapeHtml(peer.alias)}</strong>`
+              : safeAddress;
 
             return `
              <div class="tracker-item" style="display: flex; justify-content: space-between; align-items: center;">
                  <div>
                      <div class="tracker-name" style="display: flex; align-items: center; gap: 8px;">
-                         ${peer.alias ? `<strong>${escapeHtml(peer.alias)}</strong>` : peer.address}
-                         <span class="connection-id" title="${peer.node_id}">${peer.node_id.substring(0, 8)}</span>
+                         ${displayName}
+                         <span class="connection-id" title="${safeNodeId}">${safeShortNodeId}</span>
                          <sl-badge variant="${peer.is_outbound ? "neutral" : "primary"}" pill>${type}</sl-badge>
                      </div>
                      <div class="tracker-stats" style="margin-top: 4px;">

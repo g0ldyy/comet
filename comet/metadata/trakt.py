@@ -8,7 +8,8 @@ async def get_trakt_aliases(
 ):
     try:
         async with session.get(
-            f"https://api.trakt.tv/{'movies' if media_type == 'movie' else 'shows'}/{media_id}/aliases"
+            f"https://api.trakt.tv/{'movies' if media_type == 'movie' else 'shows'}/{media_id}/aliases",
+            headers={"trakt-api-key": ""},
         ) as response:
             data = await response.json()
 
