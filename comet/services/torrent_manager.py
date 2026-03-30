@@ -240,6 +240,12 @@ def _extract_info_hash_from_magnet(magnet_uri: str) -> str | None:
     return _normalize_valid_info_hash(match.group(1))
 
 
+def extract_title_from_magnet(magnet_uri: str):
+    match = re.search(r'[?&]dn=([^&]+)', magnet_uri)
+    if match:
+        return unquote(match.group(1))
+    return None
+
 def _extract_relevant_file_entries(file_specs) -> list[dict]:
     files = []
     for index, title, size in file_specs:

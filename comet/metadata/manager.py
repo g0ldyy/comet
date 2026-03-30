@@ -14,6 +14,7 @@ from comet.utils.parsing import parse_media_id
 from .imdb import get_imdb_metadata
 from .kitsu import get_kitsu_metadata
 from .trakt import get_trakt_aliases
+from .tmdb import TMDBApi
 
 _CACHE_SELECT_QUERY = """
     SELECT title, year, year_end, aliases_json
@@ -301,12 +302,42 @@ class MetadataScraper:
 
         trakt_aliases = await get_trakt_aliases(self.session, media_type, media_id)
         if trakt_aliases:
-            total_aliases = sum(len(titles) for titles in trakt_aliases.values())
+            total_trakt_aliases = sum(len(titles) for titles in trakt_aliases.values())
             logger.log(
                 "SCRAPER",
-                f"📜 Found {total_aliases} Trakt title aliases for {media_id}",
+                f"📜 Found {total_trakt_aliases} Trakt title aliases for {media_id}",
             )
         else:
             logger.log("SCRAPER", f"📜 No Trakt title aliases found for {media_id}")
 
-        return trakt_aliases
+        tmdb_api = TMDBApi(self.session)
+        tmdb_aliases = await tmdb_api.get_tmdb_aliases(media_id, media_type)
+        if tmdb_aliases:
+            total_tmdb_aliases = sum(len(titles) for titles in tmdb_aliases.values())
+            logger.log(
+                "SCRAPER",
+                f"📜 Found {total_tmdb_aliases} TMDB title aliases for {media_id}",
+            )
+        else:
+            logger.log("SCRAPER", f"📜 No TMDB title aliases found for {media_id}")
+
+        # Merge trakt_aliases and tmdb_aliases
+        merged_aliases = {}
+        for source in (trakt_aliases, tmdb_aliases):
+            if not source:
+                continue
+            for lang, titles in source.items():
+                if lang not in merged_aliases:
+                    merged_aliases[lang] = []
+                for t in titles:
+                    if t not in merged_aliases[lang]:
+                        merged_aliases[lang].append(t)
+
+        # Merge and deduplicate the 'ez' key
+        all_titles = set()
+        for lang, titles in merged_aliases.items():
+            if isinstance(titles, list):
+                all_titles.update(titles)
+        merged_aliases["ez"] = list(all_titles)
+
+        return merged_aliases

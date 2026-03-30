@@ -162,6 +162,7 @@ class AppSettings(BaseSettings):
     TORBOX_API_KEY: Optional[str] = None
     SCRAPE_TORRENTSDB: Union[bool, str] = False
     SCRAPE_PEERFLIX: Union[bool, str] = False
+    SCRAPE_PELISPANDA: Union[bool, str] = False
     CUSTOM_ADDON_NAME: Optional[str] = "Comet"
     CUSTOM_LOGO_URL: Optional[str] = "https://fonts.gstatic.com/s/e/notoemoji/latest/1f4ab/512.gif"
     CUSTOM_DISCORD_URL: Optional[str] = "https://discord.com/invite/UJEqpT42nb"

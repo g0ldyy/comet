@@ -91,3 +91,102 @@ class TMDBApi:
         except Exception as e:
             logger.error(f"TMDB: Error getting watch providers for {tmdb_id}: {e}")
             return None
+
+    async def get_translations_by_tmdb_id(self, tmdb_id: str, media_type: str = "movie"):
+        """
+        Fetch translations for names/titles in all languages and regions from TMDB.
+        :param tmdb_id: The TMDB ID of the movie or TV show.
+        :param media_type: Either 'movie' or 'tv'.
+        :return: Dict of language or language-region codes to titles.
+        """
+        try:
+            tmdb_media_type = "tv" if media_type == "series" else media_type
+
+            if tmdb_media_type not in ("movie", "tv"):
+                raise ValueError("media_type must be 'movie' or 'tv'")
+            translations_url = f"{self.base_url}/{tmdb_media_type}/{tmdb_id}/translations"
+            async with self.session.get(translations_url, headers=self.headers) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    logger.error(
+                        f"TMDB: Failed to get translations for {media_type} {tmdb_id}: {text}"
+                    )
+                    return {}
+
+                translations_data = await response.json()
+                translations = translations_data.get("translations", [])
+                # Build a dict of language_code and language-region_code: title/name
+                names_by_language = {}
+                for t in translations:
+                    lang = t.get("iso_639_1")
+                    region = t.get("iso_3166_1")
+                    data = t.get("data", {})
+                    title = data.get("title") or data.get("name")
+                    if lang and title:
+                        # Store by language code (e.g., 'es')
+                        names_by_language[lang] = title
+                    if lang and region and title:
+                        # Store by language-region code (e.g., 'es-MX')
+                        names_by_language[f"{lang}-{region}"] = title
+                return names_by_language
+        except Exception as e:
+            logger.error(f"TMDB: Error getting translations for {media_type} {tmdb_id}: {e}")
+            return {}
+
+    async def get_metadata_by_tmdb_id(self, tmdb_id: str, media_type: str = "movie"):
+        """
+        Fetch full metadata from TMDB by tmdb_id
+        :param tmdb_id: The TMDB ID of the movie or TV show.
+        :param media_type: Either 'movie' or 'tv'.
+        :return: Metadata dict or None if not found.
+        """
+        try:
+            tmdb_media_type = "tv" if media_type == "series" else media_type
+
+            if tmdb_media_type not in ("movie", "tv"):
+                raise ValueError("media_type must be 'movie' or 'tv'")
+            url = f"{self.base_url}/{tmdb_media_type}/{tmdb_id}"
+            async with self.session.get(url, headers=self.headers) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    logger.error(
+                        f"TMDB: Failed to get metadata for {media_type} {tmdb_id}: {text}"
+                    )
+                    return None
+                metadata = await response.json()
+          
+            return metadata
+        except Exception as e:
+            logger.error(f"TMDB: Error getting metadata for {media_type} {tmdb_id}: {e}")
+            return None
+
+    async def get_tmdb_aliases(self, imdb_id: str, media_type: str = "movie"):
+        """
+        Build an aliases dictionary.
+        :param imdb_id: The IMDb ID of the movie or TV show.
+        :param media_type: Either 'movie' or 'tv'.
+        :return: Aliases dict or None if not found.
+        """
+        tmdb_id = await self.get_tmdb_id_from_imdb(imdb_id)
+        if not tmdb_id:
+            logger.error(f"TMDB: Could not resolve TMDB ID for IMDb ID {imdb_id}")
+            return None
+
+        titles_by_language = await self.get_translations_by_tmdb_id(tmdb_id, media_type)
+        if not titles_by_language:
+            logger.error(f"TMDB: Could not fetch translations for TMDB ID {tmdb_id}")
+            return None
+
+        aliases = {}
+
+        # Add all language/country titles
+        for lang, title in titles_by_language.items():
+            if title:
+                aliases.setdefault(lang, []).append(title)
+
+        # Add an "ez" key for all titles
+        aliases["ez"] = [
+            t for titles in aliases.values() if isinstance(titles, list) for t in titles
+        ]
+
+        return aliases
