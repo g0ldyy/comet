@@ -1,6 +1,5 @@
 import re
 
-from urllib.parse import unquote
 from comet.core.logger import log_scraper_error
 from comet.metadata.tmdb import TMDBApi
 from comet.scrapers.base import BaseScraper
