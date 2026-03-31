@@ -551,6 +551,11 @@ def log_startup_info(settings):
 
     logger.log(
         "COMET",
+        f"Meteor Scraper: {settings.format_scraper_mode(settings.SCRAPE_METEOR)}",
+    )
+
+    logger.log(
+        "COMET",
         f"DMM Scraper: {settings.format_scraper_mode(settings.SCRAPE_DMM)}",
     )
     dmm_ingest_info = (
