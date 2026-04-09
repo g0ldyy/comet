@@ -3,6 +3,28 @@ from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 
 
+PEERFLIX_FLAG_LANGUAGES = {
+    "🇪🇸": "Spanish",
+}
+
+PEERFLIX_EXISTING_LANGUAGE_MARKERS = {
+    "Spanish": ("spanish", "espanol", "español", "castellano", "[esp]", " esp "),
+}
+
+
+def _apply_name_language(title: str, name: str | None) -> str:
+    if not isinstance(name, str):
+        return title
+
+    title_lower = title.lower()
+    for flag, language in PEERFLIX_FLAG_LANGUAGES.items():
+        markers = PEERFLIX_EXISTING_LANGUAGE_MARKERS.get(language, (language.lower(),))
+        if flag in name and not any(marker in title_lower for marker in markers):
+            return f"{title} [{language}]"
+
+    return title
+
+
 class PeerflixScraper(BaseScraper):
     BASE_URL = "https://peerflix.mov"
 
@@ -23,7 +45,9 @@ class PeerflixScraper(BaseScraper):
 
                 torrents.append(
                     {
-                        "title": description.split("\n")[0],
+                        "title": _apply_name_language(
+                            description.split("\n")[0], stream.get("name")
+                        ),
                         "infoHash": stream["infoHash"].lower(),
                         "fileIndex": stream["fileIdx"],
                         "seeders": stream.get("seed"),
