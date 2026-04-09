@@ -5,6 +5,183 @@ from RTN import ParsedData
 SCRAPE_URL_MODE_BOTH = "both"
 SCRAPE_URL_MODES = frozenset((SCRAPE_URL_MODE_BOTH, "live", "background"))
 
+STREMTHRU_AUDIO_LANGUAGE_ALIASES = {
+    "en": "en",
+    "eng": "en",
+    "english": "en",
+    "ja": "ja",
+    "jpn": "ja",
+    "japanese": "ja",
+    "zh": "zh",
+    "zho": "zh",
+    "chi": "zh",
+    "chinese": "zh",
+    "mandarin": "zh",
+    "ru": "ru",
+    "rus": "ru",
+    "russian": "ru",
+    "ar": "ar",
+    "ara": "ar",
+    "arabic": "ar",
+    "pt": "pt",
+    "por": "pt",
+    "portuguese": "pt",
+    "es": "es",
+    "spa": "es",
+    "spanish": "es",
+    "espanol": "es",
+    "castellano": "es",
+    "fr": "fr",
+    "fra": "fr",
+    "fre": "fr",
+    "french": "fr",
+    "de": "de",
+    "deu": "de",
+    "ger": "de",
+    "german": "de",
+    "deutsch": "de",
+    "it": "it",
+    "ita": "it",
+    "italian": "it",
+    "ko": "ko",
+    "kor": "ko",
+    "korean": "ko",
+    "hi": "hi",
+    "hin": "hi",
+    "hindi": "hi",
+    "bn": "bn",
+    "ben": "bn",
+    "bengali": "bn",
+    "bangla": "bn",
+    "pa": "pa",
+    "pan": "pa",
+    "pun": "pa",
+    "punjabi": "pa",
+    "mr": "mr",
+    "mar": "mr",
+    "marathi": "mr",
+    "gu": "gu",
+    "guj": "gu",
+    "gujarati": "gu",
+    "ta": "ta",
+    "tam": "ta",
+    "tamil": "ta",
+    "te": "te",
+    "tel": "te",
+    "telugu": "te",
+    "kn": "kn",
+    "kan": "kn",
+    "kannada": "kn",
+    "ml": "ml",
+    "mal": "ml",
+    "malayalam": "ml",
+    "th": "th",
+    "tha": "th",
+    "thai": "th",
+    "vi": "vi",
+    "vie": "vi",
+    "vietnamese": "vi",
+    "id": "id",
+    "ind": "id",
+    "indonesian": "id",
+    "tr": "tr",
+    "tur": "tr",
+    "turkish": "tr",
+    "he": "he",
+    "heb": "he",
+    "hebrew": "he",
+    "fa": "fa",
+    "fas": "fa",
+    "per": "fa",
+    "persian": "fa",
+    "farsi": "fa",
+    "uk": "uk",
+    "ukr": "uk",
+    "ukrainian": "uk",
+    "el": "el",
+    "ell": "el",
+    "gre": "el",
+    "greek": "el",
+    "lt": "lt",
+    "lit": "lt",
+    "lithuanian": "lt",
+    "lv": "lv",
+    "lav": "lv",
+    "latvian": "lv",
+    "et": "et",
+    "est": "et",
+    "estonian": "et",
+    "pl": "pl",
+    "pol": "pl",
+    "polish": "pl",
+    "cs": "cs",
+    "ces": "cs",
+    "cze": "cs",
+    "czech": "cs",
+    "sk": "sk",
+    "slk": "sk",
+    "slo": "sk",
+    "slovak": "sk",
+    "hu": "hu",
+    "hun": "hu",
+    "hungarian": "hu",
+    "ro": "ro",
+    "ron": "ro",
+    "rum": "ro",
+    "romanian": "ro",
+    "bg": "bg",
+    "bul": "bg",
+    "bulgarian": "bg",
+    "sr": "sr",
+    "srp": "sr",
+    "serbian": "sr",
+    "hr": "hr",
+    "hrv": "hr",
+    "croatian": "hr",
+    "sl": "sl",
+    "slv": "sl",
+    "slovenian": "sl",
+    "nl": "nl",
+    "nld": "nl",
+    "dut": "nl",
+    "dutch": "nl",
+    "da": "da",
+    "dan": "da",
+    "danish": "da",
+    "fi": "fi",
+    "fin": "fi",
+    "finnish": "fi",
+    "sv": "sv",
+    "swe": "sv",
+    "swedish": "sv",
+    "no": "no",
+    "nor": "no",
+    "norwegian": "no",
+    "ms": "ms",
+    "msa": "ms",
+    "may": "ms",
+    "malay": "ms",
+    "la": "la",
+    "latino": "la",
+    "latam": "la",
+    "latin american spanish": "la",
+    "lat": "la",
+}
+
+STREMTHRU_AUDIO_LANGUAGE_IGNORES = frozenset(
+    {
+        "",
+        "und",
+        "unknown",
+        "unk",
+        "mul",
+        "multiple",
+        "multi",
+        "mis",
+        "zxx",
+    }
+)
+
 
 def ensure_multi_language(parsed: ParsedData):
     languages = parsed.languages
@@ -22,6 +199,72 @@ def ensure_multi_language(parsed: ParsedData):
 
     languages.insert(0, "multi")
     parsed.languages = languages
+
+
+def normalize_stremthru_audio_language(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return None
+
+    for separator in ("(", "[", "/", ","):
+        cleaned = cleaned.split(separator, 1)[0].strip()
+
+    cleaned = cleaned.replace("_", "-").replace(".", "-")
+    if cleaned in STREMTHRU_AUDIO_LANGUAGE_IGNORES:
+        return None
+
+    candidates = [cleaned]
+    if "-" in cleaned:
+        candidates.append(cleaned.split("-", 1)[0].strip())
+
+    for candidate in candidates:
+        if candidate in STREMTHRU_AUDIO_LANGUAGE_IGNORES:
+            continue
+        normalized = STREMTHRU_AUDIO_LANGUAGE_ALIASES.get(candidate)
+        if normalized:
+            return normalized
+
+    return None
+
+
+def enrich_metadata_from_stremthru(
+    parsed: ParsedData | None, file_data
+) -> ParsedData | None:
+    if parsed is None or not isinstance(file_data, dict):
+        return parsed
+
+    media_info = file_data.get("media_info")
+    if not isinstance(media_info, dict):
+        return parsed
+
+    audio_tracks = media_info.get("audio")
+    if not isinstance(audio_tracks, list):
+        return parsed
+
+    languages = list(parsed.languages or [])
+    seen_languages = set(languages)
+    updated = False
+
+    for track in audio_tracks:
+        if not isinstance(track, dict):
+            continue
+
+        language = normalize_stremthru_audio_language(track.get("lang"))
+        if not language or language in seen_languages:
+            continue
+
+        languages.append(language)
+        seen_languages.add(language)
+        updated = True
+
+    if updated:
+        parsed.languages = languages
+        ensure_multi_language(parsed)
+
+    return parsed
 
 
 def is_video(title: str):

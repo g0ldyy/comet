@@ -12,7 +12,8 @@ from comet.metadata.episode_index import EpisodeIndexService
 from comet.services.debrid_cache import cache_availability
 from comet.services.filtering import quick_alias_match
 from comet.services.torrent_manager import torrent_update_queue
-from comet.utils.parsing import (ensure_multi_language, is_video,
+from comet.utils.parsing import (ensure_multi_language,
+                                 enrich_metadata_from_stremthru, is_video,
                                  match_parsed_episode_target, parse_media_id)
 
 
@@ -316,6 +317,7 @@ class StremThru:
                             continue
 
                         filename_parsed = next(parsed_iter)
+                        enrich_metadata_from_stremthru(filename_parsed, file)
 
                         parsed_season = (
                             filename_parsed.seasons[0]
@@ -473,6 +475,8 @@ class StremThru:
             for file, filename, parsed in zip(
                 video_files, filenames_to_parse, parsed_results
             ):
+                enrich_metadata_from_stremthru(parsed, file)
+
                 file_index = file["index"] if file.get("index", -1) != -1 else None
                 file_size = file["size"] if file.get("size", -1) != -1 else 0
                 file_link = file.get("link")
