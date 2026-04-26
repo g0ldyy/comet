@@ -201,6 +201,11 @@ class ConnectionManager:
         # Security limits from settings
         self.max_message_size = settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE
         self.max_connections_per_ip = settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP
+        self.websocket_compression = (
+            "deflate"
+            if settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED
+            else None
+        )
 
         # Rate limits
         self.rate_limit_count = settings.COMETNET_TRANSPORT_RATE_LIMIT_COUNT
@@ -363,7 +368,7 @@ class ConnectionManager:
                 ping_timeout=None,
                 max_size=self.max_message_size,
                 process_request=self._process_request,
-                compression=None,
+                compression=self.websocket_compression,
             )
             logger.log(
                 "COMETNET",
@@ -474,7 +479,7 @@ class ConnectionManager:
                     ping_interval=None,
                     ping_timeout=None,
                     max_size=self.max_message_size,
-                    compression=None,
+                    compression=self.websocket_compression,
                 ),
                 timeout=5.0,
             )

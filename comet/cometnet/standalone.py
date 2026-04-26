@@ -14,6 +14,7 @@ Environment Variables:
     COMETNET_KEYS_DIR: Directory for node identity keys
     COMETNET_BOOTSTRAP_NODES: List of bootstrap nodes (JSON array)
     COMETNET_MANUAL_PEERS: List of peers to connect to (JSON array)
+    COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED: Enable permessage-deflate (default: False)
     COMETNET_API_KEY: Mandatory API key for authenticating HTTP requests
 
 Security Notes:

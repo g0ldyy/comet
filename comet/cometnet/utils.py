@@ -275,6 +275,11 @@ async def check_advertise_url_reachability(
                 advertise_url,
                 close_timeout=2,
                 open_timeout=timeout,
+                compression=(
+                    "deflate"
+                    if settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED
+                    else None
+                ),
             ) as ws:
                 await ws.close()
                 return True, "WebSocket connection successful"
