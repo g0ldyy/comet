@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from comet.core.logger import logger
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
@@ -16,7 +18,7 @@ class ZileanScraper(BaseScraper):
                 else ""
             )
             data = await self.session.get(
-                f"{self.url}/dmm/filtered?query={request.title}{show}"
+                f"{self.url}/dmm/filtered?query={quote(request.title, safe='')}{show}"
             )
             data = await data.json()
 
