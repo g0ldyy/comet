@@ -188,12 +188,7 @@ class ConnectionManager:
     _HEALTH_PATHS = frozenset(
         {
             "",
-            "/",
-            "/health",
-            "/healthz",
             "/cometnet",
-            "/cometnet/health",
-            "/cometnet/healthz",
         }
     )
     _UPGRADE_REQUIRED_HEADERS = (
