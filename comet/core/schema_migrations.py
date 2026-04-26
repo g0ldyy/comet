@@ -628,6 +628,7 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 {aliases_select} AS aliases_json,
                 timestamp AS metadata_updated_at
             FROM metadata_cache
+            WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
                 title = EXCLUDED.title,
                 year = EXCLUDED.year,
@@ -650,6 +651,7 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 release_date,
                 timestamp AS release_updated_at
             FROM digital_release_cache
+            WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
                 release_date = EXCLUDED.release_date,
                 release_updated_at = EXCLUDED.release_updated_at
@@ -669,6 +671,7 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 timestamp AS first_seen_at,
                 timestamp AS last_seen_at
             FROM first_searches
+            WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
                 first_seen_at = CASE
                     WHEN media_demand.first_seen_at IS NULL
