@@ -363,6 +363,7 @@ class ConnectionManager:
                 ping_timeout=None,
                 max_size=self.max_message_size,
                 process_request=self._process_request,
+                compression=None,
             )
             logger.log(
                 "COMETNET",
@@ -473,6 +474,7 @@ class ConnectionManager:
                     ping_interval=None,
                     ping_timeout=None,
                     max_size=self.max_message_size,
+                    compression=None,
                 ),
                 timeout=5.0,
             )
