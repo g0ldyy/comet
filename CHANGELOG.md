@@ -2,6 +2,30 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.54.0](https://github.com/g0ldyy/comet/compare/v2.53.0...v2.54.0) (2026-04-26)
+
+
+### Features
+
+* **cometnet:** make websocket compression configurable ([79a681c](https://github.com/g0ldyy/comet/commit/79a681c3aaf14ab2d78cf8dbdd7ac32a5633e757))
+* implement episode matching policy for improved media handling ([02c0569](https://github.com/g0ldyy/comet/commit/02c05695895c41d1ff772d49919d42f3dfeacd25))
+* implement episode matching policy for improved media handling ([d406bb5](https://github.com/g0ldyy/comet/commit/d406bb5828c8b892c291a50fa63c4a938ef5d7e7))
+
+
+### Bug Fixes
+
+* allow debrid-verified season packs in account snapshots ([0529c04](https://github.com/g0ldyy/comet/commit/0529c049fb882dd4001d78a566ff769b3e39625f))
+* ambigus query ([41874cb](https://github.com/g0ldyy/comet/commit/41874cb81d475595e59aac8b0cdf6f5ed5bc03d5))
+* **cometnet:** batch sign torrents in batch broadcast endpoint ([f59712c](https://github.com/g0ldyy/comet/commit/f59712c685e32588525e0423c3b8783eaa45a089))
+* **cometnet:** batch sign torrents in batch broadcast endpoint ([a349013](https://github.com/g0ldyy/comet/commit/a3490133d19a723bac843fad831b4064f8f69f7d))
+* update sqlite in Docker image ([8d868ce](https://github.com/g0ldyy/comet/commit/8d868ce7b923baaa7455b2bf507c0661af700a00))
+
+
+### Performance Improvements
+
+* **cometnet:** disable permessage-deflate on WebSocket connections ([d39a0e1](https://github.com/g0ldyy/comet/commit/d39a0e12194ca051dc5bd1ed4b727ee3e29e51d3))
+* **cometnet:** disable permessage-deflate on WebSocket connections ([04bdfe8](https://github.com/g0ldyy/comet/commit/04bdfe87bd7a750ac9f5ec6833c4b452b72aff6a))
+
 ## [2.53.0](https://github.com/g0ldyy/comet/compare/v2.52.0...v2.53.0) (2026-03-18)
 
 
