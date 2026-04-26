@@ -27,6 +27,15 @@ T = TypeVar("T")
 _crypto_executor: Optional[ThreadPoolExecutor] = None
 
 
+def get_websocket_compression() -> Optional[str]:
+    """Return the websockets compression mode configured for CometNet."""
+    return (
+        "deflate"
+        if settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED
+        else None
+    )
+
+
 def _get_crypto_executor() -> ThreadPoolExecutor:
     """Get or create the dedicated crypto thread pool."""
     global _crypto_executor
@@ -275,6 +284,7 @@ async def check_advertise_url_reachability(
                 advertise_url,
                 close_timeout=2,
                 open_timeout=timeout,
+                compression=get_websocket_compression(),
             ) as ws:
                 await ws.close()
                 return True, "WebSocket connection successful"

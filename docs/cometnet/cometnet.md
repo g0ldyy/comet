@@ -262,6 +262,7 @@ Private networks are completely separate from the public CometNet network. All n
 | `COMETNET_TRANSPORT_PING_INTERVAL` | `30.0` | Seconds between keepalive pings. |
 | `COMETNET_TRANSPORT_CONNECTION_TIMEOUT` | `120.0` | Seconds before dropping a silent connection. |
 | `COMETNET_TRANSPORT_MAX_LATENCY_MS` | `10000.0` | Maximum acceptable peer latency (ms). Peers exceeding this are disconnected. |
+| `COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED` | `False` | Enable WebSocket `permessage-deflate`. Saves bandwidth on large gossip messages but adds synchronous CPU work on the asyncio event loop. |
 | `COMETNET_TRANSPORT_RATE_LIMIT_ENABLED` | `True` | Enable rate limiting for incoming messages. |
 | `COMETNET_TRANSPORT_RATE_LIMIT_COUNT` | `20` | Max messages per window. |
 | `COMETNET_TRANSPORT_RATE_LIMIT_WINDOW` | `1.0` | Window size (seconds). |
@@ -460,6 +461,7 @@ CometNet requires an accurate system clock for cryptographic signature validatio
 ### High Memory/CPU
 
 1. Reduce `COMETNET_MAX_PEERS` (fewer connections = less overhead).
+2. Keep `COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED=False` to avoid synchronous WebSocket compression work.
 3. Increase `COMETNET_GOSSIP_INTERVAL` (less frequent gossiping).
 
 ### Logs and Debugging

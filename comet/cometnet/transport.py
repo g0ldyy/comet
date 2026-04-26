@@ -26,7 +26,9 @@ from websockets.http11 import Response
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
                                      PingMessage, PongMessage, parse_message)
-from comet.cometnet.utils import extract_ip_from_address, is_valid_peer_address
+from comet.cometnet.utils import (extract_ip_from_address,
+                                  get_websocket_compression,
+                                  is_valid_peer_address)
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.network import extract_ip_from_headers
@@ -201,6 +203,7 @@ class ConnectionManager:
         # Security limits from settings
         self.max_message_size = settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE
         self.max_connections_per_ip = settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP
+        self.websocket_compression = get_websocket_compression()
 
         # Rate limits
         self.rate_limit_count = settings.COMETNET_TRANSPORT_RATE_LIMIT_COUNT
@@ -363,6 +366,7 @@ class ConnectionManager:
                 ping_timeout=None,
                 max_size=self.max_message_size,
                 process_request=self._process_request,
+                compression=self.websocket_compression,
             )
             logger.log(
                 "COMETNET",
@@ -473,6 +477,7 @@ class ConnectionManager:
                     ping_interval=None,
                     ping_timeout=None,
                     max_size=self.max_message_size,
+                    compression=self.websocket_compression,
                 ),
                 timeout=5.0,
             )

@@ -285,6 +285,7 @@ class AppSettings(BaseSettings):
     COMETNET_TRANSPORT_MAX_LATENCY_MS: Optional[float] = (
         10000.0  # Max acceptable latency before disconnection
     )
+    COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED: Optional[bool] = False
     COMETNET_TRANSPORT_RATE_LIMIT_ENABLED: Optional[bool] = True
     COMETNET_TRANSPORT_RATE_LIMIT_COUNT: Optional[int] = 20  # Messages per window
     COMETNET_TRANSPORT_RATE_LIMIT_WINDOW: Optional[float] = 1.0  # Seconds
