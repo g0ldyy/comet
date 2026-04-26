@@ -430,21 +430,24 @@ class StandaloneCometNet:
                     status_code=503, detail="CometNet service not running"
                 )
 
-            queued = 0
             errors = []
+            metadata_batch = []
 
             for torrent in request.torrents:
                 try:
                     _require_broadcast_media_id(torrent.imdb_id)
                     metadata = TorrentMetadata(**torrent.model_dump())
-
-                    await self.service.broadcast_torrent(metadata)
-                    queued += 1
-                    self._broadcasts_success += 1
+                    metadata_batch.append(metadata)
                 except HTTPException as e:
                     errors.append({"info_hash": torrent.info_hash, "error": e.detail})
                 except Exception as e:
                     errors.append({"info_hash": torrent.info_hash, "error": str(e)})
+
+            if metadata_batch:
+                await self.service.broadcast_torrents(metadata_batch)
+
+            queued = len(metadata_batch)
+            self._broadcasts_success += queued
 
             if queued > 0:
                 logger.log(
