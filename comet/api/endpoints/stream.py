@@ -151,6 +151,34 @@ def _encode_playback_scope(value: int | None) -> str:
     return str(value) if value is not None else "n"
 
 
+def _episode_matching_policy(
+    media_type: str,
+    media_only_id: str,
+    search_season: int | None,
+    search_episode: int | None,
+    *,
+    cached_only: bool,
+    has_debrid: bool,
+    enable_torrent: bool,
+) -> tuple[bool, bool]:
+    is_imdb_episode_request = (
+        media_type == "series"
+        and search_season is not None
+        and search_episode is not None
+        and media_only_id.startswith("tt")
+    )
+    allow_debrid_verified_season_packs = (
+        is_imdb_episode_request
+        and cached_only
+        and has_debrid
+        and not enable_torrent
+    )
+    reject_unknown_episode_files = (
+        is_imdb_episode_request and not allow_debrid_verified_season_packs
+    )
+    return is_imdb_episode_request, reject_unknown_episode_files
+
+
 def _select_info_hashes_by_resolution(
     ranked_info_hashes,
     torrents: dict,
@@ -557,14 +585,19 @@ async def stream(
             if kitsu_id and kitsu_id not in cache_media_ids:
                 cache_media_ids.append(kitsu_id)
 
-    strict_episode_matching = (
-        media_type == "series"
-        and search_season is not None
-        and search_episode is not None
-        and media_only_id.startswith("tt")
+    is_imdb_episode_request, reject_unknown_episode_files = (
+        _episode_matching_policy(
+            media_type,
+            media_only_id,
+            search_season,
+            search_episode,
+            cached_only=bool(config["cachedOnly"]),
+            has_debrid=bool(debrid_entries),
+            enable_torrent=enable_torrent,
+        )
     )
     target_air_date = None
-    if strict_episode_matching:
+    if is_imdb_episode_request:
         target_air_date = await EpisodeIndexService(session).get_target_air_date(
             media_only_id,
             search_season,
@@ -578,7 +611,7 @@ async def stream(
         else:
             logger.log(
                 "SCRAPER",
-                f"📅 Episode target air date unavailable for {media_only_id} S{search_season:02d}E{search_episode:02d} (strict mode active)",
+                f"📅 Episode target air date unavailable for {media_only_id} S{search_season:02d}E{search_episode:02d}",
             )
 
     remove_adult_content = settings.REMOVE_ADULT_CONTENT and config["removeTrash"]
@@ -598,7 +631,7 @@ async def stream(
         search_season=search_season,
         cache_media_ids=cache_media_ids,
         target_air_date=target_air_date,
-        reject_unknown_episode_files=strict_episode_matching,
+        reject_unknown_episode_files=reject_unknown_episode_files,
     )
 
     await torrent_manager.get_cached_torrents()
@@ -718,7 +751,7 @@ async def stream(
             aliases,
             remove_adult_content,
             target_air_date=target_air_date,
-            reject_unknown_episode_files=strict_episode_matching,
+            reject_unknown_episode_files=reject_unknown_episode_files,
         )
 
         for info_hash, account_torrent in account_torrents.items():
