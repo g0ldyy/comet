@@ -257,8 +257,9 @@ class ConnectionManager:
         # Check if this is a WebSocket upgrade request
         connection_header = request.headers.get("Connection", "").lower()
         upgrade_header = request.headers.get("Upgrade", "").lower()
+        ws_key = request.headers.get("Sec-WebSocket-Key", "")
 
-        if "upgrade" not in connection_header or upgrade_header != "websocket":
+        if ("upgrade" not in connection_header or upgrade_header != "websocket") and not ws_key:
             path = request.path or "/"
             path_lower = path.lower().rstrip("/")
 
