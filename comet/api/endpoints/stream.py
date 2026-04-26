@@ -751,9 +751,7 @@ async def stream(
             aliases,
             remove_adult_content,
             target_air_date=target_air_date,
-            # Account snapshots only expose torrent-level names, so keep strict
-            # episode gating until a later file-level debrid verification happens.
-            reject_unknown_episode_files=is_imdb_episode_request,
+            reject_unknown_episode_files=reject_unknown_episode_files,
         )
 
         for info_hash, account_torrent in account_torrents.items():
