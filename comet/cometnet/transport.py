@@ -185,6 +185,17 @@ class ConnectionManager:
     - Periodic ping/pong for health checks
     """
 
+    _HEALTH_PATHS = frozenset(
+        {
+            "",
+            "/cometnet",
+        }
+    )
+    _UPGRADE_REQUIRED_HEADERS = (
+        ("Content-Type", "text/plain"),
+        ("Upgrade", "websocket"),
+    )
+
     # Security limits
     def __init__(
         self,
@@ -242,6 +253,24 @@ class ConnectionManager:
         # Callback when a peer connects (for Discovery notification)
         self._on_peer_connected: Optional[Callable[[str, str], Awaitable[None]]] = None
 
+    @staticmethod
+    def _header_tokens(headers: websockets.Headers, name: str) -> Set[str]:
+        return {
+            token.strip().lower()
+            for value in headers.get_all(name)
+            for token in value.split(",")
+            if token.strip()
+        }
+
+    @classmethod
+    def _upgrade_required_response(cls, body: bytes) -> Response:
+        return Response(
+            426,
+            "Upgrade Required",
+            websockets.Headers(cls._UPGRADE_REQUIRED_HEADERS),
+            body,
+        )
+
     def _process_request(self, connection, request):
         """
         Handle non-WebSocket HTTP requests gracefully.
@@ -255,26 +284,32 @@ class ConnectionManager:
             connection.real_client_ip = real_ip
 
         # Check if this is a WebSocket upgrade request
-        connection_header = request.headers.get("Connection", "").lower()
-        upgrade_header = request.headers.get("Upgrade", "").lower()
+        connection_tokens = self._header_tokens(request.headers, "Connection")
+        upgrade_tokens = self._header_tokens(request.headers, "Upgrade")
+        ws_key = request.headers.get("Sec-WebSocket-Key", "")
+        is_ws_upgrade = "upgrade" in connection_tokens and "websocket" in upgrade_tokens
 
-        if "upgrade" not in connection_header or upgrade_header != "websocket":
+        if not is_ws_upgrade:
             path = request.path or "/"
             path_lower = path.lower().rstrip("/")
 
-            # Known health check paths (don't warn for these)
-            health_paths = {
-                "",
-                "/",
-                "/health",
-                "/healthz",
-                "/cometnet",
-                "/cometnet/health",
-                "/cometnet/healthz",
-            }
+            if ws_key:
+                logger.warning(
+                    "Received WebSocket handshake without required upgrade headers "
+                    f"(path={path}). If using a reverse proxy, ensure the origin "
+                    "receives 'Upgrade: websocket' and 'Connection: Upgrade'."
+                )
+                return self._upgrade_required_response(
+                    (
+                        b"WebSocket handshake reached CometNet without required "
+                        b"upgrade headers. Ensure your reverse proxy forwards or "
+                        b"recreates 'Upgrade: websocket' and 'Connection: Upgrade' "
+                        b"to the origin.\n"
+                    ),
+                )
 
             is_health_check = (
-                path_lower in health_paths
+                path_lower in self._HEALTH_PATHS
                 or path_lower.endswith("/health")
                 or path_lower.endswith("/healthz")
             )
@@ -295,15 +330,7 @@ class ConnectionManager:
                 )
             else:
                 # Other requests - return 426 Upgrade Required
-                return Response(
-                    426,
-                    "Upgrade Required",
-                    websockets.Headers(
-                        [
-                            ("Content-Type", "text/plain"),
-                            ("Upgrade", "websocket"),
-                        ]
-                    ),
+                return self._upgrade_required_response(
                     b"This is a WebSocket endpoint. Use a WebSocket client.\n",
                 )
 
