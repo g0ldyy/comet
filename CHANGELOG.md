@@ -2,6 +2,15 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.54.1](https://github.com/g0ldyy/comet/compare/v2.54.0...v2.54.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **cometnet:** clarify invalid websocket proxy handshakes ([75326c9](https://github.com/g0ldyy/comet/commit/75326c9bc5ea9434d0c1aa72a902365b2bdb7e83))
+* **cometnet:** clarify invalid websocket proxy handshakes ([70947a1](https://github.com/g0ldyy/comet/commit/70947a1768b7e16a7d438238420e953e51c63860))
+* **cometnet:** detect websocket upgrades via Sec-WebSocket-Key when Connection header is stripped by upstream proxy ([37f7206](https://github.com/g0ldyy/comet/commit/37f720661d362b3f35fe49e3e8574b7c49b87443))
+
 ## [2.54.0](https://github.com/g0ldyy/comet/compare/v2.53.0...v2.54.0) (2026-04-26)
 
 
