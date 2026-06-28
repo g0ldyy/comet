@@ -535,18 +535,25 @@ class AnimeMapper:
                     if not imdb_id:
                         continue
 
+                    # Fribb stores imdb_id as a list for multi-season entries.
+                    # SQLite can't bind a list, so normalize to individual ids.
+                    imdb_ids = imdb_id if isinstance(imdb_id, list) else [imdb_id]
+
                     for provider, key in _FRIBB_PROVIDER_ORDER:
                         val = entry.get(key)
                         if val:
                             found_entry_id = lookup_map.get(f"{provider}:{val}")
                             if found_entry_id is not None:
-                                fribb_batch.append(
-                                    {
-                                        "provider": "imdb",
-                                        "provider_id": imdb_id,
-                                        "entry_id": found_entry_id,
-                                    }
-                                )
+                                for single_imdb_id in imdb_ids:
+                                    if not single_imdb_id:
+                                        continue
+                                    fribb_batch.append(
+                                        {
+                                            "provider": "imdb",
+                                            "provider_id": str(single_imdb_id),
+                                            "entry_id": found_entry_id,
+                                        }
+                                    )
                                 break
 
                     if len(fribb_batch) >= _DB_CHUNK_SIZE:
