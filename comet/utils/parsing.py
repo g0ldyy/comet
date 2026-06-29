@@ -1,9 +1,32 @@
+import re
 from functools import lru_cache
 
 from RTN import ParsedData
 
 SCRAPE_URL_MODE_BOTH = "both"
 SCRAPE_URL_MODES = frozenset((SCRAPE_URL_MODE_BOTH, "live", "background"))
+
+# RU / anime releases mark a complete batch as "E13 of 13" / "13 из 13" — the
+# leading number is an episode *count*, not an episode index.
+_EPISODE_COUNT_PACK = re.compile(r"(?i)(\d{1,4})\s*(?:of|из)\s*(\d{1,4})")
+
+
+def normalize_episode_count_pack(parsed: ParsedData, title: str, media_type: str):
+    """Treat "N of N" / "N из N" season packs as complete seasons.
+
+    RTN misreads the batch count (e.g. "E13 of 13", "13 из 13") as a single
+    episode number, so episode-scope matching drops these full-season packs for
+    any episode other than that number. When the parsed single episode equals
+    the batch count, clear the episode list and mark the release complete so it
+    matches any requested episode within the season.
+    """
+    if media_type != "series" or not parsed.episodes or len(parsed.episodes) != 1:
+        return
+
+    match = _EPISODE_COUNT_PACK.search(title)
+    if match and parsed.episodes[0] == int(match.group(1)):
+        parsed.episodes = []
+        parsed.complete = True
 
 
 def ensure_multi_language(parsed: ParsedData):

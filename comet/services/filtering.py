@@ -8,7 +8,7 @@ from RTN import normalize_title, parse, title_match
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.languages import COUNTRY_TO_LANGUAGE
-from comet.utils.parsing import ensure_multi_language
+from comet.utils.parsing import ensure_multi_language, normalize_episode_count_pack
 
 if settings.RTN_FILTER_DEBUG:
 
@@ -273,6 +273,7 @@ def filter_worker(
                 parsed.languages.append(language)
 
         ensure_multi_language(parsed)
+        normalize_episode_count_pack(parsed, torrent_title, media_type)
 
         if remove_adult_content and parsed.adult:
             _log_exclusion(f"🔞 Rejected (Adult) | {torrent_title}")
