@@ -108,9 +108,9 @@ class DebridService:
         for file in availability:
             file_season = file["season"]
             file_episode = file["episode"]
-            if (file_season is not None and file_season != season) or (
-                file_episode is not None and file_episode != episode
-            ):
+            if file_season is not None and file_season != season:
+                continue
+            if episode is not None and file_episode is not None and file_episode != episode:
                 continue
 
             info_hash = file["info_hash"]
@@ -122,19 +122,20 @@ class DebridService:
                 if torrent is None:
                     continue
 
-                merged_parsed = self._merge_parsed(
-                    torrent.get("parsed"), file["parsed"]
-                )
-                if merged_parsed is not None:
-                    torrent["parsed"] = merged_parsed
+                if episode is not None:
+                    merged_parsed = self._merge_parsed(
+                        torrent.get("parsed"), file["parsed"]
+                    )
+                    if merged_parsed is not None:
+                        torrent["parsed"] = merged_parsed
 
-                file_index = self._coerce_file_index(file["index"])
-                if file_index is not None:
-                    torrent["fileIndex"] = file_index
-                if file["title"] is not None:
-                    torrent["title"] = file["title"]
-                if file["size"] is not None:
-                    torrent["size"] = file["size"]
+                    file_index = self._coerce_file_index(file["index"])
+                    if file_index is not None:
+                        torrent["fileIndex"] = file_index
+                    if file["title"] is not None:
+                        torrent["title"] = file["title"]
+                    if file["size"] is not None:
+                        torrent["size"] = file["size"]
 
         asyncio.create_task(cache_availability(self.debrid_service, availability))
         return cached_hashes
@@ -158,23 +159,24 @@ class DebridService:
                 if torrent is None:
                     continue
 
-                file_index = self._coerce_file_index(row["file_index"])
-                if file_index is not None:
-                    torrent["fileIndex"] = file_index
+                if episode is not None:
+                    file_index = self._coerce_file_index(row["file_index"])
+                    if file_index is not None:
+                        torrent["fileIndex"] = file_index
 
-                if row["size"] is not None:
-                    torrent["size"] = row["size"]
+                    if row["size"] is not None:
+                        torrent["size"] = row["size"]
 
-                if row["parsed"] is not None:
-                    cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
-                    merged_parsed = self._merge_parsed(
-                        torrent.get("parsed"), cached_parsed
-                    )
-                    if merged_parsed is not None:
-                        torrent["parsed"] = merged_parsed
+                    if row["parsed"] is not None:
+                        cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
+                        merged_parsed = self._merge_parsed(
+                            torrent.get("parsed"), cached_parsed
+                        )
+                        if merged_parsed is not None:
+                            torrent["parsed"] = merged_parsed
 
-                if row["title"] is not None:
-                    torrent["title"] = row["title"]
+                    if row["title"] is not None:
+                        torrent["title"] = row["title"]
 
         return cached_hashes
 

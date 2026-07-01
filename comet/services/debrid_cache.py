@@ -118,16 +118,18 @@ async def get_cached_availability(
         AND updated_at >= :min_timestamp
     """
 
+    scope_params = build_scope_lookup_params(season, episode)
     params = {
         "info_hashes": encode_json_param(info_hashes),
         "min_timestamp": min_timestamp,
-        **build_scope_lookup_params(season, episode),
+        "season_norm": scope_params["season_norm"],
     }
 
     base_from_where += " AND debrid_service = :debrid_service"
     params["debrid_service"] = debrid_service
 
     if debrid_service == "offcloud":
+        params["episode_norm"] = scope_params["episode_norm"]
         query = f"""
             SELECT info_hash, file_index, title, size, parsed
             FROM (
@@ -153,10 +155,14 @@ async def get_cached_availability(
         """
         results = await database.fetch_all(query, params)
     else:
+        episode_filter = "AND episode_norm = CAST(:episode_norm AS INTEGER)" if episode is not None else ""
+        if episode is not None:
+            params["episode_norm"] = scope_params["episode_norm"]
         query = f"""
             {select_clause}
             {base_from_where}
-            AND {SCOPE_FILTER_SQL}
+            AND season_norm = CAST(:season_norm AS INTEGER)
+            {episode_filter}
         """
         results = await database.fetch_all(query, params)
 
@@ -167,19 +173,24 @@ async def get_cached_availability_any_service(
     info_hashes: list, season: int = None, episode: int = None
 ):
     min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
+
+    episode_filter = "AND episode_norm = CAST(:episode_norm AS INTEGER)" if episode is not None else ""
     base_from_where = f"""
         FROM debrid_availability
         WHERE {INFO_HASH_MEMBERSHIP_SQL}
         AND updated_at >= :min_timestamp
         AND season_norm = :season_norm
-        AND episode_norm = :episode_norm
+        {episode_filter}
     """
 
+    scope_params = build_scope_lookup_params(season, episode)
     params = {
         "info_hashes": encode_json_param(info_hashes),
         "min_timestamp": min_timestamp,
-        **build_scope_lookup_params(season, episode),
+        "season_norm": scope_params["season_norm"],
     }
+    if episode is not None:
+        params["episode_norm"] = scope_params["episode_norm"]
 
     query = f"""
         SELECT info_hash, file_index, title, size, parsed
