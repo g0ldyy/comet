@@ -88,7 +88,7 @@ class CacheControl:
 
 
 def generate_etag(data: Any):
-    if isinstance(data, bytes):
+    if isinstance(data, (bytes, bytearray)):
         content = data
     elif isinstance(data, str):
         content = data.encode("utf-8")
@@ -125,7 +125,11 @@ class CachedJSONResponse(Response):
         vary: Optional[list[str]] = None,
         **kwargs,
     ):
-        body = orjson.dumps(content)
+        if isinstance(content, (bytes, bytearray)):
+            body = content
+        else:
+            body = orjson.dumps(content, option=orjson.OPT_SORT_KEYS)
+
         super().__init__(
             content=body,
             status_code=status_code,
