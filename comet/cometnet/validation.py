@@ -115,3 +115,55 @@ def verify_torrent_signature_sync(torrent: TorrentMetadata) -> bool:
         )
     except Exception:
         return False
+
+
+def batch_verify_torrent_signatures_sync(
+    torrents: list[TorrentMetadata],
+) -> list[bool]:
+    """
+    Verify multiple torrent signatures synchronously with local key caching.
+    Intended to be run in an executor to offload CPU work.
+    """
+    key_cache: dict[str, EllipticCurvePublicKey] = {}
+    results = []
+
+    for torrent in torrents:
+        try:
+            if (
+                not torrent.contributor_id
+                or not torrent.contributor_signature
+                or not torrent.contributor_public_key
+            ):
+                results.append(False)
+                continue
+
+            public_key = key_cache.get(torrent.contributor_public_key)
+            if public_key is None:
+                # Verify that public key matches contributor_id
+                derived_id = NodeIdentity.node_id_from_public_key(
+                    torrent.contributor_public_key
+                )
+                if derived_id != torrent.contributor_id:
+                    results.append(False)
+                    continue
+
+                public_key = NodeIdentity.load_public_key(
+                    torrent.contributor_public_key
+                )
+                if public_key:
+                    key_cache[torrent.contributor_public_key] = public_key
+                else:
+                    results.append(False)
+                    continue
+
+            data_to_sign = torrent.to_signable_bytes()
+            is_valid = NodeIdentity.verify_with_key(
+                data_to_sign,
+                bytes.fromhex(torrent.contributor_signature),
+                public_key,
+            )
+            results.append(is_valid)
+        except Exception:
+            results.append(False)
+
+    return results
