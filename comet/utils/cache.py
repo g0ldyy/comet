@@ -95,8 +95,9 @@ def generate_etag(data: Any):
     else:
         content = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
 
-    # Bolt Optimization: Use xxhash for faster non-cryptographic hashing
-    hash_digest = xxhash.xxh64(content).hexdigest()[:16]
+    # Use xxhash for faster ETag generation. It is significantly faster than MD5
+    # for large payloads and already a project dependency.
+    hash_digest = xxhash.xxh64(content).hexdigest()
     return f'W/"{hash_digest}"'
 
 
