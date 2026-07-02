@@ -2,6 +2,7 @@ import asyncio
 from collections import defaultdict
 from urllib.parse import quote
 
+import orjson
 from fastapi import APIRouter, BackgroundTasks, Request
 
 from comet.core.config_validation import config_check
@@ -16,17 +17,27 @@ from comet.services.anime import anime_mapper
 from comet.services.cache_state import CacheStateManager
 from comet.services.debrid import DebridService
 from comet.services.debrid_account_scraper import (
-    ensure_account_snapshot_ready, get_account_torrents_for_media,
-    ingest_account_torrents_to_public_cache, schedule_account_snapshot_refresh)
+    ensure_account_snapshot_ready,
+    get_account_torrents_for_media,
+    ingest_account_torrents_to_public_cache,
+    schedule_account_snapshot_refresh,
+)
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 from comet.services.trackers import trackers
-from comet.utils.cache import (CachedJSONResponse, CachePolicies,
-                               check_etag_match, generate_etag,
-                               not_modified_response)
-from comet.utils.formatting import (format_chilllink, format_title,
-                                    get_formatted_components,
-                                    get_formatted_components_plain)
+from comet.utils.cache import (
+    CachedJSONResponse,
+    CachePolicies,
+    check_etag_match,
+    generate_etag,
+    not_modified_response,
+)
+from comet.utils.formatting import (
+    format_chilllink,
+    format_title,
+    get_formatted_components,
+    get_formatted_components_plain,
+)
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
 from comet.utils.parsing import parse_media_id
@@ -132,7 +143,8 @@ def _build_stream_response(
             cache_policy = CachePolicies.streams()
     cache_control = cache_policy.build()
 
-    etag = generate_etag(content)
+    body = orjson.dumps(content, option=orjson.OPT_SORT_KEYS)
+    etag = generate_etag(body)
     if check_etag_match(request, etag):
         return not_modified_response(etag, cache_control=cache_control)
 
@@ -140,7 +152,7 @@ def _build_stream_response(
         vary.extend(vary_headers)
 
     return CachedJSONResponse(
-        content=content,
+        content=body,
         cache_control=cache_policy,
         etag=etag,
         vary=list(dict.fromkeys(vary)),
@@ -168,10 +180,7 @@ def _episode_matching_policy(
         and media_only_id.startswith("tt")
     )
     allow_debrid_verified_season_packs = (
-        is_imdb_episode_request
-        and cached_only
-        and has_debrid
-        and not enable_torrent
+        is_imdb_episode_request and cached_only and has_debrid and not enable_torrent
     )
     reject_unknown_episode_files = (
         is_imdb_episode_request and not allow_debrid_verified_season_packs
@@ -585,16 +594,14 @@ async def stream(
             if kitsu_id and kitsu_id not in cache_media_ids:
                 cache_media_ids.append(kitsu_id)
 
-    is_imdb_episode_request, reject_unknown_episode_files = (
-        _episode_matching_policy(
-            media_type,
-            media_only_id,
-            search_season,
-            search_episode,
-            cached_only=bool(config["cachedOnly"]),
-            has_debrid=bool(debrid_entries),
-            enable_torrent=enable_torrent,
-        )
+    is_imdb_episode_request, reject_unknown_episode_files = _episode_matching_policy(
+        media_type,
+        media_only_id,
+        search_season,
+        search_episode,
+        cached_only=bool(config["cachedOnly"]),
+        has_debrid=bool(debrid_entries),
+        enable_torrent=enable_torrent,
     )
     target_air_date = None
     if is_imdb_episode_request:
