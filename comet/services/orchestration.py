@@ -13,8 +13,7 @@ from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.parsing import ensure_multi_language, parsed_matches_target
-from comet.utils.torrent_cache import (build_torrent_cache_where,
-                                       normalize_search_params)
+from comet.utils.torrent_cache import build_torrent_cache_where, normalize_search_params
 
 
 class TorrentManager:
@@ -121,25 +120,25 @@ class TorrentManager:
                 "parsed": torrent["parsed"],
             }
 
-    async def _fetch_cached_rows(self, media_id: str):
+    async def _fetch_cached_rows(self, media_id: str | list[str]):
         where_clause, params = build_torrent_cache_where(
             media_id, self.search_season, self.search_episode
         )
         query = (
-            "SELECT info_hash, file_index, title, seeders, size, tracker, sources_json, parsed_json, episode, updated_at "
+            "SELECT media_id, info_hash, file_index, title, seeders, size, tracker, sources_json, parsed_json, episode, updated_at "
             + where_clause
         )
         return await database.fetch_all(query, params)
 
     async def get_cached_torrents(self):
-        rows = []
-        for cache_media_id in self.cache_media_ids:
-            cache_rows = await self._fetch_cached_rows(cache_media_id)
-            if cache_rows and cache_media_id == self.media_only_id:
-                self.primary_cached = True
-            rows.extend(cache_rows)
+        rows = await self._fetch_cached_rows(self.cache_media_ids)
 
         if rows:
+            for row in rows:
+                if row["media_id"] == self.media_only_id:
+                    self.primary_cached = True
+                    break
+
             best_rows = {}
 
             def row_priority(row):
