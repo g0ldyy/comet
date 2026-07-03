@@ -14,8 +14,10 @@ from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import TorrentAnnounce, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.utils import run_in_executor
-from comet.cometnet.validation import (validate_message_security,
-                                       verify_torrent_signature_sync)
+from comet.cometnet.validation import (
+    batch_verify_torrent_signatures_sync,
+    validate_message_security,
+)
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -317,11 +319,8 @@ class GossipEngine:
 
         # Batch verify signatures in executor
         if torrents_to_verify:
-            verification_results = await asyncio.gather(
-                *[
-                    run_in_executor(verify_torrent_signature_sync, t)
-                    for t in torrents_to_verify
-                ]
+            verification_results = await run_in_executor(
+                batch_verify_torrent_signatures_sync, torrents_to_verify
             )
 
             for torrent, is_valid in zip(torrents_to_verify, verification_results):
