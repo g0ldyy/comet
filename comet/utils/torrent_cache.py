@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
+
+from comet.core.database import build_json_list_membership_predicate, encode_json_param
 
 
 @dataclass(frozen=True)
@@ -21,13 +23,22 @@ def normalize_search_params(
 
 
 def build_torrent_cache_where(
-    media_id: str, season: Optional[int], episode: Optional[int]
+    media_id: Union[str, list[str]], season: Optional[int], episode: Optional[int]
 ) -> tuple[str, dict]:
-    where_clause = """
-        FROM torrents
-        WHERE media_id = :media_id
-    """
-    params = {"media_id": media_id, "episode": episode}
+    params = {"episode": episode}
+    if isinstance(media_id, list):
+        where_clause = f"""
+            FROM torrents
+            WHERE {build_json_list_membership_predicate("media_id", "media_ids")}
+        """
+        params["media_ids"] = encode_json_param(media_id)
+    else:
+        where_clause = """
+            FROM torrents
+            WHERE media_id = :media_id
+        """
+        params["media_id"] = media_id
+
     if season is not None:
         where_clause += """
         AND season = CAST(:season as INTEGER)
