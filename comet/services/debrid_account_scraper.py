@@ -2,15 +2,18 @@ import asyncio
 import time
 from datetime import datetime
 
-from comet.core.database import (_debrid_account_snapshot_ttl,
-                                 build_json_list_membership_predicate,
-                                 database, encode_json_param)
+from comet.core.database import (
+    _debrid_account_snapshot_ttl,
+    build_json_list_membership_predicate,
+    database,
+    encode_json_param,
+)
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.manager import build_account_key_hash
 from comet.debrid.stremthru import StremThru
-from comet.services.filtering import filter_worker
+from comet.services.filtering import filter_worker, prepare_filter_config
 from comet.services.lock import DistributedLock
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.parsing import parsed_matches_target
@@ -527,6 +530,15 @@ async def get_account_torrents_for_media(
     if not accounts:
         return account_torrents, service_cache_status
 
+    filter_config = prepare_filter_config(
+        title,
+        year,
+        year_end,
+        media_type,
+        aliases or {},
+        remove_adult_content,
+    )
+
     min_timestamp = time.time() - _debrid_account_snapshot_ttl()
     aliases = aliases or {}
 
@@ -605,6 +617,7 @@ async def get_account_torrents_for_media(
             media_type,
             aliases,
             remove_adult_content,
+            filter_config,
         )
 
         for torrent in filtered_torrents:

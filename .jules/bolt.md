@@ -20,3 +20,7 @@
 ## 2026-07-03 - [Batched Database Queries for Multiple Media IDs]
 **Learning:** For anime content, Comet often searches for multiple media IDs (e.g., IMDb ID and Kitsu IDs) in the cache. The previous implementation performed a separate database query for each ID in `cache_media_ids`, leading to an N+1 query problem.
 **Action:** Updated `build_torrent_cache_where` to support a list of media IDs and modified `TorrentManager.get_cached_torrents` to fetch all cached torrents in a single query. This reduces database roundtrips, especially for anime searches where the number of linked IDs can be significant.
+
+## 2026-07-04 - [Optimized Torrent Filtering Performance]
+**Learning:** `filter_worker` was redundantly calculating alias mappings and year ranges for every chunk of torrents. Title scrubbing was also repeated for identical torrent titles across different scrapers. Substring matching for many aliases was inefficient.
+**Action:** Implemented `FilterConfig` to pre-calculate invariant data once per request. Added `lru_cache` to `scrub`. Replaced manual substring loops with a compiled regex for alias matching. Increased `ProcessPoolExecutor` chunk size from 20 to 100 to reduce IPC overhead.

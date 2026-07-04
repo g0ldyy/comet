@@ -8,7 +8,7 @@ from comet.core.logger import logger
 from comet.core.models import CometSettingsModel, database
 from comet.scrapers.manager import scraper_manager
 from comet.scrapers.models import ScrapeRequest
-from comet.services.filtering import filter_worker
+from comet.services.filtering import filter_worker, prepare_filter_config
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.media_ids import normalize_cache_media_ids
@@ -65,6 +65,7 @@ class TorrentManager:
         self.ranked_torrents = {}
         self.primary_cached = False
         self.max_updated_at = 0
+        self._filter_config = None
 
     def _matches_requested_scope(
         self,
@@ -273,8 +274,18 @@ class TorrentManager:
         if not new_torrents:
             return
 
+        if self._filter_config is None:
+            self._filter_config = prepare_filter_config(
+                self.title,
+                self.year,
+                self.year_end,
+                self.media_type,
+                self.aliases,
+                self.remove_adult_content,
+            )
+
         loop = asyncio.get_running_loop()
-        chunk_size = 20
+        chunk_size = 100
         tasks = [
             loop.run_in_executor(
                 get_executor(),
@@ -286,6 +297,7 @@ class TorrentManager:
                 self.media_type,
                 self.aliases,
                 self.remove_adult_content,
+                self._filter_config,
             )
             for i in range(0, len(new_torrents), chunk_size)
         ]
