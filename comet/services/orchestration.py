@@ -274,7 +274,8 @@ class TorrentManager:
             return
 
         loop = asyncio.get_running_loop()
-        chunk_size = 20
+        # Increased chunk_size to 100 to reduce task scheduling overhead for large result sets
+        chunk_size = 100
         tasks = [
             loop.run_in_executor(
                 get_executor(),
