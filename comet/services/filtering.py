@@ -2,6 +2,7 @@ import re
 from collections import OrderedDict, defaultdict
 from functools import lru_cache
 from threading import Event, Lock
+from typing import Optional
 
 from pydantic import ValidationError
 from RTN import normalize_title, parse, title_match
@@ -21,7 +22,108 @@ else:
         pass
 
 
-def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
+@dataclass(slots=True)
+class FilterConfig:
+    title: str
+    year: Optional[int]
+    year_end: Optional[int]
+    media_type: str
+    remove_adult_content: bool
+    ez_aliases_normalized: list[str]
+    country_aliases: dict[str, str]
+    min_year: int
+    max_year: float
+    alias_regex: Optional[re.Pattern] = None
+
+
+def prepare_filter_config(
+    title: str,
+    year: Optional[int],
+    year_end: Optional[int],
+    media_type: str,
+    aliases: dict,
+    remove_adult_content: bool,
+) -> FilterConfig:
+    tz_aliases = set()
+    country_aliases = {}
+    alias_to_langs = defaultdict(set)
+
+    if settings.SMART_LANGUAGE_DETECTION:
+        main_title_scrubbed = scrub(title)
+
+        for country, titles in aliases.items():
+            if country == "ez":
+                for t in titles:
+                    scrubbed_t = scrub(t)
+                    tz_aliases.add(scrubbed_t)
+                    alias_to_langs[scrubbed_t].add("neutral")
+                continue
+
+            lang = COUNTRY_TO_LANGUAGE.get(country)
+            for t in titles:
+                scrubbed_t = scrub(t)
+                tz_aliases.add(scrubbed_t)
+                if lang:
+                    alias_to_langs[scrubbed_t].add(lang)
+                else:
+                    alias_to_langs[scrubbed_t].add("neutral")
+
+        for scrubbed_t, langs in alias_to_langs.items():
+            if scrubbed_t == main_title_scrubbed:
+                continue
+
+            if len(langs) == 1:
+                lang = list(langs)[0]
+                if lang not in ("neutral", "en"):
+                    country_aliases[scrubbed_t] = lang
+    else:
+        for country, titles in aliases.items():
+            for t in titles:
+                tz_aliases.add(scrub(t))
+
+    ez_aliases_normalized = list(tz_aliases)
+    alias_regex = None
+    if ez_aliases_normalized:
+        # Sort by length descending to match longest possible alias first
+        sorted_aliases = sorted(ez_aliases_normalized, key=len, reverse=True)
+        # Escape aliases and join with | for regex
+        pattern = "|".join(re.escape(alias) for alias in sorted_aliases)
+        alias_regex = re.compile(pattern)
+
+    min_year = 0
+    max_year = float("inf")
+
+    if year:
+        if year_end:
+            min_year = year
+            max_year = year_end
+        elif media_type == "series":
+            min_year = year - 1
+        else:
+            min_year = year - 1
+            max_year = year + 1
+
+    return FilterConfig(
+        title=title,
+        year=year,
+        year_end=year_end,
+        media_type=media_type,
+        remove_adult_content=remove_adult_content,
+        ez_aliases_normalized=ez_aliases_normalized,
+        country_aliases=country_aliases,
+        min_year=min_year,
+        max_year=max_year,
+        alias_regex=alias_regex,
+    )
+
+
+def quick_alias_match(
+    text_normalized: str,
+    ez_aliases_normalized: list[str],
+    alias_regex: Optional[re.Pattern] = None,
+):
+    if alias_regex:
+        return bool(alias_regex.search(text_normalized))
     return any(alias in text_normalized for alias in ez_aliases_normalized)
 
 
@@ -194,62 +296,26 @@ def _do_parse_and_cache(
 
 
 def filter_worker(
-    torrents, title, year, year_end, media_type, aliases, remove_adult_content
+    torrents,
+    title,
+    year,
+    year_end,
+    media_type,
+    aliases,
+    remove_adult_content,
+    config: Optional[FilterConfig] = None,
 ):
+    if config is None:
+        config = prepare_filter_config(
+            title, year, year_end, media_type, aliases, remove_adult_content
+        )
+
     results = []
-
-    tz_aliases = set()
-    country_aliases = {}
-    alias_to_langs = defaultdict(set)
-
-    if settings.SMART_LANGUAGE_DETECTION:
-        main_title_scrubbed = scrub(title)
-
-        for country, titles in aliases.items():
-            if country == "ez":
-                for t in titles:
-                    scrubbed_t = scrub(t)
-                    tz_aliases.add(scrubbed_t)
-                    alias_to_langs[scrubbed_t].add("neutral")
-                continue
-
-            lang = COUNTRY_TO_LANGUAGE.get(country)
-            for t in titles:
-                scrubbed_t = scrub(t)
-                tz_aliases.add(scrubbed_t)
-                if lang:
-                    alias_to_langs[scrubbed_t].add(lang)
-                else:
-                    alias_to_langs[scrubbed_t].add("neutral")
-
-        # Only trust aliases that map to exactly one non-english language
-        # and are not the main title itself.
-        for scrubbed_t, langs in alias_to_langs.items():
-            if scrubbed_t == main_title_scrubbed:
-                continue
-
-            if len(langs) == 1:
-                lang = list(langs)[0]
-                if lang not in ("neutral", "en"):
-                    country_aliases[scrubbed_t] = lang
-    else:
-        for country, titles in aliases.items():
-            for t in titles:
-                tz_aliases.add(scrub(t))
-
-    ez_aliases_normalized = list(tz_aliases)
-    min_year = 0
-    max_year = float("inf")
-
-    if year:
-        if year_end:
-            min_year = year
-            max_year = year_end
-        elif media_type == "series":
-            min_year = year - 1
-        else:
-            min_year = year - 1
-            max_year = year + 1
+    country_aliases = config.country_aliases
+    ez_aliases_normalized = config.ez_aliases_normalized
+    alias_regex = config.alias_regex
+    min_year = config.min_year
+    max_year = config.max_year
 
     for torrent in torrents:
         torrent_title = torrent["title"]
@@ -285,7 +351,7 @@ def filter_worker(
             continue
 
         alias_matched = ez_aliases_normalized and quick_alias_match(
-            scrub(torrent_title), ez_aliases_normalized
+            scrub(torrent_title), ez_aliases_normalized, alias_regex
         )
         if not alias_matched:
             if not title_match(
