@@ -10,7 +10,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.manager import build_account_key_hash
 from comet.debrid.stremthru import StremThru
-from comet.services.filtering import filter_worker
+from comet.services.filtering import filter_worker, prepare_filter_config
 from comet.services.lock import DistributedLock
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.parsing import parsed_matches_target
@@ -530,6 +530,15 @@ async def get_account_torrents_for_media(
     min_timestamp = time.time() - _debrid_account_snapshot_ttl()
     aliases = aliases or {}
 
+    filter_config = prepare_filter_config(
+        title,
+        year,
+        year_end,
+        media_type,
+        aliases,
+        remove_adult_content,
+    )
+
     async def fetch_rows(service: str, account_key_hash: str):
         rows = await database.fetch_all(
             """
@@ -599,12 +608,7 @@ async def get_account_torrents_for_media(
             get_executor(),
             filter_worker,
             candidate_torrents,
-            title,
-            year,
-            year_end,
-            media_type,
-            aliases,
-            remove_adult_content,
+            filter_config,
         )
 
         for torrent in filtered_torrents:
