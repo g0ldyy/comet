@@ -20,7 +20,3 @@
 ## 2026-07-03 - [Batched Database Queries for Multiple Media IDs]
 **Learning:** For anime content, Comet often searches for multiple media IDs (e.g., IMDb ID and Kitsu IDs) in the cache. The previous implementation performed a separate database query for each ID in `cache_media_ids`, leading to an N+1 query problem.
 **Action:** Updated `build_torrent_cache_where` to support a list of media IDs and modified `TorrentManager.get_cached_torrents` to fetch all cached torrents in a single query. This reduces database roundtrips, especially for anime searches where the number of linked IDs can be significant.
-
-## 2026-07-04 - [Memoized Title Scrubbing and Tuned Task Chunking]
-**Learning:** The `scrub` function (title normalization) is called repeatedly during filtering and alias matching. Since title normalization is idempotent and computationally expensive due to multiple regex operations, it's a prime candidate for memoization. Additionally, small executor chunk sizes (20) for large torrent sets incur significant task scheduling overhead in asyncio.
-**Action:** Applied `functools.lru_cache` to `scrub` and increased `chunk_size` from 20 to 100 in `TorrentManager.filter_manager`. Benchmarking `scrub` showed a ~24x speedup for cached hits.
