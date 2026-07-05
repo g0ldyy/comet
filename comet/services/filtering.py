@@ -1,5 +1,6 @@
 import re
 from collections import OrderedDict, defaultdict
+from dataclasses import dataclass
 from threading import Event, Lock
 
 from pydantic import ValidationError
@@ -61,6 +62,95 @@ def alternate_title_match(torrent_title: str, title: str, aliases) -> bool:
 
 def scrub(t: str):
     return " ".join(normalize_title(t).split())
+
+
+@dataclass(slots=True)
+class FilterConfig:
+    title: str
+    year: int
+    year_end: int
+    media_type: str
+    aliases: dict
+    remove_adult_content: bool
+    ez_aliases_normalized: list[str]
+    country_aliases: dict[str, str]
+    min_year: int
+    max_year: int | float
+
+
+def prepare_filter_config(
+    title: str,
+    year: int,
+    year_end: int,
+    media_type: str,
+    aliases: dict,
+    remove_adult_content: bool,
+) -> FilterConfig:
+    tz_aliases = set()
+    country_aliases = {}
+    alias_to_langs = defaultdict(set)
+
+    if settings.SMART_LANGUAGE_DETECTION:
+        main_title_scrubbed = scrub(title)
+
+        for country, titles in aliases.items():
+            if country == "ez":
+                for t in titles:
+                    scrubbed_t = scrub(t)
+                    tz_aliases.add(scrubbed_t)
+                    alias_to_langs[scrubbed_t].add("neutral")
+                continue
+
+            lang = COUNTRY_TO_LANGUAGE.get(country)
+            for t in titles:
+                scrubbed_t = scrub(t)
+                tz_aliases.add(scrubbed_t)
+                if lang:
+                    alias_to_langs[scrubbed_t].add(lang)
+                else:
+                    alias_to_langs[scrubbed_t].add("neutral")
+
+        # Only trust aliases that map to exactly one non-english language
+        # and are not the main title itself.
+        for scrubbed_t, langs in alias_to_langs.items():
+            if scrubbed_t == main_title_scrubbed:
+                continue
+
+            if len(langs) == 1:
+                lang = list(langs)[0]
+                if lang not in ("neutral", "en"):
+                    country_aliases[scrubbed_t] = lang
+    else:
+        for country, titles in aliases.items():
+            for t in titles:
+                tz_aliases.add(scrub(t))
+
+    ez_aliases_normalized = list(tz_aliases)
+    min_year = 0
+    max_year = float("inf")
+
+    if year:
+        if year_end:
+            min_year = year
+            max_year = year_end
+        elif media_type == "series":
+            min_year = year - 1
+        else:
+            min_year = year - 1
+            max_year = year + 1
+
+    return FilterConfig(
+        title=title,
+        year=year,
+        year_end=year_end,
+        media_type=media_type,
+        aliases=aliases,
+        remove_adult_content=remove_adult_content,
+        ez_aliases_normalized=ez_aliases_normalized,
+        country_aliases=country_aliases,
+        min_year=min_year,
+        max_year=max_year,
+    )
 
 
 class _ParseCacheShard:
@@ -191,63 +281,8 @@ def _do_parse_and_cache(
         inflight_event.set()
 
 
-def filter_worker(
-    torrents, title, year, year_end, media_type, aliases, remove_adult_content
-):
+def filter_worker(torrents: list[dict], config: FilterConfig):
     results = []
-
-    tz_aliases = set()
-    country_aliases = {}
-    alias_to_langs = defaultdict(set)
-
-    if settings.SMART_LANGUAGE_DETECTION:
-        main_title_scrubbed = scrub(title)
-
-        for country, titles in aliases.items():
-            if country == "ez":
-                for t in titles:
-                    scrubbed_t = scrub(t)
-                    tz_aliases.add(scrubbed_t)
-                    alias_to_langs[scrubbed_t].add("neutral")
-                continue
-
-            lang = COUNTRY_TO_LANGUAGE.get(country)
-            for t in titles:
-                scrubbed_t = scrub(t)
-                tz_aliases.add(scrubbed_t)
-                if lang:
-                    alias_to_langs[scrubbed_t].add(lang)
-                else:
-                    alias_to_langs[scrubbed_t].add("neutral")
-
-        # Only trust aliases that map to exactly one non-english language
-        # and are not the main title itself.
-        for scrubbed_t, langs in alias_to_langs.items():
-            if scrubbed_t == main_title_scrubbed:
-                continue
-
-            if len(langs) == 1:
-                lang = list(langs)[0]
-                if lang not in ("neutral", "en"):
-                    country_aliases[scrubbed_t] = lang
-    else:
-        for country, titles in aliases.items():
-            for t in titles:
-                tz_aliases.add(scrub(t))
-
-    ez_aliases_normalized = list(tz_aliases)
-    min_year = 0
-    max_year = float("inf")
-
-    if year:
-        if year_end:
-            min_year = year
-            max_year = year_end
-        elif media_type == "series":
-            min_year = year - 1
-        else:
-            min_year = year - 1
-            max_year = year + 1
 
     for torrent in torrents:
         torrent_title = torrent["title"]
@@ -264,8 +299,8 @@ def filter_worker(
             _log_exclusion(f"❌ Rejected (Parse Error) | {torrent_title}")
             continue
 
-        if parsed.parsed_title and country_aliases:
-            language = country_aliases.get(scrub(parsed.parsed_title))
+        if parsed.parsed_title and config.country_aliases:
+            language = config.country_aliases.get(scrub(parsed.parsed_title))
             if language and language not in parsed.languages:
                 _log_exclusion(
                     f"🏷️ Added Language (Alias) | {torrent_title} | {language}"
@@ -274,7 +309,7 @@ def filter_worker(
 
         ensure_multi_language(parsed)
 
-        if remove_adult_content and parsed.adult:
+        if config.remove_adult_content and parsed.adult:
             _log_exclusion(f"🔞 Rejected (Adult) | {torrent_title}")
             continue
 
@@ -282,26 +317,26 @@ def filter_worker(
             _log_exclusion(f"❌ Rejected (No Parsed Title) | {torrent_title}")
             continue
 
-        alias_matched = ez_aliases_normalized and quick_alias_match(
-            scrub(torrent_title), ez_aliases_normalized
+        alias_matched = config.ez_aliases_normalized and quick_alias_match(
+            scrub(torrent_title), config.ez_aliases_normalized
         )
         if not alias_matched:
             if not title_match(
-                title, parsed.parsed_title, aliases=aliases
-            ) and not alternate_title_match(torrent_title, title, aliases):
+                config.title, parsed.parsed_title, aliases=config.aliases
+            ) and not alternate_title_match(torrent_title, config.title, config.aliases):
                 _log_exclusion(
-                    f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
+                    f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {config.title}"
                 )
                 continue
 
-        if year and parsed.year:
-            if not (min_year <= parsed.year <= max_year):
-                if year_end:
-                    expected = f"{year}-{year_end}"
-                elif media_type == "series":
-                    expected = f">{year}"
+        if config.year and parsed.year:
+            if not (config.min_year <= parsed.year <= config.max_year):
+                if config.year_end:
+                    expected = f"{config.year}-{config.year_end}"
+                elif config.media_type == "series":
+                    expected = f">{config.year}"
                 else:
-                    expected = f"~{year}"
+                    expected = f"~{config.year}"
 
                 _log_exclusion(
                     f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: {expected}"
