@@ -1,6 +1,5 @@
 import re
 from collections import OrderedDict, defaultdict
-from dataclasses import dataclass
 from functools import lru_cache
 from threading import Event, Lock
 from typing import Optional
@@ -163,7 +162,7 @@ def alternate_title_match(torrent_title: str, title: str, aliases) -> bool:
     return False
 
 
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=1024)  # Memoize string normalization to speed up repeated title matching
 def scrub(t: str):
     return " ".join(normalize_title(t).split())
 
