@@ -12,6 +12,40 @@ from comet.background_scraper.worker import (
     _serialize_run_row,
 )
 from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.models import settings
+
+
+async def _create_queue_database(path: Path) -> ReplicaAwareDatabase:
+    database = ReplicaAwareDatabase(Database(f"sqlite:///{path}"))
+    await database.connect()
+    await database.execute(
+        """
+        CREATE TABLE background_scraper_items (
+            media_id TEXT PRIMARY KEY,
+            media_type TEXT NOT NULL,
+            next_retry_at REAL,
+            last_success_at REAL,
+            status TEXT NOT NULL,
+            consecutive_failures INTEGER NOT NULL,
+            created_at REAL
+        )
+        """
+    )
+    await database.execute(
+        """
+        CREATE TABLE background_scraper_episodes (
+            series_id TEXT NOT NULL,
+            season INTEGER NOT NULL,
+            episode INTEGER NOT NULL,
+            next_retry_at REAL,
+            last_success_at REAL,
+            status TEXT NOT NULL,
+            consecutive_failures INTEGER NOT NULL,
+            created_at REAL
+        )
+        """
+    )
+    return database
 
 
 class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
@@ -85,37 +119,8 @@ class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
 class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
     async def test_queue_snapshot_query_executes_against_sqlite(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            primary = Database(f"sqlite:///{Path(temp_dir) / 'queue.db'}")
-            database = ReplicaAwareDatabase(primary)
-            await database.connect()
+            database = await _create_queue_database(Path(temp_dir) / "queue.db")
             try:
-                await database.execute(
-                    """
-                    CREATE TABLE background_scraper_items (
-                        media_id TEXT PRIMARY KEY,
-                        media_type TEXT NOT NULL,
-                        next_retry_at REAL,
-                        last_success_at REAL,
-                        status TEXT NOT NULL,
-                        consecutive_failures INTEGER NOT NULL,
-                        created_at REAL
-                    )
-                    """
-                )
-                await database.execute(
-                    """
-                    CREATE TABLE background_scraper_episodes (
-                        series_id TEXT NOT NULL,
-                        season INTEGER NOT NULL,
-                        episode INTEGER NOT NULL,
-                        next_retry_at REAL,
-                        last_success_at REAL,
-                        status TEXT NOT NULL,
-                        consecutive_failures INTEGER NOT NULL,
-                        created_at REAL
-                    )
-                    """
-                )
                 await database.execute_many(
                     """
                     INSERT INTO background_scraper_items
@@ -151,7 +156,88 @@ class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
                 await database.disconnect()
 
         self.assertEqual(snapshot["total"], 3)
-        self.assertEqual(snapshot["oldest_age_s"], 20.0)
+        self.assertEqual(snapshot["oldest_age_s"], 15.0)
+
+    async def test_queue_age_starts_when_success_becomes_refresh_eligible(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = await _create_queue_database(Path(temp_dir) / "queue.db")
+            try:
+                await database.execute(
+                    """
+                    INSERT INTO background_scraper_items
+                    (media_id, media_type, next_retry_at, last_success_at, status,
+                     consecutive_failures, created_at)
+                    VALUES ('movie', 'movie', 97.0, 89.0, 'success', 0, 1.0)
+                    """
+                )
+
+                with (
+                    patch.object(settings, "BACKGROUND_SCRAPER_SUCCESS_TTL", 10),
+                    patch("comet.background_scraper.worker.database", database),
+                ):
+                    snapshot = await BackgroundScraperWorker()._fetch_queue_snapshot(
+                        now=100.0
+                    )
+            finally:
+                await database.disconnect()
+
+        self.assertEqual(snapshot["movies"], 1)
+        self.assertEqual(snapshot["oldest_age_s"], 1.0)
+
+    async def test_queue_age_starts_when_retry_becomes_eligible(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = await _create_queue_database(Path(temp_dir) / "queue.db")
+            try:
+                await database.execute(
+                    """
+                    INSERT INTO background_scraper_items
+                    (media_id, media_type, next_retry_at, last_success_at, status,
+                     consecutive_failures, created_at)
+                    VALUES ('movie', 'movie', 98.0, NULL, 'failed', 1, 1.0)
+                    """
+                )
+
+                with patch("comet.background_scraper.worker.database", database):
+                    snapshot = await BackgroundScraperWorker()._fetch_queue_snapshot(
+                        now=100.0
+                    )
+            finally:
+                await database.disconnect()
+
+        self.assertEqual(snapshot["movies"], 1)
+        self.assertEqual(snapshot["oldest_age_s"], 2.0)
+
+    async def test_episode_queue_age_waits_for_parent_series(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = await _create_queue_database(Path(temp_dir) / "queue.db")
+            try:
+                await database.execute(
+                    """
+                    INSERT INTO background_scraper_items
+                    (media_id, media_type, next_retry_at, last_success_at, status,
+                     consecutive_failures, created_at)
+                    VALUES ('series', 'series', 99.0, NULL, 'deferred', 0, 1.0)
+                    """
+                )
+                await database.execute(
+                    """
+                    INSERT INTO background_scraper_episodes
+                    (series_id, season, episode, next_retry_at, last_success_at,
+                     status, consecutive_failures, created_at)
+                    VALUES ('series', 1, 1, 90.0, NULL, 'failed', 1, 1.0)
+                    """
+                )
+
+                with patch("comet.background_scraper.worker.database", database):
+                    snapshot = await BackgroundScraperWorker()._fetch_queue_snapshot(
+                        now=100.0
+                    )
+            finally:
+                await database.disconnect()
+
+        self.assertEqual(snapshot["series"], 1)
+        self.assertEqual(snapshot["episodes"], 1)
+        self.assertEqual(snapshot["oldest_age_s"], 1.0)
 
     async def test_queue_snapshot_uses_one_primary_database_snapshot(self):
         worker = BackgroundScraperWorker()

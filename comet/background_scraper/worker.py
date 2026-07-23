@@ -67,6 +67,26 @@ def _database_record_dict(row, field_name: str) -> dict:
         raise TypeError(f"{field_name} must be a database record") from error
 
 
+def _queue_ready_at_sql(table_alias: str) -> str:
+    created_at = f"COALESCE({table_alias}.created_at, :now)"
+    return f"""
+        CASE
+            WHEN {table_alias}.last_success_at IS NOT NULL
+             AND {table_alias}.last_success_at + :success_ttl >= {created_at}
+             AND (
+                    {table_alias}.next_retry_at IS NULL
+                    OR {table_alias}.last_success_at + :success_ttl
+                       >= {table_alias}.next_retry_at
+                 )
+            THEN {table_alias}.last_success_at + :success_ttl
+            WHEN {table_alias}.next_retry_at IS NOT NULL
+             AND {table_alias}.next_retry_at >= {created_at}
+            THEN {table_alias}.next_retry_at
+            ELSE {created_at}
+        END
+    """
+
+
 def _serialize_run_row(row) -> dict:
     candidate = _database_record_dict(row, "background scraper run")
     if set(candidate) != BACKGROUND_SCRAPER_RUN_FIELDS:
@@ -184,61 +204,66 @@ class BackgroundScraperWorker:
 
     def _queue_query_context(self, now: float | None = None):
         current_now = now if now is not None else time.time()
+        success_ttl = settings.BACKGROUND_SCRAPER_SUCCESS_TTL
         return current_now, {
             "now": current_now,
-            "success_cutoff": current_now - settings.BACKGROUND_SCRAPER_SUCCESS_TTL,
+            "success_cutoff": current_now - success_ttl,
+            "success_ttl": success_ttl,
             "max_retries": self._max_retries_for_query(),
         }
 
     async def _fetch_queue_snapshot(self, now: float | None = None):
         current_now, query_context = self._queue_query_context(now=now)
+        item_ready_at_sql = _queue_ready_at_sql("i")
+        episode_ready_at_sql = _queue_ready_at_sql("e")
 
         queue_snapshot = await database.fetch_one(
-            """
-            WITH item_snapshot AS (
+            f"""
+            WITH ready_items AS (
+                SELECT
+                    i.media_id,
+                    i.media_type,
+                    {item_ready_at_sql} AS ready_at
+                FROM background_scraper_items i
+                WHERE (i.next_retry_at IS NULL OR i.next_retry_at <= :now)
+                  AND (i.last_success_at IS NULL OR i.last_success_at <= :success_cutoff)
+                  AND (i.status != 'dead' OR i.consecutive_failures < :max_retries)
+            ),
+            item_snapshot AS (
                 SELECT
                     COALESCE(SUM(CASE WHEN media_type = 'movie' THEN 1 ELSE 0 END), 0) AS movie_count,
                     COALESCE(SUM(CASE WHEN media_type = 'series' THEN 1 ELSE 0 END), 0) AS series_count,
-                    MIN(created_at) AS oldest_item_ts
-                FROM background_scraper_items
-                WHERE (next_retry_at IS NULL OR next_retry_at <= :now)
-                  AND (last_success_at IS NULL OR last_success_at <= :success_cutoff)
-                  AND (status != 'dead' OR consecutive_failures < :max_retries)
+                    MIN(ready_at) AS oldest_item_ts
+                FROM ready_items
+            ),
+            episode_candidates AS (
+                SELECT
+                    i.ready_at AS parent_ready_at,
+                    {episode_ready_at_sql} AS episode_ready_at
+                FROM background_scraper_episodes e
+                JOIN ready_items i
+                  ON i.media_id = e.series_id
+                 AND i.media_type = 'series'
+                WHERE e.season >= 1
+                  AND e.episode >= 1
+                  AND (e.next_retry_at IS NULL OR e.next_retry_at <= :now)
+                  AND (e.last_success_at IS NULL OR e.last_success_at <= :success_cutoff)
+                  AND (e.status != 'dead' OR e.consecutive_failures < :max_retries)
+            ),
+            ready_episodes AS (
+                SELECT
+                    CASE
+                        WHEN parent_ready_at >= episode_ready_at
+                        THEN parent_ready_at
+                        ELSE episode_ready_at
+                    END AS ready_at
+                FROM episode_candidates
             ),
             episode_snapshot AS (
                 SELECT
                     COUNT(*) AS episode_count,
-                    MIN(background_scraper_episodes.created_at) AS oldest_episode_ts
-                FROM background_scraper_episodes
-                JOIN background_scraper_items
-                  ON background_scraper_items.media_id = background_scraper_episodes.series_id
-                 AND background_scraper_items.media_type = 'series'
-                WHERE background_scraper_episodes.season >= 1
-                  AND background_scraper_episodes.episode >= 1
-                  AND (
-                        background_scraper_episodes.next_retry_at IS NULL
-                        OR background_scraper_episodes.next_retry_at <= :now
-                      )
-                  AND (
-                        background_scraper_episodes.last_success_at IS NULL
-                        OR background_scraper_episodes.last_success_at <= :success_cutoff
-                      )
-                  AND (
-                        background_scraper_episodes.status != 'dead'
-                        OR background_scraper_episodes.consecutive_failures < :max_retries
-                      )
-                  AND (
-                        background_scraper_items.next_retry_at IS NULL
-                        OR background_scraper_items.next_retry_at <= :now
-                      )
-                  AND (
-                        background_scraper_items.last_success_at IS NULL
-                        OR background_scraper_items.last_success_at <= :success_cutoff
-                      )
-                  AND (
-                        background_scraper_items.status != 'dead'
-                        OR background_scraper_items.consecutive_failures < :max_retries
-                      )
+                    MIN(ready_at) AS oldest_episode_ts
+                FROM ready_episodes
             )
             SELECT item_snapshot.*, episode_snapshot.*
             FROM item_snapshot
