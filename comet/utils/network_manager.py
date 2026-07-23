@@ -218,12 +218,14 @@ class AsyncClientWrapper:
         impersonate: Optional[str] = None,
         proxy_url: Optional[str] = None,
         headers: Optional[dict] = None,
-        timeout: int = 30,
+        timeout: float | None = None,
     ):
         self.scraper_name = scraper_name
         self.base_url = base_url
         self.impersonate = impersonate
-        self.timeout = timeout
+        self.timeout = (
+            settings.HTTP_CLIENT_TIMEOUT_TOTAL if timeout is None else timeout
+        )
         self.headers = headers or {}
 
         # Determine proxy configuration

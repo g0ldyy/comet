@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from comet.core.database import database
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.core.scrape import ScrapeContext
 from comet.metadata.manager import MetadataScraper
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
@@ -1272,10 +1273,9 @@ class BackgroundScraperWorker:
             episode=None,
             aliases=aliases,
             remove_adult_content=settings.REMOVE_ADULT_CONTENT,
-            context="background",
         )
 
-        await manager.scrape_torrents()
+        await manager.scrape_torrents(ScrapeContext.BACKGROUND)
         torrents_found = len(manager.torrents)
         if torrents_found > 0:
             await self._seed_media_demand(media_id)
@@ -1328,9 +1328,8 @@ class BackgroundScraperWorker:
                     episode=episode_number,
                     aliases=aliases,
                     remove_adult_content=settings.REMOVE_ADULT_CONTENT,
-                    context="background",
                 )
-                await manager.scrape_torrents()
+                await manager.scrape_torrents(ScrapeContext.BACKGROUND)
                 episode_torrents = len(manager.torrents)
                 success = episode_torrents > 0
             except Exception as e:

@@ -2,6 +2,8 @@ from typing import List, Optional, TypedDict
 
 from pydantic import BaseModel
 
+from comet.core.scrape import ScrapeContext
+
 
 class ScrapeRequest(BaseModel):
     media_type: str  # "movie" or "series"
@@ -12,7 +14,7 @@ class ScrapeRequest(BaseModel):
     year_end: Optional[int] = None
     season: Optional[int] = None
     episode: Optional[int] = None
-    context: str = "live"  # "live" or "background"
+    context: ScrapeContext = ScrapeContext.LIVE
     search_titles: tuple[str, ...] = ()
 
     @property

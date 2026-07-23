@@ -403,7 +403,18 @@ def log_startup_info(settings):
     logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
     logger.log("COMET", f"Catalog Timeout: {settings.CATALOG_TIMEOUT}s")
     logger.log("COMET", f"Scrape Lock TTL: {settings.SCRAPE_LOCK_TTL}s")
-    logger.log("COMET", f"Scrape Wait Timeout: {settings.SCRAPE_WAIT_TIMEOUT}s")
+    logger.log(
+        "COMET",
+        "Scrape Timeouts: "
+        f"live={settings.LIVE_SCRAPE_TIMEOUT:g}s, "
+        f"background={settings.BACKGROUND_SCRAPE_TIMEOUT:g}s",
+    )
+    if settings.SCRAPER_TIMEOUT_OVERRIDES:
+        overrides = ", ".join(
+            f"{selector}={timeout:g}s"
+            for selector, timeout in sorted(settings.SCRAPER_TIMEOUT_OVERRIDES.items())
+        )
+        logger.log("COMET", f"Scraper Timeout Overrides: {overrides}")
     logger.log("COMET", f"Download Torrent Files: {settings.DOWNLOAD_TORRENT_FILES}")
 
     comet_url = (

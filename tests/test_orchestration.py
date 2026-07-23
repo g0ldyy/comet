@@ -2,6 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+from comet.core.scrape import ScrapeContext
 from comet.services.orchestration import TorrentManager, scraper_manager, settings
 
 
@@ -37,12 +38,13 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(manager, "cache_torrents"),
             patch("comet.services.orchestration.logger.log") as log,
         ):
-            await manager.scrape_torrents()
+            await manager.scrape_torrents(ScrapeContext.LIVE)
 
         self.assertEqual(
             captured[0].query_titles,
             ("La vita davanti a se",),
         )
+        self.assertIs(captured[0].context, ScrapeContext.LIVE)
         log.assert_any_call(
             "SCRAPER",
             "🔤 Indexer titles (1): “La vita davanti a se”",
@@ -150,7 +152,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(scraper_manager, "scrape_all", new=no_scraper_results),
             patch.object(manager, "cache_torrents", new=cache_torrents),
         ):
-            scrape = asyncio.create_task(manager.scrape_torrents())
+            scrape = asyncio.create_task(manager.scrape_torrents(ScrapeContext.LIVE))
             await cache_started.wait()
             await asyncio.sleep(0)
             self.assertFalse(scrape.done())

@@ -5,6 +5,7 @@ from RTN import DefaultRanking, ParsedData
 from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import CometSettingsModel, database, settings
+from comet.core.scrape import ScrapeContext
 from comet.scrapers.manager import scraper_manager
 from comet.scrapers.models import ScrapeRequest
 from comet.services.filtering import filter_worker
@@ -67,7 +68,6 @@ class TorrentManager:
         aliases: dict,
         remove_adult_content: bool,
         is_kitsu: bool = False,
-        context: str = "live",
         search_episode: int | None = None,
         search_season: int | None = None,
         cache_media_ids: list[str] | None = None,
@@ -88,8 +88,6 @@ class TorrentManager:
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
         self.is_kitsu = is_kitsu
-        self.context = context
-
         self.cache_media_ids = normalize_cache_media_ids(
             self.media_only_id, cache_media_ids
         )
@@ -123,6 +121,7 @@ class TorrentManager:
 
     async def scrape_torrents(
         self,
+        context: ScrapeContext,
     ):
         request = ScrapeRequest(
             media_type=self.media_type,
@@ -133,7 +132,7 @@ class TorrentManager:
             year_end=self.year_end,
             season=self.search_season,
             episode=self.search_episode,
-            context=self.context,
+            context=context,
             search_titles=select_indexer_titles(
                 self.title,
                 self.aliases,

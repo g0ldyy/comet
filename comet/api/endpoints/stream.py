@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from comet.core.config_validation import config_check
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.core.scrape import ScrapeContext
 from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import get_debrid_extension
 from comet.metadata.episode_index import EpisodeIndexService
@@ -279,7 +280,7 @@ async def background_scrape(
         return
 
     async def run_scrape():
-        await torrent_manager.scrape_torrents()
+        await torrent_manager.scrape_torrents(ScrapeContext.BACKGROUND)
 
         if debrid_entries and len(torrent_manager.torrents) > 0:
             await get_and_cache_multi_service_availability(
@@ -756,7 +757,7 @@ async def stream(
         try:
             if use_account_scrape:
                 scrape_result, warmup_result = await asyncio.gather(
-                    torrent_manager.scrape_torrents(),
+                    torrent_manager.scrape_torrents(ScrapeContext.LIVE),
                     ensure_account_snapshot_ready(session, debrid_entries, ip),
                     return_exceptions=True,
                 )
@@ -766,7 +767,7 @@ async def stream(
                     raise warmup_result
                 account_snapshot_ready = True
             else:
-                await torrent_manager.scrape_torrents()
+                await torrent_manager.scrape_torrents(ScrapeContext.LIVE)
             logger.log(
                 "SCRAPER",
                 f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",
