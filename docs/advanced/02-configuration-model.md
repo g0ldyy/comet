@@ -74,6 +74,12 @@ These sources are independent and apply to every title-based scraper. Latin diac
 7. CometNet
 - `COMETNET_*` (documented separately in `docs/cometnet/`)
 
+8. Observability
+- `PROMETHEUS_ENABLED`, `PROMETHEUS_PATH`
+- `PROMETHEUS_AUTH_TOKEN`, `PROMETHEUS_AUTH_TOKEN_FILE`
+- `PROMETHEUS_MULTIPROC_DIR`
+- Full setup and metric catalog: [Prometheus and Grafana Observability](07-observability.md)
+
 ## Backward-Compatibility Settings
 
 `INDEXER_MANAGER_TYPE`, `INDEXER_MANAGER_URL`, and related `INDEXER_MANAGER_*` values are still supported in runtime and mapped into Jackett/Prowlarr settings in `model_post_init`.

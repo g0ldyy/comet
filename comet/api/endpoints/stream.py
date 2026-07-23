@@ -13,6 +13,7 @@ from comet.debrid.manager import get_debrid_extension
 from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
+from comet.observability import metrics
 from comet.services.anime import anime_mapper
 from comet.services.cache_state import CacheStateManager, mark_scope_scraped
 from comet.services.debrid import DebridService
@@ -546,8 +547,18 @@ async def stream(
     scrape_debrid_account_torrents = config["scrapeDebridAccountTorrents"]
     use_account_scrape = bool(debrid_entries and scrape_debrid_account_torrents)
     response_cache_policy = CachePolicies.no_cache() if use_account_scrape else None
+    stream_cache_state = "unknown"
+    stream_client = "kodi" if kodi else ("chilllink" if chilllink else "stremio")
 
     def _stream_response(content: dict, is_empty: bool = False):
+        result_count = len(content.get("streams", ()))
+        metrics.observe_stream(
+            media_type,
+            stream_client,
+            stream_cache_state,
+            "empty" if is_empty else "success",
+            result_count,
+        )
         return _build_stream_response(
             request,
             content,
@@ -726,6 +737,8 @@ async def stream(
 
     await torrent_manager.get_cached_torrents()
     torrent_count = len(torrent_manager.torrents)
+    stream_cache_state = "hit" if torrent_count else "miss"
+    metrics.observe_torrent_cache(media_type, stream_cache_state, torrent_count)
     initial_info_hashes = set(torrent_manager.torrents)
     logger.log("SCRAPER", f"📦 Found cached torrents: {torrent_count}")
     primary_cached = torrent_manager.primary_cached

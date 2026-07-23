@@ -24,6 +24,7 @@ If you plan to use Stremio from another device/network, complete the reverse-pro
 4. [Scrapers, Background Scraper, and DMM](advanced/04-scrapers-background-and-dmm.md)
 5. [Database and Operations](advanced/05-database-and-operations.md)
 6. [HTTP API Reference](advanced/06-http-api-reference.md)
+7. [Prometheus and Grafana Observability](advanced/07-observability.md)
 
 ## Dedicated CometNet Docs
 

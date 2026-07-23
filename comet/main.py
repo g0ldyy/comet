@@ -2,9 +2,11 @@ import os
 
 import uvicorn
 
+import comet.observability.runtime  # noqa: F401  # prepares mmap state before app import
 from comet.api.app import app
 from comet.core.logger import log_startup_info, logger
 from comet.core.models import settings
+from comet.observability.metrics import mark_process_dead
 
 
 def run_with_uvicorn():
@@ -58,6 +60,10 @@ def run_with_gunicorn():
     if workers < 1:
         workers = min((os.cpu_count() or 1) * 2 + 1, 12)
 
+    def child_exit(_server, worker):
+        if settings.PROMETHEUS_ENABLED:
+            mark_process_dead(worker.pid, settings.PROMETHEUS_MULTIPROC_DIR)
+
     options = {
         "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
         "workers": workers,
@@ -68,6 +74,7 @@ def run_with_gunicorn():
         "proxy_protocol": True,
         "forwarded_allow_ips": "*",
         "loglevel": "warning",
+        "child_exit": child_exit,
     }
 
     log_startup_info(settings)

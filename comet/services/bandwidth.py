@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from comet.core.database import build_upsert_assignments
 from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.observability import metrics
 
 _BANDWIDTH_UPSERT_ASSIGNMENTS = build_upsert_assignments(("total_bytes", "updated_at"))
 UPSERT_BANDWIDTH_STATS_QUERY = f"""
@@ -89,13 +90,14 @@ class BandwidthMonitor:
             await self.initialize()
 
         with self._lock:
-            metrics = ConnectionMetrics(
+            connection = ConnectionMetrics(
                 connection_id=connection_id,
                 ip=ip,
                 content=content,
                 start_time=time.time(),
             )
-            self._connections[connection_id] = metrics
+            is_new = connection_id not in self._connections
+            self._connections[connection_id] = connection
 
             # Update global stats
             self._global_stats["active_connections"] = len(self._connections)
@@ -103,6 +105,8 @@ class BandwidthMonitor:
                 self._global_stats["peak_concurrent"],
                 self._global_stats["active_connections"],
             )
+            if is_new:
+                metrics.proxy_connection_started()
 
     def update_connection(self, connection_id: str, bytes_chunk: int):
         with self._lock:
@@ -113,23 +117,15 @@ class BandwidthMonitor:
 
     async def end_connection(self, connection_id: str):
         with self._lock:
-            metrics = self._connections.pop(connection_id, None)
-            if metrics:
+            connection = self._connections.pop(connection_id, None)
+            if connection:
                 self._global_stats["active_connections"] = len(self._connections)
+                connection.duration = time.time() - connection.start_time
+                metrics.proxy_connection_finished(
+                    connection.bytes_transferred, connection.duration
+                )
 
-                # Log final metrics (only once at end, no spam)
-                # total_mb = metrics.bytes_transferred / (1024 * 1024)
-                # avg_speed_mbps = (
-                #     (metrics.bytes_transferred / metrics.duration / (1024 * 1024))
-                #     if metrics.duration > 0
-                #     else 0
-                # )
-                # logger.log(
-                #     "STREAM",
-                #     f"Stream ended - {connection_id[:8]} - {total_mb:.1f}MB in {metrics.duration:.1f}s (avg: {avg_speed_mbps:.1f}MB/s)",
-                # )
-
-            return metrics
+            return connection
 
     def get_all_active_connections(self):
         with self._lock:
@@ -170,13 +166,17 @@ class BandwidthMonitor:
 
                 with self._lock:
                     inactive_connections = [
-                        conn_id
-                        for conn_id, metrics in self._connections.items()
-                        if current_time - metrics.last_update > threshold
+                        (conn_id, connection)
+                        for conn_id, connection in self._connections.items()
+                        if current_time - connection.last_update > threshold
                     ]
 
-                    for conn_id in inactive_connections:
+                    for conn_id, connection in inactive_connections:
                         self._connections.pop(conn_id, None)
+                        connection.duration = current_time - connection.start_time
+                        metrics.proxy_connection_finished(
+                            connection.bytes_transferred, connection.duration
+                        )
 
                     if inactive_connections:
                         self._global_stats["active_connections"] = len(
@@ -192,7 +192,7 @@ class BandwidthMonitor:
                     )
                     params = {
                         f"id_{i}": conn_id
-                        for i, conn_id in enumerate(inactive_connections)
+                        for i, (conn_id, _) in enumerate(inactive_connections)
                     }
                     await database.execute(
                         f"DELETE FROM active_connections WHERE id IN ({placeholders})",

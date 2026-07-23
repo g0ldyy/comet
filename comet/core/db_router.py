@@ -9,6 +9,7 @@ from databases import Database
 from sqlalchemy.engine.url import make_url
 
 from comet.core.logger import logger
+from comet.observability import metrics
 
 _REPLICA_RETRY_DELAY_SECONDS = 30.0
 
@@ -87,10 +88,40 @@ class ReplicaAwareDatabase:
         return _ReplicaAwareTransaction(self, primary_transaction)
 
     async def execute(self, query, values=None, *, force_primary: bool = False):
-        return await self._primary.execute(query, values)
+        return await self._run_primary("execute", query, values)
 
     async def execute_many(self, query, values, *, force_primary: bool = False):
-        return await self._primary.execute_many(query, values)
+        return await self._run_primary("execute_many", query, values)
+
+    async def _run_primary(self, operation: str, *args):
+        if not metrics.enabled:
+            return await getattr(self._primary, operation)(*args)
+        return await self._run_observed(
+            self._primary,
+            operation,
+            "primary",
+            *args,
+        )
+
+    @staticmethod
+    async def _run_observed(target, operation: str, target_name: str, *args):
+        started_at = time.perf_counter()
+        outcome = "success"
+        try:
+            return await getattr(target, operation)(*args)
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        except BaseException:
+            outcome = "error"
+            raise
+        finally:
+            metrics.observe_database(
+                operation,
+                target_name,
+                outcome,
+                time.perf_counter() - started_at,
+            )
 
     async def fetch_all(self, query, values=None, *, force_primary: bool = False):
         return await self._run_read("fetch_all", force_primary, query, values)
@@ -138,14 +169,19 @@ class ReplicaAwareDatabase:
             else self._next_replica()
         )
 
-        method = getattr(target, method_name)
+        target_name = "primary" if target is self._primary else "replica"
         try:
-            return await method(*args)
+            return await (
+                self._run_observed(target, method_name, target_name, *args)
+                if metrics.enabled
+                else getattr(target, method_name)(*args)
+            )
         except asyncio.CancelledError:  # pragma: no cover - propagate cancellations
             raise
         except Exception as exc:
             if target is not self._primary and self._primary.is_connected:
                 self._deactivate_replica(target)
+                metrics.observe_database_fallback(method_name)
                 logger.log(
                     "DATABASE",
                     (
@@ -153,8 +189,16 @@ class ReplicaAwareDatabase:
                         f"retrying on primary: {exc}"
                     ),
                 )
-                fallback = getattr(self._primary, method_name)
-                return await fallback(*args)
+                return await (
+                    self._run_observed(
+                        self._primary,
+                        method_name,
+                        "primary",
+                        *args,
+                    )
+                    if metrics.enabled
+                    else getattr(self._primary, method_name)(*args)
+                )
             raise
 
     @contextmanager

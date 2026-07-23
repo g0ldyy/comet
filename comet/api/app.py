@@ -19,6 +19,7 @@ from comet.api.endpoints import (
     kodi,
     manifest,
     playback,
+    prometheus,
 )
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
@@ -33,6 +34,7 @@ from comet.core.database import (
 from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import STREMIO_API_PREFIX, settings
+from comet.observability import metrics
 from comet.services.anime import anime_mapper
 from comet.services.bandwidth import bandwidth_monitor
 from comet.services.debrid_account_scraper import shutdown_account_sync_tasks
@@ -50,19 +52,50 @@ from comet.utils.memory import periodic_memory_trim
 from comet.utils.network_manager import network_manager
 
 
+def _metrics_route(request: Request) -> str:
+    route = getattr(request.scope.get("route"), "path", "unmatched")
+    if STREMIO_API_PREFIX and route.startswith(STREMIO_API_PREFIX):
+        return route.replace(STREMIO_API_PREFIX, "/s/{token}", 1)
+    return route
+
+
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        start_time = time.time()
+        instrument_request = (
+            settings.PROMETHEUS_ENABLED and request.url.path != settings.PROMETHEUS_PATH
+        )
+        method = request.method
+        if instrument_request:
+            metrics.http_started(method)
+
+        start_time = time.perf_counter()
+        status_code = 500
+        response_size = None
         try:
             response = await call_next(request)
+            status_code = response.status_code
+            content_length = response.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    response_size = int(content_length)
+                except ValueError:
+                    pass
         except Exception as e:
             logger.exception(f"Exception during request processing: {e}")
             raise
         finally:
-            process_time = time.time() - start_time
+            process_time = time.perf_counter() - start_time
+            if instrument_request:
+                metrics.http_finished(
+                    method,
+                    _metrics_route(request),
+                    status_code,
+                    process_time,
+                    response_size,
+                )
             logger.log(
                 "API",
-                f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s",
+                f"{method} {request.url.path} - {status_code} - {process_time:.2f}s",
             )
         return response
 
@@ -223,6 +256,8 @@ app.include_router(admin.router)
 app.include_router(cometnet.router)
 app.include_router(cometnet_ui.router)
 app.include_router(kodi.router)
+if settings.PROMETHEUS_ENABLED:
+    app.include_router(prometheus.router)
 
 if STREMIO_API_PREFIX:
     app.include_router(config.router, prefix=STREMIO_API_PREFIX)

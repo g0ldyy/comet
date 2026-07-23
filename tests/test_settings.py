@@ -236,3 +236,22 @@ class AppSettingsTests(unittest.TestCase):
                 self.assertRaisesRegex(ValidationError, "must be a non-empty string"),
             ):
                 AppSettings(_env_file=None, ADMIN_DASHBOARD_PASSWORD=password)
+
+    def test_prometheus_paths_are_static_and_secrets_normalize(self):
+        configured = AppSettings(
+            _env_file=None,
+            PROMETHEUS_PATH="/internal/metrics/",
+            PROMETHEUS_AUTH_TOKEN=" none ",
+            PROMETHEUS_AUTH_TOKEN_FILE=" /run/secrets/metrics ",
+        )
+
+        self.assertEqual(configured.PROMETHEUS_PATH, "/internal/metrics")
+        self.assertIsNone(configured.PROMETHEUS_AUTH_TOKEN)
+        self.assertEqual(
+            configured.PROMETHEUS_AUTH_TOKEN_FILE,
+            "/run/secrets/metrics",
+        )
+
+        for path in ("metrics", "/", "/metrics?format=text", "/{tenant}/metrics"):
+            with self.subTest(path=path), self.assertRaises(ValidationError):
+                AppSettings(_env_file=None, PROMETHEUS_PATH=path)
