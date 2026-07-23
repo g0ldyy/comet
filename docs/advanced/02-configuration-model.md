@@ -57,6 +57,8 @@ Behavior:
 
 5. Scrapers/indexers
 - `SCRAPE_*` flags and related URL/API key variables
+- `LIVE_SCRAPE_TIMEOUT`, `BACKGROUND_SCRAPE_TIMEOUT`
+- `SCRAPER_TIMEOUT_OVERRIDES`
 - Jackett/Prowlarr indexer manager settings
 - `INDEXER_INCLUDE_CANONICAL_TITLE`: includes Comet's canonical metadata title. Defaults to `True`.
 - `INDEXER_INCLUDE_ORIGINAL_TITLE`: includes one original TMDB or anime-mapping title. Defaults to `True`.

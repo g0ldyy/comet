@@ -33,6 +33,48 @@ class AppSettingsTests(unittest.TestCase):
         self.assertTrue(settings.INDEXER_INCLUDE_CANONICAL_TITLE)
         self.assertTrue(settings.INDEXER_INCLUDE_ORIGINAL_TITLE)
 
+    def test_scrape_timeout_defaults_and_overrides_are_normalized(self):
+        settings = AppSettings(
+            _env_file=None,
+            SCRAPER_TIMEOUT_OVERRIDES={
+                " ZileanScraper ": 90,
+                "Jackett:LIVE": 20.5,
+            },
+        )
+
+        self.assertEqual(settings.LIVE_SCRAPE_TIMEOUT, 30.0)
+        self.assertEqual(settings.BACKGROUND_SCRAPE_TIMEOUT, 30.0)
+        self.assertEqual(
+            settings.SCRAPER_TIMEOUT_OVERRIDES,
+            {"zilean": 90.0, "jackett:live": 20.5},
+        )
+
+    def test_invalid_scrape_timeout_configuration_fails(self):
+        for field in ("LIVE_SCRAPE_TIMEOUT", "BACKGROUND_SCRAPE_TIMEOUT"):
+            for value in (True, 0, -1, float("inf"), None):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(
+                        ValidationError,
+                        "finite numbers greater than zero",
+                    ):
+                        AppSettings(_env_file=None, **{field: value})
+
+        invalid_overrides = (
+            [],
+            {"Zilean": True},
+            {"Zilean": 0},
+            {"Zilean:batch": 10},
+            {"Zilean:live:extra": 10},
+            {"Zilean": 10, "zileanScraper": 20},
+        )
+        for overrides in invalid_overrides:
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(ValidationError):
+                    AppSettings(
+                        _env_file=None,
+                        SCRAPER_TIMEOUT_OVERRIDES=overrides,
+                    )
+
     def test_indexer_languages_are_normalized_and_deduplicated(self):
         settings = AppSettings(
             _env_file=None,

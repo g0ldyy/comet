@@ -29,6 +29,7 @@ from RTN.models import (
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
+from comet.core.scrape import normalize_scraper_timeout_selector
 
 _comet_fk_enabled = False
 _SQLITE_BUSY_TIMEOUT_MS = 30000
@@ -64,6 +65,10 @@ _POSITIVE_WORK_COUNT_FIELDS = (
     "BITMAGNET_MAX_CONCURRENT_PAGES",
     "BACKGROUND_SCRAPER_CONCURRENT_WORKERS",
     "FILTER_PARSE_CACHE_SHARDS",
+)
+_SCRAPE_TIMEOUT_FIELDS = (
+    "LIVE_SCRAPE_TIMEOUT",
+    "BACKGROUND_SCRAPE_TIMEOUT",
 )
 _POSITIVE_COMETNET_OPERATION_FIELDS = (
     "COMETNET_MAX_PEERS",
@@ -172,9 +177,9 @@ class AppSettings(BaseSettings):
     METRICS_CACHE_TTL: Optional[int] = 60  # 1 minute
     DEBRID_CACHE_CHECK_RATIO: Optional[float] = 0.0  # 0.0 to 1.0
     SCRAPE_LOCK_TTL: Optional[int] = 300  # 5 minutes
-    SCRAPE_WAIT_TIMEOUT: Optional[int] = (
-        30  # Max time to wait for other instance to complete
-    )
+    LIVE_SCRAPE_TIMEOUT: float = 30.0
+    BACKGROUND_SCRAPE_TIMEOUT: float = 30.0
+    SCRAPER_TIMEOUT_OVERRIDES: dict[str, float] = Field(default_factory=dict)
     INDEXER_MANAGER_TYPE: Optional[str] = None
     INDEXER_MANAGER_URL: Optional[str] = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: Optional[str] = None
@@ -441,6 +446,40 @@ class AppSettings(BaseSettings):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError("work count must be a positive integer")
         return value
+
+    @staticmethod
+    def _normalize_scrape_timeout(value) -> float:
+        if isinstance(value, bool):
+            raise ValueError("scrape timeouts must be finite numbers greater than zero")
+        try:
+            normalized = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "scrape timeouts must be finite numbers greater than zero"
+            ) from None
+        if not math.isfinite(normalized) or normalized <= 0:
+            raise ValueError("scrape timeouts must be finite numbers greater than zero")
+        return normalized
+
+    @field_validator(*_SCRAPE_TIMEOUT_FIELDS, mode="before")
+    def validate_scrape_timeout(cls, value):
+        return cls._normalize_scrape_timeout(value)
+
+    @field_validator("SCRAPER_TIMEOUT_OVERRIDES", mode="before")
+    def normalize_scraper_timeout_overrides(cls, value):
+        if not isinstance(value, dict):
+            raise ValueError("SCRAPER_TIMEOUT_OVERRIDES must be a JSON object")
+
+        normalized = {}
+        for selector, timeout in value.items():
+            normalized_selector = normalize_scraper_timeout_selector(selector)
+            if normalized_selector in normalized:
+                raise ValueError(
+                    "SCRAPER_TIMEOUT_OVERRIDES contains duplicate normalized "
+                    f"selector {normalized_selector!r}"
+                )
+            normalized[normalized_selector] = cls._normalize_scrape_timeout(timeout)
+        return normalized
 
     @field_validator(
         *_POSITIVE_WORK_COUNT_FIELDS,

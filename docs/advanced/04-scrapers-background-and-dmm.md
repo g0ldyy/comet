@@ -21,6 +21,34 @@ Effective execution is the intersection of scraper-level mode (`SCRAPE_*`) and U
 
 Anime-only gates are enforced for specific scrapers (`NYAA_ANIME_ONLY`, `ANIMETOSHO_ANIME_ONLY`, `SEADEX_ANIME_ONLY`, `NEKOBT_ANIME_ONLY`).
 
+### Scraper Timeouts
+
+Each scraper invocation has a context-specific runtime budget:
+
+- `LIVE_SCRAPE_TIMEOUT`
+- `BACKGROUND_SCRAPE_TIMEOUT`
+
+`SCRAPER_TIMEOUT_OVERRIDES` accepts a JSON object for provider-specific tuning.
+Selectors are case-insensitive and may optionally include a `:live` or
+`:background` suffix:
+
+```env
+LIVE_SCRAPE_TIMEOUT=10
+BACKGROUND_SCRAPE_TIMEOUT=60
+SCRAPER_TIMEOUT_OVERRIDES={"Zilean":90,"Jackett:live":20}
+```
+
+Resolution order is context-specific scraper override, scraper override, then
+the context default. A timeout cancels only the affected scraper invocation;
+other providers continue and their results are retained.
+
+Without an explicit override, Jackett and Prowlarr also reserve
+`INDEXER_MANAGER_WAIT_TIMEOUT` for cold indexer-manager initialization before
+their context-specific scrape budget begins.
+
+`HTTP_CLIENT_TIMEOUT_TOTAL` remains the timeout for one HTTP request. Scraper
+budgets cover the complete provider operation, including pagination and retries.
+
 ## Indexer Manager (Jackett/Prowlarr)
 
 `IndexerManager` periodically refreshes active indexers:
