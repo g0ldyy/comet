@@ -3,6 +3,7 @@ import importlib
 import inspect
 import os
 import pkgutil
+import time
 from typing import Dict
 
 from comet.core.logger import logger
@@ -11,9 +12,11 @@ from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.services.anime import anime_mapper
 from comet.utils.network_manager import network_manager
-from comet.utils.parsing import (associate_urls_credentials,
-                                 parse_url_scrape_mode,
-                                 url_mode_matches_context)
+from comet.utils.parsing import (
+    associate_urls_credentials,
+    parse_url_scrape_mode,
+    url_mode_matches_context,
+)
 
 ANIME_ONLY_SETTING_BY_SCRAPER = {
     "NyaaScraper": "NYAA_ANIME_ONLY",
@@ -53,11 +56,13 @@ class ScraperManager:
     async def _scrape_wrapper(
         self, name: str, scraper: BaseScraper, request: ScrapeRequest
     ):
+        started_at = time.perf_counter()
         try:
-            return name, await scraper.scrape(request)
+            results = await scraper.scrape(request)
         except Exception as e:
             logger.warning(f"Scraper {name} failed: {e}")  # todo: better error handling
-            return name, []
+            results = []
+        return name, results, time.perf_counter() - started_at
 
     @staticmethod
     def _resolve_url_for_context(url: str, context: str):
@@ -168,13 +173,20 @@ class ScraperManager:
                         self._scrape_wrapper(scraper_name_clean, scraper, request)
                     )
 
-        for future in asyncio.as_completed(tasks):
-            try:
-                yield await future
-            except Exception as e:
-                logger.error(
-                    f"Error during scraping: {e}"
-                )  # todo: better error handling
+        scraper_tasks = [asyncio.create_task(task) for task in tasks]
+        try:
+            for future in asyncio.as_completed(scraper_tasks):
+                try:
+                    yield await future
+                except Exception as e:
+                    logger.error(
+                        f"Error during scraping: {e}"
+                    )  # todo: better error handling
+        finally:
+            for task in scraper_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*scraper_tasks, return_exceptions=True)
 
 
 scraper_manager = ScraperManager()

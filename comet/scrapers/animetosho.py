@@ -1,9 +1,10 @@
 import asyncio
 import xml.etree.ElementTree as ET
+from urllib.parse import quote_plus
 
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper
+from comet.scrapers.base import BaseScraper, deduplicate_torrents
 from comet.scrapers.models import ScrapeRequest
 from comet.services.torrent_manager import extract_trackers_from_magnet
 
@@ -58,10 +59,11 @@ class AnimeToshoScraper(BaseScraper):
                 continue
         return torrents
 
-    async def scrape_page(self, query, offset, limit):
+    async def _scrape_page(self, query, offset, limit):
         try:
             async with self.session.get(
-                f"https://feed.animetosho.org/api?t=search&q={query}&offset={offset}&limit={limit}"
+                "https://feed.animetosho.org/api"
+                f"?t=search&q={quote_plus(query)}&offset={offset}&limit={limit}"
             ) as response:
                 if response.status != 200:
                     logger.warning(
@@ -86,12 +88,17 @@ class AnimeToshoScraper(BaseScraper):
             logger.warning(f"Error scraping AnimeTosho offset={offset}: {e}")
             return [], 0
 
-    async def scrape(self, request: ScrapeRequest):
+    async def scrape_page(self, query, offset, limit, semaphore=None):
+        if semaphore is None:
+            return await self._scrape_page(query, offset, limit)
+        async with semaphore:
+            return await self._scrape_page(query, offset, limit)
+
+    async def _scrape_query(self, query: str, semaphore: asyncio.Semaphore):
         torrents = []
-        query = request.title
         limit = 150
 
-        initial_items, total = await self.scrape_page(query, 0, limit)
+        initial_items, total = await self.scrape_page(query, 0, limit, semaphore)
         torrents.extend(initial_items)
 
         if total > limit:
@@ -104,7 +111,9 @@ class AnimeToshoScraper(BaseScraper):
                     if current_offset >= total:
                         break
 
-                    tasks.append(self.scrape_page(query, current_offset, limit))
+                    tasks.append(
+                        self.scrape_page(query, current_offset, limit, semaphore)
+                    )
                     current_offset += limit
 
                 if tasks:
@@ -113,3 +122,18 @@ class AnimeToshoScraper(BaseScraper):
                         torrents.extend(batch_items)
 
         return torrents
+
+    async def scrape(self, request: ScrapeRequest):
+        semaphore = asyncio.Semaphore(settings.ANIMETOSHO_MAX_CONCURRENT_PAGES)
+        results = await asyncio.gather(
+            *(self._scrape_query(query, semaphore) for query in request.query_titles),
+            return_exceptions=True,
+        )
+        return deduplicate_torrents(
+            [
+                torrent
+                for torrents in results
+                if isinstance(torrents, list)
+                for torrent in torrents
+            ]
+        )

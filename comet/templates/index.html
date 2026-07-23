@@ -1386,8 +1386,8 @@
 
           async function setupKodiWithCode(rawCode) {
             const code = rawCode.trim().toLowerCase();
-            if (!/^[0-9a-f]{6,16}$/.test(code)) {
-              showKodiError("Kodi setup code must be a 6–16 character hexadecimal value.");
+            if (!/^[0-9a-f]{8}$/.test(code)) {
+              showKodiError("Kodi setup code must be an 8-character lowercase hexadecimal value.");
               return;
             }
 
@@ -1609,7 +1609,8 @@
         <sl-input
           id="kodi-code-input"
           label="Setup Code"
-          placeholder="e.g. 1a2b3c"
+          placeholder="e.g. 1a2b3c4d"
+          maxlength="8"
           help-text="Enter the hexadecimal code displayed in the Comet add-on settings (Configure/Reconfigure)."
           clearable
         ></sl-input>

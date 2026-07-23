@@ -2142,6 +2142,24 @@
 
       // Peer cache for cross-referencing
       let peersCache = [];
+      const activeRefreshes = new Map();
+
+      function coalesceRefresh(name, loader) {
+        const active = activeRefreshes.get(name);
+        if (active) {
+          return active;
+        }
+
+        const refresh = Promise.resolve()
+          .then(loader)
+          .finally(() => {
+            if (activeRefreshes.get(name) === refresh) {
+              activeRefreshes.delete(name);
+            }
+          });
+        activeRefreshes.set(name, refresh);
+        return refresh;
+      }
 
       function initializeDashboard() {
         loadConnections();
@@ -2359,6 +2377,10 @@
           const status = await response.json();
 
           if (status.has_update) {
+            const latestCommitHash = escapeHtml(
+              String(status.latest_commit_hash || "unknown"),
+            );
+            const latestUrl = safeGitHubUrl(status.latest_url);
             let msg = `
                     <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; background: rgba(234, 179, 8, 0.1); padding: 15px; border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.2);">
                         <div style="display: flex; align-items: center; gap: 8px; color: var(--sl-color-warning-500); font-weight: 600;">
@@ -2366,13 +2388,13 @@
                             Update Available
                         </div>
                         <div style="font-size: 0.9rem; color: #e0e0e0;">
-                            Latest Commit: <span style="font-weight: bold; color: white;">${status.latest_commit_hash}</span>
+                            Latest Commit: <span style="font-weight: bold; color: white;">${latestCommitHash}</span>
                         </div>
                 `;
 
-            if (status.latest_url) {
+            if (latestUrl) {
               msg += `
-                        <sl-button href="${status.latest_url}" target="_blank" variant="warning" size="small" outline>
+                        <sl-button href="${escapeHtml(latestUrl)}" target="_blank" rel="noopener noreferrer" variant="warning" size="small" outline>
                             <sl-icon slot="prefix" name="github"></sl-icon>
                             View Release
                         </sl-button>
@@ -2401,7 +2423,11 @@
         }
       }
 
-      async function loadConnections() {
+      function loadConnections() {
+        return coalesceRefresh("connections", loadConnectionsOnce);
+      }
+
+      async function loadConnectionsOnce() {
         try {
           const response = await fetch("/admin/api/connections");
           const data = await response.json();
@@ -2470,28 +2496,25 @@
                                 (conn) => `
                                 <tr>
                                     <td>
-                                        <span class="connection-id">${conn.id.substring(
-                                          0,
-                                          8,
-                                        )}...</span>
+                                        <span class="connection-id">${escapeHtml(String(conn.id || "").substring(0, 8))}...</span>
                                     </td>
                                     <td>
-                                        <span class="ip-tag">${conn.ip}</span>
+                                        <span class="ip-tag">${escapeHtml(String(conn.ip || ""))}</span>
                                     </td>
                                     <td>
                                         <span title="${escapeHtml(
-                                          conn.content,
+                                          String(conn.content || ""),
                                         )}">${
-                                          conn.content.length > 25
+                                          String(conn.content || "").length > 25
                                             ? escapeHtml(
-                                                conn.content.substring(0, 25),
+                                                String(conn.content || "").substring(0, 25),
                                               ) + "..."
-                                            : escapeHtml(conn.content)
+                                            : escapeHtml(String(conn.content || ""))
                                         }</span>
                                     </td>
                                     <td>
                                         <span style="font-size: 0.875rem; color: #9ca3af;">${
-                                          conn.formatted_time
+                                          escapeHtml(String(conn.formatted_time || ""))
                                         }</span>
                                     </td>
                                     <td>
@@ -2501,19 +2524,17 @@
                                     </td>
                                     <td>
                                         <span class="bandwidth-tag" style="background-color: #059669; color: #d1fae5; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">${
-                                          conn.bytes_transferred_formatted ||
-                                          "0 B"
+                                          escapeHtml(String(conn.bytes_transferred_formatted || "0 B"))
                                         }</span>
                                     </td>
                                     <td>
                                         <span class="speed-tag" style="background-color: #7c3aed; color: #e9d5ff; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">${
-                                          conn.current_speed_formatted ||
-                                          "0 B/s"
+                                          escapeHtml(String(conn.current_speed_formatted || "0 B/s"))
                                         }</span>
                                     </td>
                                     <td>
                                         <span class="peak-speed-tag" style="background-color: #dc2626; color: #fecaca; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">${
-                                          conn.peak_speed_formatted || "0 B/s"
+                                          escapeHtml(String(conn.peak_speed_formatted || "0 B/s"))
                                         }</span>
                                     </td>
                                 </tr>
@@ -2527,7 +2548,11 @@
         container.innerHTML = tableHTML;
       }
 
-      async function loadLogs() {
+      function loadLogs() {
+        return coalesceRefresh("logs", loadLogsOnce);
+      }
+
+      async function loadLogsOnce() {
         try {
           const response = await fetch(
             `/admin/api/logs?since=${lastLogTimestamp}`,
@@ -2565,15 +2590,32 @@
             logEntry.setAttribute("data-api-log", "true");
           }
 
-          logEntry.innerHTML = `<span class="log-timestamp">${
-            log.timestamp
-          }</span> <span class="log-level" style="color: ${log.color};">${
-            log.icon
-          } ${log.level}</span> <span class="log-module">${log.module}.${
-            log.function
-          }</span> - <span class="log-message">${escapeHtml(
-            log.message,
-          )}</span>`;
+          const timestamp = document.createElement("span");
+          timestamp.className = "log-timestamp";
+          timestamp.textContent = String(log.timestamp || "");
+
+          const level = document.createElement("span");
+          level.className = "log-level";
+          level.style.color = safeLogColor(log.color);
+          level.textContent = `${String(log.icon || "")} ${String(log.level || "")}`;
+
+          const module = document.createElement("span");
+          module.className = "log-module";
+          module.textContent = `${String(log.module || "")}.${String(log.function || "")}`;
+
+          const message = document.createElement("span");
+          message.className = "log-message";
+          message.textContent = String(log.message || "");
+
+          logEntry.append(
+            timestamp,
+            document.createTextNode(" "),
+            level,
+            document.createTextNode(" "),
+            module,
+            document.createTextNode(" - "),
+            message,
+          );
 
           container.appendChild(logEntry);
         });
@@ -2612,7 +2654,7 @@
       }
 
       function isApiLog(log) {
-        return log.message.includes("/admin/api/");
+        return String(log.message || "").includes("/admin/api/");
       }
 
       function toggleApiLogsVisibility() {
@@ -2629,13 +2671,39 @@
 
       function escapeHtml(text) {
         const div = document.createElement("div");
-        div.textContent = text;
+        div.textContent = String(text ?? "");
         return div.innerHTML;
+      }
+
+      function safeGitHubUrl(value) {
+        if (typeof value !== "string" || !value) {
+          return null;
+        }
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:" &&
+            url.hostname === "github.com" &&
+            !url.username &&
+            !url.password
+            ? url.href
+            : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function safeLogColor(value) {
+        const color = String(value || "");
+        return /^#[0-9a-f]{6}$/i.test(color) ? color : "#d1d5db";
       }
 
       let myPublicKey = null;
 
-      async function loadCometNetStats() {
+      function loadCometNetStats() {
+        return coalesceRefresh("cometnet", loadCometNetStatsOnce);
+      }
+
+      async function loadCometNetStatsOnce() {
         try {
           const [statsRes, poolsRes, peersRes] = await Promise.all([
             fetch("/admin/api/cometnet/stats"),
@@ -3190,10 +3258,10 @@
         alert.variant = variant;
         alert.closable = true;
         alert.duration = 3000;
-        alert.innerHTML = `
-          <sl-icon name="${icons[variant] || "info-circle"}" slot="icon"></sl-icon>
-          ${message}
-        `;
+        const icon = document.createElement("sl-icon");
+        icon.name = icons[variant] || "info-circle";
+        icon.slot = "icon";
+        alert.append(icon, document.createTextNode(String(message ?? "")));
         container.appendChild(alert);
         alert.toast();
         alert.addEventListener("sl-after-hide", () => alert.remove());
@@ -3682,7 +3750,14 @@
         }
       }
 
-      async function loadBackgroundScraperData() {
+      function loadBackgroundScraperData() {
+        return coalesceRefresh(
+          "background-scraper",
+          loadBackgroundScraperDataOnce,
+        );
+      }
+
+      async function loadBackgroundScraperDataOnce() {
         try {
           const [statusResponse, runsResponse] = await Promise.all([
             fetch("/admin/api/background-scraper/status"),

@@ -1,3 +1,4 @@
+import math
 import time
 from datetime import datetime
 
@@ -60,6 +61,11 @@ _UPSERT_SERIES_INDEX_REFRESH_QUERY = """
         refreshed_at = EXCLUDED.refreshed_at
 """
 
+_DELETE_SERIES_EPISODE_INDEX_QUERY = """
+    DELETE FROM series_episode_index
+    WHERE series_id = :series_id
+"""
+
 
 def _normalize_air_date(raw_value) -> str | None:
     if not isinstance(raw_value, str) or not raw_value:
@@ -95,7 +101,7 @@ class EpisodeIndexService:
         )
         if row is None:
             return None
-        return row["air_date"]
+        return _normalize_air_date(row["air_date"])
 
     async def _is_series_index_fresh(
         self, series_id: str, min_timestamp: float
@@ -104,12 +110,24 @@ class EpisodeIndexService:
             _SERIES_INDEX_LAST_REFRESH_QUERY,
             {"series_id": series_id},
         )
-        return last_refreshed is not None and float(last_refreshed) >= min_timestamp
+        if isinstance(last_refreshed, bool):
+            return False
+        try:
+            refreshed_at = float(last_refreshed)
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(refreshed_at) and refreshed_at >= min_timestamp
 
     async def _upsert_series_air_dates(self, rows: list[dict]) -> None:
         if not rows:
             return
         await database.execute_many(_UPSERT_SERIES_EPISODE_INDEX_QUERY, rows)
+
+    async def _delete_series_air_dates(self, series_id: str) -> None:
+        await database.execute(
+            _DELETE_SERIES_EPISODE_INDEX_QUERY,
+            {"series_id": series_id},
+        )
 
     async def _upsert_series_refresh(self, series_id: str, refreshed_at: float) -> None:
         await database.execute(
@@ -117,28 +135,39 @@ class EpisodeIndexService:
             {"series_id": series_id, "refreshed_at": refreshed_at},
         )
 
+    async def _replace_series_index(
+        self,
+        series_id: str,
+        refreshed_at: float,
+        rows: list[dict],
+    ) -> None:
+        async with database.transaction():
+            await self._delete_series_air_dates(series_id)
+            await self._upsert_series_air_dates(rows)
+            await self._upsert_series_refresh(series_id, refreshed_at)
+
     async def _refresh_from_cinemeta(self, series_id: str) -> None:
-        refresh_index = False
         try:
             async with self.session.get(
                 _CINEMETA_SERIES_META_URL.format(series_id=series_id)
             ) as response:
                 if response.status == 404:
-                    refresh_index = True
+                    await self._upsert_series_refresh(series_id, time.time())
                     return
                 response.raise_for_status()
                 payload = await response.json()
-                refresh_index = True
         except Exception as exc:
             logger.warning(
                 f"EpisodeIndex: Failed to fetch Cinemeta episode data for {series_id}: {exc}"
             )
             return
-        finally:
-            if refresh_index:
-                await self._upsert_series_refresh(series_id, time.time())
 
-        videos = payload.get("meta", {}).get("videos") or []
+        if not isinstance(payload, dict):
+            return
+        meta = payload.get("meta") or {}
+        if not isinstance(meta, dict):
+            return
+        videos = meta.get("videos") or []
         if not isinstance(videos, list):
             return
 
@@ -174,7 +203,11 @@ class EpisodeIndexService:
                 "updated_at": updated_at,
             }
 
-        await self._upsert_series_air_dates(list(unique_rows.values()))
+        await self._replace_series_index(
+            series_id,
+            updated_at,
+            list(unique_rows.values()),
+        )
 
     async def _refresh_single_episode_from_tmdb(
         self,
@@ -184,7 +217,7 @@ class EpisodeIndexService:
     ) -> str | None:
         try:
             tmdb = TMDBApi(self.session)
-            tmdb_id = await tmdb.get_tmdb_id_from_imdb(series_id)
+            tmdb_id = await tmdb.get_tmdb_id_from_imdb(series_id, "series")
             if not tmdb_id:
                 return None
 

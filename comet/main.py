@@ -1,36 +1,9 @@
-import contextlib
 import os
-import sys
-import threading
-import time
-import traceback
-
 import uvicorn
 
 from comet.api.app import app
 from comet.core.logger import log_startup_info, logger
 from comet.core.models import settings
-
-
-class Server(uvicorn.Server):
-    def install_signal_handlers(self):
-        pass
-
-    @contextlib.contextmanager
-    def run_in_thread(self):
-        thread = threading.Thread(target=self.run, name="Comet")
-        thread.start()
-        try:
-            while not self.started:
-                time.sleep(1e-3)
-            yield
-        except Exception as e:
-            logger.error(f"Error in server thread: {e}")
-            logger.exception(traceback.format_exc())
-            raise e
-        finally:
-            self.should_exit = True
-            sys.exit(0)
 
 
 def run_with_uvicorn():
@@ -51,9 +24,9 @@ def run_with_uvicorn():
         server.run()
     except KeyboardInterrupt:
         logger.log("COMET", "Server stopped by user")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.exception(traceback.format_exc())
+    except Exception as error:
+        logger.exception(f"Unexpected server error: {error}")
+        raise
     finally:
         logger.log("COMET", "Server Shutdown")
 

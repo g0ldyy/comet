@@ -3,9 +3,13 @@ from fastapi import APIRouter, Request
 from comet.core.config_validation import config_check
 from comet.core.models import settings
 from comet.debrid.manager import build_addon_name
-from comet.utils.cache import (CachedJSONResponse, CachePolicies,
-                               check_etag_match, generate_etag,
-                               not_modified_response)
+from comet.utils.cache import (
+    CachedJSONResponse,
+    CachePolicies,
+    check_etag_match,
+    generate_etag,
+    not_modified_response,
+)
 
 router = APIRouter()
 

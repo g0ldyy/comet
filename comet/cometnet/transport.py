@@ -19,16 +19,24 @@ from typing import Awaitable, Callable, Dict, List, Optional, Set
 
 import websockets
 from websockets.client import WebSocketClientProtocol
-from websockets.exceptions import (ConnectionClosed, InvalidStatus,
-                                   WebSocketException)
+from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketException
 from websockets.http11 import Response
 
 from comet.cometnet.crypto import NodeIdentity
-from comet.cometnet.protocol import (AnyMessage, HandshakeMessage, MessageType,
-                                     PingMessage, PongMessage, parse_message)
-from comet.cometnet.utils import (extract_ip_from_address,
-                                  get_websocket_compression,
-                                  is_valid_peer_address)
+from comet.cometnet.protocol import (
+    AnyMessage,
+    HandshakeMessage,
+    MessageType,
+    PingMessage,
+    PongMessage,
+    parse_message,
+)
+from comet.cometnet.utils import (
+    extract_ip_from_address,
+    get_websocket_compression,
+    is_valid_peer_address,
+)
+from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.network import extract_ip_from_headers
@@ -205,6 +213,14 @@ class ConnectionManager:
         advertise_url: Optional[str] = None,
         keystore=None,  # Optional PublicKeyStore for storing peer keys
     ):
+        if type(listen_port) is not int or not 1 <= listen_port <= 65535:
+            raise ValueError("listen_port must be an integer between 1 and 65535")
+        if type(max_peers) is not int or max_peers <= 0:
+            raise ValueError("max_peers must be a positive integer")
+        if advertise_url is not None and (
+            type(advertise_url) is not str or not advertise_url
+        ):
+            raise ValueError("advertise_url must be a non-empty string or None")
         self.identity = identity
         self.listen_port = listen_port
         self.max_peers = max_peers
@@ -225,6 +241,7 @@ class ConnectionManager:
 
         # Track connections per IP to prevent abuse
         self._connections_per_ip: Dict[str, int] = {}
+        self._pending_connections = 0
 
         # Lock for connection operations to prevent race conditions
         self._connection_lock = asyncio.Lock()
@@ -399,11 +416,14 @@ class ConnectionManager:
                 "COMETNET",
                 f"WebSocket server listening on port {self.listen_port}",
             )
-        except Exception as e:
+        except OSError as e:
             logger.warning(
                 f"Failed to start WebSocket server on port {self.listen_port}: {e}"
             )
             # Continue anyway - we can still make outbound connections
+        except BaseException:
+            self._running = False
+            raise
 
         # Start ping task
         ping_task = asyncio.create_task(self._ping_loop())
@@ -471,6 +491,7 @@ class ConnectionManager:
         for conn in list(self._connections.values()):
             await conn.close()
         self._connections.clear()
+        self._connections_per_ip.clear()
 
         logger.log("COMETNET", "Transport layer stopped")
 
@@ -490,11 +511,14 @@ class ConnectionManager:
         # Use lock to prevent race condition on peer limit check
         async with self._connection_lock:
             # Check peer limit
-            if len(self._connections) >= self.max_peers:
+            if len(self._connections) + self._pending_connections >= self.max_peers:
                 return None
 
             self._connecting.add(address)
+            self._pending_connections += 1
 
+        websocket = None
+        node_id = None
         try:
             # Connect with timeout
             logger.debug(f"Attempting WebSocket connection to {address}...")
@@ -526,7 +550,6 @@ class ConnectionManager:
                 return node_id
             else:
                 logger.debug(f"Handshake failed with {address}")
-                await websocket.close()
                 return None
         except asyncio.TimeoutError:
             logger.debug(f"Connection timeout to {address}")
@@ -537,16 +560,17 @@ class ConnectionManager:
         except (WebSocketException, ConnectionClosed) as e:
             logger.debug(f"WebSocket error connecting to {address}: {type(e).__name__}")
             return None
-        except (OSError, asyncio.CancelledError) as e:
+        except asyncio.CancelledError:
+            raise
+        except OSError as e:
             logger.debug(f"Connection error to {address}: {type(e).__name__}")
             return None
-        except Exception as e:
-            logger.debug(
-                f"Unexpected error connecting to {address}: {type(e).__name__}: {e}"
-            )
-            return None
         finally:
-            self._connecting.discard(address)
+            async with self._connection_lock:
+                self._connecting.discard(address)
+                self._pending_connections -= 1
+            if node_id is None and websocket is not None:
+                await websocket.close()
 
     async def handle_incoming_connection(
         self,
@@ -593,17 +617,27 @@ class ConnectionManager:
                 return None
 
             # Check peer limit
-            if len(self._connections) >= self.max_peers:
+            if len(self._connections) + self._pending_connections >= self.max_peers:
                 await websocket.close()
                 return None
 
             # Pre-increment IP counter to reserve slot (will decrement if handshake fails)
             self._connections_per_ip[ip] = current_ip_connections + 1
+            self._pending_connections += 1
 
-        # Perform handshake (we wait for their handshake first)
-        node_id = await self._perform_handshake(
-            websocket, client_ip, connectable_address, is_outbound=False
-        )
+        node_id = None
+        try:
+            # Perform handshake (we wait for their handshake first)
+            node_id = await self._perform_handshake(
+                websocket, client_ip, connectable_address, is_outbound=False
+            )
+        finally:
+            async with self._connection_lock:
+                self._pending_connections -= 1
+                if node_id is None:
+                    self._release_ip_slot(ip)
+            if node_id is None:
+                await websocket.close()
 
         if node_id:
             conn = self._connections.get(node_id)
@@ -613,14 +647,6 @@ class ConnectionManager:
             )
             return node_id
         else:
-            # Handshake failed, decrement IP counter
-            async with self._connection_lock:
-                self._connections_per_ip[ip] = max(
-                    0, self._connections_per_ip.get(ip, 1) - 1
-                )
-                if self._connections_per_ip.get(ip, 0) == 0:
-                    self._connections_per_ip.pop(ip, None)
-            await websocket.close()
             return None
 
     async def _perform_handshake(
@@ -741,11 +767,6 @@ class ConnectionManager:
                 )
                 return None
 
-            # Check if already connected to this node
-            if peer_handshake.sender_id in self._connections:
-                await websocket.close()
-                return peer_handshake.sender_id
-
             # Don't connect to ourselves
             if peer_handshake.sender_id == self.identity.node_id:
                 return None
@@ -799,15 +820,18 @@ class ConnectionManager:
                 listen_port=peer_handshake.listen_port,
                 alias=peer_handshake.alias,
             )
-            self._connections[peer_handshake.sender_id] = conn
-
-            # Store verified public key in keystore
-            if self._keystore:
-                self._keystore.store_key(
-                    node_id=peer_handshake.sender_id,
-                    public_key_hex=peer_handshake.public_key,
-                    verified=True,
-                )
+            # Atomically bind the verified identity to one live connection. The
+            # caller's pending reservation already owns the capacity slot.
+            async with self._connection_lock:
+                if peer_handshake.sender_id in self._connections:
+                    await websocket.close()
+                    return None
+                if self._keystore:
+                    self._keystore.store_verified_key(
+                        node_id=peer_handshake.sender_id,
+                        public_key_hex=peer_handshake.public_key,
+                    )
+                self._connections[peer_handshake.sender_id] = conn
 
             # Start message receiver task
             task = asyncio.create_task(self._receive_loop(conn))
@@ -818,7 +842,10 @@ class ConnectionManager:
         except asyncio.TimeoutError:
             logger.debug(f"Handshake timeout with {client_ip}")
             return None
-        except Exception:
+        except (ConnectionClosed, WebSocketException, OSError) as error:
+            logger.debug(
+                f"Handshake transport error with {client_ip}: {type(error).__name__}"
+            )
             return None
 
     async def _receive_loop(self, conn: PeerConnection) -> None:
@@ -841,8 +868,16 @@ class ConnectionManager:
 
                     # Handle ping/pong internally
                     if isinstance(message, PingMessage):
+                        if not await validate_message_security(
+                            message, conn.node_id, self._keystore, None
+                        ):
+                            continue
                         await self._handle_ping(conn, message)
                     elif isinstance(message, PongMessage):
+                        if not await validate_message_security(
+                            message, conn.node_id, self._keystore, None
+                        ):
+                            continue
                         self._handle_pong(conn, message)
                     else:
                         # Route to registered handler
@@ -854,25 +889,41 @@ class ConnectionManager:
                                 logger.warning(f"Handler error for {message.type}: {e}")
                 except ConnectionClosed:
                     break
-        except Exception:
-            pass
+        except Exception as error:
+            logger.warning(
+                f"Receive loop failed for {conn.node_id[:8]}: "
+                f"{type(error).__name__}: {error}"
+            )
         finally:
-            # Clean up connection
-            if conn.node_id in self._connections:
-                # Decrement IP connection counter (only for inbound connections that we track)
-                if not conn.is_outbound and conn.client_ip:
-                    ip = conn.client_ip
-                    if ip in self._connections_per_ip:
-                        self._connections_per_ip[ip] = max(
-                            0, self._connections_per_ip[ip] - 1
-                        )
-                        if self._connections_per_ip[ip] == 0:
-                            del self._connections_per_ip[ip]
-                del self._connections[conn.node_id]
+            self._release_connection(conn.node_id, conn)
             logger.log(
                 "COMETNET",
                 f"Disconnected from peer {conn.node_id[:8]} ({conn.alias or 'no alias'})",
             )
+
+    def _release_ip_slot(self, ip: str) -> None:
+        """Release one inbound per-IP reservation, dropping the key at zero."""
+        remaining = self._connections_per_ip.get(ip, 0) - 1
+        if remaining > 0:
+            self._connections_per_ip[ip] = remaining
+        else:
+            self._connections_per_ip.pop(ip, None)
+
+    def _release_connection(self, node_id: str, conn: PeerConnection) -> bool:
+        """Drop ``conn`` iff it is still the live connection for ``node_id`` and
+        release any inbound per-IP reservation it holds.
+
+        Fully synchronous: it runs to completion without awaiting, so the two
+        teardown paths (receive loop and disconnect_peer) can never release the
+        same slot twice. Whichever path wins the identity check does the work;
+        the other becomes a no-op.
+        """
+        if self._connections.get(node_id) is not conn:
+            return False
+        del self._connections[node_id]
+        if not conn.is_outbound and conn.client_ip:
+            self._release_ip_slot(conn.client_ip)
+        return True
 
     async def _handle_ping(self, conn: PeerConnection, ping: PingMessage) -> None:
         """Respond to a ping with a pong."""
@@ -957,6 +1008,7 @@ class ConnectionManager:
                         return_exceptions=True,
                     )
 
+                    signed_pings = []
                     for i, (conn, nonce, ping) in enumerate(ping_data):
                         if not self._running:
                             break
@@ -968,8 +1020,15 @@ class ConnectionManager:
                         ping.signature = sig
                         send_time = time.time()
                         conn.pending_pings[nonce] = send_time
+                        signed_pings.append((conn, nonce, ping))
 
-                        asyncio.create_task(conn.send(ping))
+                    send_results = await asyncio.gather(
+                        *(conn.send(ping) for conn, _, ping in signed_pings),
+                        return_exceptions=True,
+                    )
+                    for (conn, nonce, _), result in zip(signed_pings, send_results):
+                        if result is not True:
+                            conn.pending_pings.pop(nonce, None)
 
                 # Disconnect stale connections
                 if stale_nodes:
@@ -998,9 +1057,10 @@ class ConnectionManager:
 
     async def disconnect_peer(self, node_id: str) -> None:
         """Disconnect from a specific peer."""
-        if node_id in self._connections:
-            await self._connections[node_id].close()
-            del self._connections[node_id]
+        connection = self._connections.get(node_id)
+        if connection is not None:
+            await connection.close()
+            self._release_connection(node_id, connection)
 
     async def _remediate_eclipse_attack(self) -> None:
         """

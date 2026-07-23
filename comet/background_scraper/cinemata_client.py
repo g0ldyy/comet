@@ -4,6 +4,51 @@ from comet.core.constants import CATALOG_TIMEOUT
 from comet.core.logger import logger
 
 
+def _extract_catalog_page(payload: object) -> tuple[list[dict], bool, int]:
+    if type(payload) is not dict:
+        raise ValueError("Cinemata catalog response must be an object")
+
+    metas = payload.get("metas")
+    has_more = payload.get("hasMore")
+    if type(metas) is not list or type(has_more) is not bool:
+        raise ValueError("Cinemata catalog response has an invalid current schema")
+
+    return [meta for meta in metas if type(meta) is dict], has_more, len(metas)
+
+
+def _extract_series_episodes(payload: object) -> list[dict]:
+    if type(payload) is not dict or type(payload.get("meta")) is not dict:
+        raise ValueError("Cinemata series response must contain a metadata object")
+
+    videos = payload["meta"].get("videos")
+    if type(videos) is not list:
+        raise ValueError("Cinemata series videos must be a list")
+
+    episodes = []
+    seen = set()
+    for video in videos:
+        if type(video) is not dict:
+            continue
+        season = video.get("season")
+        episode = video.get("episode", video.get("number"))
+        if (
+            type(season) is not int
+            or season < 1
+            or type(episode) is not int
+            or episode < 1
+        ):
+            continue
+
+        key = (season, episode)
+        if key in seen:
+            continue
+        seen.add(key)
+        episodes.append({"season": season, "episode": episode})
+
+    episodes.sort(key=lambda entry: (entry["season"], entry["episode"]))
+    return episodes
+
+
 class CinemataClient:
     CATALOG_BASE_URL = "https://cinemeta-catalogs.strem.io"
     META_BASE_URL = "https://v3-cinemeta.strem.io"
@@ -75,18 +120,18 @@ class CinemataClient:
         while True:
             try:
                 data = await self._fetch_catalog_page(media_type, category, skip, genre)
-                metas = data.get("metas", [])
+                metas, has_more, page_size = _extract_catalog_page(data)
 
-                if not metas:
+                if page_size == 0:
                     break
 
                 for meta in metas:
                     yield meta
 
-                if not data["hasMore"]:
+                if not has_more:
                     break
 
-                skip += len(metas)
+                skip += page_size
 
             except Exception as e:
                 logger.error(f"Error in fetch_all_from_category: {e}")
@@ -101,7 +146,7 @@ class CinemataClient:
                     media_type, category, genre
                 ):
                     imdb_id = item.get("imdb_id") or item.get("id")
-                    if not imdb_id or imdb_id in seen_ids:
+                    if type(imdb_id) is not str or not imdb_id or imdb_id in seen_ids:
                         continue
 
                     if not (item.get("year") or item.get("releaseInfo")):
@@ -126,25 +171,8 @@ class CinemataClient:
             )
             return episodes
 
-        videos = data.get("meta", {}).get("videos", [])
-        seen = set()
-        for video in videos:
-            season = video.get("season")
-            episode = video.get("episode", video.get("number"))
-            if season is None or episode is None:
-                continue
-
-            try:
-                season_int = int(season)
-                episode_int = int(episode)
-            except (TypeError, ValueError):
-                continue
-
-            key = (season_int, episode_int)
-            if key in seen:
-                continue
-            seen.add(key)
-            episodes.append({"season": season_int, "episode": episode_int})
-
-        episodes.sort(key=lambda entry: (entry["season"], entry["episode"]))
-        return episodes
+        try:
+            return _extract_series_episodes(data)
+        except ValueError as e:
+            logger.error(f"Invalid Cinemata series metadata for {series_id}: {e}")
+            return episodes

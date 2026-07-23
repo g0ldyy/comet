@@ -38,12 +38,13 @@ async def validate_message_security(
     Applies reputation penalties on failure.
     Returns True if valid.
     """
-    # 1. Verify sender_id matches (spoofing check)
-    if message.sender_id and message.sender_id != sender_id:
+    # 1. Verify sender_id matches the authenticated connection.
+    if type(sender_id) is not str or not sender_id or message.sender_id != sender_id:
         logger.warning(
-            f"Sender ID mismatch: expected {sender_id[:8]}, got {message.sender_id[:8]}"
+            f"Sender ID mismatch: expected {sender_id[:8] if isinstance(sender_id, str) else ''}, "
+            f"got {message.sender_id[:8]}"
         )
-        if reputation:
+        if reputation and sender_id:
             reputation.get_or_create(sender_id).add_invalid_contribution()
         return False
 
@@ -57,32 +58,38 @@ async def validate_message_security(
         logger.debug(f"Rejecting message from {sender_id[:8]}: timestamp too old")
         return False
 
-    # 3. Verify signature if we have the key
-    if message.signature and keystore:
-        sender_key = keystore.get_key_obj(sender_id)
-        if sender_key:
-            try:
-                signature_bytes = bytes.fromhex(message.signature)
+    # 3. Every post-handshake message must have a verified sender key and a
+    # valid signature. Handshakes are verified directly by the transport before
+    # their key is inserted into this store.
+    if not message.signature or not keystore or not keystore.is_verified(sender_id):
+        logger.warning(f"Missing verified signature key from {sender_id[:8]}")
+        if reputation:
+            reputation.get_or_create(sender_id).add_signature_failure_penalty()
+        return False
 
-                is_valid = await run_in_executor(
-                    verify_message_signature_sync, message, signature_bytes, sender_key
-                )
+    sender_key = keystore.get_key_obj(sender_id)
+    if sender_key is None:
+        logger.warning(f"Missing public key from {sender_id[:8]}")
+        if reputation:
+            reputation.get_or_create(sender_id).add_signature_failure_penalty()
+        return False
 
-                if not is_valid:
-                    logger.warning(
-                        f"Invalid signature from {sender_id[:8]} on {message.type}"
-                    )
-                    if reputation:
-                        reputation.get_or_create(
-                            sender_id
-                        ).add_signature_failure_penalty()
-                    return False
-            except ValueError:
-                logger.warning(f"Invalid hex signature from {sender_id[:8]}")
-                if reputation:
-                    reputation.get_or_create(sender_id).add_signature_failure_penalty()
-                return False
+    try:
+        signature_bytes = bytes.fromhex(message.signature)
+    except ValueError:
+        logger.warning(f"Invalid hex signature from {sender_id[:8]}")
+        if reputation:
+            reputation.get_or_create(sender_id).add_signature_failure_penalty()
+        return False
 
+    is_valid = await run_in_executor(
+        verify_message_signature_sync, message, signature_bytes, sender_key
+    )
+    if not is_valid:
+        logger.warning(f"Invalid signature from {sender_id[:8]} on {message.type}")
+        if reputation:
+            reputation.get_or_create(sender_id).add_signature_failure_penalty()
+        return False
     return True
 
 

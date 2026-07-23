@@ -4,6 +4,7 @@ CometNet Reputation Module
 Implements the reputation system for tracking peer trustworthiness.
 """
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -24,7 +25,6 @@ class PeerReputation:
     last_seen: float = field(default_factory=time.time)
     valid_contributions: int = 0
     invalid_contributions: int = 0
-    messages_received: int = 0
     is_blacklisted: bool = False
 
     @property
@@ -85,6 +85,8 @@ class PeerReputation:
 
     def add_valid_contribution(self, count: int = 1) -> None:
         """Add valid contribution(s) and update reputation."""
+        if type(count) is not int or count <= 0:
+            raise ValueError("count must be a positive integer")
         self.valid_contributions += count
         self._adjust_reputation(
             settings.COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION * count
@@ -92,6 +94,8 @@ class PeerReputation:
 
     def add_invalid_contribution(self, count: int = 1) -> None:
         """Add invalid contribution(s) and update reputation."""
+        if type(count) is not int or count <= 0:
+            raise ValueError("count must be a positive integer")
         self.invalid_contributions += count
         self._adjust_reputation(
             -settings.COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION * count
@@ -132,8 +136,77 @@ class ReputationStore:
         self._peers: Dict[str, PeerReputation] = {}
         self._blacklist: set[str] = set()
 
+    @staticmethod
+    def _validate_node_id(node_id: object) -> str:
+        if type(node_id) is not str or not node_id:
+            raise ValueError("node_id must be a non-empty string")
+        return node_id
+
+    @classmethod
+    def _peer_from_persisted(
+        cls, node_id: object, value: object, blacklist: set[str]
+    ) -> tuple[str, PeerReputation]:
+        node_id = cls._validate_node_id(node_id)
+        if type(value) is not dict or set(value) != {
+            "reputation",
+            "first_seen",
+            "last_seen",
+            "valid_contributions",
+            "invalid_contributions",
+            "is_blacklisted",
+        }:
+            raise ValueError("persisted reputation peer does not match current schema")
+
+        reputation = value["reputation"]
+        if (
+            type(reputation) not in (int, float)
+            or not math.isfinite(reputation)
+            or not settings.COMETNET_REPUTATION_MIN
+            <= reputation
+            <= settings.COMETNET_REPUTATION_MAX
+        ):
+            raise ValueError("persisted reputation must be finite and within bounds")
+
+        first_seen = value["first_seen"]
+        last_seen = value["last_seen"]
+        if any(
+            type(timestamp) not in (int, float)
+            or not math.isfinite(timestamp)
+            or timestamp < 0
+            for timestamp in (first_seen, last_seen)
+        ):
+            raise ValueError(
+                "persisted reputation timestamps must be finite and non-negative"
+            )
+        if last_seen < first_seen:
+            raise ValueError("persisted reputation last_seen cannot precede first_seen")
+
+        for field_name in ("valid_contributions", "invalid_contributions"):
+            count = value[field_name]
+            if type(count) is not int or count < 0:
+                raise ValueError(
+                    f"persisted {field_name} must be a non-negative integer"
+                )
+
+        is_blacklisted = value["is_blacklisted"]
+        if type(is_blacklisted) is not bool:
+            raise ValueError("persisted is_blacklisted must be a boolean")
+        if is_blacklisted != (node_id in blacklist):
+            raise ValueError("peer blacklist flag must match the blacklist set")
+
+        return node_id, PeerReputation(
+            node_id=node_id,
+            reputation=reputation,
+            first_seen=first_seen,
+            last_seen=last_seen,
+            valid_contributions=value["valid_contributions"],
+            invalid_contributions=value["invalid_contributions"],
+            is_blacklisted=is_blacklisted,
+        )
+
     def get_or_create(self, node_id: str) -> PeerReputation:
         """Get an existing peer reputation or create a new one."""
+        self._validate_node_id(node_id)
         if node_id not in self._peers:
             self._peers[node_id] = PeerReputation(node_id=node_id)
             if node_id in self._blacklist:
@@ -157,12 +230,14 @@ class ReputationStore:
 
     def blacklist_peer(self, node_id: str) -> None:
         """Blacklist a peer by node ID."""
+        self._validate_node_id(node_id)
         self._blacklist.add(node_id)
         if node_id in self._peers:
             self._peers[node_id].blacklist()
 
     def unblacklist_peer(self, node_id: str) -> None:
         """Remove a peer from the blacklist."""
+        self._validate_node_id(node_id)
         self._blacklist.discard(node_id)
         if node_id in self._peers:
             self._peers[node_id].unblacklist()
@@ -172,6 +247,12 @@ class ReputationStore:
         Remove peers that haven't been seen in a while.
         Does not remove blacklisted peers.
         """
+        if (
+            type(max_age_days) not in (int, float)
+            or not math.isfinite(max_age_days)
+            or max_age_days <= 0
+        ):
+            raise ValueError("max_age_days must be a finite positive number")
         cutoff = time.time() - (max_age_days * 86400)
         to_remove = [
             node_id
@@ -207,25 +288,40 @@ class ReputationStore:
                     "invalid_contributions": peer.invalid_contributions,
                     "is_blacklisted": peer.is_blacklisted,
                 }
-                for node_id, peer in self._peers.items()
+                for node_id, peer in sorted(self._peers.items())
             },
-            "blacklist": list(self._blacklist),
+            "blacklist": sorted(self._blacklist),
         }
+
+    @classmethod
+    def _decode_persisted(
+        cls, data: object
+    ) -> tuple[set[str], Dict[str, PeerReputation]]:
+        if type(data) is not dict or set(data) != {"peers", "blacklist"}:
+            raise ValueError("reputation store does not match the current schema")
+        if type(data["peers"]) is not dict or type(data["blacklist"]) is not list:
+            raise ValueError("reputation peers/blacklist containers are invalid")
+
+        blacklist_values = [
+            cls._validate_node_id(node_id) for node_id in data["blacklist"]
+        ]
+        if len(blacklist_values) != len(set(blacklist_values)):
+            raise ValueError("blacklisted node IDs must be unique")
+        blacklist = set(blacklist_values)
+        peers = dict(
+            cls._peer_from_persisted(node_id, value, blacklist)
+            for node_id, value in data["peers"].items()
+        )
+        return blacklist, peers
+
+    @classmethod
+    def validate_persisted(cls, data: object) -> None:
+        """Validate a complete persisted candidate without publishing it."""
+        cls._decode_persisted(data)
 
     def from_dict(self, data: Dict) -> None:
         """Load the store from a dictionary."""
-        self._blacklist = set(data.get("blacklist", []))
-        default_seen_time = time.time()
-        for node_id, peer_data in data.get("peers", {}).items():
-            peer = PeerReputation(
-                node_id=node_id,
-                reputation=peer_data.get(
-                    "reputation", settings.COMETNET_REPUTATION_INITIAL
-                ),
-                first_seen=peer_data.get("first_seen", default_seen_time),
-                last_seen=peer_data.get("last_seen", default_seen_time),
-                valid_contributions=peer_data.get("valid_contributions", 0),
-                invalid_contributions=peer_data.get("invalid_contributions", 0),
-                is_blacklisted=peer_data.get("is_blacklisted", False),
-            )
-            self._peers[node_id] = peer
+        blacklist, peers = self._decode_persisted(data)
+
+        self._blacklist = blacklist
+        self._peers = peers

@@ -14,8 +14,10 @@ from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import TorrentAnnounce, TorrentMetadata
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.utils import run_in_executor
-from comet.cometnet.validation import (validate_message_security,
-                                       verify_torrent_signature_sync)
+from comet.cometnet.validation import (
+    validate_message_security,
+    verify_torrent_signature_sync,
+)
 from comet.core.logger import logger
 from comet.core.models import settings
 
@@ -163,13 +165,15 @@ class GossipEngine:
         """Stop the gossip engine."""
         self._running = False
 
-        for task in [self._gossip_task, self._cleanup_task]:
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        tasks = [
+            task for task in (self._gossip_task, self._cleanup_task) if task is not None
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._gossip_task = None
+        self._cleanup_task = None
 
         logger.log("COMETNET", "Gossip engine stopped")
 
@@ -262,7 +266,6 @@ class GossipEngine:
             return
 
         peer_rep = self.reputation.get_or_create(sender_id)
-        peer_rep.messages_received += 1
         peer_rep.update_seen()
 
         valid_torrents = []
@@ -287,14 +290,10 @@ class GossipEngine:
                 continue
 
             # Check if we already have this torrent
-            # If so, we can skip expensive cryptographic validation
+            # Never re-propagate unverified metadata for an existing hash.
             if torrent.info_hash in existing_hashes:
                 self.stats["validation_skipped_exists"] += 1
-                if announce.ttl > 1 and self.contribution_mode in (
-                    "full",
-                    "consumer",
-                ):
-                    torrents_to_repropagate.append(torrent)
+                self.stats["duplicates_ignored"] += 1
                 continue
 
             # Validate torrent structure
@@ -343,7 +342,6 @@ class GossipEngine:
                     self._keystore.store_key(
                         node_id=torrent.contributor_id,
                         public_key_hex=torrent.contributor_public_key,
-                        verified=True,
                     )
 
                 valid_torrents.append(torrent)
@@ -382,8 +380,10 @@ class GossipEngine:
                     await self._save_torrent(torrent)
                     self.stats["torrents_received"] += 1
                     saved_count += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to save CometNet torrent {torrent.info_hash}: {exc}"
+                    )
 
             if saved_count > 0:
                 logger.log(
@@ -523,6 +523,8 @@ class GossipEngine:
                 # Check if we have torrents to gossip
                 if not self._outgoing_queue:
                     continue
+                if not self._get_random_peers or not self._send_message:
+                    continue
 
                 total_sent = 0
                 while self._outgoing_queue:
@@ -534,14 +536,25 @@ class GossipEngine:
                         to_send.append(self._outgoing_queue.popleft())
 
                     # Create and send announce
-                    if self._get_random_peers and self._send_message and to_send:
-                        peers_reached = await self._repropagate(
-                            to_send, self.message_ttl
-                        )
+                    if to_send:
+                        try:
+                            peers_reached = await self._repropagate(
+                                to_send, self.message_ttl
+                            )
+                        except asyncio.CancelledError:
+                            self._outgoing_queue.extendleft(reversed(to_send))
+                            raise
+                        except Exception:
+                            self._outgoing_queue.extendleft(reversed(to_send))
+                            raise
+
+                        if peers_reached == 0:
+                            self._outgoing_queue.extendleft(reversed(to_send))
+                            break
+
                         # Only count torrents as propagated if at least one peer received them
-                        if peers_reached > 0:
-                            self.stats["torrents_propagated"] += len(to_send)
-                            total_sent += len(to_send)
+                        self.stats["torrents_propagated"] += len(to_send)
+                        total_sent += len(to_send)
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -578,10 +591,4 @@ class GossipEngine:
 
     def from_dict(self, data: Dict) -> None:
         """Load the gossip engine state from a dictionary."""
-        if "stats" in data:
-            # Update stats but preserve keys that might be missing in older state files
-            # or add new keys that are present in the current code
-            loaded_stats = data["stats"]
-            for key, value in loaded_stats.items():
-                if key in self.stats:
-                    self.stats[key] = value
+        self.stats = data["stats"].copy()

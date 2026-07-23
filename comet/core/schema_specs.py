@@ -189,14 +189,25 @@ MEDIA_METADATA_CACHE_TABLE_SPEC = ManagedTableSpec(
             year_end INTEGER,
             aliases_json TEXT,
             metadata_updated_at REAL,
+            aliases_updated_at REAL,
             release_date BIGINT,
             release_updated_at REAL
         )
     """,
+    legacy_columns=(
+        LegacyColumnMigration(
+            column_name="aliases_updated_at",
+            column_sql="aliases_updated_at REAL",
+        ),
+    ),
     index_sql=(
         """
             CREATE INDEX IF NOT EXISTS idx_media_metadata_updated_at_v1
             ON {table_name} (metadata_updated_at)
+        """,
+        """
+            CREATE INDEX IF NOT EXISTS idx_media_metadata_aliases_updated_at_v1
+            ON {table_name} (aliases_updated_at)
         """,
         """
             CREATE INDEX IF NOT EXISTS idx_media_metadata_release_updated_at_v1
@@ -258,6 +269,9 @@ MEDIA_DEMAND_TABLE_SPEC = ManagedTableSpec(
     ),
 )
 
+DEBRID_ACCOUNT_TRACKER_PREDICATE = "substr(tracker, 1, 14) = 'DebridAccount|'"
+
+
 TORRENTS_TABLE_SPEC = ManagedTableSpec(
     table_name="torrents",
     create_sql="""
@@ -313,6 +327,11 @@ TORRENTS_TABLE_SPEC = ManagedTableSpec(
         """
             CREATE INDEX IF NOT EXISTS idx_torrents_updated_at_v1
             ON {table_name} (updated_at)
+        """,
+        f"""
+            CREATE INDEX IF NOT EXISTS idx_torrents_debrid_account_media_v1
+            ON {{table_name}} (media_id, info_hash)
+            WHERE {DEBRID_ACCOUNT_TRACKER_PREDICATE}
         """,
     ),
 )

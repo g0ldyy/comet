@@ -5,30 +5,57 @@ from urllib.parse import quote, unquote, urlparse
 import orjson
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from comet.core.models import ConfigModel, settings
-from comet.services.kodi_pairing import (associate_setup_code_with_b64config,
-                                         consume_b64config_for_setup_code,
-                                         create_setup_code)
+from comet.services.kodi_pairing import (
+    associate_setup_code_with_b64config,
+    consume_b64config_for_setup_code,
+    create_setup_code,
+)
 from comet.utils.cache import NO_CACHE_HEADERS
 
 router = APIRouter()
 
 
-class GenerateSetupCodeRequest(BaseModel):
-    secret_string: str = ""
+class StrictKodiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
-class AssociateManifestRequest(BaseModel):
-    code: str = Field(min_length=6, max_length=16)
-    manifest_url: str
+class GenerateSetupCodeRequest(StrictKodiRequest):
+    secret_string: str = Field(default="", max_length=65_536)
 
 
-def _extract_b64config_from_manifest_url(manifest_url: str):
-    path_segments = [
-        segment for segment in urlparse(manifest_url).path.split("/") if segment
-    ]
+class AssociateManifestRequest(StrictKodiRequest):
+    code: str = Field(pattern=r"^[0-9a-f]{8}$")
+    manifest_url: str = Field(min_length=1, max_length=131_072)
+
+
+def _url_origin(parsed):
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Invalid manifest URL origin")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("Invalid manifest URL origin") from error
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
+def _extract_b64config_from_manifest_url(manifest_url: str, expected_base_url: str):
+    parsed = urlparse(manifest_url)
+    expected = urlparse(expected_base_url)
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or _url_origin(parsed) != _url_origin(expected)
+    ):
+        raise ValueError("Manifest URL does not match this Comet instance")
+
+    path_segments = [segment for segment in parsed.path.split("/") if segment]
 
     if not path_segments or path_segments[-1] != "manifest.json":
         raise ValueError("Invalid manifest URL format")
@@ -109,9 +136,11 @@ async def generate_setup_code(request: Request, payload: GenerateSetupCodeReques
     summary="Associate Kodi Setup Code",
     description="Associates a generated setup code with a Comet manifest URL.",
 )
-async def associate_manifest(payload: AssociateManifestRequest):
+async def associate_manifest(request: Request, payload: AssociateManifestRequest):
     try:
-        b64config = _extract_b64config_from_manifest_url(payload.manifest_url)
+        b64config = _extract_b64config_from_manifest_url(
+            payload.manifest_url, _base_url_from_request(request)
+        )
         if b64config:
             _validate_b64config(b64config)
     except ValueError as exc:
@@ -131,7 +160,12 @@ async def associate_manifest(payload: AssociateManifestRequest):
     description="Returns the Comet configuration for a setup code.",
 )
 async def get_manifest(code: str):
-    b64config = await consume_b64config_for_setup_code(code)
+    try:
+        b64config = await consume_b64config_for_setup_code(code)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404, detail="Manifest not ready or setup code expired"
+        ) from exc
     if b64config is None:
         raise HTTPException(
             status_code=404, detail="Manifest not ready or setup code expired"

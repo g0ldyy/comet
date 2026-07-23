@@ -1,4 +1,6 @@
 import base64
+import math
+from decimal import Decimal
 
 from RTN import ParsedData
 
@@ -35,8 +37,13 @@ def normalize_info_hash(info_hash: str) -> str:
 def format_bytes(bytes_value):
     if bytes_value is None:
         return None
-
+    if isinstance(bytes_value, bool) or not isinstance(
+        bytes_value, (int, float, Decimal)
+    ):
+        return None
     bytes_value = float(bytes_value)
+    if not math.isfinite(bytes_value) or bytes_value < 0:
+        return None
 
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if bytes_value < 1024.0:
@@ -48,12 +55,20 @@ def format_bytes(bytes_value):
 def size_to_bytes(size_str: str):
     sizes = ["b", "kb", "mb", "gb", "tb"]
 
-    value, unit = size_str.split()
+    if type(size_str) is not str:
+        return None
+    parts = size_str.split()
+    if len(parts) != 2:
+        return None
+    value, unit = parts
 
-    value = float(value)
+    try:
+        value = float(value)
+    except ValueError:
+        return None
     unit = unit.lower()
 
-    if unit not in sizes:
+    if unit not in sizes or not math.isfinite(value) or value < 0:
         return None
 
     multiplier = 1024 ** sizes.index(unit)

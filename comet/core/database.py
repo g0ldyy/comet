@@ -15,10 +15,8 @@ import orjson
 
 import comet.core.models as _models_mod
 from comet.core.logger import logger
-from comet.core.models import (IS_POSTGRES, IS_SQLITE, JSON_FUNC, database,
-                               settings)
-from comet.core.schema_migrations import (NULL_SCOPE_SENTINEL,
-                                          run_schema_migrations)
+from comet.core.models import IS_POSTGRES, IS_SQLITE, JSON_FUNC, database, settings
+from comet.core.schema_migrations import NULL_SCOPE_SENTINEL, run_schema_migrations
 
 __all__ = [
     "DOWNLOAD_LINK_CACHE_TTL",
@@ -506,6 +504,7 @@ async def _apply_sqlite_pragmas(
 
 
 async def setup_database():
+    connected = False
     try:
         if IS_SQLITE:
             db_dir = os.path.dirname(settings.DATABASE_PATH)
@@ -516,6 +515,7 @@ async def setup_database():
             _models_mod.set_comet_foreign_keys_enabled(False)
 
         await database.connect()
+        connected = True
 
         async with _schema_migration_lock():
             if IS_SQLITE:
@@ -544,6 +544,13 @@ async def setup_database():
     except Exception as e:
         logger.error(f"Error setting up the database: {e}")
         logger.exception(traceback.format_exc())
+        if connected:
+            try:
+                await database.disconnect()
+            except Exception as disconnect_error:
+                logger.error(
+                    f"Error disconnecting after failed database setup: {disconnect_error}"
+                )
         raise
 
 
@@ -680,10 +687,18 @@ async def _perform_startup_cleanup(current_time: float):
         SET title = NULL,
             year = NULL,
             year_end = NULL,
-            aliases_json = NULL,
             metadata_updated_at = NULL
         WHERE metadata_updated_at IS NOT NULL
           AND metadata_updated_at < :metadata_cutoff
+        """,
+        {"metadata_cutoff": metadata_cutoff},
+    )
+    await database.execute(
+        """
+        UPDATE media_metadata_cache
+        SET aliases_updated_at = NULL
+        WHERE aliases_updated_at IS NOT NULL
+          AND aliases_updated_at < :metadata_cutoff
         """,
         {"metadata_cutoff": metadata_cutoff},
     )

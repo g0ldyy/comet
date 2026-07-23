@@ -4,13 +4,15 @@ from typing import List, Set
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper
+from comet.scrapers.base import BaseScraper, deduplicate_torrents
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
 from comet.services.indexer_manager import indexer_manager
-from comet.services.torrent_manager import (add_torrent_queue,
-                                            download_torrent,
-                                            extract_torrent_metadata,
-                                            extract_trackers_from_magnet)
+from comet.services.torrent_manager import (
+    add_torrent_queue,
+    download_torrent,
+    extract_torrent_metadata,
+    extract_trackers_from_magnet,
+)
 
 
 class ProwlarrScraper(BaseScraper):
@@ -86,9 +88,18 @@ class ProwlarrScraper(BaseScraper):
 
     async def _fetch_search_results(self, query):
         try:
-            url = f"{self.url}/api/v1/search?query={query}&indexerIds={'&indexerIds='.join(str(indexer_id) for indexer_id in settings.PROWLARR_INDEXERS)}&type=search"
+            url = f"{self.url}/api/v1/search"
+            params = [
+                ("query", query),
+                *(
+                    ("indexerIds", indexer_id)
+                    for indexer_id in settings.PROWLARR_INDEXERS
+                ),
+                ("type", "search"),
+            ]
             async with self.session.get(
                 url,
+                params=params,
                 headers={"X-Api-Key": settings.PROWLARR_API_KEY},
                 timeout=INDEXER_TIMEOUT,
             ) as response:
@@ -113,12 +124,7 @@ class ProwlarrScraper(BaseScraper):
         torrents: List[ScrapeResult] = []
         seen: Set[str] = set()
 
-        queries = [request.title]
-        if request.media_type == "series" and request.episode is not None:
-            queries.append(f"{request.title} S{request.season:02d}")
-            queries.append(
-                f"{request.title} S{request.season:02d}E{request.episode:02d}"
-            )
+        queries = request.title_queries(include_episode_variants=True)
 
         try:
             tasks = []
@@ -154,10 +160,13 @@ class ProwlarrScraper(BaseScraper):
 
             torrent_tasks = []
             for result in all_results:
-                if result["infoUrl"] in seen:
+                if not isinstance(result, dict):
+                    continue
+                info_url = result.get("infoUrl")
+                if not isinstance(info_url, str) or not info_url or info_url in seen:
                     continue
 
-                seen.add(result["infoUrl"])
+                seen.add(info_url)
                 torrent_tasks.append(
                     self.process_torrent(result, request.media_only_id, request.season)
                 )
@@ -170,7 +179,7 @@ class ProwlarrScraper(BaseScraper):
                     logger.warning(f"Error processing torrent with Prowlarr: {sublist}")
                     continue
                 for t in sublist:
-                    if t["infoHash"]:
+                    if isinstance(t, dict) and t.get("infoHash"):
                         torrents.append(t)
 
         except Exception as e:
@@ -178,4 +187,4 @@ class ProwlarrScraper(BaseScraper):
                 f"Exception while getting torrents for {request.title} with Prowlarr: {e}"
             )
 
-        return torrents
+        return deduplicate_torrents(torrents)

@@ -2,6 +2,11 @@
 
 Complete Docker configurations for CometNet.
 
+Each Compose example expects a project-level `.env` file containing a strong,
+URL-safe `POSTGRES_PASSWORD`. The Comet and PostgreSQL services derive their
+connection settings from the same `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+`POSTGRES_DB` values.
+
 ---
 
 ## Integrated Mode (Single Instance)
@@ -21,7 +26,7 @@ services:
       - "8765:8765"  # CometNet P2P port
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_ENABLED: "True"
       FASTAPI_WORKERS: "1"
     env_file:
@@ -37,13 +42,13 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: comet
-      POSTGRES_PASSWORD: comet
-      POSTGRES_DB: comet
+      POSTGRES_USER: ${POSTGRES_USER:-comet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-comet}
     volumes:
       - postgres_data:/var/lib/postgresql/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U comet -d comet"]
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER:-comet}" -d "$${POSTGRES_DB:-comet}"']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -56,6 +61,9 @@ volumes:
 ### .env
 
 ```env
+# Required database secret (use a strong URL-safe value)
+POSTGRES_PASSWORD=replace-with-a-strong-url-safe-password
+
 # CometNet Configuration
 COMETNET_BOOTSTRAP_NODES=["wss://bootstrap.example.com:8765"]
 COMETNET_ADVERTISE_URL=wss://comet.yourdomain.com:8765
@@ -82,7 +90,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_RELAY_URL: http://cometnet:8766
       COMETNET_API_KEY: ${COMETNET_API_KEY} # Secure the relay connection
       FASTAPI_WORKERS: "4"  # Can use multiple workers
@@ -100,13 +108,13 @@ services:
     container_name: cometnet
     image: g0ldyy/comet
     restart: unless-stopped
-    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"   # P2P WebSocket
       # - "8766:8766" # HTTP API (optional, only if needed externally)
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_LISTEN_PORT: "8765"
       COMETNET_HTTP_PORT: "8766"
       COMETNET_API_KEY: ${COMETNET_API_KEY}
@@ -128,13 +136,13 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: comet
-      POSTGRES_PASSWORD: comet
-      POSTGRES_DB: comet
+      POSTGRES_USER: ${POSTGRES_USER:-comet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-comet}
     volumes:
       - postgres_data:/var/lib/postgresql/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U comet -d comet"]
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER:-comet}" -d "$${POSTGRES_DB:-comet}"']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -187,7 +195,7 @@ services:
       replicas: 3
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_RELAY_URL: http://cometnet:8766
       FASTAPI_WORKERS: "2"
     env_file:
@@ -200,12 +208,12 @@ services:
 
   cometnet:
     image: g0ldyy/comet
-    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
     env_file:
       - .env-cometnet
     volumes:
@@ -227,9 +235,9 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: comet
-      POSTGRES_PASSWORD: comet
-      POSTGRES_DB: comet
+      POSTGRES_USER: ${POSTGRES_USER:-comet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-comet}
     volumes:
       - postgres_data:/var/lib/postgresql/
 
@@ -258,7 +266,7 @@ services:
       - "8765:8765"
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_ENABLED: "True"
       FASTAPI_WORKERS: "1"
       COMETNET_PRIVATE_NETWORK: "True"
@@ -277,13 +285,13 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: comet
-      POSTGRES_PASSWORD: comet
-      POSTGRES_DB: comet
+      POSTGRES_USER: ${POSTGRES_USER:-comet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-comet}
     volumes:
       - postgres_data:/var/lib/postgresql/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U comet -d comet"]
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER:-comet}" -d "$${POSTGRES_DB:-comet}"']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -296,6 +304,9 @@ volumes:
 ### .env
 
 ```env
+# Required database secret (use a strong URL-safe value)
+POSTGRES_PASSWORD=replace-with-a-strong-url-safe-password
+
 # Private Network Secret (keep this secure!)
 COMETNET_NETWORK_PASSWORD=my-super-secret-password-change-me
 

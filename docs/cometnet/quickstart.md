@@ -136,12 +136,12 @@ services:
     image: g0ldyy/comet
     container_name: cometnet
     restart: unless-stopped
-    entrypoint: ["uv", "run", "python", "-m", "comet.cometnet.standalone"]
+    entrypoint: ["python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
     environment:
       DATABASE_TYPE: postgresql
-      DATABASE_URL: comet:comet@postgres:5432/comet
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       COMETNET_BOOTSTRAP_NODES: '["wss://bootstrap.example.com:8765"]'
       COMETNET_ADVERTISE_URL: wss://comet.yourdomain.com:8765
       COMETNET_API_KEY: "your-secret-key"

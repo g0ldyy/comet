@@ -34,7 +34,9 @@ build-zip:
 	cp $(ASSETS)/background.png $(DIST)/$(ID)/$${IMG_DIR}fanart.png
 	@$(if $(IS_ADDON),find $(BUILD)/$(ID) -name "__pycache__" -exec rm -rf {} +)
 	@cp $(ID)/addon.xml $(DIST)/$(ID)/
-	@cd $(BUILD) && zip -r9q ../$(DIST)/$(ID)/$(ID)-$(VER).zip $(ID)
+	@find $(BUILD)/$(ID) -exec touch -t 198001010000 {} +
+	@cd $(BUILD) && find $(ID) -type f -print | LC_ALL=C sort | \
+		zip -X -9q ../$(DIST)/$(ID)/$(ID)-$(VER).zip -@
 	@echo "  ✅ Built $(ID)"
 
 clean:

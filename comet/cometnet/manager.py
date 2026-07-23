@@ -6,10 +6,7 @@ Orchestrates all components: Identity, Transport, Discovery, Gossip, Reputation,
 """
 
 import asyncio
-import hashlib
-import hmac
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -19,27 +16,48 @@ from urllib.parse import urlparse
 import aiofiles
 
 from comet.cometnet.crypto import NodeIdentity
-from comet.cometnet.discovery import DiscoveryService, is_valid_peer_address
+from comet.cometnet.discovery import (
+    DiscoveryService,
+    is_valid_peer_address,
+    validate_discovery_configuration,
+)
 from comet.cometnet.gossip import GossipEngine
 from comet.cometnet.interface import CometNetBackend
 from comet.cometnet.keystore import PublicKeyStore
 from comet.cometnet.nat import UPnPManager
-from comet.cometnet.pools import (JoinMode, MemberRole, PoolManifest,
-                                  PoolMember, PoolStore)
-from comet.cometnet.protocol import (AnyMessage, MessageType, PeerRequest,
-                                     PeerResponse, PoolDeleteMessage,
-                                     PoolJoinRequest, PoolManifestMessage,
-                                     PoolMemberUpdate, TorrentAnnounce,
-                                     TorrentMetadata)
+from comet.cometnet.pools import (
+    JoinMode,
+    MemberRole,
+    PoolManifest,
+    PoolMember,
+    PoolStore,
+)
+from comet.cometnet.protocol import (
+    AnyMessage,
+    MessageType,
+    PeerRequest,
+    PeerResponse,
+    PoolDeleteMessage,
+    PoolJoinRequest,
+    PoolManifestMessage,
+    PoolMemberUpdate,
+    TorrentAnnounce,
+    TorrentMetadata,
+)
 from comet.cometnet.reputation import ReputationStore
+from comet.cometnet.state import validate_state
 from comet.cometnet.transport import ConnectionManager
-from comet.cometnet.utils import (check_advertise_url_reachability,
-                                  check_system_clock_sync, is_internal_domain,
-                                  is_private_or_internal_ip, run_in_executor,
-                                  shutdown_crypto_executor)
+from comet.cometnet.utils import (
+    check_advertise_url_reachability,
+    check_system_clock_sync,
+    is_internal_domain,
+    is_private_or_internal_ip,
+    shutdown_crypto_executor,
+)
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.atomic_file import write_text_atomic
 from comet.utils.network import get_client_ip_any
 
 
@@ -66,10 +84,14 @@ class CometNetService(CometNetBackend):
     ):
         self.enabled = enabled
         self.listen_port = listen_port
-        self.bootstrap_nodes = bootstrap_nodes or []
-        self.manual_peers = manual_peers or []
-        self.max_peers = max_peers or settings.COMETNET_MAX_PEERS
-        self.min_peers = min_peers or settings.COMETNET_MIN_PEERS
+        (
+            self.manual_peers,
+            self.bootstrap_nodes,
+            self.min_peers,
+            self.max_peers,
+        ) = validate_discovery_configuration(
+            manual_peers, bootstrap_nodes, min_peers, max_peers
+        )
         self.keys_dir = Path(keys_dir) if keys_dir else Path("data/cometnet")
         self.advertise_url = advertise_url
 
@@ -93,6 +115,33 @@ class CometNetService(CometNetBackend):
         self._running = False
         self._started_at: Optional[float] = None
         self._state_save_task: Optional[asyncio.Task] = None
+        self._background_tasks: Set[asyncio.Task] = set()
+
+    def _start_background_task(self, coroutine) -> Optional[asyncio.Task]:
+        if not self._running:
+            coroutine.close()
+            return None
+
+        task = asyncio.create_task(coroutine)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_background_task_done)
+        return task
+
+    def _on_background_task_done(self, task: asyncio.Task) -> None:
+        self._background_tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.warning(f"CometNet background task failed: {error}")
+
+    async def _stop_background_tasks(self) -> None:
+        tasks = tuple(self._background_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.clear()
 
     @property
     def running(self) -> bool:
@@ -118,6 +167,19 @@ class CometNetService(CometNetBackend):
         self._check_torrents_exist_callback = callback
 
     async def start(self) -> None:
+        """Start CometNet and clean any partially initialized resources on failure."""
+        try:
+            await self._start()
+        except BaseException:
+            try:
+                await self._shutdown(save_state=False, force=True)
+            except BaseException as cleanup_error:
+                logger.warning(
+                    f"Failed to clean partial CometNet startup: {cleanup_error}"
+                )
+            raise
+
+    async def _start(self) -> None:
         """Start the CometNet service."""
         if not self.enabled:
             logger.log("COMETNET", "CometNet is disabled")
@@ -245,19 +307,20 @@ class CometNetService(CometNetBackend):
             if self.identity:
                 my_key = self.identity.public_key_hex
                 manifests = self.pool_store.get_all_manifests()
-                changes = False
+                restored_memberships = set()
                 for pool_id, manifest in manifests.items():
                     if manifest.is_member(my_key):
                         if pool_id not in self.pool_store._memberships:
-                            self.pool_store._memberships.add(pool_id)
-                            changes = True
+                            restored_memberships.add(pool_id)
                             logger.log(
                                 "COMETNET",
                                 f"Restored missing membership for pool {pool_id}",
                             )
 
-                if changes:
-                    await self.pool_store._save_memberships()
+                if restored_memberships:
+                    await self.pool_store._replace_memberships(
+                        self.pool_store.get_memberships() | restored_memberships
+                    )
 
         # System Clock Sync Check
         if not settings.COMETNET_SKIP_TIME_CHECK:
@@ -471,45 +534,78 @@ class CometNetService(CometNetBackend):
 
     async def stop(self) -> None:
         """Stop the CometNet service."""
-        if not self._running:
+        await self._shutdown(save_state=True)
+
+    async def _shutdown(self, *, save_state: bool, force: bool = False) -> None:
+        if not self._running and not force:
             return
 
         logger.log("COMETNET", "Stopping CometNet...")
 
         self._running = False
+        cleanup_errors = []
+
+        async def run_async_cleanup(name: str, awaitable) -> None:
+            try:
+                await awaitable
+            except BaseException as error:
+                cleanup_errors.append(error)
+                logger.warning(f"CometNet {name} cleanup failed: {error}")
+
+        def run_sync_cleanup(name: str, callback) -> None:
+            try:
+                callback()
+            except BaseException as error:
+                cleanup_errors.append(error)
+                logger.warning(f"CometNet {name} cleanup failed: {error}")
 
         # Stop periodic state save task
         if self._state_save_task:
             self._state_save_task.cancel()
             try:
-                await self._state_save_task
-            except asyncio.CancelledError:
-                pass
+                result = await asyncio.gather(
+                    self._state_save_task, return_exceptions=True
+                )
+            except BaseException as error:
+                cleanup_errors.append(error)
+                result = []
+            if (
+                result
+                and isinstance(result[0], BaseException)
+                and not isinstance(result[0], asyncio.CancelledError)
+            ):
+                cleanup_errors.append(result[0])
+            self._state_save_task = None
 
-        # Save state before stopping
-        await self._save_state()
+        await run_async_cleanup("background task", self._stop_background_tasks())
 
-        # Save pools data
-        if self.pool_store:
-            await self.pool_store.save()
+        if save_state:
+            # Save state before stopping
+            await run_async_cleanup("state save", self._save_state())
+
+            # Save pools data
+            if self.pool_store:
+                await run_async_cleanup("pool save", self.pool_store.save())
 
         # Stop components in reverse order
         if self.gossip:
-            await self.gossip.stop()
+            await run_async_cleanup("gossip", self.gossip.stop())
 
         if self.discovery:
-            await self.discovery.stop()
+            await run_async_cleanup("discovery", self.discovery.stop())
 
         if self.transport:
-            await self.transport.stop()
+            await run_async_cleanup("transport", self.transport.stop())
 
         if self.upnp:
-            self.upnp.stop()
+            run_sync_cleanup("UPnP", self.upnp.stop)
 
         # Shutdown the dedicated crypto thread pool
-        shutdown_crypto_executor()
+        run_sync_cleanup("crypto executor", shutdown_crypto_executor)
 
         logger.log("COMETNET", "CometNet stopped")
+        if cleanup_errors:
+            raise cleanup_errors[0]
 
     async def _periodic_state_save(self) -> None:
         """
@@ -555,7 +651,7 @@ class CometNetService(CometNetBackend):
         if total_peers == 0:
             return
 
-        asyncio.create_task(self._connect_to_pool_peers(pool_peers))
+        self._start_background_task(self._connect_to_pool_peers(pool_peers))
 
     async def _connect_to_pool_peers(self, pool_peers: Dict[str, Set[str]]) -> None:
         """Background task to connect to pool peers."""
@@ -813,10 +909,7 @@ class CometNetService(CometNetBackend):
     async def _handle_received_torrent(self, metadata: TorrentMetadata) -> None:
         """Handle a torrent received from the network."""
         if self._save_torrent_callback:
-            try:
-                await self._save_torrent_callback(metadata)
-            except Exception:
-                pass
+            await self._save_torrent_callback(metadata)
 
     async def _handle_torrent_announce(
         self, sender_id: str, message: AnyMessage
@@ -868,12 +961,13 @@ class CometNetService(CometNetBackend):
         try:
             members = [
                 PoolMember(
-                    public_key=m.get("public_key", ""),
-                    role=MemberRole(m.get("role", "member")),
-                    added_at=m.get("added_at", 0),
-                    added_by=m.get("added_by", ""),
-                    contribution_count=m.get("contribution_count", 0),
-                    last_seen=m.get("last_seen", 0.0),
+                    public_key=m.public_key,
+                    role=MemberRole(m.role),
+                    added_at=m.added_at,
+                    added_by=m.added_by,
+                    alias=m.alias,
+                    contribution_count=m.contribution_count,
+                    last_seen=m.last_seen,
                 )
                 for m in message.members
             ]
@@ -885,109 +979,60 @@ class CometNetService(CometNetBackend):
                 creator_key=message.creator_key,
                 members=members,
                 join_mode=JoinMode(message.join_mode),
-                version=message.version,
+                version=message.manifest_version,
                 created_at=message.created_at,
                 updated_at=message.updated_at,
                 signatures=message.manifest_signatures,
             )
 
-            # Check if we already have this pool with same or newer version
-            existing = self.pool_store.get_manifest(message.pool_id)
-            if existing and existing.version >= manifest.version:
-                # We have the same or newer version - send ours back to help the sender sync
-                if existing.version > manifest.version:
-                    try:
-                        await self._send_pool_manifest(sender_id, existing)
-                    except Exception:
-                        pass
+            accepted, existing = await self.pool_store.accept_remote_manifest(manifest)
+            if not accepted:
+                if existing and existing.version > manifest.version:
+                    await self._send_pool_manifest(sender_id, existing)
                 return
 
-            # Store the manifest (validation happens inside)
-            if await self.pool_store.validate_manifest(manifest, self.keystore):
-                await self.pool_store.store_manifest(manifest)
+            # Update our membership status based on the new manifest
+            my_key = self.identity.public_key_hex if self.identity else None
+            if my_key:
+                was_member = self.pool_store.is_member_of(message.pool_id)
+                is_now_member = manifest.is_member(my_key)
 
-                # Update our membership status based on the new manifest
-                my_key = self.identity.public_key_hex if self.identity else None
-                if my_key:
-                    was_member = self.pool_store.is_member_of(message.pool_id)
-                    is_now_member = manifest.is_member(my_key)
+                if was_member and not is_now_member:
+                    # We were removed from this pool - clean up completely
+                    await self.pool_store.delete_pool(message.pool_id)
 
-                    if was_member and not is_now_member:
-                        # We were removed from this pool - clean up completely
-                        self.pool_store._memberships.discard(message.pool_id)
-                        self.pool_store._subscriptions.discard(message.pool_id)
-
-                        # Remove the manifest since we're no longer a member
-                        if message.pool_id in self.pool_store._manifests:
-                            del self.pool_store._manifests[message.pool_id]
-
-                        # Remove pool peers for this pool
-                        if message.pool_id in self.pool_store._pool_peers:
-                            del self.pool_store._pool_peers[message.pool_id]
-
-                        # Remove any invites we had for this pool
-                        if message.pool_id in self.pool_store._invites:
-                            del self.pool_store._invites[message.pool_id]
-
-                        # Delete manifest file
-                        manifest_path = (
-                            self.pool_store.manifests_dir / f"{message.pool_id}.json"
-                        )
-                        try:
-                            manifest_path.unlink(missing_ok=True)
-                        except Exception:
-                            pass
-
-                        # Delete invites directory for this pool
-                        pool_inv_dir = self.pool_store.invites_dir / message.pool_id
-                        if pool_inv_dir.exists():
-                            try:
-                                await run_in_executor(shutil.rmtree, pool_inv_dir)
-                            except Exception:
-                                pass
-
-                        await self.pool_store._save_memberships()
-                        await self.pool_store._save_subscriptions()
-                        await self.pool_store._save_pool_peers()
-
+                    logger.log(
+                        "COMETNET",
+                        f"Removed from pool {message.pool_id} (kicked by admin) - pool data cleaned up",
+                    )
+                    return  # Don't store anything else for this pool
+                elif not was_member and is_now_member:
+                    # We were added to this pool (e.g., via invite on another node)
+                    await self.pool_store.add_membership(message.pool_id)
+                    logger.log(
+                        "COMETNET",
+                        f"Added to pool {message.pool_id}",
+                    )
+                elif was_member and is_now_member:
+                    # Check for role changes
+                    old_member = existing.get_member(my_key) if existing else None
+                    new_member = manifest.get_member(my_key)
+                    if old_member and new_member and old_member.role != new_member.role:
                         logger.log(
                             "COMETNET",
-                            f"Removed from pool {message.pool_id} (kicked by admin) - pool data cleaned up",
+                            f"Role updated in pool {message.pool_id}: {old_member.role} -> {new_member.role}",
                         )
-                        return  # Don't store anything else for this pool
-                    elif not was_member and is_now_member:
-                        # We were added to this pool (e.g., via invite on another node)
-                        self.pool_store._memberships.add(message.pool_id)
-                        await self.pool_store._save_memberships()
-                        logger.log(
-                            "COMETNET",
-                            f"Added to pool {message.pool_id}",
-                        )
-                    elif was_member and is_now_member:
-                        # Check for role changes
-                        old_member = existing.get_member(my_key) if existing else None
-                        new_member = manifest.get_member(my_key)
-                        if (
-                            old_member
-                            and new_member
-                            and old_member.role != new_member.role
-                        ):
-                            logger.log(
-                                "COMETNET",
-                                f"Role updated in pool {message.pool_id}: {old_member.role} -> {new_member.role}",
-                            )
 
-                # Store the sender's address so we can reconnect later
-                sender_addr = self.transport.get_peer_address(sender_id)
-                if sender_addr:
-                    self.pool_store.add_pool_peer(message.pool_id, sender_addr)
-                    await self.pool_store._save_pool_peers()
+            # Store the sender's address so we can reconnect later
+            sender_addr = self.transport.get_peer_address(sender_id)
+            if sender_addr:
+                await self.pool_store.add_pool_peer(message.pool_id, sender_addr)
 
-                logger.log(
-                    "COMETNET",
-                    f"Received pool manifest: {message.display_name} ({message.pool_id}) v{message.version}",
-                )
-        except Exception as e:
+            logger.log(
+                "COMETNET",
+                f"Received pool manifest: {message.display_name} ({message.pool_id}) v{message.manifest_version}",
+            )
+        except ValueError as e:
             logger.debug(f"Failed to process pool manifest: {e}")
 
     async def _handle_pool_join_request(
@@ -1014,41 +1059,18 @@ class CometNetService(CometNetBackend):
         invite_code = message.invite_code
         requester_key = message.requester_key
 
-        # Get the invite
-        invite = self.pool_store.get_invite(pool_id, invite_code)
-        if not invite or not invite.is_valid():
+        accepted = await self.pool_store.accept_invite_member(
+            pool_id,
+            invite_code,
+            requester_key,
+            alias=message.alias,
+            signing_identity=self.identity,
+        )
+        if accepted is None:
             return
+        manifest, invite, added = accepted
 
-        # Get the manifest
-        manifest = self.pool_store.get_manifest(pool_id)
-        if not manifest:
-            return
-
-        # Check if already a member
-        if manifest.is_member(requester_key):
-            # Already a member, just send them the manifest
-            pass
-        else:
-            # Add as member
-
-            manifest.members.append(
-                PoolMember(
-                    public_key=requester_key,
-                    role=MemberRole.MEMBER,
-                    added_by=invite.created_by,
-                    alias=message.alias,
-                )
-            )
-            manifest.version += 1
-            manifest.updated_at = time.time()
-
-            # Increment invite usage
-            invite.uses += 1
-            await self.pool_store._save_invite(invite)
-
-            # Save updated manifest
-            await self.pool_store.store_manifest(manifest, self.identity)
-
+        if added:
             requester_node_id = NodeIdentity.node_id_from_public_key(requester_key)
             logger.log(
                 "COMETNET",
@@ -1058,15 +1080,15 @@ class CometNetService(CometNetBackend):
         # Send the manifest back to the requester
         await self._send_pool_manifest(sender_id, manifest)
 
-        # Broadcast update to all pool members (optimized)
-        await self._broadcast_pool_member_update(
-            pool_id=pool_id,
-            action="add",
-            member_key=requester_key,
-            updated_by=invite.created_by,
-            manifest_signatures=manifest.signatures,
-            exclude={sender_id},
-        )
+        if added:
+            await self._broadcast_pool_member_update(
+                pool_id=pool_id,
+                action="add",
+                member_key=requester_key,
+                updated_by=invite.created_by,
+                manifest_signatures=manifest.signatures,
+                exclude={sender_id},
+            )
 
     async def _handle_pool_member_update(
         self, sender_id: str, message: AnyMessage
@@ -1083,14 +1105,19 @@ class CometNetService(CometNetBackend):
         ):
             return
 
-        current_manifest = self.pool_store.get_manifest(message.pool_id)
+        async with self.pool_store.serialized_manifest_mutation():
+            await self._apply_pool_member_update(sender_id, message)
 
+    async def _apply_pool_member_update(
+        self, sender_id: str, message: PoolMemberUpdate
+    ) -> None:
+        """Apply an authenticated pool delta while the store mutation lock is held."""
         current_manifest = self.pool_store.get_manifest(message.pool_id)
         if not current_manifest:
             return
 
         # Work on a copy to verify before updating
-        manifest = PoolManifest(**current_manifest.model_dump())
+        manifest = current_manifest.model_copy(deep=True)
 
         # Special case: member leaving (self-removal)
         # For "leave" action, the updated_by should be the member themselves
@@ -1108,18 +1135,25 @@ class CometNetService(CometNetBackend):
             # Verify the person is actually a member
             if not manifest.is_member(message.member_key):
                 return
+
+            # A member's leave signature proves intent, but only an administrator
+            # can certify and publish the resulting manifest state.
+            if not self.identity or not current_manifest.is_admin(
+                self.identity.public_key_hex
+            ):
+                return
         else:
             # Normal case: admin-initiated update
             # Verify the updater is an admin
             if not manifest.is_admin(message.updated_by):
                 return
 
-            # Verify signature of the update message
-            if self.keystore:
-                if not await NodeIdentity.verify_hex_async(
-                    message.to_signable_bytes(), message.signature, message.updated_by
-                ):
-                    return
+            # The transport sender may be a relay, so bind the delta directly to
+            # the administrator identified by the message as well.
+            if not await NodeIdentity.verify_hex_async(
+                message.to_signable_bytes(), message.signature, message.updated_by
+            ):
+                return
 
         # Apply update tentatively
         target_member = manifest.get_member(message.member_key)
@@ -1160,18 +1194,23 @@ class CometNetService(CometNetBackend):
         manifest.version += 1
         manifest.updated_at = message.timestamp
 
-        # For "leave" action, we don't require manifest signatures
-        # The message signature from the leaving member is sufficient
+        # Convert the member's signed intent into a newly signed administrator
+        # state update. Persisting the old manifest signatures here would attach
+        # invalid signatures to the changed member list.
         if is_self_leave:
-            # Just store the updated manifest (no signature verification needed)
-            # The message signature was already verified
-            await self.pool_store.store_manifest(manifest)
+            await self.pool_store.store_manifest(manifest, self.identity)
             logger.log(
                 "COMETNET",
                 f"Member {NodeIdentity.node_id_from_public_key(message.member_key)[:8]} left pool {message.pool_id}",
             )
-            # Re-broadcast to others
-            await self.transport.broadcast(message, exclude={sender_id})
+            await self._broadcast_pool_member_update(
+                pool_id=message.pool_id,
+                action="remove",
+                member_key=message.member_key,
+                updated_by=self.identity.public_key_hex,
+                manifest_signatures=manifest.signatures,
+                exclude={sender_id},
+            )
             return
 
         # Verify that our new state matches the signatures provided by admin
@@ -1183,7 +1222,9 @@ class CometNetService(CometNetBackend):
 
         # Check carefully if any provided signature validates our new state
         for admin_key, sig in message.manifest_signatures.items():
-            if NodeIdentity.verify_hex(signable, sig, admin_key):
+            if current_manifest.is_admin(admin_key) and NodeIdentity.verify_hex(
+                signable, sig, admin_key
+            ):
                 manifest_valid = True
                 # Adopt the new signatures
                 manifest.signatures = message.manifest_signatures
@@ -1240,9 +1281,9 @@ class CometNetService(CometNetBackend):
             display_name=manifest.display_name,
             description=manifest.description,
             creator_key=manifest.creator_key,
-            members=[m.model_dump() for m in manifest.members],
+            members=[m.model_dump(exclude={"node_id"}) for m in manifest.members],
             join_mode=manifest.join_mode.value,
-            version=manifest.version,
+            manifest_version=manifest.version,
             created_at=manifest.created_at,
             updated_at=manifest.updated_at,
             manifest_signatures=manifest.signatures,
@@ -1260,9 +1301,9 @@ class CometNetService(CometNetBackend):
             display_name=manifest.display_name,
             description=manifest.description,
             creator_key=manifest.creator_key,
-            members=[m.model_dump() for m in manifest.members],
+            members=[m.model_dump(exclude={"node_id"}) for m in manifest.members],
             join_mode=manifest.join_mode.value,
-            version=manifest.version,
+            manifest_version=manifest.version,
             created_at=manifest.created_at,
             updated_at=manifest.updated_at,
             manifest_signatures=manifest.signatures,
@@ -1359,7 +1400,7 @@ class CometNetService(CometNetBackend):
                 self.discovery.record_incoming_connection(node_id, real_address)
 
             # Sync manifests with the newly connected peer
-            asyncio.create_task(self._sync_manifests_with_peers([node_id]))
+            self._start_background_task(self._sync_manifests_with_peers([node_id]))
 
     async def _on_peer_connected(self, node_id: str, address: Optional[str]) -> None:
         """Callback when a peer connects via the native WebSocket server."""
@@ -1368,7 +1409,7 @@ class CometNetService(CometNetBackend):
 
         # Sync manifests with the newly connected peer
         # This ensures role changes and pool updates are synchronized
-        asyncio.create_task(self._sync_manifests_with_peers([node_id]))
+        self._start_background_task(self._sync_manifests_with_peers([node_id]))
 
     async def _sync_manifests_with_peers(self, peer_ids: List[str]) -> None:
         """
@@ -1726,12 +1767,10 @@ class CometNetService(CometNetBackend):
             # Check if we now have the manifest and are a member
             manifest = self.pool_store.get_manifest(pool_id)
             if manifest and manifest.is_member(self.identity.public_key_hex):
-                self.pool_store._memberships.add(pool_id)
-                await self.pool_store._save_memberships()
+                await self.pool_store.add_membership(pool_id)
 
                 # Store the node_url so we can reconnect later
-                self.pool_store.add_pool_peer(pool_id, node_url)
-                await self.pool_store._save_pool_peers()
+                await self.pool_store.add_pool_peer(pool_id, node_url)
 
                 logger.log("COMETNET", f"Successfully joined pool {pool_id}")
                 return True
@@ -1842,47 +1881,28 @@ class CometNetService(CometNetBackend):
         if not self.pool_store:
             return False
 
-        manifest = self.pool_store.get_manifest(pool_id)
-        if not manifest:
-            raise ValueError(f"Pool {pool_id} not found")
-
-        if not manifest.is_admin(self.identity.public_key_hex):
-            raise PermissionError("Only admins can change member roles")
-
-        member = manifest.get_member(member_key)
-        if not member:
-            raise ValueError("Member not found in pool")
-
         # Validate new role
         try:
             role = MemberRole(new_role)
         except ValueError:
             raise ValueError(f"Invalid role: {new_role}. Must be 'admin' or 'member'")
 
-        # Can't demote or modify the creator
-        if member.role == MemberRole.CREATOR:
-            raise ValueError("Cannot change the role of the pool creator")
-
-        # Can't demote the last admin
-        if member.role == MemberRole.ADMIN and role == MemberRole.MEMBER:
-            admin_count = len(manifest.get_admins())
-            if admin_count <= 1:
-                raise ValueError("Cannot demote the last admin")
-
-        # Update the role
-        member.role = role
-        manifest.version += 1
-        manifest.updated_at = time.time()
-
-        # Re-sign and save
-        await self.pool_store.store_manifest(manifest, self.identity)
+        changed = await self.pool_store.set_member_role(
+            pool_id,
+            member_key,
+            role,
+            self.identity,
+        )
+        if not changed:
+            return False
 
         # Broadcast updated manifest to all peers
+        manifest = self.pool_store.get_manifest(pool_id)
         await self._broadcast_pool_manifest(manifest)
 
         logger.log(
             "COMETNET",
-            f"Changed role of {member.node_id[:8]} to {new_role} in pool {pool_id}",
+            f"Changed role of {NodeIdentity.node_id_from_public_key(member_key)[:8]} to {new_role} in pool {pool_id}",
         )
         return True
 
@@ -1947,45 +1967,49 @@ class CometNetService(CometNetBackend):
         try:
             async with aiofiles.open(state_path, "r") as f:
                 content = await f.read()
-                state = json.loads(content)
+                state = validate_state(json.loads(content))
 
-            # Verify state file integrity (detect tampering)
-            stored_hash = state.pop("integrity_hash", None)
-            if stored_hash and self.identity:
-                # Compute expected hash
+            stored_signature = state.pop("integrity_signature", None)
+            if self.identity:
+                if not stored_signature:
+                    raise ValueError("CometNet state is missing its identity signature")
                 state_bytes = json.dumps(state, sort_keys=True).encode("utf-8")
-                expected_hash = hmac.new(
-                    self.identity.public_key_bytes[
-                        :32
-                    ],  # Use part of public key as HMAC key
+                if not NodeIdentity.verify_hex(
                     state_bytes,
-                    hashlib.sha256,
-                ).hexdigest()
-
-                if not hmac.compare_digest(stored_hash, expected_hash):
-                    logger.warning(
-                        f"State file integrity check failed (Stored: {stored_hash[:8]}..., Expected: {expected_hash[:8]}...). "
-                        "Loading state anyway to prevent data loss."
+                    stored_signature,
+                    self.identity.public_key_hex,
+                ):
+                    raise ValueError("CometNet state identity signature is invalid")
+                if state["node_id"] != self.identity.node_id:
+                    raise ValueError(
+                        "CometNet state belongs to a different node identity"
                     )
 
-            # Load reputation data
-            if "reputation" in state and self.reputation:
+            # Prevalidate every synchronous component before the first live
+            # component is mutated. Discovery also builds complete candidates
+            # before publishing them in its async loader below.
+            if self.reputation:
+                ReputationStore.validate_persisted(state["reputation"])
+            if self.keystore:
+                PublicKeyStore.validate_persisted(
+                    state["keystore"], max_keys=self.keystore.max_keys
+                )
+
+            # Validate addresses asynchronously before mutating any component.
+            if self.discovery:
+                await self.discovery.from_dict(state["discovery"])
+
+            if self.reputation:
                 self.reputation.from_dict(state["reputation"])
                 logger.log(
                     "COMETNET",
-                    f"Loaded reputation data for {len(state['reputation'].get('peers', {}))} peers",
+                    f"Loaded reputation data for {len(state['reputation']['peers'])} peers",
                 )
 
-            # Load keystore data
-            if "keystore" in state and self.keystore:
+            if self.keystore:
                 self.keystore.from_dict(state["keystore"])
 
-            # Load discovered peers
-            if "discovery" in state and self.discovery:
-                await self.discovery.from_dict(state["discovery"])
-
-            # Load gossip stats
-            if "gossip" in state and self.gossip:
+            if self.gossip:
                 self.gossip.from_dict(state["gossip"])
         except Exception as e:
             logger.warning(f"Failed to load CometNet state: {e}")
@@ -1993,35 +2017,23 @@ class CometNetService(CometNetBackend):
     async def _save_state(self) -> None:
         """Save state to disk."""
         state_path = self.keys_dir / self.STATE_FILE
+        state = {
+            "saved_at": time.time(),
+            "node_id": self.identity.node_id if self.identity else None,
+            "reputation": self.reputation.to_dict() if self.reputation else {},
+            "keystore": self.keystore.to_dict() if self.keystore else {},
+            "discovery": self.discovery.to_dict() if self.discovery else {},
+            "gossip": self.gossip.to_dict() if self.gossip else {},
+        }
 
-        try:
-            state = {
-                "saved_at": time.time(),
-                "node_id": self.identity.node_id if self.identity else None,
-                "reputation": self.reputation.to_dict() if self.reputation else {},
-                "keystore": self.keystore.to_dict() if self.keystore else {},
-                "discovery": self.discovery.to_dict() if self.discovery else {},
-                "gossip": self.gossip.to_dict() if self.gossip else {},
-            }
+        if self.identity:
+            state_bytes = json.dumps(state, sort_keys=True).encode("utf-8")
+            state["integrity_signature"] = await self.identity.sign_hex_async(
+                state_bytes
+            )
 
-            # Add integrity hash to detect tampering
-            if self.identity:
-                state_bytes = json.dumps(state, sort_keys=True).encode("utf-8")
-                integrity_hash = hmac.new(
-                    self.identity.public_key_bytes[
-                        :32
-                    ],  # Use part of public key as HMAC key
-                    state_bytes,
-                    hashlib.sha256,
-                ).hexdigest()
-                state["integrity_hash"] = integrity_hash
-
-            self.keys_dir.mkdir(parents=True, exist_ok=True)
-
-            async with aiofiles.open(state_path, "w") as f:
-                await f.write(json.dumps(state, indent=2))
-        except Exception as e:
-            logger.warning(f"Failed to save CometNet state: {e}")
+        self.keys_dir.mkdir(parents=True, exist_ok=True)
+        await write_text_atomic(state_path, json.dumps(state, indent=2))
 
 
 # Global instance (will be initialized by app.py if enabled)

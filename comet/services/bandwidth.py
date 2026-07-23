@@ -232,10 +232,35 @@ class BandwidthMonitor:
                 logger.warning(f"Error syncing bandwidth stats to database: {e}")
 
     async def shutdown(self):
-        if self._cleanup_task:
-            self._cleanup_task.cancel()
-        if self._db_sync_task:
-            self._db_sync_task.cancel()
+        tasks = [
+            task
+            for task in (self._cleanup_task, self._db_sync_task)
+            if task is not None
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        with self._lock:
+            total_bytes = self._global_stats["total_bytes_alltime"]
+        if total_bytes != self._last_synced_bytes:
+            try:
+                await self._persist_total_bytes(total_bytes, time.time())
+            except Exception as exc:
+                logger.warning(f"Error syncing final bandwidth stats: {exc}")
+            else:
+                self._last_synced_bytes = total_bytes
+
+        self._cleanup_task = None
+        self._db_sync_task = None
+        self._initialized = False
+
+        with self._lock:
+            self._connections.clear()
+            self._global_stats["active_connections"] = 0
+            self._global_stats["total_bytes_session"] = 0
+            self._global_stats["peak_concurrent"] = 0
 
 
 bandwidth_monitor = BandwidthMonitor()

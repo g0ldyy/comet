@@ -1,6 +1,8 @@
 import asyncio
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -32,26 +34,47 @@ C_CYAN = "\033[38;5;117m"
 C_GRAY = "\033[38;5;245m"
 
 
+@dataclass(frozen=True, slots=True)
 class InstanceStatus:
-    def __init__(
-        self,
-        url: str,
-        is_online: bool,
-        manifest_ok: bool,
-        search_ok: bool,
-        response_time: float,
-        error: str | None,
-    ):
-        self.url = url
-        self.is_online = is_online
-        self.manifest_ok = manifest_ok
-        self.search_ok = search_ok
-        self.response_time = response_time
-        self.error = error
+    url: str
+    is_online: bool
+    manifest_ok: bool
+    search_ok: bool
+    response_time: float
+    error: str | None
+
+
+def validate_http_url(value: str, label: str) -> str:
+    if type(value) is not str or not value.strip():
+        raise ValueError(f"{label} must be a non-empty URL")
+    normalized = value.strip().rstrip("/")
+    parsed = urlsplit(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{label} must use an absolute HTTP(S) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError(
+            f"{label} must not contain credentials, a query, or a fragment"
+        )
+    return normalized
+
+
+def validate_configuration() -> tuple[tuple[str, ...], str]:
+    if not INSTANCES:
+        raise ValueError("INSTANCES must contain at least one URL")
+    if type(CHECK_INTERVAL) is not int or CHECK_INTERVAL <= 0:
+        raise ValueError("CHECK_INTERVAL must be a positive integer")
+    if type(TIMEOUT) is not int or TIMEOUT <= 0:
+        raise ValueError("TIMEOUT must be a positive integer")
+
+    instances = tuple(validate_http_url(url, "instance URL") for url in INSTANCES)
+    if len(set(instances)) != len(instances):
+        raise ValueError("INSTANCES must not contain duplicate URLs")
+    webhook_url = validate_http_url(WEBHOOK_URL, "WEBHOOK_URL")
+    return instances, webhook_url
 
 
 async def check_instance(session: aiohttp.ClientSession, url: str) -> InstanceStatus:
-    start = asyncio.get_event_loop().time()
+    start = asyncio.get_running_loop().time()
     manifest_ok = False
     search_ok = False
     error = None
@@ -60,7 +83,14 @@ async def check_instance(session: aiohttp.ClientSession, url: str) -> InstanceSt
         async with session.get(f"{url}/manifest.json") as resp:
             if resp.status == 200:
                 data = await resp.json()
-                manifest_ok = "id" in data and "resources" in data
+                manifest_ok = (
+                    type(data) is dict
+                    and type(data.get("id")) is str
+                    and bool(data["id"].strip())
+                    and type(data.get("resources")) is list
+                )
+                if not manifest_ok:
+                    error = "invalid manifest response schema"
     except Exception as e:
         error = str(e)[:60]
 
@@ -69,13 +99,18 @@ async def check_instance(session: aiohttp.ClientSession, url: str) -> InstanceSt
             async with session.get(f"{url}/stream/movie/{IMDB_ID}.json") as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    streams = data.get("streams", [])
-                    search_ok = len(streams) > 0 or resp.status == 200
+                    search_ok = (
+                        type(data) is dict
+                        and type(data.get("streams")) is list
+                        and all(type(stream) is dict for stream in data["streams"])
+                    )
+                    if not search_ok:
+                        error = "invalid stream response schema"
         except Exception as e:
             if not error:
                 error = str(e)[:60]
 
-    response_time = asyncio.get_event_loop().time() - start
+    response_time = asyncio.get_running_loop().time() - start
 
     return InstanceStatus(
         url=url,
@@ -150,9 +185,11 @@ def build_embed(status: InstanceStatus) -> dict:
     }
 
 
-async def send_webhook(session: aiohttp.ClientSession, payload: dict) -> bool:
+async def send_webhook(
+    session: aiohttp.ClientSession, webhook_url: str, payload: dict
+) -> bool:
     try:
-        async with session.post(WEBHOOK_URL, json=payload) as resp:
+        async with session.post(webhook_url, json=payload) as resp:
             return resp.status in (200, 204)
     except Exception:
         return False
@@ -191,13 +228,16 @@ def print_status(status: InstanceStatus) -> None:
         print(f"             {C_DIM}└─ {status.error}{C_RESET}")
 
 
-async def monitor_instance(session: aiohttp.ClientSession, url: str) -> None:
+async def monitor_instance(
+    session: aiohttp.ClientSession, url: str, webhook_url: str
+) -> None:
     while True:
         status = await check_instance(session, url)
         print_status(status)
 
         payload = build_embed(status)
-        await send_webhook(session, payload)
+        if not await send_webhook(session, webhook_url, payload):
+            print(f"             {C_YELLOW}└─ webhook delivery failed{C_RESET}")
 
         await asyncio.sleep(CHECK_INTERVAL)
 
@@ -219,11 +259,12 @@ def print_header() -> None:
 
 
 async def main() -> None:
+    instances, webhook_url = validate_configuration()
     print_header()
 
     timeout = aiohttp.ClientTimeout(total=TIMEOUT)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        tasks = [monitor_instance(session, url) for url in INSTANCES]
+        tasks = [monitor_instance(session, url, webhook_url) for url in instances]
         await asyncio.gather(*tasks)
 
 

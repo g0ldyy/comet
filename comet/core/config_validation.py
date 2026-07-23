@@ -3,9 +3,13 @@ from functools import lru_cache
 
 import orjson
 
-from comet.core.models import (ConfigModel, default_config,
-                               rtn_ranking_default, rtn_settings_default,
-                               settings)
+from comet.core.models import (
+    ConfigModel,
+    default_config,
+    rtn_ranking_default,
+    rtn_settings_default,
+    settings,
+)
 
 
 def _normalize_debrid_config(validated_config: dict) -> dict:

@@ -12,13 +12,21 @@ def _extract_imdb_metadata(payload: dict) -> tuple[str | None, int | None, int |
     if not isinstance(payload, dict):
         return None, None, None
 
-    for element in payload.get("d") or []:
-        item_id = element.get("id", "")
+    elements = payload.get("d")
+    if not isinstance(elements, list):
+        return None, None, None
+
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        item_id = element.get("id")
+        if not isinstance(item_id, str):
+            continue
         if "/" in item_id:
             continue
 
         title = element.get("l")
-        if not title:
+        if not isinstance(title, str) or not title:
             continue
 
         year = parse_year(element.get("y"))
@@ -34,9 +42,11 @@ def _extract_cinemeta_metadata(
     if not isinstance(payload, dict):
         return None, None, None
 
-    meta = payload.get("meta") or {}
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        return None, None, None
     title = meta.get("name")
-    if not title:
+    if not isinstance(title, str) or not title:
         return None, None, None
 
     year, year_end = parse_year_range(meta.get("year"))

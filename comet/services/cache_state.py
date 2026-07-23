@@ -1,10 +1,15 @@
+import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from comet.core.database import (build_json_list_membership_predicate,
-                                 database, encode_json_param, fetch_flag)
+from comet.core.database import (
+    build_json_list_membership_predicate,
+    database,
+    encode_json_param,
+    fetch_flag,
+)
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
@@ -270,8 +275,10 @@ class CacheStateManager:
         Returns:
             CacheCheckResult with state, decision, and lock info
         """
-        fresh_count = await self.get_fresh_torrent_count()
-        is_first = await self.check_is_first_search()
+        fresh_count, is_first = await asyncio.gather(
+            self.get_fresh_torrent_count(),
+            self.check_is_first_search(),
+        )
 
         state = self._determine_state(fresh_count, torrent_count, is_first)
 

@@ -204,9 +204,6 @@ class _RequestContextManager:
             await self.aiohttp_cm.__aexit__(exc_type, exc, tb)
         # For curl_cffi, nothing special for now.
 
-    def __await__(self):
-        return self.__aenter__().__await__()
-
 
 class AsyncClientWrapper:
     """

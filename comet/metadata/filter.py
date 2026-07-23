@@ -39,7 +39,7 @@ class DigitalReleaseFilter:
             imdb_id = media_id.partition(":")[0]
             if media_type == "movie":
                 tmdb = TMDBApi(session)
-                tmdb_id = await tmdb.get_tmdb_id_from_imdb(imdb_id)
+                tmdb_id = await tmdb.get_tmdb_id_from_imdb(imdb_id, "movie")
                 if not tmdb_id:
                     logger.warning(
                         f"DigitalReleaseFilter: Could not resolve {media_id} to TMDB ID. Allowing search."

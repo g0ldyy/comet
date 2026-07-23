@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
 import socket
+import time
 from contextlib import contextmanager
 from typing import List, Optional, Sequence
 
@@ -8,6 +9,8 @@ from databases import Database
 from sqlalchemy.engine.url import make_url
 
 from comet.core.logger import logger
+
+_REPLICA_RETRY_DELAY_SECONDS = 30.0
 
 
 class ReplicaAwareDatabase:
@@ -23,6 +26,7 @@ class ReplicaAwareDatabase:
         self._configured_replicas = list(replicas or [])
         self._force_ipv4 = force_ipv4
         self._active_replicas: List[Database] = []
+        self._replica_retry_after = {}
         self._replica_index = 0
         self._transaction_depth = contextvars.ContextVar(
             "comet_db_replica_tx_depth", default=0
@@ -59,6 +63,7 @@ class ReplicaAwareDatabase:
                 healthy_replicas.append(replica)
 
         self._active_replicas = healthy_replicas
+        self._replica_retry_after.clear()
 
         if self._active_replicas:
             logger.log(
@@ -74,6 +79,8 @@ class ReplicaAwareDatabase:
                 await db.disconnect()
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.log("DATABASE", f"Error disconnecting database: {exc}")
+        self._active_replicas = []
+        self._replica_retry_after.clear()
 
     def transaction(self, *args, **kwargs):
         primary_transaction = self._primary.transaction(*args, **kwargs)
@@ -100,7 +107,7 @@ class ReplicaAwareDatabase:
         if explicit_force or self._force_primary_context.get():
             return True
 
-        if not self._active_replicas:
+        if not self._available_replicas():
             return True
 
         if self._transaction_depth.get() > 0:
@@ -109,11 +116,23 @@ class ReplicaAwareDatabase:
         return False
 
     def _next_replica(self):
-        replica = self._active_replicas[
-            self._replica_index % len(self._active_replicas)
-        ]
-        self._replica_index = (self._replica_index + 1) % len(self._active_replicas)
+        replicas = self._available_replicas()
+        replica = replicas[self._replica_index % len(replicas)]
+        self._replica_index = (self._replica_index + 1) % len(replicas)
         return replica
+
+    def _available_replicas(self):
+        now = time.monotonic()
+        return [
+            replica
+            for replica in self._active_replicas
+            if self._replica_retry_after.get(replica, 0) <= now
+        ]
+
+    def _deactivate_replica(self, replica):
+        self._replica_retry_after[replica] = (
+            time.monotonic() + _REPLICA_RETRY_DELAY_SECONDS
+        )
 
     async def _run_read(self, method_name: str, force_primary: bool, *args):
         target = (
@@ -129,9 +148,13 @@ class ReplicaAwareDatabase:
             raise
         except Exception as exc:
             if target is not self._primary and self._primary.is_connected:
+                self._deactivate_replica(target)
                 logger.log(
                     "DATABASE",
-                    f"Replica {method_name} failed, retrying on primary: {exc}",
+                    (
+                        f"Replica {method_name} failed and was quarantined; "
+                        f"retrying on primary: {exc}"
+                    ),
                 )
                 fallback = getattr(self._primary, method_name)
                 return await fallback(*args)
@@ -190,9 +213,10 @@ class _ReplicaAwareTransaction:
         self._token = None
 
     async def __aenter__(self):
+        transaction = await self._transaction_cm.__aenter__()
         current_depth = self._router._transaction_depth.get()
         self._token = self._router._transaction_depth.set(current_depth + 1)
-        return await self._transaction_cm.__aenter__()
+        return transaction
 
     async def __aexit__(self, exc_type, exc, tb):
         try:

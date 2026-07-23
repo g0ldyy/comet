@@ -1,10 +1,16 @@
+import asyncio
 import time
 
-from comet.core.database import (build_distinct_from_predicate,
-                                 build_json_list_membership_predicate,
-                                 build_scope_lookup_params, build_scope_params,
-                                 build_upsert_assignments, encode_json_param)
+from comet.core.database import (
+    build_distinct_from_predicate,
+    build_json_list_membership_predicate,
+    build_scope_lookup_params,
+    build_scope_params,
+    build_upsert_assignments,
+    encode_json_param,
+)
 from comet.core.models import database, settings
+from comet.core.logger import logger
 from comet.utils.parsing import default_dump
 
 DEBRID_UPDATE_INTERVAL = (
@@ -31,6 +37,32 @@ SCOPE_FILTER_SQL = """
 season_norm = :season_norm
 AND episode_norm = :episode_norm
 """
+_cache_write_tasks: set[asyncio.Task] = set()
+
+
+def _handle_cache_write_done(task: asyncio.Task) -> None:
+    _cache_write_tasks.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.warning(f"Failed to persist debrid availability: {error}")
+
+
+def schedule_cache_availability(debrid_service: str, availability: list):
+    task = asyncio.create_task(
+        cache_availability(debrid_service, availability),
+        name=f"debrid-cache:{debrid_service}",
+    )
+    _cache_write_tasks.add(task)
+    task.add_done_callback(_handle_cache_write_done)
+    return task
+
+
+async def shutdown_cache_writes() -> None:
+    if not _cache_write_tasks:
+        return
+    await asyncio.gather(*tuple(_cache_write_tasks), return_exceptions=True)
 
 
 def _build_conditional_update() -> str:
@@ -79,15 +111,17 @@ CACHE_AVAILABILITY_QUERY = f"""
 async def cache_availability(debrid_service: str, availability: list):
     current_time = time.time()
 
-    values = [
-        {
+    values_by_scope = {}
+    for file in availability:
+        scope = build_scope_params(file["season"], file["episode"])
+        value = {
             "debrid_service": debrid_service,
             "info_hash": file["info_hash"],
             "file_index": str(file["index"]) if file["index"] is not None else None,
             "title": file["title"],
             "season": file["season"],
             "episode": file["episode"],
-            **build_scope_params(file["season"], file["episode"]),
+            **scope,
             "size": file["size"] if file["index"] is not None else None,
             "parsed_json": (
                 encode_json_param(file["parsed"], default=default_dump)
@@ -97,10 +131,15 @@ async def cache_availability(debrid_service: str, availability: list):
             "updated_at": current_time,
             "update_interval": DEBRID_UPDATE_INTERVAL,
         }
-        for file in availability
-    ]
+        values_by_scope[
+            (file["info_hash"], scope["season_norm"], scope["episode_norm"])
+        ] = value
 
-    await database.execute_many(CACHE_AVAILABILITY_QUERY, values)
+    if values_by_scope:
+        await database.execute_many(
+            CACHE_AVAILABILITY_QUERY,
+            list(values_by_scope.values()),
+        )
 
 
 async def get_cached_availability(

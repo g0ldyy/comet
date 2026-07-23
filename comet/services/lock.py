@@ -1,6 +1,8 @@
 import asyncio
 import time
 import uuid
+from collections.abc import Awaitable
+from typing import TypeVar
 
 from comet.core.database import database, fetch_flag
 from comet.core.logger import logger
@@ -17,10 +19,16 @@ _ACQUIRE_OR_REFRESH_LOCK_QUERY = """
        OR scrape_locks.instance_id = EXCLUDED.instance_id
     RETURNING 1
 """
+_T = TypeVar("_T")
 
 
 class DistributedLock:
-    def __init__(self, lock_key: str, timeout: int = None, retry_interval: float = 0.5):
+    def __init__(
+        self,
+        lock_key: str,
+        timeout: float | None = None,
+        retry_interval: float = 0.5,
+    ):
         """
         Distributed lock system to prevent concurrent scraping.
 
@@ -76,6 +84,42 @@ class DistributedLock:
             except Exception as e:
                 logger.log("LOCK", f"❌ Error acquiring lock for {self.lock_key}: {e}")
                 return False
+
+    async def _renew_until_lost(self) -> None:
+        while self.acquired:
+            await asyncio.sleep(self.timeout / 2)
+            if not await self.acquire():
+                return
+
+    async def run(self, operation: Awaitable[_T]) -> _T:
+        if not self.acquired:
+            raise RuntimeError(f"Lock is not acquired for {self.lock_key}")
+
+        operation_task = asyncio.ensure_future(operation)
+        renewal_task = asyncio.create_task(
+            self._renew_until_lost(),
+            name=f"distributed-lock-renewal:{self.lock_key}",
+        )
+        try:
+            done, _ = await asyncio.wait(
+                (operation_task, renewal_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if operation_task in done:
+                return await operation_task
+
+            operation_task.cancel()
+            await asyncio.gather(operation_task, return_exceptions=True)
+            raise RuntimeError(f"Lost distributed lock for {self.lock_key}")
+        finally:
+            for task in (renewal_task, operation_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                renewal_task,
+                operation_task,
+                return_exceptions=True,
+            )
 
     async def release(self):
         if not self.acquired:

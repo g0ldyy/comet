@@ -17,6 +17,7 @@ IP_PROXY_HEADERS = [
     "forwarded",  # RFC 7239
     "x-appengine-user-ip",  # Google App Engine
     "cf-pseudo-ipv4",  # Cloudflare IPv6->IPv4
+    "X-AIOStreams-User-IP",  # AIOStreams
 ]
 
 

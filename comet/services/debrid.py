@@ -1,13 +1,12 @@
-import asyncio
-
-import orjson
 from RTN import ParsedData
 
 from comet.debrid.manager import retrieve_debrid_availability
-from comet.services.debrid_cache import (cache_availability,
-                                         get_cached_availability,
-                                         get_cached_availability_any_service)
-from comet.utils.parsing import ensure_multi_language
+from comet.services.debrid_cache import (
+    get_cached_availability,
+    get_cached_availability_any_service,
+    schedule_cache_availability,
+)
+from comet.utils.parsing import ensure_multi_language, load_cached_parsed
 
 
 class DebridService:
@@ -85,7 +84,7 @@ class DebridService:
         season: int,
         episode: int,
         target_air_date: str | None = None,
-    ) -> set[str]:
+    ) -> tuple[set[str], dict[str, dict]]:
         availability = await retrieve_debrid_availability(
             session,
             media_id,
@@ -101,10 +100,11 @@ class DebridService:
         )
 
         if len(availability) == 0:
-            return set()
+            return set(), {}
 
         info_hash_set = set(info_hashes)
         cached_hashes = set()
+        torrent_updates = {}
         for file in availability:
             file_season = file["season"]
             file_episode = file["episode"]
@@ -122,26 +122,27 @@ class DebridService:
                 if torrent is None:
                     continue
 
+                update = torrent_updates.setdefault(info_hash, {})
                 merged_parsed = self._merge_parsed(
                     torrent.get("parsed"), file["parsed"]
                 )
                 if merged_parsed is not None:
-                    torrent["parsed"] = merged_parsed
+                    update["parsed"] = merged_parsed
 
                 file_index = self._coerce_file_index(file["index"])
                 if file_index is not None:
-                    torrent["fileIndex"] = file_index
+                    update["fileIndex"] = file_index
                 if file["title"] is not None:
-                    torrent["title"] = file["title"]
+                    update["title"] = file["title"]
                 if file["size"] is not None:
-                    torrent["size"] = file["size"]
+                    update["size"] = file["size"]
 
-        asyncio.create_task(cache_availability(self.debrid_service, availability))
-        return cached_hashes
+        schedule_cache_availability(self.debrid_service, availability)
+        return cached_hashes, torrent_updates
 
     async def check_existing_availability(
         self, info_hashes: list, season: int, episode: int, torrents: dict | None
-    ) -> set[str]:
+    ) -> tuple[set[str], dict[str, dict]]:
         if len(info_hashes) == 0:
             return set()
 
@@ -150,6 +151,7 @@ class DebridService:
         )
 
         cached_hashes = set()
+        torrent_updates = {}
         for row in rows:
             info_hash = row["info_hash"]
             cached_hashes.add(info_hash)
@@ -158,25 +160,27 @@ class DebridService:
                 if torrent is None:
                     continue
 
+                update = torrent_updates.setdefault(info_hash, {})
                 file_index = self._coerce_file_index(row["file_index"])
                 if file_index is not None:
-                    torrent["fileIndex"] = file_index
+                    update["fileIndex"] = file_index
 
                 if row["size"] is not None:
-                    torrent["size"] = row["size"]
+                    update["size"] = row["size"]
 
                 if row["parsed"] is not None:
-                    cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
-                    merged_parsed = self._merge_parsed(
-                        torrent.get("parsed"), cached_parsed
-                    )
-                    if merged_parsed is not None:
-                        torrent["parsed"] = merged_parsed
+                    cached_parsed = load_cached_parsed(row["parsed"])
+                    if cached_parsed is not None:
+                        merged_parsed = self._merge_parsed(
+                            torrent.get("parsed"), cached_parsed
+                        )
+                        if merged_parsed is not None:
+                            update["parsed"] = merged_parsed
 
                 if row["title"] is not None:
-                    torrent["title"] = row["title"]
+                    update["title"] = row["title"]
 
-        return cached_hashes
+        return cached_hashes, torrent_updates
 
     @classmethod
     async def apply_cached_availability_any_service(
@@ -201,10 +205,13 @@ class DebridService:
                 torrent["size"] = row["size"]
 
             if row["parsed"] is not None:
-                cached_parsed = ParsedData(**orjson.loads(row["parsed"]))
-                merged_parsed = cls._merge_parsed(torrent.get("parsed"), cached_parsed)
-                if merged_parsed is not None:
-                    torrent["parsed"] = merged_parsed
+                cached_parsed = load_cached_parsed(row["parsed"])
+                if cached_parsed is not None:
+                    merged_parsed = cls._merge_parsed(
+                        torrent.get("parsed"), cached_parsed
+                    )
+                    if merged_parsed is not None:
+                        torrent["parsed"] = merged_parsed
 
             if row["title"] is not None:
                 torrent["title"] = row["title"]

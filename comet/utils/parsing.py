@@ -1,9 +1,37 @@
 from functools import lru_cache
+import re
 
+import orjson
 from RTN import ParsedData
 
 SCRAPE_URL_MODE_BOTH = "both"
 SCRAPE_URL_MODES = frozenset((SCRAPE_URL_MODE_BOTH, "live", "background"))
+_CANONICAL_NONNEGATIVE_INTEGER = re.compile(r"0|[1-9][0-9]*")
+_IMDB_ID = re.compile(r"tt[0-9]{7,10}")
+_KITSU_ID = re.compile(r"[1-9][0-9]*")
+
+
+def load_cached_parsed(value) -> ParsedData | None:
+    try:
+        payload = orjson.loads(value)
+    except (TypeError, orjson.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return ParsedData(**payload)
+    except ValueError:
+        return None
+
+
+def load_cached_string_list(value) -> list[str]:
+    try:
+        payload = orjson.loads(value)
+    except (TypeError, orjson.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, str) and item]
 
 
 def ensure_multi_language(parsed: ParsedData):
@@ -64,7 +92,7 @@ def is_video(title: str):
         ".wmv",
         ".yuv",
     )
-    return title.endswith(video_extensions)
+    return title.lower().endswith(video_extensions)
 
 
 def default_dump(obj):
@@ -75,29 +103,48 @@ def default_dump(obj):
 def parse_optional_int(value: str | None):
     if value == "n" or value is None or value == "":
         return None
-    try:
-        return int(value)
-    except ValueError:
+    if (
+        type(value) is not str
+        or _CANONICAL_NONNEGATIVE_INTEGER.fullmatch(value) is None
+    ):
         return None
+    return int(value)
 
 
 def parse_media_id(media_type: str, media_id: str):
-    if media_id.startswith("kitsu:"):
-        _, _, rest = media_id.partition(":")
-        kitsu_id, _, episode_str = rest.partition(":")
-        return kitsu_id, 1, parse_optional_int(episode_str) if episode_str else None
-    if media_type == "series":
-        series_id, sep1, rest1 = media_id.partition(":")
-        if not sep1:
-            return series_id, None, None
-        season_str, sep2, episode_str = rest1.partition(":")
-        return (
-            series_id,
-            parse_optional_int(season_str),
-            parse_optional_int(episode_str) if sep2 else None,
-        )
+    if media_type not in {"movie", "series"}:
+        raise ValueError("media type must be movie or series")
+    if type(media_id) is not str or not media_id:
+        raise ValueError("media ID must be a non-empty string")
 
-    return media_id, None, None
+    if media_id.startswith("kitsu:"):
+        parts = media_id.split(":")
+        if (
+            len(parts) not in {2, 3}
+            or _KITSU_ID.fullmatch(parts[1]) is None
+            or (len(parts) == 3 and parse_optional_int(parts[2]) is None)
+        ):
+            raise ValueError("Kitsu media ID has an invalid current shape")
+        if media_type == "movie" and len(parts) != 2:
+            raise ValueError("movie Kitsu IDs cannot include an episode")
+        episode = parse_optional_int(parts[2]) if len(parts) == 3 else None
+        return parts[1], 1, episode
+
+    parts = media_id.split(":")
+    if _IMDB_ID.fullmatch(parts[0]) is None:
+        raise ValueError("IMDb media ID has an invalid current shape")
+    if media_type == "series":
+        if (
+            len(parts) != 3
+            or parse_optional_int(parts[1]) is None
+            or parse_optional_int(parts[2]) is None
+        ):
+            raise ValueError("series IMDb ID must include season and episode")
+        return parts[0], int(parts[1]), int(parts[2])
+
+    if len(parts) != 1:
+        raise ValueError("movie IMDb IDs cannot include episode segments")
+    return parts[0], None, None
 
 
 def match_parsed_episode_target(
@@ -176,35 +223,30 @@ def url_mode_matches_context(mode: str, context: str):
 
 
 def associate_urls_credentials(urls, credentials):
-    if not urls:
+    if urls is None or urls == []:
         return []
-
-    if isinstance(urls, str):
-        urls = [urls]
-
-    if len(urls) == 1:
-        if credentials is None:
-            credential = None
-        elif isinstance(credentials, str):
-            credential = credentials or None
-        elif isinstance(credentials, list) and len(credentials) > 0:
-            credential = credentials[0]
-        else:
-            credential = None
-
-        credentials_list = [credential]
+    if type(urls) is str:
+        if not urls:
+            raise ValueError("scraper URL must be non-empty")
+        url_list = [urls]
+    elif type(urls) is list:
+        if any(type(url) is not str or not url for url in urls):
+            raise ValueError("scraper URLs must be non-empty strings")
+        url_list = urls
     else:
-        if credentials is None:
-            credentials_list = [None] * len(urls)
-        elif isinstance(credentials, str):
-            credentials_list = [credentials or None] * len(urls)
-        elif isinstance(credentials, list):
-            credentials_list = []
-            for i in range(len(urls)):
-                if i < len(credentials):
-                    cred = credentials[i] or None
-                    credentials_list.append(cred)
-                else:
-                    credentials_list.append(None)
+        raise TypeError("scraper URLs must be a string, list, or None")
 
-    return list(zip(urls, credentials_list))
+    if credentials is None:
+        credentials_list = [None] * len(url_list)
+    elif type(credentials) is str:
+        credentials_list = [credentials or None] * len(url_list)
+    elif type(credentials) is list:
+        if len(credentials) != len(url_list):
+            raise ValueError("credential list must match the scraper URL list length")
+        if any(type(credential) is not str for credential in credentials):
+            raise TypeError("scraper credentials must be strings")
+        credentials_list = [credential or None for credential in credentials]
+    else:
+        raise TypeError("scraper credentials must be a string, list, or None")
+
+    return list(zip(url_list, credentials_list))

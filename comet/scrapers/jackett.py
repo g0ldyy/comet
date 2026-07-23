@@ -4,13 +4,15 @@ from typing import List, Set
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper
+from comet.scrapers.base import BaseScraper, deduplicate_torrents
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
 from comet.services.indexer_manager import indexer_manager
-from comet.services.torrent_manager import (add_torrent_queue,
-                                            download_torrent,
-                                            extract_torrent_metadata,
-                                            extract_trackers_from_magnet)
+from comet.services.torrent_manager import (
+    add_torrent_queue,
+    download_torrent,
+    extract_torrent_metadata,
+    extract_trackers_from_magnet,
+)
 
 
 class JackettScraper(BaseScraper):
@@ -89,11 +91,20 @@ class JackettScraper(BaseScraper):
     async def fetch_jackett_results(self, indexer: str, query: str):
         try:
             async with self.session.get(
-                f"{self.url}/api/v2.0/indexers/all/results?apikey={settings.JACKETT_API_KEY}&Query={query}&Tracker[]={indexer}",
+                f"{self.url}/api/v2.0/indexers/all/results",
+                params={
+                    "apikey": settings.JACKETT_API_KEY,
+                    "Query": query,
+                    "Tracker[]": indexer,
+                },
                 timeout=INDEXER_TIMEOUT,
             ) as response:
                 data = await response.json()
-                return data.get("Results", [])
+                if not isinstance(data, dict) or not isinstance(
+                    data.get("Results"), list
+                ):
+                    return []
+                return data["Results"]
         except Exception as e:
             logger.warning(
                 f"Exception while fetching Jackett results for indexer {indexer}: {e}"
@@ -116,12 +127,7 @@ class JackettScraper(BaseScraper):
         torrents: List[ScrapeResult] = []
         seen: Set[str] = set()
 
-        queries = [request.title]
-        if request.media_type == "series" and request.episode is not None:
-            queries.append(f"{request.title} S{request.season:02d}")
-            queries.append(
-                f"{request.title} S{request.season:02d}E{request.episode:02d}"
-            )
+        queries = request.title_queries(include_episode_variants=True)
 
         try:
             tasks = []
@@ -137,24 +143,35 @@ class JackettScraper(BaseScraper):
 
             torrent_tasks = []
             for result_set in all_results:
+                if not isinstance(result_set, list):
+                    continue
                 for result in result_set:
-                    if result["Details"] in seen:
+                    if not isinstance(result, dict):
+                        continue
+                    details = result.get("Details")
+                    if not isinstance(details, str) or not details or details in seen:
                         continue
 
-                    seen.add(result["Details"])
+                    seen.add(details)
                     torrent_tasks.append(
                         self.process_torrent(
                             result, request.media_only_id, request.season
                         )
                     )
 
-            processed_torrents = await asyncio.gather(*torrent_tasks)
-            torrents = [
-                t for sublist in processed_torrents for t in sublist if t["infoHash"]
-            ]
+            processed_torrents = await asyncio.gather(
+                *torrent_tasks, return_exceptions=True
+            )
+            for sublist in processed_torrents:
+                if isinstance(sublist, Exception):
+                    logger.warning(f"Error processing torrent with Jackett: {sublist}")
+                    continue
+                for torrent in sublist:
+                    if isinstance(torrent, dict) and torrent.get("infoHash"):
+                        torrents.append(torrent)
         except Exception as e:
             logger.warning(
                 f"Exception while getting torrents for {request.title} with Jackett: {e}"
             )
 
-        return torrents
+        return deduplicate_torrents(torrents)

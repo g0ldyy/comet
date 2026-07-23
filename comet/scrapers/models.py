@@ -13,6 +13,25 @@ class ScrapeRequest(BaseModel):
     season: Optional[int] = None
     episode: Optional[int] = None
     context: str = "live"  # "live" or "background"
+    search_titles: tuple[str, ...] = ()
+
+    @property
+    def query_titles(self) -> tuple[str, ...]:
+        return self.search_titles or (self.title,)
+
+    def title_queries(self, *, include_episode_variants: bool = False):
+        queries = []
+        for title in self.query_titles:
+            queries.append(title)
+            if (
+                include_episode_variants
+                and self.media_type == "series"
+                and self.season is not None
+                and self.episode is not None
+            ):
+                queries.append(f"{title} S{self.season:02d}")
+                queries.append(f"{title} S{self.season:02d}E{self.episode:02d}")
+        return tuple(dict.fromkeys(queries))
 
 
 class ScrapeResult(TypedDict):

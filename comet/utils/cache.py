@@ -1,4 +1,5 @@
 import hashlib
+import re
 from typing import Any, Optional
 
 import orjson
@@ -11,6 +12,40 @@ NO_CACHE_HEADERS = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
+
+_ENTITY_TAG = re.compile(r'(?:W/)?"[\x21\x23-\x7e\x80-\xff]*"')
+
+
+def _parse_entity_tag_list(value: str) -> list[str] | None:
+    tags: list[str] = []
+    position = 0
+    length = len(value)
+
+    while position < length:
+        while position < length and value[position] in " \t":
+            position += 1
+        match = _ENTITY_TAG.match(value, position)
+        if match is None:
+            return None
+        tags.append(match.group(0))
+        position = match.end()
+        while position < length and value[position] in " \t":
+            position += 1
+        if position == length:
+            return tags
+        if value[position] != ",":
+            return None
+        position += 1
+        if position == length:
+            return None
+
+    return tags or None
+
+
+def _validate_cache_seconds(seconds: int) -> int:
+    if type(seconds) is not int or seconds < 0:
+        raise ValueError("cache durations must be non-negative integers")
+    return seconds
 
 
 class CacheControl:
@@ -53,22 +88,22 @@ class CacheControl:
 
     def max_age(self, seconds: int):
         """Maximum time response is considered fresh (browser cache)."""
-        self._max_age = seconds
+        self._max_age = _validate_cache_seconds(seconds)
         return self
 
     def s_maxage(self, seconds: int):
         """Maximum time response is fresh for shared caches (CDN/proxy)."""
-        self._s_maxage = seconds
+        self._s_maxage = _validate_cache_seconds(seconds)
         return self
 
     def stale_while_revalidate(self, seconds: int):
         """Serve stale while revalidating in background."""
-        self._stale_while_revalidate = seconds
+        self._stale_while_revalidate = _validate_cache_seconds(seconds)
         return self
 
     def stale_if_error(self, seconds: int):
         """Serve stale if origin returns error."""
-        self._stale_if_error = seconds
+        self._stale_if_error = _validate_cache_seconds(seconds)
         return self
 
     def build(self):
@@ -104,15 +139,19 @@ def check_etag_match(request: Request, etag: str):
     if not if_none_match:
         return False
 
-    client_etags = [e.strip() for e in if_none_match.split(",")]
+    if if_none_match.strip() == "*":
+        return True
 
-    normalized_etag = etag.replace('W/"', '"')
-    for client_etag in client_etags:
-        normalized_client = client_etag.replace('W/"', '"')
-        if normalized_client == normalized_etag or client_etag == "*":
-            return True
+    client_etags = _parse_entity_tag_list(if_none_match)
+    if client_etags is None or _ENTITY_TAG.fullmatch(etag) is None:
+        return False
 
-    return False
+    normalized_etag = etag[2:] if etag.startswith("W/") else etag
+    return any(
+        (client_etag[2:] if client_etag.startswith("W/") else client_etag)
+        == normalized_etag
+        for client_etag in client_etags
+    )
 
 
 class CachedJSONResponse(Response):

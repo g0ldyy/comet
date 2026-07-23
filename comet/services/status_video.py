@@ -24,8 +24,18 @@ def _iter_normalized_keys(status_keys: Iterable[str | None]) -> list[str]:
     return normalized_keys
 
 
-@lru_cache(maxsize=1)
-def _build_status_video_index() -> tuple[dict[str, str], str | None]:
+def _status_video_directory_revision() -> int | None:
+    try:
+        return STATUS_VIDEO_DIR.stat().st_mtime_ns
+    except FileNotFoundError:
+        return None
+
+
+@lru_cache(maxsize=4)
+def _build_status_video_index(
+    directory_revision: int | None,
+) -> dict[str, str]:
+    del directory_revision
     status_files = sorted(STATUS_VIDEO_DIR.glob("*.mp4"))
     status_video_index = {}
 
@@ -34,15 +44,14 @@ def _build_status_video_index() -> tuple[dict[str, str], str | None]:
         if normalized_key and normalized_key not in status_video_index:
             status_video_index[normalized_key] = str(status_file)
 
-    first_status_video = str(status_files[0]) if status_files else None
-    return status_video_index, first_status_video
+    return status_video_index
 
 
 def resolve_status_video_path(
     status_keys: Iterable[str | None],
     default_key: str = DEFAULT_STATUS_KEY,
 ) -> str | None:
-    status_video_index, first_status_video = _build_status_video_index()
+    status_video_index = _build_status_video_index(_status_video_directory_revision())
 
     for key in _iter_normalized_keys(status_keys):
         video_path = status_video_index.get(key)
@@ -57,13 +66,6 @@ def resolve_status_video_path(
     unknown_video = status_video_index.get(DEFAULT_STATUS_KEY)
     if unknown_video:
         return unknown_video
-
-    if first_status_video:
-        return first_status_video
-
-    fallback_path = STATUS_VIDEO_DIR / f"{default_normalized}.mp4"
-    if fallback_path.exists():
-        return str(fallback_path)
 
     return None
 

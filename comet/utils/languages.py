@@ -1,3 +1,6 @@
+import unicodedata
+
+
 COUNTRY_TO_LANGUAGE = {
     "ad": "fr",
     "ae": "ar",
@@ -211,3 +214,114 @@ COUNTRY_TO_LANGUAGE = {
     "zm": "en",
     "zw": "en",
 }
+
+
+def alias_language(scope: str) -> str | None:
+    for prefix in ("lang:", "original:"):
+        if scope.startswith(prefix):
+            language = scope[len(prefix) :]
+            if len(language) == 2 and language.isascii() and language.isalpha():
+                return language
+            return None
+    return COUNTRY_TO_LANGUAGE.get(scope)
+
+
+def merge_aliases(*collections: object) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    seen: dict[str, set[str]] = {}
+    for aliases in collections:
+        if not isinstance(aliases, dict):
+            continue
+        for scope, titles in aliases.items():
+            if not isinstance(scope, str) or not isinstance(titles, list):
+                continue
+            scope_seen = seen.setdefault(scope, set())
+            for title in titles:
+                if isinstance(title, str) and title and title not in scope_seen:
+                    scope_seen.add(title)
+                    merged.setdefault(scope, []).append(title)
+    return merged
+
+
+def _strip_latin_diacritics(value: str) -> str:
+    characters = []
+    follows_latin_character = False
+    for character in unicodedata.normalize("NFD", value):
+        if unicodedata.combining(character):
+            if not follows_latin_character:
+                characters.append(character)
+            continue
+        characters.append(character)
+        follows_latin_character = "LATIN" in unicodedata.name(character, "")
+    return unicodedata.normalize("NFC", "".join(characters))
+
+
+def select_indexer_titles(
+    title: str,
+    aliases: object,
+    languages: list[str],
+    *,
+    include_canonical: bool = True,
+    include_original: bool = True,
+) -> tuple[str, ...]:
+    """Return the bounded, ordered set of titles requested by the operator."""
+
+    selected = []
+    seen = set()
+
+    def append(candidate: object):
+        if not isinstance(candidate, str) or not (
+            candidate := " ".join(candidate.split())
+        ):
+            return
+        candidate = _strip_latin_diacritics(candidate)
+        identity = unicodedata.normalize("NFKC", candidate).casefold()
+        if identity in seen:
+            return
+        seen.add(identity)
+        selected.append(candidate)
+
+    if include_canonical:
+        append(title)
+
+    if not isinstance(aliases, dict):
+        if not selected:
+            append(title)
+        return tuple(selected)
+
+    if include_original:
+        original_count = len(selected)
+        for scope, scope_titles in aliases.items():
+            if not isinstance(scope, str) or not isinstance(scope_titles, list):
+                continue
+            normalized_scope = scope.lower()
+            if normalized_scope != "original" and not normalized_scope.startswith(
+                "original:"
+            ):
+                continue
+            for alias in scope_titles:
+                append(alias)
+                if len(selected) > original_count:
+                    break
+            if len(selected) > original_count:
+                break
+
+    aliases_by_language: dict[str, list[str]] = {}
+    for scope, scope_titles in aliases.items():
+        if not isinstance(scope, str) or not isinstance(scope_titles, list):
+            continue
+        language = alias_language(scope.lower())
+        if language is not None:
+            aliases_by_language.setdefault(language, []).extend(scope_titles)
+
+    for language in languages:
+        language_count = len(selected)
+        for alias in aliases_by_language.get(language, ()):
+            append(alias)
+            if len(selected) > language_count:
+                break
+
+    if not selected:
+        append(title)
+
+    return tuple(selected)

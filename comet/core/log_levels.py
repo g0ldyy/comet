@@ -38,6 +38,12 @@ CUSTOM_LOG_LEVELS = {
         "loguru_color": "<fg #71d6d6>",
         "no": 30,
     },
+    "KODI": {
+        "color": "#3ba3d0",
+        "icon": "📺",
+        "loguru_color": "<fg #3ba3d0>",
+        "no": 30,
+    },
     "SESSION": {
         "color": "#71d6d6",
         "icon": "🔒",

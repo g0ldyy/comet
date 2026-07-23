@@ -22,11 +22,15 @@ from torf import Magnet
 from comet.cometnet import CometNetService, get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
-from comet.core.database import (IS_SQLITE, NULL_SCOPE_SENTINEL,
-                                 build_distinct_from_predicate,
-                                 build_json_list_membership_predicate,
-                                 build_upsert_assignments, encode_json_param,
-                                 normalize_scope_value)
+from comet.core.database import (
+    IS_SQLITE,
+    NULL_SCOPE_SENTINEL,
+    build_distinct_from_predicate,
+    build_json_list_membership_predicate,
+    build_upsert_assignments,
+    encode_json_param,
+    normalize_scope_value,
+)
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.utils.formatting import normalize_info_hash
@@ -120,6 +124,19 @@ RETRYABLE_DB_ERROR_MARKERS = (
     "could not serialize access",
     "serialization failure",
 )
+ROW_SPECIFIC_DB_SQLSTATE_PREFIXES = ("22", "23")
+ROW_SPECIFIC_DB_ERROR_MARKERS = (
+    "check constraint",
+    "constraint failed",
+    "datatype mismatch",
+    "foreign key constraint",
+    "invalid input syntax",
+    "malformed json",
+    "not null constraint",
+    "out of range",
+    "unique constraint",
+    "value too long",
+)
 
 
 def _json_dumps(value) -> str:
@@ -151,7 +168,9 @@ def _normalize_sources(sources) -> list[str]:
         values = list(sources)
     else:
         return []
-    return _dedupe_strings(values)
+    return _dedupe_strings(
+        [source for source in values if isinstance(source, str) and source]
+    )
 
 
 def _get_cached_normalized_sources(
@@ -199,7 +218,7 @@ def _normalize_valid_info_hash(info_hash) -> str | None:
 
     normalized_info_hash = normalize_info_hash(info_hash)
 
-    if len(normalized_info_hash) != 40:
+    if re.fullmatch(r"[0-9a-f]{40}", normalized_info_hash) is None:
         return None
     return normalized_info_hash
 
@@ -252,6 +271,30 @@ def _extract_relevant_file_entries(file_specs) -> list[dict]:
                 }
             )
     return files
+
+
+def _iter_bencoded_file_specs(info: dict) -> Iterator[tuple[int, str, int]]:
+    files = info.get(b"files")
+    file_entries = files if isinstance(files, list) else (info,)
+
+    for index, file_info in enumerate(file_entries):
+        if not isinstance(file_info, dict):
+            continue
+
+        path = file_info.get(b"path")
+        if isinstance(path, (list, tuple)) and path:
+            encoded_title = path[-1]
+        else:
+            encoded_title = file_info.get(b"name")
+        size = file_info.get(b"length")
+        if not isinstance(encoded_title, bytes) or not isinstance(size, int):
+            continue
+
+        try:
+            title = encoded_title.decode()
+        except UnicodeDecodeError:
+            continue
+        yield index, title, size
 
 
 def _build_torrent_metadata_payload(info_hash: str, sources, file_specs) -> dict:
@@ -358,26 +401,31 @@ def extract_torrent_metadata(content: bytes):
         info = torrent_data[b"info"]
         info_hash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
 
-        announce_list = [
-            tracker[0].decode() for tracker in torrent_data.get(b"announce-list", [])
-        ]
-        announce = torrent_data.get(b"announce", b"").decode()
+        announce_list = []
+        for tier in torrent_data.get(b"announce-list", []):
+            if not isinstance(tier, (list, tuple)):
+                continue
+            for tracker in tier:
+                if not isinstance(tracker, bytes):
+                    continue
+                try:
+                    announce_list.append(tracker.decode())
+                except UnicodeDecodeError:
+                    continue
+
+        announce_value = torrent_data.get(b"announce", b"")
+        try:
+            announce = (
+                announce_value.decode() if isinstance(announce_value, bytes) else ""
+            )
+        except UnicodeDecodeError:
+            announce = ""
         if announce:
             announce_list.append(announce)
-        files = info[b"files"] if b"files" in info else [info]
         return _build_torrent_metadata_payload(
             info_hash,
             announce_list,
-            (
-                (
-                    index,
-                    file_info[b"path"][-1].decode()
-                    if b"path" in file_info
-                    else file_info[b"name"].decode(),
-                    file_info[b"length"],
-                )
-                for index, file_info in enumerate(files)
-            ),
+            _iter_bencoded_file_specs(info),
         )
     except Exception as e:
         logger.debug(f"Failed to extract torrent metadata: {e}")
@@ -1359,10 +1407,11 @@ class TorrentUpdateQueue:
                 batch_items = await self._finalize_batch_items(batch_keys)
 
                 updated_at = 0.0
+                persisted_items = []
                 try:
                     if batch_items:
                         updated_at = time.time()
-                        await _execute_batched_upsert(
+                        persisted_items = await _execute_isolated_batched_upsert(
                             batch_items, updated_at=updated_at
                         )
                 except Exception as e:
@@ -1370,8 +1419,8 @@ class TorrentUpdateQueue:
                     if _is_retryable_db_error(e):
                         await self._requeue_batch_items(batch_items)
                 else:
-                    if batch_items:
-                        await self._enqueue_broadcast_items(batch_items, updated_at)
+                    if persisted_items:
+                        await self._enqueue_broadcast_items(persisted_items, updated_at)
                 finally:
                     for _ in batch_keys:
                         self.queue.task_done()
@@ -1596,12 +1645,19 @@ def _build_batched_params(
     return params
 
 
-def _is_retryable_db_error(exc: Exception) -> bool:
+def _iter_exception_chain(exc: Exception) -> Iterator[Exception]:
     seen = set()
     current = exc
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        yield current
+        current = getattr(current, "__cause__", None) or getattr(
+            current, "__context__", None
+        )
 
+
+def _is_retryable_db_error(exc: Exception) -> bool:
+    for current in _iter_exception_chain(exc):
         sqlstate = getattr(current, "sqlstate", None) or getattr(
             current, "pgcode", None
         )
@@ -1611,11 +1667,22 @@ def _is_retryable_db_error(exc: Exception) -> bool:
         error_message = str(current).lower()
         if any(marker in error_message for marker in RETRYABLE_DB_ERROR_MARKERS):
             return True
+    return False
 
-        current = getattr(current, "__cause__", None) or getattr(
-            current, "__context__", None
+
+def _is_row_specific_db_error(exc: Exception) -> bool:
+    for current in _iter_exception_chain(exc):
+        sqlstate = getattr(current, "sqlstate", None) or getattr(
+            current, "pgcode", None
         )
+        if isinstance(sqlstate, str) and sqlstate.startswith(
+            ROW_SPECIFIC_DB_SQLSTATE_PREFIXES
+        ):
+            return True
 
+        error_message = str(current).lower()
+        if any(marker in error_message for marker in ROW_SPECIFIC_DB_ERROR_MARKERS):
+            return True
     return False
 
 
@@ -1638,6 +1705,31 @@ async def _execute_batched_upsert(rows: list[_TorrentUpdate], *, updated_at: flo
                     parsed_json_cache=parsed_json_cache,
                 ),
             )
+
+
+async def _execute_isolated_batched_upsert(
+    rows: list[_TorrentUpdate], *, updated_at: float
+) -> list[_TorrentUpdate]:
+    try:
+        await _execute_batched_upsert(rows, updated_at=updated_at)
+        return rows
+    except Exception as exc:
+        if not _is_row_specific_db_error(exc):
+            raise
+        if len(rows) == 1:
+            logger.warning(
+                f"Dropping invalid torrent update row (key={rows[0].row_key}): {exc}"
+            )
+            return []
+
+    midpoint = len(rows) // 2
+    left = await _execute_isolated_batched_upsert(
+        rows[:midpoint], updated_at=updated_at
+    )
+    right = await _execute_isolated_batched_upsert(
+        rows[midpoint:], updated_at=updated_at
+    )
+    return [*left, *right]
 
 
 torrent_update_queue = TorrentUpdateQueue()

@@ -1,4 +1,4 @@
-# uv run python scripts/generate_status_videos.py \
+# uv run python -m scripts.generate_status_videos \
 #     --background surfer.mp4 \
 #     --stremthru-root stremthru \
 #     --output-dir comet/assets/status_videos \
@@ -23,21 +23,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
-import sys
+import tempfile
 from pathlib import Path
 from textwrap import fill
 
-try:
-    from comet.utils.status_keys import \
-        normalize_status_key as normalize_status_key_runtime
-except ModuleNotFoundError:
-    repo_root = Path(__file__).resolve().parents[1]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-    from comet.utils.status_keys import \
-        normalize_status_key as normalize_status_key_runtime
+from comet.utils.status_keys import normalize_status_key as normalize_status_key_runtime
 
 STATUS_DECLARATION_PATTERN = re.compile(
     r"\b[A-Za-z0-9_]+\s+ErrorCode\s*=\s*\"([^\"]+)\""
@@ -50,6 +43,18 @@ SCOPE_ESSENTIAL = "essential"
 STORE_STATUS_FILE_PATTERN = re.compile(r"^store/[^/]+/error\.go$")
 SERVER_STATUS_FILE_PATTERN = re.compile(r"^internal/server/error\.go$")
 CAMEL_BOUNDARY_PATTERN = re.compile(r"([a-z0-9])([A-Z])")
+BITRATE_PATTERN = re.compile(r"^[1-9][0-9]*(?:\.[0-9]+)?[kKmM]$")
+X264_PRESETS = (
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+)
 
 ESSENTIAL_STORE_STATUS_KEYS = {
     "ACCOUNT_INVALID",
@@ -130,6 +135,44 @@ def normalize_status_key(status_key: str) -> str:
     return normalize_status_key_runtime(status_key) or "UNKNOWN"
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
+def non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be a non-negative integer")
+    return parsed
+
+
+def h264_crf(value: str) -> int:
+    parsed = int(value)
+    if not 0 <= parsed <= 51:
+        raise argparse.ArgumentTypeError("CRF must be between 0 and 51")
+    return parsed
+
+
+def bitrate(value: str) -> str:
+    if not BITRATE_PATTERN.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            "bitrate must be a positive number followed by k or M"
+        )
+    return value
+
+
+def status_code(value: str) -> str:
+    if type(value) is not str or not value.strip():
+        raise argparse.ArgumentTypeError("status code must be a non-empty string")
+    normalized = normalize_status_key_runtime(value)
+    if normalized is None:
+        raise argparse.ArgumentTypeError("status code must contain letters or digits")
+    return normalized
+
+
 def split_identifier_words(value: str) -> list[str]:
     value = CAMEL_BOUNDARY_PATTERN.sub(r"\1 \2", value)
     value = value.replace("_", " ").replace("-", " ")
@@ -184,7 +227,7 @@ def collect_status_keys(stremthru_root: Path, scope: str) -> dict[str, set[str]]
         if not is_relevant_status_file(rel_path, scope):
             continue
 
-        source = go_file.read_text(encoding="utf-8", errors="ignore")
+        source = go_file.read_text(encoding="utf-8")
         matches = STATUS_DECLARATION_PATTERN.findall(source)
         if not matches:
             continue
@@ -311,9 +354,17 @@ def encode_status_video(
     bufsize: str,
     preset: str,
     font_file: str | None,
+    timeout: int,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     lines, fontsize = layout_message(message, width, height)
+
+    existing_mode = output.stat().st_mode & 0o7777 if output.exists() else None
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp.mp4", dir=output.parent
+    )
+    os.close(file_descriptor)
+    temporary_output = Path(temporary_name)
 
     cmd = [
         ffmpeg_bin,
@@ -356,9 +407,27 @@ def encode_status_video(
         "-t",
         str(duration),
         "-y",
-        str(output),
+        str(temporary_output),
     ]
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True, timeout=timeout)
+        if not temporary_output.is_file() or temporary_output.stat().st_size == 0:
+            raise RuntimeError("ffmpeg did not produce a non-empty status video")
+
+        with temporary_output.open("rb") as generated_file:
+            os.fsync(generated_file.fileno())
+        os.chmod(
+            temporary_output, existing_mode if existing_mode is not None else 0o644
+        )
+        os.replace(temporary_output, output)
+
+        directory_descriptor = os.open(output.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary_output.unlink(missing_ok=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -380,30 +449,39 @@ def parse_args() -> argparse.Namespace:
         default="comet/assets/status_videos",
         help="Directory where status video assets are written.",
     )
-    parser.add_argument("--width", type=int, default=1280, help="Output width.")
-    parser.add_argument("--height", type=int, default=720, help="Output height.")
+    parser.add_argument(
+        "--width", type=positive_int, default=1280, help="Output width."
+    )
+    parser.add_argument(
+        "--height", type=positive_int, default=720, help="Output height."
+    )
     parser.add_argument(
         "--duration",
-        type=int,
+        type=positive_int,
         default=10,
         help="Duration in seconds for each output video.",
     )
-    parser.add_argument("--fps", type=int, default=24, help="Output frame rate.")
     parser.add_argument(
-        "--crf", type=int, default=21, help="H.264 constant quality factor."
+        "--fps", type=positive_int, default=24, help="Output frame rate."
+    )
+    parser.add_argument(
+        "--crf", type=h264_crf, default=21, help="H.264 constant quality factor."
     )
     parser.add_argument(
         "--maxrate",
+        type=bitrate,
         default="3M",
         help="Encoder max bitrate for streaming-friendly ABR behavior.",
     )
     parser.add_argument(
         "--bufsize",
+        type=bitrate,
         default="6M",
         help="Encoder VBV buffer size.",
     )
     parser.add_argument(
         "--preset",
+        choices=X264_PRESETS,
         default="slow",
         help="x264 preset (ultrafast..veryslow).",
     )
@@ -418,19 +496,26 @@ def parse_args() -> argparse.Namespace:
         help="ffmpeg binary name or absolute path.",
     )
     parser.add_argument(
+        "--ffmpeg-timeout",
+        type=positive_int,
+        default=300,
+        help="Maximum seconds allowed for each ffmpeg invocation.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite existing files if present.",
     )
     parser.add_argument(
         "--limit",
-        type=int,
+        type=non_negative_int,
         default=0,
         help="Generate only the first N keys in batch mode (0 = all).",
     )
     parser.add_argument(
         "--code",
         action="append",
+        type=status_code,
         default=[],
         help="Generate specific status key(s) in addition to scope-derived keys.",
     )
@@ -474,15 +559,32 @@ def load_message_overrides(messages_file: str | None) -> dict[str, str]:
     if not path.is_file():
         raise FileNotFoundError(f"Messages file not found: {messages_file}")
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    def build_unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        unique = {}
+        for key, value in pairs:
+            if key in unique:
+                raise ValueError(f"Duplicate message key: {key}")
+            unique[key] = value
+        return unique
+
+    payload = json.loads(
+        path.read_text(encoding="utf-8"), object_pairs_hook=build_unique_object
+    )
     if not isinstance(payload, dict):
         raise TypeError("Messages file must be a JSON object.")
 
     normalized_map = {}
     for key, value in payload.items():
-        if not isinstance(key, str) or not isinstance(value, str):
-            continue
-        normalized_map[normalize_status_key(key)] = value.strip()
+        if not isinstance(key, str) or not key.strip():
+            raise TypeError("Message keys must be non-empty strings.")
+        if type(value) is not str or not value.strip():
+            raise TypeError("Message values must be non-empty strings.")
+        normalized_key = normalize_status_key_runtime(key)
+        if normalized_key is None:
+            raise ValueError("Message keys must contain letters or digits.")
+        if normalized_key in normalized_map:
+            raise ValueError(f"Duplicate normalized message key: {normalized_key}")
+        normalized_map[normalized_key] = value.strip()
     return normalized_map
 
 
@@ -524,23 +626,29 @@ def main() -> int:
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        timeout=min(args.ffmpeg_timeout, 30),
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    single_mode = bool(args.single_file or args.single_message)
+    single_mode = args.single_file is not None or args.single_message is not None
     if single_mode:
-        if not args.single_file or not args.single_message:
+        if (
+            type(args.single_file) is not str
+            or not args.single_file.strip()
+            or type(args.single_message) is not str
+            or not args.single_message.strip()
+        ):
             raise ValueError(
-                "--single-file and --single-message must be used together."
+                "--single-file and --single-message must be non-empty and used together."
             )
 
-        output_path = resolve_single_output_path(output_dir, args.single_file)
+        output_path = resolve_single_output_path(output_dir, args.single_file.strip())
         encode_status_video(
             args.ffmpeg_bin,
             background,
             output_path,
-            args.single_message,
+            args.single_message.strip(),
             width=args.width,
             height=args.height,
             duration=args.duration,
@@ -550,12 +658,13 @@ def main() -> int:
             bufsize=args.bufsize,
             preset=args.preset,
             font_file=font_file,
+            timeout=args.ffmpeg_timeout,
         )
         print(f"generated {output_path}")
         return 0
 
     overrides = load_message_overrides(args.messages_file)
-    requested = {normalize_status_key(code) for code in args.code}
+    requested = set(args.code)
     stremthru_root = Path(args.stremthru_root).resolve()
     has_stremthru_root = stremthru_root.is_dir()
 
@@ -588,13 +697,6 @@ def main() -> int:
     if not keys:
         raise RuntimeError("No status declarations found for the current selection.")
 
-    if args.clean_output:
-        keep_files = {f"{key}.mp4" for key in keys}
-        for stale_file in output_dir.glob("*.mp4"):
-            if stale_file.name not in keep_files:
-                stale_file.unlink()
-                print(f"removed {stale_file}")
-
     generated = []
 
     for key in keys:
@@ -618,9 +720,17 @@ def main() -> int:
             bufsize=args.bufsize,
             preset=args.preset,
             font_file=font_file,
+            timeout=args.ffmpeg_timeout,
         )
         generated.append(key)
         print(f"generated {output}")
+
+    if args.clean_output:
+        keep_files = {f"{key}.mp4" for key in keys}
+        for stale_file in output_dir.glob("*.mp4"):
+            if stale_file.name not in keep_files:
+                stale_file.unlink()
+                print(f"removed {stale_file}")
 
     print(f"ready: {len(generated)} assets")
     return 0

@@ -12,20 +12,30 @@ from comet.core.logger import log_capture, logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.utils.formatting import format_bytes
-from comet.utils.signed_session import (derive_session_secret,
-                                        encode_signed_session,
-                                        verify_signed_session)
+from comet.utils.signed_session import (
+    derive_session_secret,
+    encode_signed_session,
+    verify_signed_session,
+)
 from comet.utils.update import UpdateManager
 
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
 background_scraper_start_lock = asyncio.Lock()
 ADMIN_SESSION_COOKIE = "admin_session"
-ADMIN_SESSION_TTL = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
+ADMIN_SESSION_TTL = settings.ADMIN_DASHBOARD_SESSION_TTL
 ADMIN_SESSION_SECRET = derive_session_secret(
     settings.ADMIN_DASHBOARD_PASSWORD,
     "admin-dashboard",
 )
+
+
+def _decode_cached_metrics(value):
+    try:
+        payload = orjson.loads(value)
+    except (TypeError, orjson.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _handle_background_scraper_task_done(task: asyncio.Task):
@@ -288,11 +298,15 @@ async def admin_api_metrics(
     cached_metrics = await database.fetch_one(
         "SELECT payload_json, refreshed_at FROM metrics_cache WHERE id = 1"
     )
-    if (
-        cached_metrics
-        and cached_metrics["refreshed_at"] + settings.METRICS_CACHE_TTL > current_time
-    ):
-        return JSONResponse(orjson.loads(cached_metrics["payload_json"]))
+    if cached_metrics:
+        refreshed_at = cached_metrics["refreshed_at"]
+        if (
+            isinstance(refreshed_at, (int, float))
+            and refreshed_at + settings.METRICS_CACHE_TTL > current_time
+        ):
+            cached_payload = _decode_cached_metrics(cached_metrics["payload_json"])
+            if cached_payload is not None:
+                return JSONResponse(cached_payload)
 
     # 📊 TORRENTS METRICS
     total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")

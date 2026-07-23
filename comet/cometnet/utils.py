@@ -30,9 +30,7 @@ _crypto_executor: Optional[ThreadPoolExecutor] = None
 def get_websocket_compression() -> Optional[str]:
     """Return the websockets compression mode configured for CometNet."""
     return (
-        "deflate"
-        if settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED
-        else None
+        "deflate" if settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED else None
     )
 
 

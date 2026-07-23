@@ -14,12 +14,18 @@ class DMMScraper(BaseScraper):
 
         torrents = []
         try:
-            query = """
+            title_clauses = []
+            params = {}
+            for index, title in enumerate(request.query_titles):
+                key = f"title_query_{index}"
+                title_clauses.append(f"parsed_title LIKE :{key}")
+                params[key] = f"%{title}%"
+
+            query = f"""
                 SELECT info_hash, filename, size
                 FROM dmm_entries
-                WHERE parsed_title LIKE :title_query
+                WHERE ({" OR ".join(title_clauses)})
             """
-            params = {"title_query": f"%{request.title}%"}
 
             if request.year:
                 query += " AND (parsed_year = :year OR parsed_year IS NULL)"

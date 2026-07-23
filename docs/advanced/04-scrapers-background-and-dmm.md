@@ -66,6 +66,10 @@ It runs in cycles controlled by `DMM_INGEST_*` settings and uses a distributed l
 
 `debrid_account_scraper.py` can sync user account magnets and merge matched account torrents into stream results.
 
+Legacy account-derived cache associations can be audited and repaired manually
+through `python -m comet.db_cli cleanup-debrid-account`. The stream request path
+does not perform this validation or cleanup.
+
 Relevant controls:
 
 - `DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL`

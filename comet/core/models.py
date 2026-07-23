@@ -1,3 +1,4 @@
+import math
 import os
 import random
 import secrets
@@ -12,16 +13,97 @@ from databases.backends.sqlite import SQLiteConnection
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
-from RTN.models import (AudioRankModel, CustomRank, CustomRanksConfig,
-                        ExtrasRankModel, HdrRankModel, LanguagesConfig,
-                        OptionsConfig, QualityRankModel, ResolutionConfig,
-                        RipsRankModel)
+from RTN.models import (
+    AudioRankModel,
+    CustomRank,
+    CustomRanksConfig,
+    ExtrasRankModel,
+    HdrRankModel,
+    LanguagesConfig,
+    OptionsConfig,
+    QualityRankModel,
+    ResolutionConfig,
+    RipsRankModel,
+    TrashRankModel,
+)
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
 
 _comet_fk_enabled = False
 _SQLITE_BUSY_TIMEOUT_MS = 30000
+_SCRAPER_MODE_FIELDS = (
+    "INDEXER_MANAGER_MODE",
+    "SCRAPE_JACKETT",
+    "SCRAPE_PROWLARR",
+    "SCRAPE_COMET",
+    "SCRAPE_NYAA",
+    "SCRAPE_ANIMETOSHO",
+    "SCRAPE_SEADEX",
+    "SCRAPE_NEKOBT",
+    "SCRAPE_ZILEAN",
+    "SCRAPE_STREMTHRU",
+    "SCRAPE_DMM",
+    "SCRAPE_BITMAGNET",
+    "SCRAPE_TORRENTIO",
+    "SCRAPE_MEDIAFUSION",
+    "SCRAPE_AIOSTREAMS",
+    "SCRAPE_JACKETTIO",
+    "SCRAPE_DEBRIDIO",
+    "SCRAPE_TORBOX",
+    "SCRAPE_TORRENTSDB",
+    "SCRAPE_PEERFLIX",
+)
+_POSITIVE_WORK_COUNT_FIELDS = (
+    "EXECUTOR_MAX_WORKERS",
+    "DATABASE_BATCH_SIZE",
+    "NYAA_MAX_CONCURRENT_PAGES",
+    "ANIMETOSHO_MAX_CONCURRENT_PAGES",
+    "DMM_INGEST_CONCURRENT_WORKERS",
+    "DMM_INGEST_BATCH_SIZE",
+    "BITMAGNET_MAX_CONCURRENT_PAGES",
+    "BACKGROUND_SCRAPER_CONCURRENT_WORKERS",
+    "FILTER_PARSE_CACHE_SHARDS",
+)
+_POSITIVE_COMETNET_OPERATION_FIELDS = (
+    "COMETNET_MAX_PEERS",
+    "COMETNET_TIME_CHECK_TIMEOUT",
+    "COMETNET_REACHABILITY_RETRIES",
+    "COMETNET_REACHABILITY_TIMEOUT",
+    "COMETNET_UPNP_LEASE_DURATION",
+    "COMETNET_STATE_SAVE_INTERVAL",
+    "COMETNET_GOSSIP_INTERVAL",
+    "COMETNET_GOSSIP_MESSAGE_TTL",
+    "COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE",
+    "COMETNET_GOSSIP_TORRENT_MAX_AGE",
+    "COMETNET_PEX_BATCH_SIZE",
+    "COMETNET_PEER_CONNECT_BACKOFF_MAX",
+    "COMETNET_PEER_MAX_FAILURES",
+    "COMETNET_PEER_CLEANUP_AGE",
+    "COMETNET_TRANSPORT_MAX_MESSAGE_SIZE",
+    "COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP",
+    "COMETNET_TRANSPORT_PING_INTERVAL",
+    "COMETNET_TRANSPORT_CONNECTION_TIMEOUT",
+    "COMETNET_TRANSPORT_MAX_LATENCY_MS",
+    "COMETNET_TRANSPORT_RATE_LIMIT_COUNT",
+    "COMETNET_TRANSPORT_RATE_LIMIT_WINDOW",
+)
+_NONNEGATIVE_HTTP_OPERATION_FIELDS = (
+    "MEMORY_TRIM_INTERVAL",
+    "RATELIMIT_MAX_RETRIES",
+    "HTTP_CLIENT_TTL_DNS_CACHE",
+    "HTTP_CACHE_STREAMS_TTL",
+    "HTTP_CACHE_STALE_WHILE_REVALIDATE",
+    "HTTP_CACHE_MANIFEST_TTL",
+    "HTTP_CACHE_CONFIGURE_TTL",
+)
+_POSITIVE_HTTP_OPERATION_FIELDS = (
+    "RATELIMIT_RETRY_BASE_DELAY",
+    "HTTP_CLIENT_LIMIT",
+    "HTTP_CLIENT_LIMIT_PER_HOST",
+    "HTTP_CLIENT_KEEPALIVE_TIMEOUT",
+    "HTTP_CLIENT_TIMEOUT_TOTAL",
+)
 
 
 def set_comet_foreign_keys_enabled(enabled: bool) -> None:
@@ -101,6 +183,9 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_INDEXERS: List[str] = []
     INDEXER_MANAGER_UPDATE_INTERVAL: Optional[int] = 900
     INDEXER_MANAGER_WAIT_TIMEOUT: Optional[int] = 30
+    INDEXER_INCLUDE_CANONICAL_TITLE: bool = True
+    INDEXER_INCLUDE_ORIGINAL_TITLE: bool = True
+    INDEXER_LANGUAGES: List[str] = Field(default_factory=list)
     SCRAPE_JACKETT: Union[bool, str] = False
     JACKETT_URL: Optional[str] = "http://127.0.0.1:9117"
     JACKETT_API_KEY: Optional[str] = None
@@ -337,11 +422,101 @@ class AppSettings(BaseSettings):
     # If not set, users will only see the Node ID
     COMETNET_NODE_ALIAS: Optional[str] = None
 
+    @field_validator(*_SCRAPER_MODE_FIELDS, mode="before")
+    def validate_scraper_mode(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "false":
+                return False
+            if normalized in {"true", "both"}:
+                return True
+            if normalized in {"live", "background"}:
+                return normalized
+        raise ValueError("scraper mode must be false, true, both, live, or background")
+
+    @field_validator(*_POSITIVE_WORK_COUNT_FIELDS)
+    def validate_positive_work_count(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("work count must be a positive integer")
+        return value
+
+    @field_validator(
+        *_POSITIVE_WORK_COUNT_FIELDS,
+        *_POSITIVE_COMETNET_OPERATION_FIELDS,
+        mode="before",
+    )
+    def reject_boolean_operational_numbers(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("operational numeric values cannot be booleans")
+        return value
+
+    @field_validator(*_POSITIVE_COMETNET_OPERATION_FIELDS)
+    def validate_positive_cometnet_operation_value(cls, value):
+        if value is None or not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                "CometNet operational values must be finite and greater than zero"
+            )
+        return value
+
+    @field_validator(
+        *_NONNEGATIVE_HTTP_OPERATION_FIELDS,
+        *_POSITIVE_HTTP_OPERATION_FIELDS,
+        mode="before",
+    )
+    def reject_boolean_http_operation_values(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("HTTP operational numeric values cannot be booleans")
+        return value
+
+    @field_validator(*_NONNEGATIVE_HTTP_OPERATION_FIELDS)
+    def validate_nonnegative_http_operation_value(cls, value):
+        if value is None or not math.isfinite(value) or value < 0:
+            raise ValueError("HTTP operational values must be finite and non-negative")
+        return value
+
+    @field_validator(*_POSITIVE_HTTP_OPERATION_FIELDS)
+    def validate_positive_http_operation_value(cls, value):
+        if value is None or not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                "HTTP operational values must be finite and greater than zero"
+            )
+        return value
+
+    @field_validator("RATELIMIT_MAX_RETRIES")
+    def validate_rate_limit_retry_count(cls, value):
+        if value > 20:
+            raise ValueError("RATELIMIT_MAX_RETRIES cannot exceed 20")
+        return value
+
     @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
     def normalize_executor_workers(cls, v):
         if v is None or v == "" or str(v).lower() == "none":
             return 1
         return v
+
+    @field_validator(
+        "ADMIN_DASHBOARD_SESSION_TTL",
+        "CONFIGURE_PAGE_SESSION_TTL",
+        mode="before",
+    )
+    def reject_boolean_session_ttls(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("session TTLs cannot be booleans")
+        return value
+
+    @field_validator("ADMIN_DASHBOARD_SESSION_TTL", "CONFIGURE_PAGE_SESSION_TTL")
+    def validate_session_ttls(cls, value):
+        if value is None or value < 60:
+            raise ValueError("session TTLs must be integers of at least 60 seconds")
+        return value
+
+    @field_validator("ADMIN_DASHBOARD_PASSWORD")
+    def validate_admin_dashboard_password(cls, value):
+        if type(value) is not str or not value:
+            raise ValueError("ADMIN_DASHBOARD_PASSWORD must be a non-empty string")
+        return value
 
     @field_validator(
         "CONFIGURE_PAGE_PASSWORD",
@@ -383,6 +558,25 @@ class AppSettings(BaseSettings):
     def indexer_manager_indexers_normalization(cls, v, values):
         v = [indexer.replace(" ", "").lower() for indexer in v]
         return v
+
+    @field_validator("INDEXER_LANGUAGES")
+    def normalize_indexer_languages(cls, value):
+        languages = []
+        seen = set()
+        for language in value:
+            if (
+                not isinstance(language, str)
+                or len(normalized := language.strip().lower()) != 2
+                or not normalized.isascii()
+                or not normalized.isalpha()
+            ):
+                raise ValueError(
+                    "INDEXER_LANGUAGES entries must be ISO 639-1 language codes"
+                )
+            if normalized not in seen:
+                seen.add(normalized)
+                languages.append(normalized)
+        return languages
 
     @field_validator(
         "INDEXER_MANAGER_URL",
@@ -600,6 +794,7 @@ class CometSettingsModel(SettingsModel):
             site=CustomRank(fetch=True),
             upscaled=CustomRank(fetch=True),
         ),
+        trash=TrashRankModel(size=CustomRank(fetch=True)),
     )
 
 

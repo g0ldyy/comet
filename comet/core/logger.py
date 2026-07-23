@@ -5,8 +5,7 @@ import time
 
 from loguru import logger
 
-from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
-                                   get_level_info)
+from comet.core.log_levels import CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS, get_level_info
 from comet.utils.parsing import associate_urls_credentials
 
 logging.getLogger("demagnetize").setLevel(
@@ -251,7 +250,7 @@ def log_startup_info(settings):
         admin_password = censor(admin_password)
     else:
         admin_password = f"{admin_password} (Randomly Generated)"
-    admin_session_ttl = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
+    admin_session_ttl = settings.ADMIN_DASHBOARD_SESSION_TTL
 
     logger.log(
         "COMET",
@@ -259,7 +258,7 @@ def log_startup_info(settings):
     )
 
     configure_password = settings.CONFIGURE_PAGE_PASSWORD
-    configure_session_ttl = max(60, settings.CONFIGURE_PAGE_SESSION_TTL)
+    configure_session_ttl = settings.CONFIGURE_PAGE_SESSION_TTL
     if configure_password:
         if "CONFIGURE_PAGE_PASSWORD" in settings.model_fields_set:
             configure_password = censor(configure_password)
@@ -391,6 +390,14 @@ def log_startup_info(settings):
     logger.log(
         "COMET",
         f"Indexer Manager Update Interval: {settings.INDEXER_MANAGER_UPDATE_INTERVAL}s",
+    )
+    indexer_languages = ", ".join(settings.INDEXER_LANGUAGES) or "Disabled"
+    logger.log(
+        "COMET",
+        "Indexer Title Search: "
+        f"INDEXER_INCLUDE_CANONICAL_TITLE={settings.INDEXER_INCLUDE_CANONICAL_TITLE} - "
+        f"INDEXER_INCLUDE_ORIGINAL_TITLE={settings.INDEXER_INCLUDE_ORIGINAL_TITLE} - "
+        f"INDEXER_LANGUAGES={indexer_languages}",
     )
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
