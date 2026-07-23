@@ -11,21 +11,26 @@ is being scraped.
 
 ## Quick Start with Docker Compose
 
-The monitoring overlay adds Prometheus, Grafana, alert rules, a provisioned data
-source, and the Comet dashboard. From the repository:
+The overlay requires the same PostgreSQL password as the base deployment:
 
 ```bash
 cd deployment
 openssl rand -hex 32 > metrics-token.txt
 
+export POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export PROMETHEUS_AUTH_TOKEN_FILE="$PWD/metrics-token.txt"
-export GRAFANA_ADMIN_PASSWORD="replace-with-a-long-random-password"
+read -rsp "Grafana admin password: " GRAFANA_ADMIN_PASSWORD
+echo
+export GRAFANA_ADMIN_PASSWORD
 
 docker compose \
   -f docker-compose.yml \
   -f monitoring/docker-compose.monitoring.yml \
   up -d
 ```
+
+For an existing database, export its current `POSTGRES_PASSWORD` instead of
+generating a new one. Persist these values in `deployment/.env` for future runs.
 
 Open `http://localhost:3000` (or `GRAFANA_PORT`) and select
 **Comet / Comet · Production Overview**. The overlay does not publish the
