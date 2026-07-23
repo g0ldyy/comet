@@ -172,6 +172,7 @@ class BackgroundScraperWorker:
         self.metadata_scraper = None
         self.task: asyncio.Task | None = None
         self._active_scrape_task = None
+        self._drain_requested = False
         self._last_discovery_limit_normalization = None
         self._reset_discovery_hysteresis()
 
@@ -557,6 +558,7 @@ class BackgroundScraperWorker:
             logger.log("BACKGROUND_SCRAPER", "Background scraper is already running")
             return
 
+        self._drain_requested = False
         logger.log("BACKGROUND_SCRAPER", "Starting background scraper orchestrator")
         await self._run_continuous()
 
@@ -564,6 +566,7 @@ class BackgroundScraperWorker:
         logger.log("BACKGROUND_SCRAPER", "Stopping background scraper orchestrator")
         self.is_running = False
         self.is_paused = False
+        self._drain_requested = False
         self.pause_event.set()
 
         await self._cancel_task(self._active_scrape_task)
@@ -583,6 +586,31 @@ class BackgroundScraperWorker:
                 logger.error(f"Background scraper task stopped with error: {e}")
         self.task = None
         self._reset_discovery_hysteresis()
+
+    async def drain(self) -> bool:
+        """Stop after the active cycle, or immediately when no cycle is active."""
+        if not self.is_running:
+            return False
+
+        if self.current_run_id is None:
+            await self.stop()
+            return False
+
+        if not self._drain_requested:
+            self._drain_requested = True
+            logger.log(
+                "BACKGROUND_SCRAPER",
+                f"Run {self.current_run_id}: stop scheduled after completion",
+            )
+        return True
+
+    def cancel_drain(self) -> bool:
+        if not self.is_running or not self._drain_requested:
+            return False
+
+        self._drain_requested = False
+        logger.log("BACKGROUND_SCRAPER", "Scheduled stop cancelled")
+        return True
 
     async def pause(self):
         if not self.is_running:
@@ -694,6 +722,7 @@ class BackgroundScraperWorker:
         return {
             "running": self.is_running,
             "paused": self.is_paused,
+            "draining": self._drain_requested,
             "current_run_id": self.current_run_id,
             "last_error": self.last_error,
             "stats": {
@@ -737,6 +766,12 @@ class BackgroundScraperWorker:
             },
             "health": health,
             "actions": {
+                "can_drain": (
+                    self.is_running
+                    and self.current_run_id is not None
+                    and not self._drain_requested
+                ),
+                "can_cancel_drain": self.is_running and self._drain_requested,
                 "can_requeue_dead": True,
             },
             "latest_run": _serialize_run_row(latest_run) if latest_run else None,
@@ -760,32 +795,49 @@ class BackgroundScraperWorker:
         self.is_running = True
         interval_seconds = settings.BACKGROUND_SCRAPER_INTERVAL
 
-        while self.is_running:
-            try:
-                lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
-                if await lock.acquire(wait_timeout=None):
-                    try:
-                        scrape_task = asyncio.create_task(self._run_scraping_cycle())
-                        self._active_scrape_task = scrape_task
-                        await lock.run(scrape_task)
-                    finally:
-                        await lock.release()
-                        self._active_scrape_task = None
-                else:
+        try:
+            while self.is_running:
+                next_cycle_delay = interval_seconds
+                try:
+                    lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
+                    if await lock.acquire(wait_timeout=None):
+                        try:
+                            scrape_task = asyncio.create_task(
+                                self._run_scraping_cycle()
+                            )
+                            self._active_scrape_task = scrape_task
+                            await lock.run(scrape_task)
+                        finally:
+                            await lock.release()
+                            self._active_scrape_task = None
+                    else:
+                        logger.log(
+                            "BACKGROUND_SCRAPER",
+                            "Another instance is running background scraping. Skipping.",
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    self.last_error = str(e)
+                    next_cycle_delay = 300
+                    logger.error(f"Error in background scraper loop: {e}")
+
+                if self._drain_requested:
                     logger.log(
                         "BACKGROUND_SCRAPER",
-                        "Another instance is running background scraping. Skipping.",
+                        "Scheduled stop completed; no new cycle will be started",
                     )
+                    self._drain_requested = False
+                    break
 
                 if self.is_running:
-                    await asyncio.sleep(interval_seconds)
-            except asyncio.CancelledError:
-                self.is_running = False
-                raise
-            except Exception as e:
-                self.last_error = str(e)
-                logger.error(f"Error in background scraper loop: {e}")
-                await asyncio.sleep(300)
+                    await asyncio.sleep(next_cycle_delay)
+        finally:
+            self.is_running = False
+            self.is_paused = False
+            self._drain_requested = False
+            self.pause_event.set()
+            self._reset_discovery_hysteresis()
 
     async def _run_scraping_cycle(self):
         run_id = str(uuid.uuid4())
