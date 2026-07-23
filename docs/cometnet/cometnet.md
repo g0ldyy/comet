@@ -152,7 +152,7 @@ CometNet uses two methods to find peers:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `COMETNET_KEYS_DIR` | `data/cometnet` | Directory to store your node's identity keys. |
-| `COMETNET_ADVERTISE_URL` | *(empty)* | **Required if behind a reverse proxy.** Your public WebSocket URL (e.g., `wss://comet.example.com/cometnet/ws`). |
+| `COMETNET_ADVERTISE_URL` | *(empty)* | **Required if behind a reverse proxy.** Your public WebSocket URL (e.g., `wss://comet.example.com/cometnet/ws` or `ws://[2001:db8::1]:8765` for IPv6). |
 | `COMETNET_NODE_ALIAS` | *(empty)* | Optional friendly name for your node. Shared with peers for identification. |
 | `COMETNET_KEY_PASSWORD` | *(empty)* | Optional password to encrypt your private key on disk. |
 

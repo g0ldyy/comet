@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Callable, List, Optional, Tuple, TypeVar
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import aiohttp
 import websockets
@@ -25,6 +25,32 @@ from comet.core.models import settings
 T = TypeVar("T")
 
 _crypto_executor: Optional[ThreadPoolExecutor] = None
+
+
+def _format_host_port(host: str, port: int) -> str:
+    """Format a host and port as a URI authority."""
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
+def format_websocket_url(host: str, port: int, scheme: str = "ws") -> str:
+    """Build a WebSocket URL, adding the brackets required around IPv6 hosts."""
+    return f"{scheme}://{_format_host_port(host, port)}"
+
+
+def replace_websocket_url_port(address: str, port: int) -> str:
+    """Replace a WebSocket URL's port without losing its IPv6 host or path."""
+    parsed = urlsplit(address)
+    if parsed.scheme not in ("ws", "wss") or not parsed.hostname:
+        raise ValueError("address must be a WebSocket URL with a hostname")
+    return urlunsplit(
+        (
+            parsed.scheme,
+            _format_host_port(parsed.hostname, port),
+            parsed.path,
+            parsed.query,
+            parsed.fragment,
+        )
+    )
 
 
 def get_websocket_compression() -> Optional[str]:
@@ -180,12 +206,18 @@ def extract_ip_from_address(address: str) -> str:
     """
     try:
         address = address.strip()
-        # Handle ws:// or wss:// URLs
         if address.startswith(("ws://", "wss://")):
             parsed = urlparse(address)
             return parsed.hostname or "unknown"
-        # Handle raw IP:port or just IP
-        return address.split(":")[0]
+
+        # A bare IPv6 address contains colons but no port delimiter.
+        try:
+            return str(ipaddress.ip_address(address))
+        except ValueError:
+            pass
+
+        # Prefixing // makes urlsplit parse raw host:port authorities.
+        return urlsplit(f"//{address}").hostname or "unknown"
     except Exception:
         return "unknown"
 

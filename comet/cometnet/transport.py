@@ -33,8 +33,10 @@ from comet.cometnet.protocol import (
 )
 from comet.cometnet.utils import (
     extract_ip_from_address,
+    format_websocket_url,
     get_websocket_compression,
     is_valid_peer_address,
+    replace_websocket_url_port,
 )
 from comet.cometnet.validation import validate_message_security
 from comet.core.logger import logger
@@ -104,7 +106,6 @@ class PeerConnection:
     connected_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
     is_outbound: bool = True  # True if we initiated the connection
-    listen_port: int = 0  # Port where this peer accepts connections
     pending_pings: Dict[str, float] = field(default_factory=dict)  # nonce -> sent_time
     latency_ms: float = 0.0
     latency_samples: deque = field(
@@ -375,18 +376,6 @@ class ConnectionManager:
         conn = self._connections.get(node_id)
         if not conn:
             return None
-
-        # If we have a listen port (from handshake), prefer it over the socket port
-        # This ensures PEX shares the correct connectable address
-        if conn.listen_port > 0:
-            try:
-                scheme = "wss" if conn.address.startswith("wss://") else "ws"
-                clean = conn.address.replace(f"{scheme}://", "")
-                host = clean.split(":")[0]
-                return f"{scheme}://{host}:{conn.listen_port}"
-            except Exception:
-                pass
-
         return conn.address
 
     def register_handler(self, msg_type: MessageType, handler: MessageHandler) -> None:
@@ -404,8 +393,8 @@ class ConnectionManager:
         try:
             self._server = await websockets.serve(
                 self._handle_ws_connection,
-                "0.0.0.0",
-                self.listen_port,
+                host=None,
+                port=self.listen_port,
                 ping_interval=None,
                 ping_timeout=None,
                 max_size=self.max_message_size,
@@ -447,7 +436,7 @@ class ConnectionManager:
             remote = websocket.remote_address
             if remote:
                 client_ip = remote[0]
-                connectable_address = f"ws://{remote[0]}:{remote[1]}"
+                connectable_address = format_websocket_url(remote[0], remote[1])
             else:
                 client_ip = "unknown"
 
@@ -594,19 +583,22 @@ class ConnectionManager:
             return None
 
         ip = client_ip
+        parsed_ip = None
+        try:
+            parsed_ip = ipaddress.ip_address(ip)
+            if isinstance(parsed_ip, ipaddress.IPv6Address) and parsed_ip.ipv4_mapped:
+                parsed_ip = parsed_ip.ipv4_mapped
+            ip = str(parsed_ip)
+        except ValueError:
+            pass
 
         # Use lock to prevent race condition on connection limits
         async with self._connection_lock:
             # Check per-IP connection limit (prevent Sybil-like attacks)
             # Relax limit for private IPs (local network, Docker)
             limit = self.max_connections_per_ip
-            try:
-                if ipaddress.ip_address(ip).is_private:
-                    limit = max(
-                        limit, 50
-                    )  # Allow more connections from local/private IPs
-            except ValueError:
-                pass  # Not an IP address (hostname)
+            if parsed_ip is not None and parsed_ip.is_private:
+                limit = max(limit, 50)  # Allow more connections from private IPs
 
             current_ip_connections = self._connections_per_ip.get(ip, 0)
             if current_ip_connections >= limit:
@@ -629,7 +621,7 @@ class ConnectionManager:
         try:
             # Perform handshake (we wait for their handshake first)
             node_id = await self._perform_handshake(
-                websocket, client_ip, connectable_address, is_outbound=False
+                websocket, ip, connectable_address, is_outbound=False
             )
         finally:
             async with self._connection_lock:
@@ -801,9 +793,15 @@ class ConnectionManager:
                     )
                     return None
 
+            fallback_address = connectable_address
+            if not is_outbound and fallback_address and peer_handshake.listen_port > 0:
+                fallback_address = replace_websocket_url_port(
+                    fallback_address, peer_handshake.listen_port
+                )
+
             effective_address = await resolve_effective_peer_address(
                 peer_handshake.public_url,
-                connectable_address,
+                fallback_address,
                 allow_private=(
                     self._private_network or settings.COMETNET_ALLOW_PRIVATE_PEX
                 ),
@@ -817,7 +815,6 @@ class ConnectionManager:
                 client_ip=client_ip,
                 public_key=peer_handshake.public_key,
                 is_outbound=is_outbound,
-                listen_port=peer_handshake.listen_port,
                 alias=peer_handshake.alias,
             )
             # Atomically bind the verified identity to one live connection. The
