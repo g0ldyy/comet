@@ -60,6 +60,12 @@ class DashboardTemplateTests(unittest.TestCase):
         self.assertNotIn("StaticFiles", app_source)
         self.assertNotIn('app.mount("/static"', app_source)
 
+    def test_background_scraper_drain_control_is_reversible(self):
+        self.assertIn('id="bg-action-drain"', self.dashboard)
+        self.assertIn("function toggleBackgroundScraperDrain()", self.dashboard)
+        self.assertIn('cancelling ? "DELETE" : "POST"', self.dashboard)
+        self.assertIn("Boolean(actions.can_cancel_drain)", self.dashboard)
+
 
 class ConfigurationTemplateTests(unittest.TestCase):
     @classmethod

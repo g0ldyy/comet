@@ -32,7 +32,10 @@ Session behavior:
 
 4. **Background Scraper**
 - View status, run history, queue and SLO info.
-- Start/stop/pause/resume/requeue-dead from the dashboard.
+- Start, pause, resume, or stop immediately.
+- **Stop After Run** finishes the current scrape before stopping; while it is
+  pending, **Keep Running** cancels the scheduled stop.
+- Requeue dead items and episodes.
 
 5. **CometNet**
 - Visible for CometNet operations and pool management APIs.

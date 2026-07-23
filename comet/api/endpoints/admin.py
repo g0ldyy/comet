@@ -559,6 +559,57 @@ async def admin_background_scraper_stop(
 
 
 @router.post(
+    "/admin/api/background-scraper/drain",
+    tags=["Admin"],
+    summary="Stop Background Scraper After Current Run",
+    description=(
+        "Lets the active background scrape run finish, then stops the orchestrator "
+        "before another run starts. Stops immediately when no run is active."
+    ),
+)
+async def admin_background_scraper_drain(
+    admin_session: str = Cookie(None, description="Admin session token"),
+):
+    require_admin_auth(admin_session)
+    was_running = background_scraper.is_running
+    scheduled = await background_scraper.drain()
+    if scheduled:
+        state = "scheduled"
+        message = "Background scraper will stop after the current run"
+    elif was_running:
+        state = "stopped"
+        message = "Background scraper stopped; no run was active"
+    else:
+        state = "stopped"
+        message = "Background scraper is already stopped"
+    return JSONResponse({"success": True, "state": state, "message": message})
+
+
+@router.delete(
+    "/admin/api/background-scraper/drain",
+    tags=["Admin"],
+    summary="Cancel Scheduled Background Scraper Stop",
+    description="Cancels a pending stop-after-current-run request.",
+)
+async def admin_background_scraper_cancel_drain(
+    admin_session: str = Cookie(None, description="Admin session token"),
+):
+    require_admin_auth(admin_session)
+    cancelled = background_scraper.cancel_drain()
+    return JSONResponse(
+        {
+            "success": True,
+            "state": "running" if cancelled else "unchanged",
+            "message": (
+                "Scheduled background scraper stop cancelled"
+                if cancelled
+                else "No scheduled background scraper stop"
+            ),
+        }
+    )
+
+
+@router.post(
     "/admin/api/background-scraper/pause",
     tags=["Admin"],
     summary="Pause Background Scraper",

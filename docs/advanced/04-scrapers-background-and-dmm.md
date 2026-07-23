@@ -75,7 +75,8 @@ Refresh interval is `INDEXER_MANAGER_UPDATE_INTERVAL`.
 - distributed lock (`background_scraper_lock`)
 - queue watermark/hard-cap policy
 - run budgeting (`BACKGROUND_SCRAPER_RUN_TIME_BUDGET`)
-- pause/resume/start/stop controls
+- pause/resume/start/immediate-stop controls
+- a cancellable drain mode that finishes the active run before stopping
 - dead-item requeue API
 - run history and SLO-style status output
 

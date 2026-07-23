@@ -48,7 +48,96 @@ async def _create_queue_database(path: Path) -> ReplicaAwareDatabase:
     return database
 
 
+class _PassthroughLock:
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    async def acquire(self, **_kwargs):
+        return True
+
+    async def run(self, task):
+        await task
+
+    async def release(self):
+        pass
+
+
 class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_drain_finishes_active_cycle_without_starting_another(self):
+        worker = BackgroundScraperWorker()
+        cycle_started = asyncio.Event()
+        finish_cycle = asyncio.Event()
+        cycle_count = 0
+
+        async def run_cycle():
+            nonlocal cycle_count
+            cycle_count += 1
+            worker.current_run_id = "active-run"
+            cycle_started.set()
+            await finish_cycle.wait()
+            worker.current_run_id = None
+
+        worker._run_scraping_cycle = run_cycle
+
+        with patch("comet.background_scraper.worker.DistributedLock", _PassthroughLock):
+            task = asyncio.create_task(worker._run_continuous())
+            await cycle_started.wait()
+
+            self.assertTrue(await worker.drain())
+            self.assertTrue(await worker.drain())
+            self.assertTrue(worker.is_running)
+            self.assertTrue(worker._drain_requested)
+
+            finish_cycle.set()
+            await asyncio.wait_for(task, timeout=1)
+
+        self.assertEqual(cycle_count, 1)
+        self.assertFalse(worker.is_running)
+        self.assertFalse(worker._drain_requested)
+
+    async def test_drain_stops_immediately_when_between_cycles(self):
+        worker = BackgroundScraperWorker()
+        worker.is_running = True
+        worker.stop = AsyncMock()
+
+        self.assertFalse(await worker.drain())
+
+        worker.stop.assert_awaited_once_with()
+
+    async def test_scheduled_stop_can_be_cancelled(self):
+        worker = BackgroundScraperWorker()
+        worker.is_running = True
+        worker.current_run_id = "active-run"
+
+        self.assertTrue(await worker.drain())
+        self.assertTrue(worker.cancel_drain())
+        self.assertFalse(worker._drain_requested)
+        self.assertFalse(worker.cancel_drain())
+
+    async def test_drain_is_honored_when_active_cycle_fails(self):
+        worker = BackgroundScraperWorker()
+        cycle_started = asyncio.Event()
+        fail_cycle = asyncio.Event()
+
+        async def run_cycle():
+            worker.current_run_id = "active-run"
+            cycle_started.set()
+            await fail_cycle.wait()
+            worker.current_run_id = None
+            raise RuntimeError("cycle failed")
+
+        worker._run_scraping_cycle = run_cycle
+
+        with patch("comet.background_scraper.worker.DistributedLock", _PassthroughLock):
+            task = asyncio.create_task(worker._run_continuous())
+            await cycle_started.wait()
+            self.assertTrue(await worker.drain())
+            fail_cycle.set()
+            await asyncio.wait_for(task, timeout=1)
+
+        self.assertEqual(worker.last_error, "cycle failed")
+        self.assertFalse(worker.is_running)
+
     async def test_run_insert_failure_clears_published_runtime_state(self):
         worker = BackgroundScraperWorker()
         worker._insert_run_row = AsyncMock(side_effect=RuntimeError("insert failed"))

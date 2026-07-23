@@ -1415,7 +1415,21 @@
                           onclick="stopBackgroundScraper()"
                         >
                           <sl-icon slot="prefix" name="stop-fill"></sl-icon>
-                          Stop
+                          Stop Now
+                        </sl-button>
+                        <sl-button
+                          id="bg-action-drain"
+                          size="small"
+                          variant="warning"
+                          onclick="toggleBackgroundScraperDrain()"
+                          title="Finish the current run, then stop before the next one"
+                        >
+                          <sl-icon
+                            id="bg-action-drain-icon"
+                            slot="prefix"
+                            name="hourglass-split"
+                          ></sl-icon>
+                          <span id="bg-action-drain-label">Stop After Run</span>
                         </sl-button>
                         <sl-button
                           id="bg-action-requeue-dead"
@@ -3801,6 +3815,18 @@
         );
       }
 
+      async function toggleBackgroundScraperDrain() {
+        const button = document.getElementById("bg-action-drain");
+        const cancelling = button?.dataset.draining === "true";
+        await triggerBackgroundScraperAction(
+          "drain",
+          cancelling
+            ? "Scheduled stop cancelled"
+            : "Background scraper will stop after the current run",
+          cancelling ? "DELETE" : "POST",
+        );
+      }
+
       async function pauseBackgroundScraper() {
         await triggerBackgroundScraperAction(
           "pause",
@@ -3842,11 +3868,15 @@
         }
       }
 
-      async function triggerBackgroundScraperAction(action, successMessage) {
+      async function triggerBackgroundScraperAction(
+        action,
+        successMessage,
+        method = "POST",
+      ) {
         try {
           const response = await fetch(
             `/admin/api/background-scraper/${action}`,
-            { method: "POST" },
+            { method },
           );
           const data = await response.json().catch(() => ({}));
 
@@ -3854,7 +3884,7 @@
             throw new Error(data.message || data.detail || "Request failed");
           }
 
-          showToast(successMessage, "success");
+          showToast(data.message || successMessage, "success");
           await loadBackgroundScraperData();
         } catch (error) {
           console.error(`Background scraper ${action} failed:`, error);
@@ -3870,6 +3900,7 @@
         const dead = status.dead || {};
         const slo = status.slo || {};
         const health = status.health || {};
+        const actions = status.actions || {};
         const stats = status.stats || {};
         const latestRun = status.latest_run || {};
 
@@ -3914,6 +3945,7 @@
         ).toLocaleString();
         const orchestratorRunning = Boolean(status.running);
         const cycleRunning = Boolean(status.current_run_id);
+        const draining = Boolean(status.draining);
         const latestRunStatus = String(latestRun.status || "").toLowerCase();
         const latestRunFinishedAt = Number(latestRun.finished_at || 0);
         const latestRunStartedAt = Number(latestRun.started_at || 0);
@@ -3926,12 +3958,20 @@
         const pauseBtn = document.getElementById("bg-action-pause");
         const resumeBtn = document.getElementById("bg-action-resume");
         const stopBtn = document.getElementById("bg-action-stop");
+        const drainBtn = document.getElementById("bg-action-drain");
+        const drainIcon = document.getElementById("bg-action-drain-icon");
+        const drainLabel = document.getElementById("bg-action-drain-label");
         const requeueDeadBtn = document.getElementById(
           "bg-action-requeue-dead",
         );
         const healthBadge = document.getElementById("bg-scraper-health-badge");
 
-        if (orchestratorRunning && status.paused) {
+        if (draining) {
+          badge.variant = "warning";
+          badge.textContent = status.paused
+            ? "Stop Pending · Paused"
+            : "Stopping After Run";
+        } else if (orchestratorRunning && status.paused) {
           badge.variant = "warning";
           badge.textContent = "Paused";
         } else if (cycleRunning) {
@@ -3961,11 +4001,30 @@
         if (startBtn) startBtn.disabled = orchestratorRunning;
         if (pauseBtn)
           pauseBtn.disabled =
-            !orchestratorRunning || Boolean(status.paused);
+            !orchestratorRunning || Boolean(status.paused) || draining;
         if (resumeBtn)
           resumeBtn.disabled =
             !orchestratorRunning || !Boolean(status.paused);
         if (stopBtn) stopBtn.disabled = !orchestratorRunning;
+        if (drainBtn) {
+          drainBtn.dataset.draining = draining ? "true" : "false";
+          drainBtn.disabled = !(
+            Boolean(actions.can_drain) ||
+            Boolean(actions.can_cancel_drain)
+          );
+          drainBtn.variant = draining ? "neutral" : "warning";
+          drainBtn.title = draining
+            ? "Cancel the scheduled stop and keep running future cycles"
+            : "Finish the current run, then stop before the next one";
+        }
+        if (drainIcon) {
+          drainIcon.name = draining ? "x-circle" : "hourglass-split";
+        }
+        if (drainLabel) {
+          drainLabel.textContent = draining
+            ? "Keep Running"
+            : "Stop After Run";
+        }
         if (requeueDeadBtn)
           requeueDeadBtn.disabled = !(
             Number(dead.movies || 0) > 0 ||
@@ -3975,6 +4034,9 @@
 
         if (!orchestratorRunning) {
           backgroundScraperNextCycleState = "stopped";
+          backgroundScraperNextCycleTargetTs = null;
+        } else if (draining) {
+          backgroundScraperNextCycleState = "draining";
           backgroundScraperNextCycleTargetTs = null;
         } else if (Boolean(status.paused)) {
           backgroundScraperNextCycleState = "paused";
