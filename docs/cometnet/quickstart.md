@@ -89,6 +89,8 @@ If exposing the port directly:
 
 ```env
 COMETNET_ADVERTISE_URL=ws://YOUR_PUBLIC_IP:8765
+# IPv6 literals must be enclosed in brackets:
+COMETNET_ADVERTISE_URL=ws://[2001:db8::1]:8765
 ```
 
 ### Step 4: Open the firewall

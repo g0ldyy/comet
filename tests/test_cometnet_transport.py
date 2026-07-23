@@ -1,7 +1,7 @@
 import asyncio
 import time
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from comet.cometnet.protocol import HandshakeMessage, PingMessage
 from comet.cometnet.transport import ConnectionManager, NodeIdentity, PeerConnection
@@ -62,6 +62,106 @@ class CometNetTransportTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(manager._running)
         self.assertEqual(manager._tasks, set())
+
+    async def test_server_listens_on_all_available_address_families(self):
+        manager = ConnectionManager(_Identity())
+        server = Mock(wait_closed=AsyncMock())
+
+        with patch(
+            "comet.cometnet.transport.websockets.serve",
+            new=AsyncMock(return_value=server),
+        ) as serve:
+            await manager.start()
+            await manager.stop()
+
+        self.assertIsNone(serve.await_args.kwargs["host"])
+        self.assertEqual(serve.await_args.kwargs["port"], manager.listen_port)
+        server.close.assert_called_once_with()
+        server.wait_closed.assert_awaited_once_with()
+
+    async def test_native_ipv6_peer_address_is_a_valid_websocket_url(self):
+        manager = ConnectionManager(_Identity())
+        websocket = AsyncMock()
+        websocket.real_client_ip = None
+        websocket.remote_address = ("2001:db8::1", 49152, 0, 0)
+
+        with patch.object(
+            manager,
+            "handle_incoming_connection",
+            new=AsyncMock(return_value=None),
+        ) as handle:
+            await manager._handle_ws_connection(websocket)
+
+        handle.assert_awaited_once_with(
+            websocket,
+            "2001:db8::1",
+            "ws://[2001:db8::1]:49152",
+        )
+
+    async def test_inbound_ipv6_fallback_uses_advertised_listen_port(self):
+        manager = ConnectionManager(_Identity())
+        manager._running = True
+        handshake = HandshakeMessage(
+            sender_id="peer",
+            public_key="peer-key",
+            signature="signature",
+            listen_port=8765,
+        )
+        websocket = AsyncMock()
+        websocket.recv.return_value = handshake.to_bytes()
+
+        with (
+            patch.object(
+                NodeIdentity,
+                "verify_hex_async",
+                new=AsyncMock(return_value=True),
+            ),
+            patch.object(
+                NodeIdentity,
+                "node_id_from_public_key",
+                return_value="peer",
+            ),
+        ):
+            node_id = await manager.handle_incoming_connection(
+                websocket,
+                "2001:db8::1",
+                "ws://[2001:db8::1]:49152",
+            )
+
+        self.assertEqual(node_id, "peer")
+        self.assertEqual(
+            manager.get_peer_address("peer"),
+            "ws://[2001:db8::1]:8765",
+        )
+        await manager.stop()
+
+    async def test_equivalent_ipv6_spellings_share_connection_limit(self):
+        manager = ConnectionManager(_Identity())
+        manager._running = True
+        manager.max_connections_per_ip = 1
+        manager._connections_per_ip["2606:4700:4700::1111"] = 1
+        websocket = AsyncMock()
+
+        node_id = await manager.handle_incoming_connection(
+            websocket,
+            "2606:4700:4700:0:0:0:0:1111",
+        )
+
+        self.assertIsNone(node_id)
+        websocket.close.assert_awaited_once_with()
+
+    def test_get_peer_address_preserves_authoritative_public_url(self):
+        manager = ConnectionManager(_Identity())
+        manager._connections["peer"] = PeerConnection(
+            node_id="peer",
+            address="wss://[2001:db8::1]/cometnet/ws",
+            websocket=object(),
+        )
+
+        self.assertEqual(
+            manager.get_peer_address("peer"),
+            "wss://[2001:db8::1]/cometnet/ws",
+        )
 
     async def test_outbound_handshake_reserves_global_capacity(self):
         manager = ConnectionManager(_Identity(), max_peers=1)

@@ -50,6 +50,7 @@ from comet.cometnet.transport import ConnectionManager
 from comet.cometnet.utils import (
     check_advertise_url_reachability,
     check_system_clock_sync,
+    format_websocket_url,
     is_internal_domain,
     is_private_or_internal_ip,
     shutdown_crypto_executor,
@@ -366,7 +367,9 @@ class CometNetService(CometNetBackend):
             if external_ip:
                 # If we successfully mapped a port and don't have an advertise URL, use the IP
                 if not self.advertise_url:
-                    self.advertise_url = f"ws://{external_ip}:{self.listen_port}"
+                    self.advertise_url = format_websocket_url(
+                        external_ip, self.listen_port
+                    )
                     # Update transport with new URL
                     self.transport.advertise_url = self.advertise_url
                     logger.log(
@@ -383,7 +386,7 @@ class CometNetService(CometNetBackend):
             try:
                 parsed = urlparse(self.advertise_url)
                 host = (parsed.hostname or "").lower()
-                local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+                local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
                 is_local = host in local_hosts
             except Exception:
                 is_local = False

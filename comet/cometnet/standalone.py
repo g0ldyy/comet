@@ -492,7 +492,7 @@ class StandaloneCometNet:
         """Run the standalone server."""
         config = uvicorn.Config(
             self.app,
-            host="0.0.0.0",
+            host=None,
             port=self.http_port,
             log_config=None,
             access_log=False,

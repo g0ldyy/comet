@@ -201,10 +201,7 @@ class DiscoveryService:
         self, address: str, node_id: Optional[str] = None, source: str = "unknown"
     ) -> None:
         """Add a peer to the known peers list."""
-        # Normalize address
         address = address.strip()
-        if not address.startswith("ws://") and not address.startswith("wss://"):
-            address = f"ws://{address}"
 
         if address not in self._known_peers:
             self._known_peers[address] = KnownPeer(

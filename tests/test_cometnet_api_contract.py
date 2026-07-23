@@ -90,6 +90,28 @@ class CometNetEndpointErrorTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CometNetStandaloneLifespanTests(unittest.IsolatedAsyncioTestCase):
+    async def test_http_api_listens_on_all_available_address_families(self):
+        standalone = object.__new__(StandaloneCometNet)
+        standalone.app = object()
+        standalone.http_port = 8766
+        server = Mock(serve=AsyncMock())
+
+        with (
+            patch(
+                "comet.cometnet.standalone.uvicorn.Config",
+                return_value=object(),
+            ) as config,
+            patch(
+                "comet.cometnet.standalone.uvicorn.Server",
+                return_value=server,
+            ),
+        ):
+            await standalone.run()
+
+        self.assertIsNone(config.call_args.kwargs["host"])
+        self.assertEqual(config.call_args.kwargs["port"], standalone.http_port)
+        server.serve.assert_awaited_once_with()
+
     async def test_partial_startup_failure_runs_every_registered_cleanup(self):
         standalone = object.__new__(StandaloneCometNet)
         standalone.ws_port = 8765
