@@ -1,12 +1,15 @@
 import unittest
 from decimal import Decimal
 
-from comet.utils.formatting import format_bytes, size_to_bytes
+from comet.utils.formatting import format_bytes, get_language_emoji, size_to_bytes
 from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.status_keys import normalize_status_key
 
 
 class FormattingIdentityContractTests(unittest.TestCase):
+    def test_punjabi_uses_the_indian_flag(self):
+        self.assertEqual(get_language_emoji("pa"), "🇮🇳")
+
     def test_byte_formatting_rejects_nonfinite_negative_and_coerced_values(self):
         self.assertEqual(format_bytes(0), "0.0 B")
         self.assertEqual(format_bytes(Decimal(1536)), "1.5 KB")
