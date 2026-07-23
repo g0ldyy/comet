@@ -87,13 +87,19 @@ class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await worker.drain())
             self.assertTrue(worker.is_running)
             self.assertTrue(worker._drain_requested)
+            worker.is_paused = True
+            worker.pause_event.clear()
+            worker._discovery_paused_for_backlog = True
 
             finish_cycle.set()
             await asyncio.wait_for(task, timeout=1)
 
         self.assertEqual(cycle_count, 1)
         self.assertFalse(worker.is_running)
+        self.assertFalse(worker.is_paused)
         self.assertFalse(worker._drain_requested)
+        self.assertTrue(worker.pause_event.is_set())
+        self.assertFalse(worker._discovery_paused_for_backlog)
 
     async def test_drain_stops_immediately_when_between_cycles(self):
         worker = BackgroundScraperWorker()

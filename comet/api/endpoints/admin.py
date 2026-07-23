@@ -571,17 +571,22 @@ async def admin_background_scraper_drain(
     admin_session: str = Cookie(None, description="Admin session token"),
 ):
     require_admin_auth(admin_session)
-    was_running = background_scraper.is_running
+    if not background_scraper.is_running:
+        return JSONResponse(
+            {
+                "success": True,
+                "state": "stopped",
+                "message": "Background scraper is already stopped",
+            }
+        )
+
     scheduled = await background_scraper.drain()
     if scheduled:
         state = "scheduled"
         message = "Background scraper will stop after the current run"
-    elif was_running:
-        state = "stopped"
-        message = "Background scraper stopped; no run was active"
     else:
         state = "stopped"
-        message = "Background scraper is already stopped"
+        message = "Background scraper stopped; no run was active"
     return JSONResponse({"success": True, "state": state, "message": message})
 
 

@@ -34,6 +34,38 @@ class AdminBackgroundScraperTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(orjson.loads(response.body)["state"], "scheduled")
 
+    async def test_drain_endpoint_stops_when_no_run_is_active(self):
+        with (
+            patch.object(admin, "require_admin_auth"),
+            patch.object(admin.background_scraper, "is_running", True),
+            patch.object(
+                admin.background_scraper,
+                "drain",
+                new=AsyncMock(return_value=False),
+            ) as drain,
+        ):
+            response = await admin.admin_background_scraper_drain()
+
+        drain.assert_awaited_once_with()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(orjson.loads(response.body)["state"], "stopped")
+
+    async def test_drain_endpoint_is_idempotent_when_already_stopped(self):
+        with (
+            patch.object(admin, "require_admin_auth"),
+            patch.object(admin.background_scraper, "is_running", False),
+            patch.object(
+                admin.background_scraper,
+                "drain",
+                new=AsyncMock(),
+            ) as drain,
+        ):
+            response = await admin.admin_background_scraper_drain()
+
+        drain.assert_not_awaited()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(orjson.loads(response.body)["state"], "stopped")
+
     async def test_cancel_drain_endpoint_is_idempotent(self):
         with (
             patch.object(admin, "require_admin_auth"),

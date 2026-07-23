@@ -834,7 +834,10 @@ class BackgroundScraperWorker:
                     await asyncio.sleep(next_cycle_delay)
         finally:
             self.is_running = False
+            self.is_paused = False
             self._drain_requested = False
+            self.pause_event.set()
+            self._reset_discovery_hysteresis()
 
     async def _run_scraping_cycle(self):
         run_id = str(uuid.uuid4())
