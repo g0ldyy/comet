@@ -958,56 +958,7 @@
         </sl-alert>
 
         <script type="module">
-          const languagesEmojis = {
-            "multi": "🌎",
-            "en": "🇬🇧",  // English
-            "ja": "🇯🇵",  // Japanese
-            "zh": "🇨🇳",  // Chinese
-            "ru": "🇷🇺",  // Russian
-            "ar": "🇸🇦",  // Arabic
-            "pt": "🇵🇹",  // Portuguese
-            "es": "🇪🇸",  // Spanish
-            "fr": "🇫🇷",  // French
-            "de": "🇩🇪",  // German
-            "it": "🇮🇹",  // Italian
-            "ko": "🇰🇷",  // Korean
-            "hi": "🇮🇳",  // Hindi
-            "bn": "🇧🇩",  // Bengali
-            "pa": "🇵🇰",  // Punjabi
-            "mr": "🇮🇳",  // Marathi
-            "gu": "🇮🇳",  // Gujarati
-            "ta": "🇮🇳",  // Tamil
-            "te": "🇮🇳",  // Telugu
-            "kn": "🇮🇳",  // Kannada
-            "ml": "🇮🇳",  // Malayalam
-            "th": "🇹🇭",  // Thai
-            "vi": "🇻🇳",  // Vietnamese
-            "id": "🇮🇩",  // Indonesian
-            "tr": "🇹🇷",  // Turkish
-            "he": "🇮🇱",  // Hebrew
-            "fa": "🇮🇷",  // Persian
-            "uk": "🇺🇦",  // Ukrainian
-            "el": "🇬🇷",  // Greek
-            "lt": "🇱🇹",  // Lithuanian
-            "lv": "🇱🇻",  // Latvian
-            "et": "🇪🇪",  // Estonian
-            "pl": "🇵🇱",  // Polish
-            "cs": "🇨🇿",  // Czech
-            "sk": "🇸🇰",  // Slovak
-            "hu": "🇭🇺",  // Hungarian
-            "ro": "🇷🇴",  // Romanian
-            "bg": "🇧🇬",  // Bulgarian
-            "sr": "🇷🇸",  // Serbian
-            "hr": "🇭🇷",  // Croatian
-            "sl": "🇸🇮",  // Slovenian
-            "nl": "🇳🇱",  // Dutch
-            "da": "🇩🇰",  // Danish
-            "fi": "🇫🇮",  // Finnish
-            "sv": "🇸🇪",  // Swedish
-            "no": "🇳🇴",  // Norwegian
-            "ms": "🇲🇾",  // Malay
-            "la": "💃🏻",  // Latino
-          };
+          const languagesEmojis = {{ languageEmojis | tojson }};
           let defaultResultFormat = [];
           const ALL_RESOLUTIONS = ["r2160p", "r1440p", "r1080p", "r720p", "r576p", "r480p", "r360p", "r240p", "unknown"];
 
@@ -1075,19 +1026,21 @@
           resultFormatSelect.addEventListener("sl-change", updateResultFormatPreview);
           updateResultFormatPreview();
 
-          // try populate the form from previous settings
-          try {
-            const settings = getSettingsFromUrl();
-            if (settings != null) { populateFormFromSettings(settings); }
-          } catch (error) {
-            console.log("Failed to retrieve or parse settings from URL:", error);
-          }
-
-          // Populate language selects
+          // Populate language selects before restoring their selected values
           populateSelect("languages_required", Object.keys(languagesEmojis));
           populateSelect("languages_allowed", Object.keys(languagesEmojis));
           populateSelect("languages_excluded", Object.keys(languagesEmojis));
           populateSelect("languages_preferred", Object.keys(languagesEmojis));
+
+          // try populate the form from previous settings
+          try {
+            const settings = getSettingsFromUrl();
+            if (settings != null) {
+              populateFormFromSettings(settings, updateResultFormatPreview);
+            }
+          } catch (error) {
+            console.log("Failed to retrieve or parse settings from URL:", error);
+          }
 
           document.body.classList.add("ready");
           })();
@@ -1490,7 +1443,7 @@
             }
           }
 
-          function populateFormFromSettings(settings) {
+          function populateFormFromSettings(settings, updatePreview) {
             if (settings.cachedOnly !== null)
               document.getElementById("cachedOnly").checked = settings.cachedOnly;
             if (settings.sortCachedUncachedTogether !== undefined && settings.sortCachedUncachedTogether !== null)
@@ -1540,7 +1493,7 @@
               document.getElementById("debridStreamProxyPassword").value = settings.debridStreamProxyPassword;
             if (settings.resultFormat !== null && settings.resultFormat != "all")
               document.getElementById("resultFormat").value = settings.resultFormat;
-            updateResultFormatPreview();
+            updatePreview();
             if (settings.languages) {
               if (settings.languages.required)
                 document.getElementById("languages_required").value = settings.languages.required;

@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from comet.core.config_validation import config_check
 from comet.core.models import settings, web_config
 from comet.utils.cache import CachePolicies
+from comet.utils.languages import LANGUAGE_EMOJIS
 from comet.utils.signed_session import (
     derive_session_secret,
     encode_signed_session,
@@ -153,6 +154,7 @@ async def configure(
             if settings.CUSTOM_HEADER_HTML
             else "",
             "webConfig": web_config,
+            "languageEmojis": LANGUAGE_EMOJIS,
             "proxyDebridStream": settings.PROXY_DEBRID_STREAM,
             "disableTorrentStreams": settings.DISABLE_TORRENT_STREAMS,
             "stremioApiPrefix": settings.STREMIO_API_PREFIX,
