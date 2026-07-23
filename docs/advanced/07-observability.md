@@ -19,9 +19,8 @@ openssl rand -hex 32 > metrics-token.txt
 
 export POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export PROMETHEUS_AUTH_TOKEN_FILE="$PWD/metrics-token.txt"
-read -rsp "Grafana admin password: " GRAFANA_ADMIN_PASSWORD
-echo
-export GRAFANA_ADMIN_PASSWORD
+export GRAFANA_ADMIN_PASSWORD="$(openssl rand -hex 32)"
+echo "Grafana admin password: $GRAFANA_ADMIN_PASSWORD"
 
 docker compose \
   -f docker-compose.yml \
