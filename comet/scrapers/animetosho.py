@@ -134,12 +134,10 @@ class AnimeToshoScraper(BaseScraper):
         semaphore = asyncio.Semaphore(settings.ANIMETOSHO_MAX_CONCURRENT_PAGES)
         results = await gather_with_error_logging(
             (
-                (
-                    f"AnimeTosho query {query!r}",
-                    self._scrape_query(query, semaphore),
-                )
-                for query in request.query_titles
+                f"AnimeTosho query {query!r}",
+                self._scrape_query(query, semaphore),
             )
+            for query in request.query_titles
         )
         return deduplicate_torrents(
             [torrent for torrents in results for torrent in torrents]

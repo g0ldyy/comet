@@ -2,8 +2,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+from comet.cometnet.discovery import DiscoveryService
 from comet.cometnet.manager import CometNetService
 
 
@@ -209,6 +210,70 @@ class CometNetStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.keystore.calls, [])
         self.assertEqual(service.discovery.calls, [])
         self.assertEqual(service.gossip.calls, [])
+
+    async def test_signed_state_migrates_duplicate_discovery_node_ids(self):
+        class Identity:
+            node_id = "self"
+            public_key_hex = "public-key"
+
+            async def sign_hex_async(self, data):
+                self.signed_data = data
+                return "migrated-signature"
+
+        state = current_state()
+        state["discovery"]["known_peers"].append(
+            {
+                "address": "wss://new-peer.example",
+                "node_id": "peer",
+                "source": "pex",
+                "last_seen": 3.0,
+            }
+        )
+        state["integrity_signature"] = "original-signature"
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory, CometNetService.STATE_FILE)
+            state_path.write_text(json.dumps(state))
+            service = CometNetService(keys_dir=directory)
+            service.identity = Identity()
+            service.reputation = Recorder()
+            service.keystore = Recorder()
+            service.discovery = DiscoveryService()
+            service.gossip = Recorder()
+
+            with (
+                patch(
+                    "comet.cometnet.manager.NodeIdentity.verify_hex",
+                    return_value=True,
+                ),
+                patch(
+                    "comet.cometnet.discovery.is_valid_peer_address",
+                    new=AsyncMock(return_value=True),
+                ),
+            ):
+                await service._load_state()
+
+            persisted = json.loads(state_path.read_text())
+
+        self.assertEqual(len(service.reputation.calls), 1)
+        self.assertEqual(len(service.keystore.calls), 1)
+        self.assertEqual(len(service.gossip.calls), 1)
+        self.assertEqual(
+            set(service.discovery._known_peers),
+            {"wss://new-peer.example"},
+        )
+        self.assertEqual(
+            persisted["discovery"]["known_peers"],
+            [
+                {
+                    "address": "wss://new-peer.example",
+                    "node_id": "peer",
+                    "source": "pex",
+                    "last_seen": 3.0,
+                }
+            ],
+        )
+        self.assertEqual(persisted["integrity_signature"], "migrated-signature")
 
     async def test_invalid_late_section_does_not_partially_restore_state(self):
         state = current_state()

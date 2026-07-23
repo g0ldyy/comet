@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import APIRouter, BackgroundTasks, Query, Request
 
 from comet.api.endpoints.stream import stream as get_streams
@@ -22,7 +20,7 @@ router = APIRouter()
     summary="Add-on Manifest",
     description="Returns the add-on manifest with existing configuration.",
 )
-async def chilllink_manifest(request: Request, b64config: str = None):
+async def chilllink_manifest(request: Request, b64config: str | None = None):
     config = config_check(b64config, strict_b64config=True)
 
     manifest = {
@@ -60,9 +58,9 @@ async def chilllink_streams(
     background_tasks: BackgroundTasks,
     imdbID: str = Query(...),
     type: str = Query(...),
-    season: Optional[int] = Query(None),
-    episode: Optional[int] = Query(None),
-    b64config: Optional[str] = None,
+    season: int | None = Query(None),
+    episode: int | None = Query(None),
+    b64config: str | None = None,
 ):
     config = config_check(b64config, strict_b64config=True)
     if not config:

@@ -8,7 +8,6 @@ import math
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Dict, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 
@@ -25,9 +24,9 @@ class PeerKey:
     first_seen: float = field(default_factory=time.time)
     last_seen: float = field(default_factory=time.time)
     verified: bool = False  # True if we've verified this key in a handshake
-    _cached_key: Optional[EllipticCurvePublicKey] = None
+    _cached_key: EllipticCurvePublicKey | None = None
 
-    def get_key_obj(self) -> Optional[EllipticCurvePublicKey]:
+    def get_key_obj(self) -> EllipticCurvePublicKey | None:
         """Get the cached key object, loading it if necessary."""
         if self._cached_key is None:
             self._cached_key = NodeIdentity.load_public_key(self.public_key_hex)
@@ -133,7 +132,7 @@ class PublicKeyStore:
             if len(self._keys) > self.max_keys:
                 self._evict_oldest()
 
-    def get_key(self, node_id: str) -> Optional[str]:
+    def get_key(self, node_id: str) -> str | None:
         """
         Get a peer's public key if we have it.
 
@@ -145,7 +144,7 @@ class PublicKeyStore:
             return self._keys[node_id].public_key_hex
         return None
 
-    def get_key_obj(self, node_id: str) -> Optional[EllipticCurvePublicKey]:
+    def get_key_obj(self, node_id: str) -> EllipticCurvePublicKey | None:
         """
         Get a peer's public key object.
         """
@@ -196,7 +195,7 @@ class PublicKeyStore:
             del self._keys[node_id]
         return len(to_remove)
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get statistics about stored keys."""
         verified_count = sum(1 for k in self._keys.values() if k.verified)
         return {
@@ -205,7 +204,7 @@ class PublicKeyStore:
             "unverified_keys": len(self._keys) - verified_count,
         }
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize for persistence."""
         return {
             "keys": {
@@ -233,7 +232,7 @@ class PublicKeyStore:
         for node_id, value in data["keys"].items():
             cls._peer_from_persisted(node_id, value)
 
-    def from_dict(self, data: Dict) -> None:
+    def from_dict(self, data: dict) -> None:
         """Load from persisted data."""
         self.validate_persisted(data, max_keys=self.max_keys)
 

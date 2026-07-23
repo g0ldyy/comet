@@ -10,10 +10,11 @@ import email.utils
 import ipaddress
 import re
 import socket
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
-from typing import Any, Callable, List, Optional, Tuple, TypeVar
+from typing import Any, TypeVar
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import aiohttp
@@ -24,7 +25,7 @@ from comet.core.models import settings
 
 T = TypeVar("T")
 
-_crypto_executor: Optional[ThreadPoolExecutor] = None
+_crypto_executor: ThreadPoolExecutor | None = None
 
 
 def _format_host_port(host: str, port: int) -> str:
@@ -55,7 +56,7 @@ def replace_websocket_url_port(address: str, port: int) -> str:
     )
 
 
-def get_websocket_compression() -> Optional[str]:
+def get_websocket_compression() -> str | None:
     """Return the websockets compression mode configured for CometNet."""
     return (
         "deflate" if settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED else None
@@ -154,7 +155,7 @@ def is_internal_domain(hostname: str) -> bool:
     return False
 
 
-async def resolve_hostname_to_ip(hostname: str) -> Optional[str]:
+async def resolve_hostname_to_ip(hostname: str) -> str | None:
     """
     Resolve a hostname to its IP address.
     Returns None if resolution fails.
@@ -249,24 +250,19 @@ async def is_valid_peer_address(address: str, allow_private: bool = False) -> bo
         host = parsed.hostname.lower()
 
         # Block localhost variants if not allowed
-        if host in ("localhost", "localhost.localdomain"):
-            if not allow_private:
-                return False
+        if host in ("localhost", "localhost.localdomain") and not allow_private:
+            return False
 
         # Check for private/internal IP addresses
         if not allow_private and await is_private_or_internal_ip(host):
             return False
 
         # Port must be valid if specified
-        if parsed.port is not None:
-            if not (1 <= parsed.port <= 65535):
-                return False
-
-        # Block suspicious patterns
-        if "@" in address:  # Credential injection
+        if parsed.port is not None and not (1 <= parsed.port <= 65535):
             return False
 
-        return True
+        # Block suspicious patterns
+        return "@" not in address  # Block credential injection
     except Exception:
         return False
 
@@ -274,7 +270,7 @@ async def is_valid_peer_address(address: str, allow_private: bool = False) -> bo
 # --- Async Utilities ---
 
 
-async def run_in_executor(func: Callable[..., T], *args: Any) -> T:
+async def run_in_executor[T](func: Callable[..., T], *args: Any) -> T:
     """
     Run a blocking function in the dedicated crypto executor.
     """
@@ -288,7 +284,7 @@ async def run_in_executor(func: Callable[..., T], *args: Any) -> T:
 
 async def check_advertise_url_reachability(
     advertise_url: str, timeout: float = 10.0, logger=None
-) -> Tuple[bool, Optional[str]]:
+) -> tuple[bool, str | None]:
     """
     Check if the advertise URL is reachable by attempting a WebSocket connection.
     """
@@ -327,7 +323,7 @@ async def check_advertise_url_reachability(
         )
     except InvalidHandshake as e:
         return False, f"WebSocket handshake failed: {e}"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, f"Connection timed out after {timeout}s"
     except OSError as e:
         return False, f"Connection failed: {e}"
@@ -338,8 +334,8 @@ async def check_advertise_url_reachability(
 async def check_system_clock_sync(
     tolerance: float = 60.0,
     timeout: float = 5.0,
-    endpoints: Optional[List[str]] = None,
-) -> Tuple[bool, str, float]:
+    endpoints: list[str] | None = None,
+) -> tuple[bool, str, float]:
     """
     Check if system clock is synchronized with external sources.
     Iterates through endpoints until a successful check is performed.
@@ -366,7 +362,7 @@ async def check_system_clock_sync(
 
                     server_date_str = resp.headers["Date"]
                     server_time = email.utils.parsedate_to_datetime(server_date_str)
-                    local_time = datetime.now(timezone.utc)
+                    local_time = datetime.now(UTC)
 
                     diff = (local_time - server_time).total_seconds()
                     abs_diff = abs(diff)
@@ -383,10 +379,10 @@ async def check_system_clock_sync(
                         f"Clock in sync (offset: {diff:.2f}s, verified via {url})",
                         diff,
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 errors.append(f"{url}: Timed out")
             except Exception as e:
-                errors.append(f"{url}: {str(e)}")
+                errors.append(f"{url}: {e!s}")
 
     error_msg = " | ".join(errors)
     return False, f"All time check endpoints failed: {error_msg}", 0.0

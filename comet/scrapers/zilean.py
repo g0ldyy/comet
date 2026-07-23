@@ -56,10 +56,8 @@ class ZileanScraper(BaseScraper):
                 return data
 
         responses = await gather_with_error_logging(
-            (
-                (f"Zilean query {title!r} ({self.url})", fetch(title))
-                for title in request.query_titles
-            )
+            (f"Zilean query {title!r} ({self.url})", fetch(title))
+            for title in request.query_titles
         )
         for data in responses:
             for result in data:

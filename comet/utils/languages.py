@@ -1,6 +1,5 @@
 import unicodedata
 
-
 COUNTRY_TO_LANGUAGE = {
     "ad": "fr",
     "ae": "ar",

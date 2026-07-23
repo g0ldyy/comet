@@ -1,7 +1,6 @@
 import math
 from typing import Any
 
-
 GOSSIP_STAT_KEYS = {
     "torrents_received",
     "torrents_propagated",

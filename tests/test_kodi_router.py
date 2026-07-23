@@ -4,7 +4,6 @@ import types
 import unittest
 from pathlib import Path
 
-
 PLUGIN_ROOT = Path(__file__).parents[1] / "kodi" / "plugin.video.comet"
 
 

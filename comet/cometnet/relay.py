@@ -7,7 +7,7 @@ dedicated CometNet standalone service.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiohttp
 
@@ -25,7 +25,7 @@ class CometNetRelay(CometNetBackend):
     """
 
     def __init__(
-        self, relay_url: str, timeout: float = 30.0, api_key: Optional[str] = None
+        self, relay_url: str, timeout: float = 30.0, api_key: str | None = None
     ):
         """
         Initialize the relay client.
@@ -39,11 +39,11 @@ class CometNetRelay(CometNetBackend):
         self._display_url = censor_url(self.relay_url)
         self.timeout = timeout
         self.api_key = api_key
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._batch: List[Dict] = []
+        self._session: aiohttp.ClientSession | None = None
+        self._batch: list[dict] = []
         self._batch_lock = asyncio.Lock()
         self._flush_event = asyncio.Event()
-        self._batch_task: Optional[asyncio.Task] = None
+        self._batch_task: asyncio.Task | None = None
         self._running = False
 
         self.batch_size = 50
@@ -51,7 +51,7 @@ class CometNetRelay(CometNetBackend):
 
         self._total_relayed = 0
         self._total_errors = 0
-        self._last_error: Optional[str] = None
+        self._last_error: str | None = None
 
     @property
     def running(self) -> bool:
@@ -109,13 +109,13 @@ class CometNetRelay(CometNetBackend):
         title: str,
         size: int,
         tracker: str = "",
-        imdb_id: Optional[str] = None,
-        file_index: Optional[int] = None,
-        seeders: Optional[int] = None,
-        season: Optional[int] = None,
-        episode: Optional[int] = None,
-        sources: Optional[List[str]] = None,
-        parsed: Optional[dict] = None,
+        imdb_id: str | None = None,
+        file_index: int | None = None,
+        seeders: int | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        sources: list[str] | None = None,
+        parsed: dict | None = None,
     ) -> bool:
         """
         Queue a torrent for relay to the standalone CometNet service.
@@ -189,7 +189,7 @@ class CometNetRelay(CometNetBackend):
             async with self._batch_lock:
                 self._batch = batch_to_send + self._batch
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._total_errors += len(batch_to_send)
             logger.warning(
                 f"Relay batch send timed out after {self.timeout}s - "
@@ -199,7 +199,7 @@ class CometNetRelay(CometNetBackend):
             self._total_errors += len(batch_to_send)
             logger.debug(f"Relay batch send failed ({type(error).__name__})")
 
-    async def _send_single(self, torrent: Dict) -> bool:
+    async def _send_single(self, torrent: dict) -> bool:
         """Send a single torrent to the relay."""
         try:
             async with self._session.post(
@@ -227,7 +227,7 @@ class CometNetRelay(CometNetBackend):
             )
             return False
 
-    async def _send_batch(self, torrents: List[Dict]) -> int:
+    async def _send_batch(self, torrents: list[dict]) -> int:
         """Send a batch of torrents to the relay. Returns number successfully queued."""
         try:
             async with self._session.post(
@@ -288,7 +288,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_stats(self) -> Dict:
+    async def get_stats(self) -> dict:
         """Get relay statistics (merges remote stats with local relay stats)."""
         remote_stats = await self.fetch_remote_stats() or {}
         local_stats = {
@@ -303,7 +303,7 @@ class CometNetRelay(CometNetBackend):
         remote_stats["relay"] = local_stats
         return remote_stats
 
-    async def fetch_remote_stats(self) -> Optional[Dict]:
+    async def fetch_remote_stats(self) -> dict | None:
         """Fetch stats from the remote CometNet standalone service."""
         if not self._session or not self._running:
             return None
@@ -325,7 +325,7 @@ class CometNetRelay(CometNetBackend):
             logger.debug(f"Failed to fetch remote stats ({type(error).__name__})")
             return None
 
-    async def get_peers(self) -> Dict[str, Any]:
+    async def get_peers(self) -> dict[str, Any]:
         """Get peers from the remote CometNet standalone service."""
         if not self._session or not self._running:
             return {"peers": [], "count": 0}
@@ -341,8 +341,8 @@ class CometNetRelay(CometNetBackend):
     # --- Pool Management (proxied to standalone) ---
 
     async def _pool_request(
-        self, method: str, path: str, json_data: Optional[Dict] = None
-    ) -> Dict:
+        self, method: str, path: str, json_data: dict | None = None
+    ) -> dict:
         """Make a pool management request to the standalone service."""
         if not self._session or not self._running:
             raise RuntimeError("Relay not running")
@@ -367,7 +367,7 @@ class CometNetRelay(CometNetBackend):
             logger.warning(f"Pool request failed ({type(error).__name__})")
             raise RuntimeError("Failed to connect to standalone") from error
 
-    async def _handle_pool_response(self, response) -> Dict:
+    async def _handle_pool_response(self, response) -> dict:
         """Handle response from standalone pool endpoints."""
         if response.status == 200:
             return await response.json()
@@ -387,7 +387,7 @@ class CometNetRelay(CometNetBackend):
         display_name: str,
         description: str = "",
         join_mode: str = "invite",
-    ) -> Dict:
+    ) -> dict:
         """Create a pool on the standalone service."""
         return await self._pool_request(
             "POST",
@@ -408,7 +408,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_pools(self) -> Dict:
+    async def get_pools(self) -> dict:
         """Get pools from the standalone service."""
         pools = await self._pool_request("GET", "/pools")
         if (
@@ -421,7 +421,7 @@ class CometNetRelay(CometNetBackend):
         return pools
 
     async def join_pool_with_invite(
-        self, pool_id: str, invite_code: str, node_url: Optional[str] = None
+        self, pool_id: str, invite_code: str, node_url: str | None = None
     ) -> bool:
         """Join a pool using an invite code."""
         try:
@@ -437,9 +437,9 @@ class CometNetRelay(CometNetBackend):
     async def create_pool_invite(
         self,
         pool_id: str,
-        expires_in: Optional[int] = None,
-        max_uses: Optional[int] = None,
-    ) -> Optional[str]:
+        expires_in: int | None = None,
+        max_uses: int | None = None,
+    ) -> str | None:
         """Create an invite for a pool."""
         try:
             result = await self._pool_request(
@@ -461,7 +461,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_pool_invites(self, pool_id: str) -> Dict[str, Any]:
+    async def get_pool_invites(self, pool_id: str) -> dict[str, Any]:
         """Get active invites for a pool."""
         try:
             return await self._pool_request("GET", f"/pools/{pool_id}/invites")
@@ -506,7 +506,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_pool_details(self, pool_id: str) -> Optional[Dict]:
+    async def get_pool_details(self, pool_id: str) -> dict | None:
         """Get detailed information about a pool including all members."""
         try:
             return await self._pool_request("GET", f"/pools/{pool_id}")
@@ -543,7 +543,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+    async def broadcast_torrents(self, metadata_list: list[Any]) -> None:
         """Broadcast multiple torrents to the network (via relay)."""
         if not self._running:
             return
@@ -592,15 +592,15 @@ class CometNetRelay(CometNetBackend):
         await self.broadcast_torrents([metadata])
 
 
-_relay_instance: Optional[CometNetRelay] = None
+_relay_instance: CometNetRelay | None = None
 
 
-def get_relay() -> Optional[CometNetRelay]:
+def get_relay() -> CometNetRelay | None:
     """Get the global relay instance."""
     return _relay_instance
 
 
-async def init_relay(relay_url: str, api_key: Optional[str] = None) -> CometNetRelay:
+async def init_relay(relay_url: str, api_key: str | None = None) -> CometNetRelay:
     """Initialize the global relay instance."""
     global _relay_instance
 

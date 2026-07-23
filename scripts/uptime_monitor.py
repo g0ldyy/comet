@@ -1,7 +1,7 @@
 import asyncio
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -124,7 +124,7 @@ async def check_instance(session: aiohttp.ClientSession, url: str) -> InstanceSt
 
 def build_embed(status: InstanceStatus) -> dict:
     instance_name = status.url.replace("https://", "").replace("http://", "")
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
 
     if status.is_online and status.search_ok:
         color = 0x43B581
@@ -196,7 +196,7 @@ async def send_webhook(
 
 
 def print_status(status: InstanceStatus) -> None:
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
     instance_name = status.url.replace("https://", "").replace("http://", "")
 
     if status.is_online and status.search_ok:

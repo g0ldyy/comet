@@ -206,9 +206,7 @@ def is_relevant_status_file(rel_path: str, scope: str) -> bool:
         return rel_path.endswith(".go")
     if SERVER_STATUS_FILE_PATTERN.fullmatch(rel_path):
         return True
-    if STORE_STATUS_FILE_PATTERN.fullmatch(rel_path):
-        return True
-    return False
+    return bool(STORE_STATUS_FILE_PATTERN.fullmatch(rel_path))
 
 
 def is_essential_store_status_key(raw_key: str) -> bool:
@@ -233,11 +231,12 @@ def collect_status_keys(stremthru_root: Path, scope: str) -> dict[str, set[str]]
             continue
 
         for raw_key in matches:
-            if scope == SCOPE_ESSENTIAL and STORE_STATUS_FILE_PATTERN.fullmatch(
-                rel_path
+            if (
+                scope == SCOPE_ESSENTIAL
+                and STORE_STATUS_FILE_PATTERN.fullmatch(rel_path)
+                and not is_essential_store_status_key(raw_key)
             ):
-                if not is_essential_store_status_key(raw_key):
-                    continue
+                continue
             normalized = normalize_status_key(raw_key)
             keys_by_normalized.setdefault(normalized, set()).add(raw_key)
 
@@ -328,12 +327,10 @@ def build_filter(
     for index, line in enumerate(lines):
         y = first_y + (index * line_height)
         filters.append(
-            (
-                f"drawtext={font_part}:text='{escape_drawtext_text(line)}'"
-                f":x=(w-text_w)/2:y={y}:fontsize={fontsize}"
-                f":fontcolor=white:borderw={outline_width}:bordercolor=black@0.92"
-                f":shadowcolor=black@0.85:shadowx={shadow_offset}:shadowy={shadow_offset}:fix_bounds=1"
-            )
+            f"drawtext={font_part}:text='{escape_drawtext_text(line)}'"
+            f":x=(w-text_w)/2:y={y}:fontsize={fontsize}"
+            f":fontcolor=white:borderw={outline_width}:bordercolor=black@0.92"
+            f":shadowcolor=black@0.85:shadowx={shadow_offset}:shadowy={shadow_offset}:fix_bounds=1"
         )
 
     return ",".join(filters)
@@ -598,7 +595,7 @@ def resolve_batch_message(
     if normalized_key in DEFAULT_STATUS_MESSAGES:
         return DEFAULT_STATUS_MESSAGES[normalized_key]
 
-    preferred_raw = sorted(raw_keys, key=lambda item: (len(item), item))[0]
+    preferred_raw = min(raw_keys, key=lambda item: (len(item), item))
     return build_fallback_message(preferred_raw, normalized_key)
 
 

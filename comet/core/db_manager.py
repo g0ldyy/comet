@@ -3,9 +3,9 @@ import gzip
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiofiles
 import orjson
@@ -19,9 +19,9 @@ from comet.core.models import settings
 @dataclass
 class TableInfo:
     name: str
-    columns: List[str]
-    primary_key: List[str]
-    unique_constraints: List[Dict[str, Any]]
+    columns: list[str]
+    primary_key: list[str]
+    unique_constraints: list[dict[str, Any]]
     row_count: int = 0
 
 
@@ -188,7 +188,7 @@ class DatabaseManager:
     def _build_export_query(
         self,
         table_name: str,
-        primary_key: List[str],
+        primary_key: list[str],
         batch_size: int,
         offset: int,
         last_primary_key: tuple | None = None,
@@ -206,8 +206,10 @@ class DatabaseManager:
                     f"WHERE ({', '.join(primary_key)}) > ({', '.join(cursor_params)}) "
                 )
             return (
-                f"SELECT * FROM {table_name} {where_clause}"
-                f"ORDER BY {', '.join(primary_key)} LIMIT :batch_size",
+                (
+                    f"SELECT * FROM {table_name} {where_clause}"
+                    f"ORDER BY {', '.join(primary_key)} LIMIT :batch_size"
+                ),
                 params,
             )
 
@@ -267,7 +269,7 @@ class DatabaseManager:
         table_name: str,
         output_file: Path,
         compress: bool = True,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ):
         start_time = time.time()
         batch_size = batch_size or self.batch_size
@@ -282,7 +284,7 @@ class DatabaseManager:
 
         metadata = {
             "table_name": table_name,
-            "export_timestamp": datetime.now(timezone.utc).isoformat(),
+            "export_timestamp": datetime.now(UTC).isoformat(),
         }
         metadata_payload = orjson.dumps(metadata) + b"\n"
 
@@ -313,7 +315,7 @@ class DatabaseManager:
 
         return stats
 
-    def _build_upsert_query(self, table_info: TableInfo, columns: List[str]):
+    def _build_upsert_query(self, table_info: TableInfo, columns: list[str]):
         table_name = table_info.name
         placeholders = ", ".join([":" + col for col in columns])
 
@@ -326,8 +328,8 @@ class DatabaseManager:
     async def import_table(
         self,
         input_file: Path,
-        table_name: Optional[str] = None,
-        batch_size: Optional[int] = None,
+        table_name: str | None = None,
+        batch_size: int | None = None,
     ):
         start_time = time.time()
         batch_size = batch_size or self.batch_size
@@ -480,7 +482,7 @@ class DatabaseManager:
         return stats
 
     async def _process_batch_with_retry(
-        self, query: str, batch_data: List[Dict], max_retries: int = 5
+        self, query: str, batch_data: list[dict], max_retries: int = 5
     ):
         had_lock_error = False
 
@@ -519,7 +521,7 @@ class DatabaseManager:
 
         return 0
 
-    async def _process_batch(self, query: str, batch_data: List[Dict], table_name: str):
+    async def _process_batch(self, query: str, batch_data: list[dict], table_name: str):
         if not batch_data:
             return 0
 
@@ -530,7 +532,7 @@ class DatabaseManager:
             logger.log("DB_IMPORT", f"Batch processing failed definitively: {e}")
             return await self._process_batch_individual(query, batch_data)
 
-    async def _process_batch_individual(self, query: str, batch_data: List[Dict]):
+    async def _process_batch_individual(self, query: str, batch_data: list[dict]):
         successful_inserts = 0
         for row_data in batch_data:
             try:
@@ -542,7 +544,7 @@ class DatabaseManager:
 
     async def export_tables(
         self,
-        table_names: List[str],
+        table_names: list[str],
         output_dir: Path,
         compress: bool = True,
         parallel: bool = True,
@@ -570,7 +572,7 @@ class DatabaseManager:
     async def import_tables(
         self,
         input_dir: Path,
-        table_names: Optional[List[str]] = None,
+        table_names: list[str] | None = None,
         parallel: bool = True,
     ):
         export_files = []

@@ -9,8 +9,8 @@ from comet.core.database import (
     build_upsert_assignments,
     encode_json_param,
 )
-from comet.core.models import database, settings
 from comet.core.logger import logger
+from comet.core.models import database, settings
 from comet.utils.parsing import MediaScope, default_dump
 
 DEBRID_UPDATE_INTERVAL = (

@@ -16,7 +16,7 @@ from comet.debrid.stremthru import StremThru
 from comet.services.filtering import filter_worker
 from comet.services.lock import DistributedLock
 from comet.services.torrent_manager import torrent_update_queue
-from comet.utils.parsing import parsed_matches_target
+from comet.utils.parsing import MediaScope
 
 _SYNC_LOCK_PREFIX = "debrid-account-sync"
 _CACHED_STATUSES = frozenset({"cached", "downloaded"})
@@ -95,7 +95,7 @@ def _to_epoch(value) -> float:
         return float(value)
     if isinstance(value, str) and value:
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            return datetime.fromisoformat(value).timestamp()
         except ValueError:
             return time.time()
     return time.time()
@@ -417,7 +417,7 @@ async def ensure_account_snapshot_ready(session, debrid_entries: list[dict], ip:
                     asyncio.gather(*sync_tasks, return_exceptions=True),
                     timeout=remaining,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.log(
                     "SCRAPER",
                     "Debrid account warm sync timed out, continuing with partial data",
@@ -576,6 +576,7 @@ async def schedule_account_snapshot_refresh(
 async def get_account_torrents_for_media(
     debrid_entries: list[dict],
     media_type: str,
+    media_scope: MediaScope,
     title: str,
     year: int | None,
     year_end: int | None,
@@ -675,7 +676,7 @@ async def get_account_torrents_for_media(
 
         for torrent in filtered_torrents:
             parsed = torrent["parsed"]
-            if not parsed_matches_target(
+            if not media_scope.matches_parsed(
                 parsed,
                 season,
                 episode,

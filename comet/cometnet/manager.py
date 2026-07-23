@@ -10,7 +10,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 from urllib.parse import urlparse
 
 import aiofiles
@@ -18,6 +18,7 @@ import aiofiles
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.discovery import (
     DiscoveryService,
+    canonicalize_persisted_peers,
     is_valid_peer_address,
     validate_discovery_configuration,
 )
@@ -76,12 +77,12 @@ class CometNetService(CometNetBackend):
         self,
         enabled: bool = False,
         listen_port: int = 8765,
-        bootstrap_nodes: Optional[List[str]] = None,
-        manual_peers: Optional[List[str]] = None,
-        max_peers: int = None,
-        min_peers: int = None,
-        keys_dir: Optional[str] = None,
-        advertise_url: Optional[str] = None,
+        bootstrap_nodes: list[str] | None = None,
+        manual_peers: list[str] | None = None,
+        max_peers: int | None = None,
+        min_peers: int | None = None,
+        keys_dir: str | None = None,
+        advertise_url: str | None = None,
     ):
         self.enabled = enabled
         self.listen_port = listen_port
@@ -97,16 +98,16 @@ class CometNetService(CometNetBackend):
         self.advertise_url = advertise_url
 
         # Core components (initialized in start())
-        self.identity: Optional[NodeIdentity] = None
-        self.transport: Optional[ConnectionManager] = None
-        self.discovery: Optional[DiscoveryService] = None
-        self.gossip: Optional[GossipEngine] = None
-        self.reputation: Optional[ReputationStore] = None
-        self.keystore: Optional[PublicKeyStore] = None
-        self.upnp: Optional[UPnPManager] = None
+        self.identity: NodeIdentity | None = None
+        self.transport: ConnectionManager | None = None
+        self.discovery: DiscoveryService | None = None
+        self.gossip: GossipEngine | None = None
+        self.reputation: ReputationStore | None = None
+        self.keystore: PublicKeyStore | None = None
+        self.upnp: UPnPManager | None = None
 
         # components
-        self.pool_store: Optional[PoolStore] = None
+        self.pool_store: PoolStore | None = None
 
         # Callback for saving torrents to database
         self._save_torrent_callback = None
@@ -114,11 +115,11 @@ class CometNetService(CometNetBackend):
 
         # Running state
         self._running = False
-        self._started_at: Optional[float] = None
-        self._state_save_task: Optional[asyncio.Task] = None
-        self._background_tasks: Set[asyncio.Task] = set()
+        self._started_at: float | None = None
+        self._state_save_task: asyncio.Task | None = None
+        self._background_tasks: set[asyncio.Task] = set()
 
-    def _start_background_task(self, coroutine) -> Optional[asyncio.Task]:
+    def _start_background_task(self, coroutine) -> asyncio.Task | None:
         if not self._running:
             coroutine.close()
             return None
@@ -310,13 +311,15 @@ class CometNetService(CometNetBackend):
                 manifests = self.pool_store.get_all_manifests()
                 restored_memberships = set()
                 for pool_id, manifest in manifests.items():
-                    if manifest.is_member(my_key):
-                        if pool_id not in self.pool_store._memberships:
-                            restored_memberships.add(pool_id)
-                            logger.log(
-                                "COMETNET",
-                                f"Restored missing membership for pool {pool_id}",
-                            )
+                    if (
+                        manifest.is_member(my_key)
+                        and pool_id not in self.pool_store._memberships
+                    ):
+                        restored_memberships.add(pool_id)
+                        logger.log(
+                            "COMETNET",
+                            f"Restored missing membership for pool {pool_id}",
+                        )
 
                 if restored_memberships:
                     await self.pool_store._replace_memberships(
@@ -424,27 +427,27 @@ class CometNetService(CometNetBackend):
                 sys.exit(1)
 
         # Require advertise_url on public networks
-        if not self.advertise_url:
-            if (
-                not settings.COMETNET_PRIVATE_NETWORK
-                and not settings.COMETNET_ALLOW_PRIVATE_PEX
-            ):
-                upnp_hint = (
-                    "   (UPnP is enabled but failed to configure - check your router)\n"
-                    if settings.COMETNET_UPNP_ENABLED
-                    else "2. Or enable UPnP with COMETNET_UPNP_ENABLED=true (will auto-configure)\n"
-                )
-                logger.critical(
-                    "\nCometNet failed to start because COMETNET_ADVERTISE_URL is not configured.\n"
-                    "Without a public URL, your node's local address will be shared with peers,\n"
-                    "polluting the network with unreachable addresses.\n\n"
-                    "Please:\n"
-                    "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
-                    f"{upnp_hint}"
-                    "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
-                )
-                await logger.complete()
-                sys.exit(1)
+        if (
+            not self.advertise_url
+            and not settings.COMETNET_PRIVATE_NETWORK
+            and not settings.COMETNET_ALLOW_PRIVATE_PEX
+        ):
+            upnp_hint = (
+                "   (UPnP is enabled but failed to configure - check your router)\n"
+                if settings.COMETNET_UPNP_ENABLED
+                else "2. Or enable UPnP with COMETNET_UPNP_ENABLED=true (will auto-configure)\n"
+            )
+            logger.critical(
+                "\nCometNet failed to start because COMETNET_ADVERTISE_URL is not configured.\n"
+                "Without a public URL, your node's local address will be shared with peers,\n"
+                "polluting the network with unreachable addresses.\n\n"
+                "Please:\n"
+                "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
+                f"{upnp_hint}"
+                "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
+            )
+            await logger.complete()
+            sys.exit(1)
 
         # WebSocket reachability check
         # Verify we can connect to our own advertise URL (like a peer would)
@@ -656,17 +659,17 @@ class CometNetService(CometNetBackend):
 
         self._start_background_task(self._connect_to_pool_peers(pool_peers))
 
-    async def _connect_to_pool_peers(self, pool_peers: Dict[str, Set[str]]) -> None:
+    async def _connect_to_pool_peers(self, pool_peers: dict[str, set[str]]) -> None:
         """Background task to connect to pool peers."""
         connected = 0
-        connected_peers: List[str] = []  # Track connected peer IDs for manifest sync
+        connected_peers: list[str] = []  # Track connected peer IDs for manifest sync
 
-        for pool_id, peers in pool_peers.items():
+        for peers in pool_peers.values():
             for peer_addr in peers:
                 try:
                     # Check if already connected to this address
                     already_connected = False
-                    for nid, addr in self.transport.get_peer_addresses().items():
+                    for addr in self.transport.get_peer_addresses().values():
                         if addr == peer_addr or addr.rstrip("/") == peer_addr.rstrip(
                             "/"
                         ):
@@ -894,12 +897,12 @@ class CometNetService(CometNetBackend):
         await self.transport.send_to_peer(peer_id, message)
 
     async def _broadcast_gossip(
-        self, message: TorrentAnnounce, exclude: Optional[Set[str]] = None
+        self, message: TorrentAnnounce, exclude: set[str] | None = None
     ) -> None:
         """Broadcast a gossip message to all peers."""
         await self.transport.broadcast(message, exclude)
 
-    async def _handle_check_torrents_exist(self, info_hashes: List[str]) -> Set[str]:
+    async def _handle_check_torrents_exist(self, info_hashes: list[str]) -> set[str]:
         """Check if torrents exist locally."""
         if self._check_torrents_exist_callback:
             try:
@@ -1185,10 +1188,9 @@ class CometNetService(CometNetBackend):
             if target_member:
                 target_member.role = MemberRole.ADMIN
                 modified = True
-        elif message.action == "demote":
-            if target_member:
-                target_member.role = MemberRole.MEMBER
-                modified = True
+        elif message.action == "demote" and target_member:
+            target_member.role = MemberRole.MEMBER
+            modified = True
 
         if not modified:
             return
@@ -1295,7 +1297,7 @@ class CometNetService(CometNetBackend):
         await self.transport.send_to_peer(peer_id, msg)
 
     async def _broadcast_pool_manifest(
-        self, manifest, exclude: Optional[Set[str]] = None
+        self, manifest, exclude: set[str] | None = None
     ) -> None:
         """Broadcast a pool manifest to all connected peers."""
         msg = PoolManifestMessage(
@@ -1320,9 +1322,9 @@ class CometNetService(CometNetBackend):
         action: str,
         member_key: str,
         updated_by: str,
-        manifest_signatures: Dict[str, str],
-        new_role: Optional[str] = None,
-        exclude: Optional[Set[str]] = None,
+        manifest_signatures: dict[str, str],
+        new_role: str | None = None,
+        exclude: set[str] | None = None,
     ) -> None:
         """Broadcast a pool member update (delta)."""
         msg = PoolMemberUpdate(
@@ -1337,7 +1339,7 @@ class CometNetService(CometNetBackend):
         msg.signature = await self.identity.sign_hex_async(msg.to_signable_bytes())
         await self.transport.broadcast(msg, exclude)
 
-    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+    async def broadcast_torrents(self, metadata_list: list[Any]) -> None:
         """
         Broadcast multiple torrents to the network.
         Accepts both TorrentMetadata objects and dicts.
@@ -1392,7 +1394,7 @@ class CometNetService(CometNetBackend):
             await websocket.close()
             return
 
-        client_ip, from_proxy = get_client_ip_any(websocket)
+        client_ip, _from_proxy = get_client_ip_any(websocket)
 
         node_id = await self.transport.handle_incoming_connection(websocket, client_ip)
 
@@ -1405,7 +1407,7 @@ class CometNetService(CometNetBackend):
             # Sync manifests with the newly connected peer
             self._start_background_task(self._sync_manifests_with_peers([node_id]))
 
-    async def _on_peer_connected(self, node_id: str, address: Optional[str]) -> None:
+    async def _on_peer_connected(self, node_id: str, address: str | None) -> None:
         """Callback when a peer connects via the native WebSocket server."""
         if address:
             self.discovery.record_incoming_connection(node_id, address)
@@ -1414,7 +1416,7 @@ class CometNetService(CometNetBackend):
         # This ensures role changes and pool updates are synchronized
         self._start_background_task(self._sync_manifests_with_peers([node_id]))
 
-    async def _sync_manifests_with_peers(self, peer_ids: List[str]) -> None:
+    async def _sync_manifests_with_peers(self, peer_ids: list[str]) -> None:
         """
         Send our pool manifests to specified peers.
 
@@ -1445,7 +1447,7 @@ class CometNetService(CometNetBackend):
                 except Exception:
                     pass
 
-    async def get_stats(self) -> Dict:
+    async def get_stats(self) -> dict:
         """Get comprehensive CometNet statistics."""
         if not self._running:
             return {"enabled": False}
@@ -1519,7 +1521,7 @@ class CometNetService(CometNetBackend):
             else None,
         }
 
-    async def get_peers(self) -> Dict[str, Any]:
+    async def get_peers(self) -> dict[str, Any]:
         """Get connected peers information."""
         if not self._running or not self.transport:
             return {"peers": [], "count": 0}
@@ -1561,7 +1563,7 @@ class CometNetService(CometNetBackend):
         display_name: str,
         description: str = "",
         join_mode: str = "invite",
-    ) -> Dict:
+    ) -> dict:
         """Create a new pool with this node as admin."""
         if not self._running or not self.pool_store:
             raise RuntimeError("CometNet not running")
@@ -1622,7 +1624,7 @@ class CometNetService(CometNetBackend):
 
         return result
 
-    async def get_pools(self) -> Dict:
+    async def get_pools(self) -> dict:
         """Get all known pools and membership info."""
         if not self.pool_store:
             return {}
@@ -1655,9 +1657,9 @@ class CometNetService(CometNetBackend):
     async def create_pool_invite(
         self,
         pool_id: str,
-        expires_in: Optional[int] = None,
-        max_uses: Optional[int] = None,
-    ) -> Optional[str]:
+        expires_in: int | None = None,
+        max_uses: int | None = None,
+    ) -> str | None:
         """Create an invitation link for a pool (admin only)."""
         if not self.pool_store:
             return None
@@ -1681,7 +1683,7 @@ class CometNetService(CometNetBackend):
             logger.warning(f"Failed to create invite: {e}")
             return None
 
-    async def get_pool_invites(self, pool_id: str) -> Dict[str, Any]:
+    async def get_pool_invites(self, pool_id: str) -> dict[str, Any]:
         """Get all active invites for a pool."""
         if not self.pool_store:
             return {}
@@ -1697,7 +1699,7 @@ class CometNetService(CometNetBackend):
         return await self.pool_store.delete_invite(pool_id, invite_code)
 
     async def join_pool_with_invite(
-        self, pool_id: str, invite_code: str, node_url: Optional[str] = None
+        self, pool_id: str, invite_code: str, node_url: str | None = None
     ) -> bool:
         """
         Join a pool using an invitation code.
@@ -1832,7 +1834,7 @@ class CometNetService(CometNetBackend):
             logger.warning(f"Failed to remove member: {e}")
             return False
 
-    async def get_pool_details(self, pool_id: str) -> Optional[Dict]:
+    async def get_pool_details(self, pool_id: str) -> dict | None:
         """Get detailed information about a pool including all members."""
         if not self.pool_store:
             return None
@@ -1988,6 +1990,12 @@ class CometNetService(CometNetBackend):
                         "CometNet state belongs to a different node identity"
                     )
 
+            canonical_peers, state_migrated = canonicalize_persisted_peers(
+                state["discovery"]["known_peers"]
+            )
+            if state_migrated:
+                state["discovery"] = {"known_peers": canonical_peers}
+
             # Prevalidate every synchronous component before the first live
             # component is mutated. Discovery also builds complete candidates
             # before publishing them in its async loader below.
@@ -2014,12 +2022,19 @@ class CometNetService(CometNetBackend):
 
             if self.gossip:
                 self.gossip.from_dict(state["gossip"])
+
+            if state_migrated:
+                try:
+                    await self._write_state(state)
+                except Exception as error:
+                    logger.warning(
+                        f"Failed to persist migrated CometNet state: {error}"
+                    )
         except Exception as e:
             logger.warning(f"Failed to load CometNet state: {e}")
 
     async def _save_state(self) -> None:
         """Save state to disk."""
-        state_path = self.keys_dir / self.STATE_FILE
         state = {
             "saved_at": time.time(),
             "node_id": self.identity.node_id if self.identity else None,
@@ -2028,22 +2043,29 @@ class CometNetService(CometNetBackend):
             "discovery": self.discovery.to_dict() if self.discovery else {},
             "gossip": self.gossip.to_dict() if self.gossip else {},
         }
+        await self._write_state(state)
 
+    async def _write_state(self, state: dict) -> None:
+        """Sign and atomically persist a validated state snapshot."""
+        persisted_state = dict(state)
         if self.identity:
-            state_bytes = json.dumps(state, sort_keys=True).encode("utf-8")
-            state["integrity_signature"] = await self.identity.sign_hex_async(
+            state_bytes = json.dumps(persisted_state, sort_keys=True).encode("utf-8")
+            persisted_state["integrity_signature"] = await self.identity.sign_hex_async(
                 state_bytes
             )
 
         self.keys_dir.mkdir(parents=True, exist_ok=True)
-        await write_text_atomic(state_path, json.dumps(state, indent=2))
+        await write_text_atomic(
+            self.keys_dir / self.STATE_FILE,
+            json.dumps(persisted_state, indent=2),
+        )
 
 
 # Global instance (will be initialized by app.py if enabled)
-cometnet_service: Optional[CometNetService] = None
+cometnet_service: CometNetService | None = None
 
 
-def get_cometnet_service() -> Optional[CometNetService]:
+def get_cometnet_service() -> CometNetService | None:
     """Get the global CometNet service instance."""
     return cometnet_service
 
@@ -2051,10 +2073,10 @@ def get_cometnet_service() -> Optional[CometNetService]:
 def init_cometnet_service(
     enabled: bool = False,
     listen_port: int = 8765,
-    bootstrap_nodes: Optional[List[str]] = None,
-    manual_peers: Optional[List[str]] = None,
-    max_peers: int = None,
-    min_peers: int = None,
+    bootstrap_nodes: list[str] | None = None,
+    manual_peers: list[str] | None = None,
+    max_peers: int | None = None,
+    min_peers: int | None = None,
 ) -> CometNetService:
     """Initialize the global CometNet service."""
     global cometnet_service

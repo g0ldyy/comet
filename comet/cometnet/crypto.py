@@ -10,7 +10,6 @@ Manages node identity using ECDSA (SECP256k1) keys for:
 import hashlib
 import os
 from pathlib import Path
-from typing import Optional
 
 import aiofiles
 from cryptography.exceptions import InvalidSignature
@@ -39,13 +38,13 @@ class NodeIdentity:
     KEYS_DIR = Path("data/cometnet")
     PRIVATE_KEY_FILE = "node_private_key.pem"
 
-    def __init__(self, keys_dir: Optional[Path] = None):
+    def __init__(self, keys_dir: Path | None = None):
         self._keys_dir = keys_dir or self.KEYS_DIR
-        self._private_key: Optional[EllipticCurvePrivateKey] = None
-        self._public_key: Optional[EllipticCurvePublicKey] = None
-        self._public_key_bytes: Optional[bytes] = None
-        self._public_key_hex: Optional[str] = None
-        self._node_id: Optional[str] = None
+        self._private_key: EllipticCurvePrivateKey | None = None
+        self._public_key: EllipticCurvePublicKey | None = None
+        self._public_key_bytes: bytes | None = None
+        self._public_key_hex: str | None = None
+        self._node_id: str | None = None
 
     @property
     def node_id(self) -> str:
@@ -271,7 +270,7 @@ class NodeIdentity:
         )
 
     @staticmethod
-    def load_public_key(public_key_hex: str) -> Optional[EllipticCurvePublicKey]:
+    def load_public_key(public_key_hex: str) -> EllipticCurvePublicKey | None:
         """Load a public key object from a hex string."""
         try:
             public_key_bytes = bytes.fromhex(public_key_hex)

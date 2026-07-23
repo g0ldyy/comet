@@ -31,7 +31,7 @@ def deduplicate_torrents(torrents: list[dict]) -> list[dict]:
     return unique
 
 
-async def gather_with_error_logging(
+async def gather_with_error_logging[T](
     tasks: Iterable[tuple[str, Awaitable[T]]],
 ) -> list[T]:
     """Run independent tasks concurrently while preserving successful results."""
@@ -60,7 +60,7 @@ async def gather_with_error_logging(
 class BaseScraper(ABC):
     impersonate: str | None = None
 
-    def __init__(self, manager, session: AsyncClientWrapper, url: str = None):
+    def __init__(self, manager, session: AsyncClientWrapper, url: str | None = None):
         self.manager = manager
         self.session = session
         self.url = url

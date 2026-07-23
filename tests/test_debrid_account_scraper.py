@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,7 +67,7 @@ class DebridAccountSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     "synced_at": 2,
                 }
                 with patch.object(account_scraper, "database", database):
-                    with self.assertRaises(Exception):
+                    with self.assertRaises(sqlite3.IntegrityError):
                         await account_scraper._replace_account_snapshot(
                             "realdebrid", "account", 2, [replacement]
                         )

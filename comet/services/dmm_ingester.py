@@ -9,6 +9,7 @@ import stat
 import zipfile
 from pathlib import Path
 
+import aiofiles
 import aiohttp
 import RTN
 
@@ -81,12 +82,12 @@ class DMMIngester:
                         )
                         return
 
-                    with open(zip_path, "wb") as f:
+                    async with aiofiles.open(zip_path, "wb") as f:
                         while True:
                             chunk = await response.content.read(1024 * 1024 * 64)
                             if not chunk:
                                 break
-                            f.write(chunk)
+                            await f.write(chunk)
 
             logger.log("DMM_INGEST", "Extracting DMM hashlists...")
             extract_dir = os.path.join(TEMP_DIR, "extracted")
@@ -174,7 +175,7 @@ class DMMIngester:
                             if "database is locked" in str(e).lower() and attempt < 2:
                                 await asyncio.sleep(random.uniform(0.1, 0.5))
                                 continue
-                            raise e
+                            raise
 
                 except Exception as e:
                     logger.error(f"Error processing batch starting at {i}: {e}")
@@ -191,7 +192,7 @@ class DMMIngester:
         processed_rows = await database.fetch_all(
             "SELECT filename FROM dmm_ingested_files"
         )
-        processed_set = set(row["filename"] for row in processed_rows)
+        processed_set = {row["filename"] for row in processed_rows}
 
         return [f for f in all_files if os.path.basename(f) not in processed_set]
 

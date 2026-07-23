@@ -129,7 +129,7 @@ def _build_stream_response(
     request: Request,
     content: dict,
     is_empty: bool = False,
-    vary_headers: list = None,
+    vary_headers: list | None = None,
     cache_policy=None,
 ):
     if not settings.HTTP_CACHE_ENABLED:
@@ -249,6 +249,11 @@ def _merge_service_cache_status(target: dict, incoming: dict):
                 cache_map[service] = False
 
 
+async def _mark_scope_scraped_if_populated(media_id: str, torrents: dict) -> None:
+    if torrents:
+        await mark_scope_scraped(media_id)
+
+
 def _group_debrid_entries_by_service(debrid_entries: list) -> list[tuple[str, list]]:
     service_entries = {}
     seen_credentials = set()
@@ -322,7 +327,7 @@ async def background_scrape(
 
     try:
         await scrape_lock.run(run_scrape())
-        await mark_scope_scraped(media_id)
+        await _mark_scope_scraped_if_populated(media_id, torrent_manager.torrents)
 
         logger.log(
             "SCRAPER",
@@ -508,7 +513,7 @@ async def stream(
     media_type: str,
     media_id: str,
     background_tasks: BackgroundTasks,
-    b64config: str = None,
+    b64config: str | None = None,
     chilllink: bool = False,
     kodi: bool = False,
 ):
@@ -792,7 +797,10 @@ async def stream(
                 account_snapshot_ready = True
             else:
                 await torrent_manager.scrape_torrents(ScrapeContext.LIVE)
-            await mark_scope_scraped(media_id)
+            await _mark_scope_scraped_if_populated(
+                media_id,
+                torrent_manager.torrents,
+            )
             logger.log(
                 "SCRAPER",
                 f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",
@@ -812,6 +820,7 @@ async def stream(
         account_torrents, account_cache_status = await get_account_torrents_for_media(
             debrid_entries,
             media_type,
+            media_scope,
             title,
             year,
             year_end,
@@ -1105,15 +1114,14 @@ async def stream(
             )
             the_stream["url"] = (
                 f"{playback_base_url}/playback/{info_hash}/{entry_index}/{file_index_str}/{result_season}/{result_episode}"
-                f"?torrent_name={quoted_torrent_title}&name={quoted_title}&media_id={quoted_media_only_id}"
+                f"?torrent_name={quoted_torrent_title}&name={quoted_title}"
+                f"&media_id={quoted_media_only_id}&media_type={media_type}"
             )
 
             if is_cached:
                 added_hashes.add(info_hash)
 
-            if sort_mixed:
-                cached_results.append(the_stream)
-            elif is_cached:
+            if sort_mixed or is_cached:
                 cached_results.append(the_stream)
             else:
                 non_cached_results.append(the_stream)

@@ -19,7 +19,7 @@ async def monitored_handle_stream_request(
     method: str,
     video_url: str,
     proxy_headers: mediaflow_proxy.utils.http_utils.ProxyRequestHeaders,
-    connection_id: str = None,
+    connection_id: str | None = None,
 ):
     response = await mediaflow_proxy.handlers.handle_stream_request(
         method, video_url, proxy_headers

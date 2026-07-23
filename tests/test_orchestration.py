@@ -233,3 +233,73 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("a" * 40, manager.torrents)
         self.assertEqual(manager.torrents["b" * 40]["sources"], ["tracker:first"])
+
+    async def test_series_cache_projects_episode_children_without_losing_pack_title(
+        self,
+    ):
+        manager = TorrentManager(
+            media_type="series",
+            media_full_id="tt123",
+            media_only_id="tt123",
+            title="Show",
+            year=2024,
+            year_end=None,
+            season=None,
+            episode=None,
+            aliases={},
+            remove_adult_content=False,
+        )
+        pack_hash = "a" * 40
+        episode_hash = "b" * 40
+        base_row = {
+            "seeders": 1,
+            "size": 100,
+            "tracker": "cache",
+            "sources_json": "[]",
+            "updated_at": 1,
+        }
+        rows = [
+            {
+                **base_row,
+                "info_hash": pack_hash,
+                "file_index": None,
+                "title": "Show.S01.COMPLETE.mkv",
+                "episode": None,
+                "parsed_json": (
+                    '{"raw_title":"Show.S01.COMPLETE.mkv","seasons":[1],"episodes":[]}'
+                ),
+            },
+            {
+                **base_row,
+                "info_hash": pack_hash,
+                "file_index": 1,
+                "title": "Show.S01E01.mkv",
+                "episode": 1,
+                "parsed_json": (
+                    '{"raw_title":"Show.S01E01.mkv","seasons":[1],"episodes":[1]}'
+                ),
+            },
+            {
+                **base_row,
+                "info_hash": episode_hash,
+                "file_index": 0,
+                "title": "Show.S02E03.mkv",
+                "episode": 3,
+                "parsed_json": (
+                    '{"raw_title":"Show.S02E03.mkv","seasons":[2],"episodes":[3]}'
+                ),
+            },
+        ]
+
+        with patch.object(manager, "_fetch_cached_rows", return_value=rows):
+            await manager.get_cached_torrents()
+
+        self.assertEqual(set(manager.torrents), {pack_hash, episode_hash})
+        self.assertEqual(
+            manager.torrents[pack_hash]["title"],
+            "Show.S01.COMPLETE.mkv",
+        )
+        self.assertEqual(
+            manager.torrents[episode_hash]["title"],
+            "Show.S02E03.mkv",
+        )

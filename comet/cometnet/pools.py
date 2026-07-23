@@ -22,7 +22,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set
 
 import aiofiles
 import msgpack
@@ -52,7 +51,7 @@ def _validate_pool_id(value: object) -> str:
     return value
 
 
-def _decode_pool_id_list(data: object, label: str) -> Set[str]:
+def _decode_pool_id_list(data: object, label: str) -> set[str]:
     if type(data) is not list:
         raise ValueError(f"{label} root must be a list")
     pool_ids = [_validate_pool_id(value) for value in data]
@@ -61,17 +60,17 @@ def _decode_pool_id_list(data: object, label: str) -> Set[str]:
     return set(pool_ids)
 
 
-def _encode_pool_id_set(values: object, label: str) -> List[str]:
+def _encode_pool_id_set(values: object, label: str) -> list[str]:
     if type(values) is not set:
         raise ValueError(f"{label} must be a set")
     return sorted(_validate_pool_id(value) for value in values)
 
 
-def _decode_pool_peers(data: object) -> Dict[str, Set[str]]:
+def _decode_pool_peers(data: object) -> dict[str, set[str]]:
     if type(data) is not dict:
         raise ValueError("pool peers root must be an object")
 
-    result: Dict[str, Set[str]] = {}
+    result: dict[str, set[str]] = {}
     for raw_pool_id, raw_peers in data.items():
         pool_id = _validate_pool_id(raw_pool_id)
         if type(raw_peers) is not list or any(
@@ -84,11 +83,11 @@ def _decode_pool_peers(data: object) -> Dict[str, Set[str]]:
     return result
 
 
-def _encode_pool_peers(data: object) -> Dict[str, List[str]]:
+def _encode_pool_peers(data: object) -> dict[str, list[str]]:
     if type(data) is not dict:
         raise ValueError("pool peers must be an object")
 
-    result: Dict[str, List[str]] = {}
+    result: dict[str, list[str]] = {}
     for raw_pool_id, raw_peers in sorted(data.items()):
         pool_id = _validate_pool_id(raw_pool_id)
         if type(raw_peers) is not set or any(
@@ -122,7 +121,7 @@ class PoolMember(BaseModel):
     role: MemberRole = MemberRole.MEMBER
     added_at: float = Field(default_factory=time.time)
     added_by: str  # Public key of admin who added this member
-    alias: Optional[str] = None  # Friendly name
+    alias: str | None = None  # Friendly name
 
     # Stats (local tracking)
     contribution_count: int = 0
@@ -183,7 +182,7 @@ class PoolManifest(BaseModel):
     description: str = ""
 
     # Members
-    members: List[PoolMember]
+    members: list[PoolMember]
 
     # Rules
     join_mode: JoinMode = JoinMode.INVITE
@@ -194,7 +193,7 @@ class PoolManifest(BaseModel):
 
     # Signatures from admins (at least 1 required for validity)
     # Maps admin public key -> signature
-    signatures: Dict[str, str] = Field(default_factory=dict)
+    signatures: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("pool_id", mode="before")
     @classmethod
@@ -266,13 +265,13 @@ class PoolManifest(BaseModel):
             raise ValueError("updated_at cannot precede created_at")
         return self
 
-    def get_admins(self) -> List[PoolMember]:
+    def get_admins(self) -> list[PoolMember]:
         """Get all admin members (including creator)."""
         return [
             m for m in self.members if m.role in (MemberRole.ADMIN, MemberRole.CREATOR)
         ]
 
-    def get_member(self, public_key: str) -> Optional[PoolMember]:
+    def get_member(self, public_key: str) -> PoolMember | None:
         """Get a member by public key."""
         return next((m for m in self.members if m.public_key == public_key), None)
 
@@ -334,7 +333,7 @@ class PoolManifest(BaseModel):
         """Serialize the manifest to MsgPack bytes."""
         return msgpack.packb(self.to_persisted_dict())
 
-    def to_persisted_dict(self) -> Dict:
+    def to_persisted_dict(self) -> dict:
         """Serialize consensus and local fields without derived node IDs."""
         return self.model_dump(exclude={"members": {"__all__": {"node_id"}}})
 
@@ -386,8 +385,8 @@ class PoolInvite(BaseModel):
     invite_code: str = Field(default_factory=lambda: secrets.token_urlsafe(16))
     created_by: str  # Admin public key
     created_at: float = Field(default_factory=time.time)
-    expires_at: Optional[float] = None  # None = never expires
-    max_uses: Optional[int] = None  # None = unlimited
+    expires_at: float | None = None  # None = never expires
+    max_uses: int | None = None  # None = unlimited
     uses: int = 0
     signature: str = ""  # Signature from creating admin
     node_url: str = ""  # URL of the node that created the invite
@@ -433,9 +432,7 @@ class PoolInvite(BaseModel):
         """Check if the invite is still valid."""
         if self.expires_at is not None and time.time() > self.expires_at:
             return False
-        if self.max_uses is not None and self.uses >= self.max_uses:
-            return False
-        return True
+        return not (self.max_uses is not None and self.uses >= self.max_uses)
 
     def to_signable_bytes(self) -> bytes:
         """Get bytes for signing."""
@@ -461,7 +458,7 @@ class PoolInvite(BaseModel):
         return f"cometnet://join?{urllib.parse.urlencode(params)}"
 
     @classmethod
-    def parse_link(cls, link: str) -> Optional[Dict[str, str]]:
+    def parse_link(cls, link: str) -> dict[str, str] | None:
         """
         Parse an invite link into its components.
 
@@ -520,20 +517,20 @@ class PoolStore:
     └── pool_peers.json     # Known peer addresses for each pool
     """
 
-    def __init__(self, pools_dir: Optional[str] = None):
+    def __init__(self, pools_dir: str | None = None):
         self.pools_dir = Path(pools_dir or settings.COMETNET_POOLS_DIR)
         self.manifests_dir = self.pools_dir / "manifests"
         self.invites_dir = self.pools_dir / "invites"
 
         # In-memory caches
-        self._manifests: Dict[str, PoolManifest] = {}
-        self._memberships: Set[str] = set()  # Pool IDs where we are member
-        self._subscriptions: Set[str] = set()  # Pool IDs we trust
-        self._invites: Dict[
-            str, Dict[str, PoolInvite]
+        self._manifests: dict[str, PoolManifest] = {}
+        self._memberships: set[str] = set()  # Pool IDs where we are member
+        self._subscriptions: set[str] = set()  # Pool IDs we trust
+        self._invites: dict[
+            str, dict[str, PoolInvite]
         ] = {}  # pool_id -> {code -> invite}
-        self._pool_peers: Dict[str, Set[str]] = {}  # pool_id -> set of peer addresses
-        self._dirty_manifests: Set[str] = set()  # Manifests that need saving
+        self._pool_peers: dict[str, set[str]] = {}  # pool_id -> set of peer addresses
+        self._dirty_manifests: set[str] = set()  # Manifests that need saving
         self._mutation_lock = asyncio.Lock()
         self._auxiliary_lock = asyncio.Lock()
 
@@ -572,12 +569,12 @@ class PoolStore:
 
     # ==================== Manifest Operations ====================
 
-    def get_manifest(self, pool_id: str) -> Optional[PoolManifest]:
+    def get_manifest(self, pool_id: str) -> PoolManifest | None:
         """Get a pool manifest by ID."""
         manifest = self._manifests.get(pool_id)
         return manifest.model_copy(deep=True) if manifest else None
 
-    def get_all_manifests(self) -> Dict[str, PoolManifest]:
+    def get_all_manifests(self) -> dict[str, PoolManifest]:
         """Get all known pool manifests."""
         return {
             pool_id: manifest.model_copy(deep=True)
@@ -621,7 +618,7 @@ class PoolStore:
     async def accept_remote_manifest(
         self,
         manifest: PoolManifest,
-    ) -> tuple[bool, Optional[PoolManifest]]:
+    ) -> tuple[bool, PoolManifest | None]:
         """Validate and serialize publication of a newer remote manifest."""
         async with self._mutation_lock:
             current = self.get_manifest(manifest.pool_id)
@@ -733,7 +730,7 @@ class PoolStore:
         """Check if we are a member of a pool."""
         return pool_id in self._memberships
 
-    def get_memberships(self) -> Set[str]:
+    def get_memberships(self) -> set[str]:
         """Get all pools we are a member of."""
         return self._memberships.copy()
 
@@ -755,7 +752,7 @@ class PoolStore:
         new_member_key: str,
         identity,  # NodeIdentity (must be admin)
         role: MemberRole = MemberRole.MEMBER,
-        alias: Optional[str] = None,
+        alias: str | None = None,
     ) -> bool:
         """Serialize an administrator member addition."""
         async with self._mutation_lock:
@@ -773,7 +770,7 @@ class PoolStore:
         new_member_key: str,
         identity,
         role: MemberRole,
-        alias: Optional[str],
+        alias: str | None,
     ) -> bool:
         """
         Add a new member to a pool (admin action).
@@ -960,7 +957,7 @@ class PoolStore:
         """Check if we subscribe to a pool."""
         return pool_id in self._subscriptions
 
-    def get_subscriptions(self) -> Set[str]:
+    def get_subscriptions(self) -> set[str]:
         """Get all pools we subscribe to."""
         return self._subscriptions.copy()
 
@@ -979,7 +976,7 @@ class PoolStore:
         logger.log("COMETNET", f"Unsubscribed from pool {pool_id}")
 
     def is_contributor_trusted(
-        self, contributor_key: str, pool_id: Optional[str] = None
+        self, contributor_key: str, pool_id: str | None = None
     ) -> bool:
         """
         Check if a contributor is trusted (member of a subscribed pool).
@@ -1002,9 +999,7 @@ class PoolStore:
             if pool_id not in self._subscriptions:
                 return False
             manifest = self._manifests.get(pool_id)
-            if manifest and manifest.is_member(contributor_key):
-                return True
-            return False
+            return bool(manifest and manifest.is_member(contributor_key))
 
         # Check if contributor is member of any subscribed pool
         for sub_pool_id in self._subscriptions:
@@ -1020,9 +1015,9 @@ class PoolStore:
         self,
         pool_id: str,
         identity,  # NodeIdentity (must be admin)
-        expires_in: Optional[int] = None,  # Seconds
-        max_uses: Optional[int] = None,
-        node_url: Optional[str] = None,  # URL of this node for remote joining
+        expires_in: int | None = None,  # Seconds
+        max_uses: int | None = None,
+        node_url: str | None = None,  # URL of this node for remote joining
     ) -> PoolInvite:
         """Create an invitation to join a pool."""
         manifest = self.get_manifest(pool_id)
@@ -1054,7 +1049,7 @@ class PoolStore:
         logger.log("COMETNET", f"Created invite for pool {pool_id}: {invite.to_link()}")
         return invite
 
-    def get_invites(self, pool_id: str) -> List[PoolInvite]:
+    def get_invites(self, pool_id: str) -> list[PoolInvite]:
         """Get all invites for a pool."""
         return [
             invite.model_copy(deep=True)
@@ -1076,7 +1071,7 @@ class PoolStore:
             return True
         return False
 
-    def get_invite(self, pool_id: str, invite_code: str) -> Optional[PoolInvite]:
+    def get_invite(self, pool_id: str, invite_code: str) -> PoolInvite | None:
         """Get an invite by pool ID and code."""
         invite = self._invites.get(pool_id, {}).get(invite_code)
         return invite.model_copy(deep=True) if invite else None
@@ -1086,7 +1081,7 @@ class PoolStore:
         pool_id: str,
         invite_code: str,
         identity,  # NodeIdentity of the joining node
-        alias: Optional[str] = None,
+        alias: str | None = None,
     ) -> bool:
         """
         Use an invitation to join a pool.
@@ -1120,9 +1115,9 @@ class PoolStore:
         invite_code: str,
         member_key: str,
         *,
-        alias: Optional[str] = None,
+        alias: str | None = None,
         signing_identity=None,
-    ) -> Optional[tuple[PoolManifest, PoolInvite, bool]]:
+    ) -> tuple[PoolManifest, PoolInvite, bool] | None:
         """Atomically validate/consume an invite and publish its member manifest."""
         async with self._mutation_lock:
             invite = self.get_invite(pool_id, invite_code)
@@ -1200,11 +1195,11 @@ class PoolStore:
         """Save memberships to disk."""
         await self._write_memberships(self._memberships)
 
-    async def _replace_memberships(self, memberships: Set[str]) -> None:
+    async def _replace_memberships(self, memberships: set[str]) -> None:
         await self._write_memberships(memberships)
         self._memberships = memberships
 
-    async def _write_memberships(self, memberships: Set[str]) -> None:
+    async def _write_memberships(self, memberships: set[str]) -> None:
         memberships_file = self.pools_dir / "memberships.json"
         payload = _encode_pool_id_set(memberships, "memberships")
         await write_text_atomic(memberships_file, json.dumps(payload))
@@ -1232,11 +1227,11 @@ class PoolStore:
         """Save subscriptions to disk."""
         await self._write_subscriptions(self._subscriptions)
 
-    async def _replace_subscriptions(self, subscriptions: Set[str]) -> None:
+    async def _replace_subscriptions(self, subscriptions: set[str]) -> None:
         await self._write_subscriptions(subscriptions)
         self._subscriptions = subscriptions
 
-    async def _write_subscriptions(self, subscriptions: Set[str]) -> None:
+    async def _write_subscriptions(self, subscriptions: set[str]) -> None:
         subscriptions_file = self.pools_dir / "subscriptions.json"
         payload = _encode_pool_id_set(subscriptions, "subscriptions")
         await write_text_atomic(subscriptions_file, json.dumps(payload))
@@ -1307,11 +1302,11 @@ class PoolStore:
         """Save known pool peers to disk."""
         await self._write_pool_peers(self._pool_peers)
 
-    async def _replace_pool_peers(self, pool_peers: Dict[str, Set[str]]) -> None:
+    async def _replace_pool_peers(self, pool_peers: dict[str, set[str]]) -> None:
         await self._write_pool_peers(pool_peers)
         self._pool_peers = pool_peers
 
-    async def _write_pool_peers(self, pool_peers: Dict[str, Set[str]]) -> None:
+    async def _write_pool_peers(self, pool_peers: dict[str, set[str]]) -> None:
         peers_file = self.pools_dir / "pool_peers.json"
         data = _encode_pool_peers(pool_peers)
         await write_text_atomic(peers_file, json.dumps(data, indent=2))
@@ -1343,13 +1338,13 @@ class PoolStore:
             }
             await self._replace_pool_peers(pool_peers)
 
-    def get_pool_peers(self, pool_id: str) -> Set[str]:
+    def get_pool_peers(self, pool_id: str) -> set[str]:
         """Get known peer addresses for a pool."""
         return self._pool_peers.get(pool_id, set()).copy()
 
-    def get_all_pool_peers(self) -> Dict[str, Set[str]]:
+    def get_all_pool_peers(self) -> dict[str, set[str]]:
         """Get all known pool peers for all pools we're a member of."""
-        result: Dict[str, Set[str]] = {}
+        result: dict[str, set[str]] = {}
         for pool_id in self._memberships:
             peers = self._pool_peers.get(pool_id, set())
             if peers:
@@ -1361,7 +1356,7 @@ class PoolStore:
     async def record_contribution(
         self,
         contributor_public_key: str,
-        pool_id: Optional[str] = None,
+        pool_id: str | None = None,
         count: int = 1,
     ) -> bool:
         """
@@ -1417,7 +1412,7 @@ class PoolStore:
         """Save all modified manifests to disk."""
         async with self._mutation_lock:
             count = 0
-            for pool_id in sorted(tuple(self._dirty_manifests)):
+            for pool_id in sorted(self._dirty_manifests):
                 manifest = self._manifests.get(pool_id)
                 if manifest is None:
                     self._dirty_manifests.discard(pool_id)
@@ -1437,7 +1432,7 @@ class PoolStore:
     async def validate_manifest(
         self,
         manifest: PoolManifest,
-        trusted_manifest: Optional[PoolManifest] = None,
+        trusted_manifest: PoolManifest | None = None,
     ) -> bool:
         """
         Validate a pool manifest.
@@ -1461,14 +1456,14 @@ class PoolStore:
             signable_data = manifest.to_signable_bytes()
 
             for admin_key, signature in manifest.signatures.items():
-                if signature_authority.is_admin(admin_key):
-                    if await NodeIdentity.verify_hex_async(
-                        signable_data, signature, admin_key
-                    ):
-                        return True
+                if signature_authority.is_admin(
+                    admin_key
+                ) and await NodeIdentity.verify_hex_async(
+                    signable_data, signature, admin_key
+                ):
+                    return True
         except Exception as e:
             logger.debug(f"Validation error for pool {manifest.pool_id}: {e}")
-            pass
 
         if manifest.signatures:
             try:
@@ -1485,7 +1480,7 @@ class PoolStore:
 
     # ==================== Stats ====================
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get pool store statistics."""
         return {
             "pools_known": len(self._manifests),

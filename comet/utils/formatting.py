@@ -129,11 +129,7 @@ languages_emojis = {
 
 def get_language_emoji(language: str):
     language_formatted = language.lower()
-    return (
-        languages_emojis[language_formatted]
-        if language_formatted in languages_emojis
-        else language
-    )
+    return languages_emojis.get(language_formatted, language)
 
 
 def format_video_info(data: ParsedData):
@@ -204,9 +200,12 @@ def format_quality_info(data: ParsedData):
         quality_parts.append("UPSCALED")
     if hasattr(data, "remastered") and data.remastered:
         quality_parts.append("REMASTERED")
-    if hasattr(data, "directorsCut") and data.directorsCut:
-        quality_parts.append("DIRECTOR'S CUT")
-    elif hasattr(data, "directors_cut") and data.directors_cut:
+    if (
+        hasattr(data, "directorsCut")
+        and data.directorsCut
+        or hasattr(data, "directors_cut")
+        and data.directors_cut
+    ):
         quality_parts.append("DIRECTOR'S CUT")
     if hasattr(data, "extended") and data.extended:
         quality_parts.append("EXTENDED")

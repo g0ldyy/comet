@@ -32,9 +32,10 @@ def rank_worker(
         parsed = torrent["parsed"]
         raw_title = torrent["title"]
 
-        if remove_trash:
-            if not is_fetchable or rank < rtn_settings.options["remove_ranks_under"]:
-                continue
+        if remove_trash and (
+            not is_fetchable or rank < rtn_settings.options["remove_ranks_under"]
+        ):
+            continue
 
         try:
             ranked_torrents.add(

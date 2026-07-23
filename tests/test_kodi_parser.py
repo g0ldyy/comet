@@ -2,7 +2,6 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 PARSER_PATH = (
     Path(__file__).parents[1] / "kodi" / "plugin.video.comet" / "lib" / "parser.py"
 )

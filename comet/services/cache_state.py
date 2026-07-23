@@ -15,6 +15,23 @@ async def _upsert_scope_demand(
 ) -> float | None:
     current_time = time.time()
     try:
+        if not scraped:
+            row = await database.fetch_one(
+                """
+                SELECT last_seen_at, last_scraped_at
+                FROM media_demand
+                WHERE media_id = :media_id
+                """,
+                {"media_id": media_id},
+                force_primary=True,
+            )
+            touch_interval = max(
+                0,
+                settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK / 2,
+            )
+            if row is not None and row["last_seen_at"] >= current_time - touch_interval:
+                return row["last_scraped_at"]
+
         row = await database.fetch_one(
             """
             INSERT INTO media_demand (
@@ -45,7 +62,7 @@ async def _upsert_scope_demand(
             force_primary=True,
         )
     except Exception as exc:
-        logger.opt(exception=True).debug(
+        logger.opt(exception=True).warning(
             f"Failed to update scope demand for {media_id}: {exc}",
         )
         return None

@@ -16,7 +16,7 @@ def derive_session_secret(password: str, scope: str):
         raise ValueError("session password must be a non-empty string")
     if type(scope) is not str or not scope:
         raise ValueError("session scope must be a non-empty string")
-    return hashlib.sha256(f"{scope}:{password}".encode("utf-8")).digest()
+    return hashlib.sha256(f"{scope}:{password}".encode()).digest()
 
 
 def encode_signed_session(secret: bytes, ttl: int):
@@ -34,7 +34,7 @@ def encode_signed_session(secret: bytes, ttl: int):
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-    raw_token = f"{payload}:{signature}".encode("utf-8")
+    raw_token = f"{payload}:{signature}".encode()
     return base64.urlsafe_b64encode(raw_token).decode("utf-8").rstrip("=")
 
 

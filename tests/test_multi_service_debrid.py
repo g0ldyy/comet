@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from typing import ClassVar
 from unittest.mock import patch
 
 from comet.api.endpoints.stream import (
@@ -29,7 +30,7 @@ class _DebridService:
 
 
 class _CredentialDebridService:
-    attempts = []
+    attempts: ClassVar[list] = []
 
     def __init__(self, service, api_key, ip):
         del ip
@@ -46,7 +47,7 @@ class _CredentialDebridService:
 
 
 class _SelectiveDebridService:
-    checked_hashes = {}
+    checked_hashes: ClassVar[dict] = {}
 
     def __init__(self, service, api_key, ip):
         del api_key, ip

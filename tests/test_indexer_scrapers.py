@@ -6,7 +6,6 @@ from comet.scrapers.models import ScrapeRequest
 from comet.scrapers.prowlarr import ProwlarrScraper
 from comet.scrapers.stremthru import StremthruScraper
 
-
 REQUEST = ScrapeRequest(
     media_type="movie",
     media_id="tt123",

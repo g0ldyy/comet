@@ -5,7 +5,6 @@ import os
 import sys
 from ctypes.util import find_library
 from functools import lru_cache
-from typing import Optional
 
 from comet.core.logger import logger
 
@@ -26,7 +25,7 @@ def _is_mimalloc_active() -> bool:
 
 @lru_cache(maxsize=1)
 def _get_mimalloc_collect():
-    candidates: list[Optional[str]] = [None]
+    candidates: list[str | None] = [None]
     if sys.platform == "win32":
         candidates.extend(("mimalloc.dll", "mimalloc-redirect.dll"))
     elif sys.platform == "darwin":
@@ -133,7 +132,7 @@ def trim_process_memory(
     return _trim_with_libc()
 
 
-async def periodic_memory_trim(interval_seconds: float | int | None) -> None:
+async def periodic_memory_trim(interval_seconds: float | None) -> None:
     interval = max(0.0, float(interval_seconds or 0))
     if interval <= 0:
         return

@@ -93,9 +93,9 @@ class StreamingLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "comet.services.streaming.manager.database.execute",
                 new=execute,
             ),
+            self.assertRaises(asyncio.CancelledError),
         ):
-            with self.assertRaises(asyncio.CancelledError):
-                await on_stream_end("connection", "127.0.0.1")
+            await on_stream_end("connection", "127.0.0.1")
 
         execute.assert_awaited_once()
 
@@ -110,9 +110,9 @@ class StreamingLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "comet.services.streaming.manager.bandwidth_monitor.start_connection",
                 new=AsyncMock(side_effect=RuntimeError("tracking failed")),
             ),
+            self.assertRaisesRegex(RuntimeError, "tracking failed"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "tracking failed"):
-                await add_active_connection("tt123", "127.0.0.1")
+            await add_active_connection("tt123", "127.0.0.1")
 
         self.assertEqual(execute.await_count, 2)
         self.assertIn(
@@ -137,12 +137,14 @@ class StreamingLifecycleTests(unittest.IsolatedAsyncioTestCase):
         upstream = AsyncMock(side_effect=RuntimeError("close failed"))
         cleanup = AsyncMock()
 
-        with patch(
-            "comet.services.streaming.manager.on_stream_end",
-            new=cleanup,
+        with (
+            patch(
+                "comet.services.streaming.manager.on_stream_end",
+                new=cleanup,
+            ),
+            self.assertRaisesRegex(RuntimeError, "close failed"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "close failed"):
-                await combined_background_tasks("connection", "127.0.0.1", upstream)
+            await combined_background_tasks("connection", "127.0.0.1", upstream)
 
         cleanup.assert_awaited_once_with("connection", "127.0.0.1")
 
@@ -161,11 +163,11 @@ class StreamingLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "comet.services.streaming.manager.on_stream_end",
                 new=cleanup,
             ),
+            self.assertRaisesRegex(RuntimeError, "proxy failed"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "proxy failed"):
-                await custom_handle_stream_request(
-                    "GET", "https://video.test", Mock(), "tt123", "127.0.0.1"
-                )
+            await custom_handle_stream_request(
+                "GET", "https://video.test", Mock(), "tt123", "127.0.0.1"
+            )
 
         cleanup.assert_awaited_once_with("connection", "127.0.0.1")
 

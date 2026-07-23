@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from databases import Database
 
-import comet.services.debrid_cache as debrid_cache
+from comet.services import debrid_cache
 from comet.utils.parsing import MediaScope
 
 

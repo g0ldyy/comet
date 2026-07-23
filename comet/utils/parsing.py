@@ -1,6 +1,6 @@
-from functools import lru_cache
-from enum import StrEnum
 import re
+from enum import StrEnum
+from functools import lru_cache
 
 import orjson
 from RTN import ParsedData
@@ -36,6 +36,40 @@ class MediaScope(StrEnum):
         if self is MediaScope.SEASON:
             return True
         return file_episode is None or file_episode == episode
+
+    def matches_parsed(
+        self,
+        parsed: ParsedData,
+        season: int | None,
+        episode: int | None,
+        *,
+        target_air_date: str | None = None,
+        reject_unknown_episode_files: bool = False,
+        scope_is_known: bool = False,
+    ) -> bool:
+        if self is MediaScope.SERIES:
+            return True
+        if self is MediaScope.SEASON:
+            if scope_is_known:
+                return True
+            if parsed.seasons:
+                return season in parsed.seasons
+            return not parsed.episodes
+        return match_parsed_episode_target(
+            parsed,
+            season,
+            episode,
+            target_air_date=target_air_date,
+            reject_unknown_episode_files=reject_unknown_episode_files,
+        )
+
+    def granularity_priority(self, parsed: ParsedData) -> int:
+        if not self.is_aggregate:
+            return 0
+        episode_count = len(parsed.episodes or ())
+        if episode_count == 0:
+            return 2
+        return 1 if episode_count > 1 else 0
 
 
 def resolve_media_scope(
@@ -216,9 +250,9 @@ def match_parsed_episode_target(
         return False
 
     if parsed_seasons or parsed_episodes:
-        if reject_unknown_episode_files and (not parsed_episodes or not parsed_seasons):
-            return False
-        return True
+        return not (
+            reject_unknown_episode_files and (not parsed_episodes or not parsed_seasons)
+        )
 
     parsed_date = parsed.date
     if isinstance(parsed_date, str) and parsed_date:

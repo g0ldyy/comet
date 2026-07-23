@@ -1,7 +1,7 @@
 import asyncio
 import os
 import socket
-from typing import Dict, Optional
+from typing import ClassVar
 from urllib.parse import urlparse, urlunparse
 
 import aiohttp
@@ -11,7 +11,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 
 
-def resolve_proxy_url(proxy_url: Optional[str]):
+def resolve_proxy_url(proxy_url: str | None):
     """
     Resolve proxy hostname to IP address.
 
@@ -35,7 +35,7 @@ def resolve_proxy_url(proxy_url: Optional[str]):
         try:
             socket.inet_aton(hostname)
             return proxy_url  # Already an IP
-        except socket.error:
+        except OSError:
             pass  # Not an IP, continue with resolution
 
         # Resolve hostname to IP
@@ -143,7 +143,7 @@ class _RequestContextManager:
                     f"[{self.wrapper.scraper_name}] Direct request failed, retrying with proxy: {e}"
                 )
                 return await self._attempt_request(True, proxy_url)
-            raise e
+            raise
 
     async def _attempt_request(self, use_proxy, proxy):
         max_retries = max(0, settings.RATELIMIT_MAX_RETRIES)
@@ -214,10 +214,10 @@ class AsyncClientWrapper:
     def __init__(
         self,
         scraper_name: str,
-        base_url: Optional[str] = None,
-        impersonate: Optional[str] = None,
-        proxy_url: Optional[str] = None,
-        headers: Optional[dict] = None,
+        base_url: str | None = None,
+        impersonate: str | None = None,
+        proxy_url: str | None = None,
+        headers: dict | None = None,
         timeout: float | None = None,
     ):
         self.scraper_name = scraper_name
@@ -251,8 +251,8 @@ class AsyncClientWrapper:
         # Pre-resolve proxy hostname for curl_cffi
         self._resolved_proxy_url = resolve_proxy_url(self.proxy_url)
 
-        self._aiohttp_session: Optional[aiohttp.ClientSession] = None
-        self._curl_session: Optional[CurlSession] = None
+        self._aiohttp_session: aiohttp.ClientSession | None = None
+        self._curl_session: CurlSession | None = None
 
     async def _get_aiohttp_session(self):
         if not self._aiohttp_session or self._aiohttp_session.closed:
@@ -289,19 +289,19 @@ class AsyncClientWrapper:
 
 
 class NetworkManager:
-    _instance = None
-    _clients: Dict[str, AsyncClientWrapper] = {}
+    _instance: ClassVar = None
+    _clients: ClassVar[dict[str, AsyncClientWrapper]] = {}
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(NetworkManager, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
         return cls._instance
 
     def get_client(
         self,
         scraper_name: str,
-        impersonate: Optional[str] = None,
-        headers: Optional[dict] = None,
+        impersonate: str | None = None,
+        headers: dict | None = None,
     ):
         # Unique key for client configuration
         key = f"{scraper_name}|{impersonate}"

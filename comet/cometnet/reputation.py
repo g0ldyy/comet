@@ -7,7 +7,6 @@ Implements the reputation system for tracking peer trustworthiness.
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional
 
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -133,7 +132,7 @@ class ReputationStore:
     """
 
     def __init__(self):
-        self._peers: Dict[str, PeerReputation] = {}
+        self._peers: dict[str, PeerReputation] = {}
         self._blacklist: set[str] = set()
 
     @staticmethod
@@ -213,7 +212,7 @@ class ReputationStore:
                 self._peers[node_id].is_blacklisted = True
         return self._peers[node_id]
 
-    def get(self, node_id: str) -> Optional[PeerReputation]:
+    def get(self, node_id: str) -> PeerReputation | None:
         """Get peer reputation if it exists."""
         return self._peers.get(node_id)
 
@@ -267,7 +266,7 @@ class ReputationStore:
         """Get all trusted peers."""
         return [p for p in self._peers.values() if p.is_trusted()]
 
-    def get_reputation_summary(self) -> Dict[str, int]:
+    def get_reputation_summary(self) -> dict[str, int]:
         """Get a summary of peer reputations by trust level."""
         summary = {"trusted": 0, "neutral": 0, "untrusted": 0, "blacklisted": 0}
         for peer in self._peers.values():
@@ -276,7 +275,7 @@ class ReputationStore:
                 summary[level] += 1
         return summary
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize the store to a dictionary for persistence."""
         return {
             "peers": {
@@ -296,7 +295,7 @@ class ReputationStore:
     @classmethod
     def _decode_persisted(
         cls, data: object
-    ) -> tuple[set[str], Dict[str, PeerReputation]]:
+    ) -> tuple[set[str], dict[str, PeerReputation]]:
         if type(data) is not dict or set(data) != {"peers", "blacklist"}:
             raise ValueError("reputation store does not match the current schema")
         if type(data["peers"]) is not dict or type(data["blacklist"]) is not list:
@@ -319,7 +318,7 @@ class ReputationStore:
         """Validate a complete persisted candidate without publishing it."""
         cls._decode_persisted(data)
 
-    def from_dict(self, data: Dict) -> None:
+    def from_dict(self, data: dict) -> None:
         """Load the store from a dictionary."""
         blacklist, peers = self._decode_persisted(data)
 

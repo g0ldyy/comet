@@ -1,6 +1,6 @@
 import hashlib
 import re
-from typing import Any, Optional
+from typing import Any
 
 import orjson
 from fastapi import Request, Response
@@ -146,10 +146,9 @@ def check_etag_match(request: Request, etag: str):
     if client_etags is None or _ENTITY_TAG.fullmatch(etag) is None:
         return False
 
-    normalized_etag = etag[2:] if etag.startswith("W/") else etag
+    normalized_etag = etag.removeprefix("W/")
     return any(
-        (client_etag[2:] if client_etag.startswith("W/") else client_etag)
-        == normalized_etag
+        (client_etag.removeprefix("W/")) == normalized_etag
         for client_etag in client_etags
     )
 
@@ -159,9 +158,9 @@ class CachedJSONResponse(Response):
         self,
         content: Any,
         status_code: int = 200,
-        cache_control: Optional[CacheControl] = None,
-        etag: Optional[str] = None,
-        vary: Optional[list[str]] = None,
+        cache_control: CacheControl | None = None,
+        etag: str | None = None,
+        vary: list[str] | None = None,
         **kwargs,
     ):
         body = orjson.dumps(content)

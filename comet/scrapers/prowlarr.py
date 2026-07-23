@@ -1,5 +1,4 @@
 import asyncio
-from typing import List, Set
 
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
@@ -72,7 +71,7 @@ class ProwlarrScraper(BaseScraper):
                 torrents.append(base_torrent)
                 return torrents
 
-        if "infoHash" in result and result["infoHash"]:
+        if result.get("infoHash"):
             base_torrent["infoHash"] = result["infoHash"].lower()
             if "guid" in result and result["guid"].startswith("magnet:"):
                 base_torrent["sources"] = extract_trackers_from_magnet(result["guid"])
@@ -117,7 +116,7 @@ class ProwlarrScraper(BaseScraper):
                     indexer_manager.prowlarr_initialized.wait(),
                     timeout=settings.INDEXER_MANAGER_WAIT_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "Timed out waiting for Prowlarr indexers; skipping scrape."
                 )
@@ -127,20 +126,18 @@ class ProwlarrScraper(BaseScraper):
             logger.warning("No Prowlarr indexers available, skipping scrape.")
             return []
 
-        torrents: List[ScrapeResult] = []
-        seen: Set[str] = set()
+        torrents: list[ScrapeResult] = []
+        seen: set[str] = set()
 
         queries = request.title_queries(include_episode_variants=True)
 
         try:
             responses = await gather_with_error_logging(
                 (
-                    (
-                        f"Prowlarr query {query!r} ({self.url})",
-                        self._fetch_search_results(query),
-                    )
-                    for query in queries
+                    f"Prowlarr query {query!r} ({self.url})",
+                    self._fetch_search_results(query),
                 )
+                for query in queries
             )
             all_results = []
             for response in responses:

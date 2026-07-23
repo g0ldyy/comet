@@ -91,7 +91,7 @@ class CinemataClient:
             await self.session.close()
 
     async def _fetch_catalog_page(
-        self, media_type: str, category: str, skip: int = 0, genre: str = None
+        self, media_type: str, category: str, skip: int = 0, genre: str | None = None
     ):
         url_parts = [self.CATALOG_BASE_URL]
         url_parts.extend([category, "catalog", media_type, category])
@@ -113,7 +113,7 @@ class CinemataClient:
         self,
         media_type: str,
         category: str,
-        genre: str = None,
+        genre: str | None = None,
     ):
         skip = 0
 

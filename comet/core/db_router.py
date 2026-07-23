@@ -2,8 +2,8 @@ import asyncio
 import contextvars
 import socket
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
-from typing import List, Optional, Sequence
 
 from databases import Database
 from sqlalchemy.engine.url import make_url
@@ -19,13 +19,13 @@ class ReplicaAwareDatabase:
     def __init__(
         self,
         primary: Database,
-        replicas: Optional[Sequence[Database]] = None,
+        replicas: Sequence[Database] | None = None,
         force_ipv4: bool = False,
     ):
         self._primary = primary
         self._configured_replicas = list(replicas or [])
         self._force_ipv4 = force_ipv4
-        self._active_replicas: List[Database] = []
+        self._active_replicas: list[Database] = []
         self._replica_retry_after = {}
         self._replica_index = 0
         self._transaction_depth = contextvars.ContextVar(
@@ -50,7 +50,7 @@ class ReplicaAwareDatabase:
 
         await self._primary.connect()
 
-        healthy_replicas: List[Database] = []
+        healthy_replicas: list[Database] = []
         for replica in self._configured_replicas:
             try:
                 await replica.connect()
@@ -110,10 +110,7 @@ class ReplicaAwareDatabase:
         if not self._available_replicas():
             return True
 
-        if self._transaction_depth.get() > 0:
-            return True
-
-        return False
+        return self._transaction_depth.get() > 0
 
     def _next_replica(self):
         replicas = self._available_replicas()

@@ -53,12 +53,14 @@ class CometNetTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_unexpected_server_start_failure_is_visible(self):
         manager = ConnectionManager(_Identity())
 
-        with patch(
-            "comet.cometnet.transport.websockets.serve",
-            new=AsyncMock(side_effect=RuntimeError("server bug")),
+        with (
+            patch(
+                "comet.cometnet.transport.websockets.serve",
+                new=AsyncMock(side_effect=RuntimeError("server bug")),
+            ),
+            self.assertRaisesRegex(RuntimeError, "server bug"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "server bug"):
-                await manager.start()
+            await manager.start()
 
         self.assertFalse(manager._running)
         self.assertEqual(manager._tasks, set())
@@ -278,12 +280,14 @@ class CometNetTransportTests(unittest.IsolatedAsyncioTestCase):
         manager = ConnectionManager(_Identity(), max_peers=1)
         manager._running = True
 
-        with patch(
-            "comet.cometnet.transport.websockets.connect",
-            side_effect=RuntimeError("connector bug"),
+        with (
+            patch(
+                "comet.cometnet.transport.websockets.connect",
+                side_effect=RuntimeError("connector bug"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "connector bug"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "connector bug"):
-                await manager.connect_to_peer("wss://peer")
+            await manager.connect_to_peer("wss://peer")
 
         self.assertEqual(manager._pending_connections, 0)
         self.assertEqual(manager._connecting, set())
@@ -304,9 +308,9 @@ class CometNetTransportTests(unittest.IsolatedAsyncioTestCase):
                 "sign_hex_async",
                 new=AsyncMock(side_effect=RuntimeError("signing failed")),
             ),
+            self.assertRaisesRegex(RuntimeError, "signing failed"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "signing failed"):
-                await manager.connect_to_peer("wss://peer")
+            await manager.connect_to_peer("wss://peer")
 
         self.assertEqual(manager._pending_connections, 0)
         self.assertEqual(manager._connecting, set())

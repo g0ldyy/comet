@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 import aiohttp
 
@@ -61,7 +60,7 @@ async def table_info_command(db_manager: DatabaseManager, table_name: str):
 
 async def export_command(
     db_manager: DatabaseManager,
-    table_names: List[str],
+    table_names: list[str],
     output_path: Path,
     compress: bool,
     parallel: bool,
@@ -104,7 +103,7 @@ async def export_command(
 async def import_command(
     db_manager: DatabaseManager,
     input_path: Path,
-    table_names: Optional[List[str]],
+    table_names: list[str] | None,
     parallel: bool,
 ):
     if not input_path.exists():

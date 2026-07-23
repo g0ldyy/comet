@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from databases import Database
 
-import comet.services.cache_state as cache_state
 from comet.core.db_router import ReplicaAwareDatabase
+from comet.services import cache_state
 from comet.services.cache_state import CacheState, CacheStateManager, ScrapeDecision
 
 
@@ -49,6 +49,23 @@ class CacheStateManagerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.state, CacheState.STALE)
         self.assertEqual(result.decision, ScrapeDecision.SCRAPE_BACKGROUND)
+
+    async def test_demand_write_failure_is_visible_and_non_fatal(self):
+        manager = CacheStateManager("tt123:2")
+
+        with (
+            patch.object(
+                cache_state.database,
+                "fetch_one",
+                side_effect=[None, RuntimeError("database unavailable")],
+            ),
+            patch.object(cache_state.logger, "opt") as logger_opt,
+        ):
+            result = await manager.register_demand()
+
+        self.assertIsNone(result)
+        logger_opt.assert_called_once_with(exception=True)
+        logger_opt.return_value.warning.assert_called_once()
 
 
 class ScopeCoveragePersistenceTests(unittest.IsolatedAsyncioTestCase):
@@ -96,3 +113,42 @@ class ScopeCoveragePersistenceTests(unittest.IsolatedAsyncioTestCase):
                 repeated_season_request.decision,
                 ScrapeDecision.USE_CACHE,
             )
+
+    async def test_fresh_demand_touches_are_throttled_without_losing_coverage(self):
+        manager = CacheStateManager("tt123")
+
+        async def get_scope():
+            return await self.database.fetch_one(
+                """
+                SELECT last_seen_at, last_scraped_at
+                FROM media_demand
+                WHERE media_id = :media_id
+                """,
+                {"media_id": "tt123"},
+            )
+
+        with (
+            patch.object(cache_state, "database", self.database),
+            patch.object(
+                cache_state.settings,
+                "BACKGROUND_SCRAPER_DEMAND_LOOKBACK",
+                100,
+            ),
+        ):
+            with patch.object(cache_state.time, "time", return_value=1_000):
+                self.assertIsNone(await manager.register_demand())
+                await cache_state.mark_scope_scraped("tt123")
+
+            with patch.object(cache_state.time, "time", return_value=1_025):
+                self.assertEqual(await manager.register_demand(), 1_000)
+
+            row = await get_scope()
+            self.assertEqual(row["last_seen_at"], 1_000)
+            self.assertEqual(row["last_scraped_at"], 1_000)
+
+            with patch.object(cache_state.time, "time", return_value=1_051):
+                self.assertEqual(await manager.register_demand(), 1_000)
+
+            row = await get_scope()
+            self.assertEqual(row["last_seen_at"], 1_051)
+            self.assertEqual(row["last_scraped_at"], 1_000)

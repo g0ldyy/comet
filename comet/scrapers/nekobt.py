@@ -112,12 +112,10 @@ class NekoBTScraper(BaseScraper):
     async def scrape(self, request: ScrapeRequest) -> list[dict]:
         query_results = await gather_with_error_logging(
             (
-                (
-                    f"NekoBT query {title!r}",
-                    self._fetch_all({"query": title}),
-                )
-                for title in request.query_titles
+                f"NekoBT query {title!r}",
+                self._fetch_all({"query": title}),
             )
+            for title in request.query_titles
         )
         torrents = [
             torrent for query_torrents, _ in query_results for torrent in query_torrents
@@ -127,12 +125,10 @@ class NekoBTScraper(BaseScraper):
         )
         media_results = await gather_with_error_logging(
             (
-                (
-                    f"NekoBT media ID {media_id!r}",
-                    self._fetch_all({"media_id": media_id}),
-                )
-                for media_id in media_ids
+                f"NekoBT media ID {media_id!r}",
+                self._fetch_all({"media_id": media_id}),
             )
+            for media_id in media_ids
         )
         torrents.extend(
             torrent for media_torrents, _ in media_results for torrent in media_torrents

@@ -1,6 +1,6 @@
 import math
 import time
-from datetime import datetime
+from datetime import date
 
 import aiohttp
 
@@ -73,7 +73,7 @@ def _normalize_air_date(raw_value) -> str | None:
 
     candidate = raw_value.strip().split("T", 1)[0]
     try:
-        datetime.strptime(candidate, "%Y-%m-%d")
+        date.fromisoformat(candidate)
     except ValueError:
         return None
     return candidate

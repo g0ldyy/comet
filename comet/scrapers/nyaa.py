@@ -93,13 +93,12 @@ async def get_all_nyaa_pages(
 
     first_page_url = f"{NYAA_BASE_URL}/?q={quote_plus(query)}"
 
-    async with semaphore:
-        async with session.get(first_page_url) as response:
-            if response.status != 200:
-                logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status}")
-                return []
+    async with semaphore, session.get(first_page_url) as response:
+        if response.status != 200:
+            logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status}")
+            return []
 
-            first_page_text = await response.text()
+        first_page_text = await response.text()
 
     first_page_torrents = extract_torrent_data(first_page_text)
     all_torrents.extend(first_page_torrents)
@@ -113,12 +112,10 @@ async def get_all_nyaa_pages(
     if last_page_number > 1:
         page_results = await gather_with_error_logging(
             (
-                (
-                    f"Nyaa query {query!r} page {page_number}",
-                    scrape_nyaa_page(session, semaphore, query, page_number),
-                )
-                for page_number in range(2, last_page_number + 1)
+                f"Nyaa query {query!r} page {page_number}",
+                scrape_nyaa_page(session, semaphore, query, page_number),
             )
+            for page_number in range(2, last_page_number + 1)
         )
         for result in page_results:
             all_torrents.extend(result)
@@ -137,12 +134,10 @@ class NyaaScraper(BaseScraper):
         semaphore = asyncio.Semaphore(settings.NYAA_MAX_CONCURRENT_PAGES)
         results = await gather_with_error_logging(
             (
-                (
-                    f"Nyaa query {query!r} ({NYAA_BASE_URL})",
-                    get_all_nyaa_pages(self.session, query, semaphore),
-                )
-                for query in request.query_titles
+                f"Nyaa query {query!r} ({NYAA_BASE_URL})",
+                get_all_nyaa_pages(self.session, query, semaphore),
             )
+            for query in request.query_titles
         )
         for result in results:
             torrents.extend(result)

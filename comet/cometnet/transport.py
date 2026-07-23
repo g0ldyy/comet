@@ -14,8 +14,8 @@ import random
 import secrets
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Dict, List, Optional, Set
 
 import websockets
 from websockets.client import WebSocketClientProtocol
@@ -69,8 +69,8 @@ logging.getLogger("websockets.server").addFilter(WebSocketHeadFilter())
 
 
 async def resolve_effective_peer_address(
-    public_url: Optional[str],
-    connectable_address: Optional[str],
+    public_url: str | None,
+    connectable_address: str | None,
     allow_private: bool,
 ) -> str:
     """
@@ -100,13 +100,13 @@ class PeerConnection:
     node_id: str
     address: str  # WebSocket URL
     websocket: WebSocketClientProtocol
-    client_ip: Optional[str] = None  # The actual IP address (for rate limiting)
-    alias: Optional[str] = None  # Friendly name
+    client_ip: str | None = None  # The actual IP address (for rate limiting)
+    alias: str | None = None  # Friendly name
     public_key: str = ""
     connected_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
     is_outbound: bool = True  # True if we initiated the connection
-    pending_pings: Dict[str, float] = field(default_factory=dict)  # nonce -> sent_time
+    pending_pings: dict[str, float] = field(default_factory=dict)  # nonce -> sent_time
     latency_ms: float = 0.0
     latency_samples: deque = field(
         default_factory=lambda: deque(maxlen=10)
@@ -211,7 +211,7 @@ class ConnectionManager:
         identity: NodeIdentity,
         listen_port: int = 8765,
         max_peers: int = 50,
-        advertise_url: Optional[str] = None,
+        advertise_url: str | None = None,
         keystore=None,  # Optional PublicKeyStore for storing peer keys
     ):
         if type(listen_port) is not int or not 1 <= listen_port <= 65535:
@@ -238,27 +238,27 @@ class ConnectionManager:
         self.rate_limit_window = settings.COMETNET_TRANSPORT_RATE_LIMIT_WINDOW
 
         # Active connections by node_id
-        self._connections: Dict[str, PeerConnection] = {}
+        self._connections: dict[str, PeerConnection] = {}
 
         # Track connections per IP to prevent abuse
-        self._connections_per_ip: Dict[str, int] = {}
+        self._connections_per_ip: dict[str, int] = {}
         self._pending_connections = 0
 
         # Lock for connection operations to prevent race conditions
         self._connection_lock = asyncio.Lock()
 
         # Addresses we're currently trying to connect to (to prevent duplicates)
-        self._connecting: Set[str] = set()
+        self._connecting: set[str] = set()
 
         # Message handlers by message type
-        self._handlers: Dict[MessageType, MessageHandler] = {}
+        self._handlers: dict[MessageType, MessageHandler] = {}
 
         # Server task
         self._server = None
-        self._server_task: Optional[asyncio.Task] = None
+        self._server_task: asyncio.Task | None = None
 
         # Background tasks
-        self._tasks: Set[asyncio.Task] = set()
+        self._tasks: set[asyncio.Task] = set()
 
         # Running flag
         self._running = False
@@ -269,10 +269,10 @@ class ConnectionManager:
         self._network_password = settings.COMETNET_NETWORK_PASSWORD or ""
 
         # Callback when a peer connects (for Discovery notification)
-        self._on_peer_connected: Optional[Callable[[str, str], Awaitable[None]]] = None
+        self._on_peer_connected: Callable[[str, str], Awaitable[None]] | None = None
 
     @staticmethod
-    def _header_tokens(headers: websockets.Headers, name: str) -> Set[str]:
+    def _header_tokens(headers: websockets.Headers, name: str) -> set[str]:
         return {
             token.strip().lower()
             for value in headers.get_all(name)
@@ -326,10 +326,8 @@ class ConnectionManager:
                     ),
                 )
 
-            is_health_check = (
-                path_lower in self._HEALTH_PATHS
-                or path_lower.endswith("/health")
-                or path_lower.endswith("/healthz")
+            is_health_check = path_lower in self._HEALTH_PATHS or path_lower.endswith(
+                ("/health", "/healthz")
             )
 
             if not is_health_check:
@@ -371,7 +369,7 @@ class ConnectionManager:
         """Return list of connected node IDs."""
         return list(self._connections.keys())
 
-    def get_peer_address(self, node_id: str) -> Optional[str]:
+    def get_peer_address(self, node_id: str) -> str | None:
         """Get the address (IP:port) of a connected peer."""
         conn = self._connections.get(node_id)
         if not conn:
@@ -428,7 +426,7 @@ class ConnectionManager:
         Handle incoming WebSocket connection from the native server.
         """
         real_ip = getattr(websocket, "real_client_ip", None)
-        connectable_address: Optional[str] = None
+        connectable_address: str | None = None
 
         if real_ip:
             client_ip = real_ip
@@ -484,7 +482,7 @@ class ConnectionManager:
 
         logger.log("COMETNET", "Transport layer stopped")
 
-    async def connect_to_peer(self, address: str) -> Optional[str]:
+    async def connect_to_peer(self, address: str) -> str | None:
         """
         Connect to a peer at the given address.
 
@@ -540,7 +538,7 @@ class ConnectionManager:
             else:
                 logger.debug(f"Handshake failed with {address}")
                 return None
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.debug(f"Connection timeout to {address}")
             return None
         except InvalidStatus as e:
@@ -565,8 +563,8 @@ class ConnectionManager:
         self,
         websocket: WebSocketClientProtocol,
         client_ip: str,
-        connectable_address: Optional[str] = None,
-    ) -> Optional[str]:
+        connectable_address: str | None = None,
+    ) -> str | None:
         """
         Handle an incoming WebSocket connection.
 
@@ -645,9 +643,9 @@ class ConnectionManager:
         self,
         websocket: WebSocketClientProtocol,
         client_ip: str,
-        connectable_address: Optional[str],
+        connectable_address: str | None,
         is_outbound: bool,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Perform the handshake protocol with a peer.
 
@@ -836,7 +834,7 @@ class ConnectionManager:
             task.add_done_callback(self._tasks.discard)
 
             return peer_handshake.sender_id
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.debug(f"Handshake timeout with {client_ip}")
             return None
         except (ConnectionClosed, WebSocketException, OSError) as error:
@@ -957,11 +955,11 @@ class ConnectionManager:
                     continue
 
                 now = time.time()
-                stale_nodes: List[str] = []
-                high_latency_nodes: List[str] = []
+                stale_nodes: list[str] = []
+                high_latency_nodes: list[str] = []
                 max_latency = settings.COMETNET_TRANSPORT_MAX_LATENCY_MS
 
-                peers_to_ping: List[PeerConnection] = []
+                peers_to_ping: list[PeerConnection] = []
                 for conn in connections:
                     if (
                         now - conn.last_activity
@@ -984,7 +982,7 @@ class ConnectionManager:
 
                     peers_to_ping.append(conn)
 
-                ping_data: List[tuple] = []
+                ping_data: list[tuple] = []
                 for conn in peers_to_ping:
                     nonce = secrets.token_hex(8)
                     ping = PingMessage(
@@ -1071,7 +1069,7 @@ class ConnectionManager:
             return
 
         # Calculate IP distribution
-        ip_counts: Dict[str, List[str]] = {}  # ip -> list of node_ids
+        ip_counts: dict[str, list[str]] = {}  # ip -> list of node_ids
         for node_id, conn in self._connections.items():
             ip = extract_ip_from_address(conn.address)
             if ip != "unknown":
@@ -1119,7 +1117,7 @@ class ConnectionManager:
                 await self.disconnect_peer(node_id)
 
     async def broadcast(
-        self, message: AnyMessage, exclude: Optional[Set[str]] = None
+        self, message: AnyMessage, exclude: set[str] | None = None
     ) -> int:
         """
         Broadcast a message to all connected peers.
@@ -1158,18 +1156,18 @@ class ConnectionManager:
         return False
 
     def get_random_peers(
-        self, count: int, exclude: Optional[Set[str]] = None
+        self, count: int, exclude: set[str] | None = None
     ) -> list[str]:
         """Get a random sample of connected peer node IDs."""
         exclude = exclude or set()
-        available = [nid for nid in self._connections.keys() if nid not in exclude]
+        available = [nid for nid in self._connections if nid not in exclude]
         return random.sample(available, min(count, len(available)))
 
-    def get_peer_addresses(self) -> Dict[str, str]:
+    def get_peer_addresses(self) -> dict[str, str]:
         """Get a mapping of node_id to address for all connected peers."""
         return {nid: conn.address for nid, conn in self._connections.items()}
 
-    def get_connection_stats(self) -> Dict:
+    def get_connection_stats(self) -> dict:
         """Get statistics about connections including security metrics."""
         # Calculate IP diversity for Eclipse attack detection
         unique_ips = set()

@@ -156,7 +156,9 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             await store.load()
 
             self.assertIsNone(store.get_manifest("pool-a"))
-            self.assertIn("node_id", json.loads(manifest_path.read_text())["members"][0])
+            self.assertIn(
+                "node_id", json.loads(manifest_path.read_text())["members"][0]
+            )
 
     async def test_remote_manifest_requires_existing_pool_authority(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -248,9 +250,8 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
         malformed.append(non_canonical_id)
 
         for data in malformed:
-            with self.subTest(data=data):
-                with self.assertRaises(ValueError):
-                    PoolManifest.model_validate(data)
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                PoolManifest.model_validate(data)
 
     async def test_load_isolates_invalid_and_misnamed_manifests(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -281,12 +282,14 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             updated = store.get_manifest("pool-a")
             updated.display_name = "Updated"
 
-            with patch(
-                "comet.cometnet.pools.write_text_atomic",
-                side_effect=OSError("disk unavailable"),
+            with (
+                patch(
+                    "comet.cometnet.pools.write_text_atomic",
+                    side_effect=OSError("disk unavailable"),
+                ),
+                self.assertRaisesRegex(OSError, "disk unavailable"),
             ):
-                with self.assertRaisesRegex(OSError, "disk unavailable"):
-                    await store.store_manifest(updated)
+                await store.store_manifest(updated)
 
             self.assertEqual(store.get_manifest("pool-a").display_name, "Original")
             self.assertEqual(manifest_path.read_bytes(), original_bytes)
@@ -303,12 +306,14 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             store = PoolStore(directory)
             await store.store_manifest(self._manifest())
 
-            with patch(
-                "comet.cometnet.pools.write_text_atomic",
-                side_effect=OSError("disk unavailable"),
+            with (
+                patch(
+                    "comet.cometnet.pools.write_text_atomic",
+                    side_effect=OSError("disk unavailable"),
+                ),
+                self.assertRaisesRegex(OSError, "disk unavailable"),
             ):
-                with self.assertRaisesRegex(OSError, "disk unavailable"):
-                    await store.add_member("pool-a", "new-key", Identity())
+                await store.add_member("pool-a", "new-key", Identity())
 
             manifest = store.get_manifest("pool-a")
             self.assertEqual(
@@ -328,12 +333,14 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             store = PoolStore(directory)
             await store.store_manifest(self._manifest())
 
-            with patch(
-                "comet.cometnet.pools.write_text_atomic",
-                side_effect=OSError("disk unavailable"),
+            with (
+                patch(
+                    "comet.cometnet.pools.write_text_atomic",
+                    side_effect=OSError("disk unavailable"),
+                ),
+                self.assertRaisesRegex(OSError, "disk unavailable"),
             ):
-                with self.assertRaisesRegex(OSError, "disk unavailable"):
-                    await store.create_invite("pool-a", Identity())
+                await store.create_invite("pool-a", Identity())
 
             self.assertEqual(store.get_invites("pool-a"), [])
 
@@ -461,12 +468,14 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             await store.add_pool_peer("pool-a", "wss://peer")
             manifest_path = Path(directory, "manifests", "pool-a.json")
 
-            with patch(
-                "comet.cometnet.pools.run_in_executor",
-                new=AsyncMock(side_effect=OSError("unlink failed")),
+            with (
+                patch(
+                    "comet.cometnet.pools.run_in_executor",
+                    new=AsyncMock(side_effect=OSError("unlink failed")),
+                ),
+                self.assertRaisesRegex(OSError, "unlink failed"),
             ):
-                with self.assertRaisesRegex(OSError, "unlink failed"):
-                    await store.delete_pool("pool-a")
+                await store.delete_pool("pool-a")
 
             self.assertIsNotNone(store.get_manifest("pool-a"))
             self.assertTrue(manifest_path.exists())
@@ -628,12 +637,14 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             await store.store_manifest(self._manifest())
             await store.record_contribution("creator-key", "pool-a", count=2)
 
-            with patch(
-                "comet.cometnet.pools.write_text_atomic",
-                side_effect=OSError("disk unavailable"),
+            with (
+                patch(
+                    "comet.cometnet.pools.write_text_atomic",
+                    side_effect=OSError("disk unavailable"),
+                ),
+                self.assertRaisesRegex(OSError, "disk unavailable"),
             ):
-                with self.assertRaisesRegex(OSError, "disk unavailable"):
-                    await store.flush_dirty_manifests()
+                await store.flush_dirty_manifests()
 
             self.assertEqual(store._dirty_manifests, {"pool-a"})
             self.assertEqual(

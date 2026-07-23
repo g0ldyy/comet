@@ -521,8 +521,6 @@ class BackgroundScraperWorker:
                         scheduling_stopped = True
                         await _defer_remaining()
                         break
-        except asyncio.CancelledError:
-            raise
         finally:
             if in_flight:
                 for task in in_flight:
@@ -1106,8 +1104,7 @@ class BackgroundScraperWorker:
             votes_raw = votes_raw.replace(",", "")
         try:
             votes = int(votes_raw) if type(votes_raw) in (int, str) else 0
-            if votes < 0:
-                votes = 0
+            votes = max(votes, 0)
         except (TypeError, ValueError, OverflowError):
             votes = 0
 

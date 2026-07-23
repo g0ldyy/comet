@@ -1,6 +1,6 @@
 import unittest
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from comet.services.indexer_manager import (
@@ -55,7 +55,7 @@ class IndexerManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_active_jackett_ids(root, ["wanted name"]), ["wanted"])
 
     def test_prowlarr_active_ids_reject_invalid_health_without_losing_siblings(self):
-        now = datetime(2026, 7, 22, tzinfo=timezone.utc)
+        now = datetime(2026, 7, 22, tzinfo=UTC)
         indexers = [
             None,
             {"id": None, "enable": True, "protocol": "torrent"},

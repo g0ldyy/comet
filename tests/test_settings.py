@@ -4,7 +4,8 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from comet.core.logger import log_startup_info
-from comet.core.models import AppSettings, settings as runtime_settings
+from comet.core.models import AppSettings
+from comet.core.models import settings as runtime_settings
 
 
 class AppSettingsTests(unittest.TestCase):
@@ -21,8 +22,10 @@ class AppSettingsTests(unittest.TestCase):
         self.assertIn(
             (
                 "COMET",
-                "Indexer Title Search: INDEXER_INCLUDE_CANONICAL_TITLE=True - "
-                "INDEXER_INCLUDE_ORIGINAL_TITLE=False - INDEXER_LANGUAGES=it, fr",
+                (
+                    "Indexer Title Search: INDEXER_INCLUDE_CANONICAL_TITLE=True - "
+                    "INDEXER_INCLUDE_ORIGINAL_TITLE=False - INDEXER_LANGUAGES=it, fr"
+                ),
             ),
             [call.args for call in log.call_args_list],
         )
@@ -121,11 +124,13 @@ class AppSettingsTests(unittest.TestCase):
             "DMM_INGEST_BATCH_SIZE",
             "BITMAGNET_MAX_CONCURRENT_PAGES",
         ):
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(
                     ValidationError, "work count must be a positive integer"
-                ):
-                    AppSettings(_env_file=None, **{field: 0})
+                ),
+            ):
+                AppSettings(_env_file=None, **{field: 0})
 
     def test_boolean_concurrency_fails_configuration(self):
         with self.assertRaisesRegex(
@@ -143,12 +148,14 @@ class AppSettingsTests(unittest.TestCase):
             "COMETNET_TRANSPORT_PING_INTERVAL",
             "COMETNET_TRANSPORT_RATE_LIMIT_WINDOW",
         ):
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(
                     ValidationError,
                     "CometNet operational values must be finite and greater than zero",
-                ):
-                    AppSettings(_env_file=None, **{field: 0})
+                ),
+            ):
+                AppSettings(_env_file=None, **{field: 0})
 
     def test_non_finite_cometnet_interval_fails_configuration(self):
         with self.assertRaisesRegex(
@@ -224,8 +231,8 @@ class AppSettingsTests(unittest.TestCase):
                         AppSettings(_env_file=None, **{field: value})
 
         for password in ("", None):
-            with self.subTest(password=password):
-                with self.assertRaisesRegex(
-                    ValidationError, "must be a non-empty string"
-                ):
-                    AppSettings(_env_file=None, ADMIN_DASHBOARD_PASSWORD=password)
+            with (
+                self.subTest(password=password),
+                self.assertRaisesRegex(ValidationError, "must be a non-empty string"),
+            ):
+                AppSettings(_env_file=None, ADMIN_DASHBOARD_PASSWORD=password)

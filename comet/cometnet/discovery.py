@@ -11,8 +11,9 @@ import asyncio
 import math
 import random
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
 
 from comet.cometnet.protocol import PeerInfo, PeerRequest, PeerResponse
 from comet.cometnet.utils import is_valid_peer_address
@@ -20,15 +21,41 @@ from comet.core.logger import logger
 from comet.core.models import settings
 
 
+def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
+    """Keep the most recently seen address for each identified node."""
+    canonical_indices: dict[str, int] = {}
+    for index, peer in enumerate(peers):
+        node_id = peer["node_id"]
+        if not node_id:
+            continue
+
+        previous_index = canonical_indices.get(node_id)
+        if previous_index is None or (
+            peer["last_seen"],
+            peer["address"],
+        ) > (
+            peers[previous_index]["last_seen"],
+            peers[previous_index]["address"],
+        ):
+            canonical_indices[node_id] = index
+
+    canonical = [
+        peer
+        for index, peer in enumerate(peers)
+        if not peer["node_id"] or canonical_indices[peer["node_id"]] == index
+    ]
+    return canonical, len(canonical) != len(peers)
+
+
 def validate_discovery_configuration(
     manual_peers: object,
     bootstrap_nodes: object,
     min_peers: object,
     max_peers: object,
-) -> tuple[List[str], List[str], int, int]:
+) -> tuple[list[str], list[str], int, int]:
     """Validate the single current discovery configuration shape."""
 
-    def addresses(value: object, name: str) -> List[str]:
+    def addresses(value: object, name: str) -> list[str]:
         if value is None:
             return []
         if type(value) is not list or any(
@@ -106,10 +133,10 @@ class DiscoveryService:
 
     def __init__(
         self,
-        manual_peers: Optional[List[str]] = None,
-        bootstrap_nodes: Optional[List[str]] = None,
-        min_peers: int = None,
-        max_peers: int = None,
+        manual_peers: list[str] | None = None,
+        bootstrap_nodes: list[str] | None = None,
+        min_peers: int | None = None,
+        max_peers: int | None = None,
     ):
         (
             self.manual_peers,
@@ -121,35 +148,31 @@ class DiscoveryService:
         )
 
         # Known peers by address
-        self._known_peers: Dict[str, KnownPeer] = {}
+        self._known_peers: dict[str, KnownPeer] = {}
 
         # Node ID to address mapping (for deduplication)
-        self._node_id_to_address: Dict[str, str] = {}
+        self._node_id_to_address: dict[str, str] = {}
 
         # Callbacks
-        self._connect_callback: Optional[Callable[[str], Awaitable[Optional[str]]]] = (
-            None
-        )
-        self._get_connected_count: Optional[Callable[[], int]] = None
-        self._get_connected_ids: Optional[Callable[[], List[str]]] = None
-        self._send_message_callback: Optional[Callable[[str, Any], Awaitable[None]]] = (
-            None
-        )
-        self._sign_callback: Optional[Callable[[bytes], Awaitable[str]]] = (
+        self._connect_callback: Callable[[str], Awaitable[str | None]] | None = None
+        self._get_connected_count: Callable[[], int] | None = None
+        self._get_connected_ids: Callable[[], list[str]] | None = None
+        self._send_message_callback: Callable[[str, Any], Awaitable[None]] | None = None
+        self._sign_callback: Callable[[bytes], Awaitable[str]] | None = (
             None  # Returns hex signature
         )
 
         # Running state
         self._running = False
-        self._discovery_task: Optional[asyncio.Task] = None
+        self._discovery_task: asyncio.Task | None = None
 
     def set_callbacks(
         self,
-        connect_callback: Callable[[str], Awaitable[Optional[str]]],
+        connect_callback: Callable[[str], Awaitable[str | None]],
         get_connected_count: Callable[[], int],
-        get_connected_ids: Callable[[], List[str]],
+        get_connected_ids: Callable[[], list[str]],
         send_message_callback: Callable[[str, Any], Awaitable[None]],
-        sign_callback: Optional[Callable[[bytes], Awaitable[str]]] = None,
+        sign_callback: Callable[[bytes], Awaitable[str]] | None = None,
     ) -> None:
         """Set callbacks for connection management."""
         self._connect_callback = connect_callback
@@ -198,7 +221,7 @@ class DiscoveryService:
         logger.log("COMETNET", "Discovery service stopped")
 
     def _add_known_peer(
-        self, address: str, node_id: Optional[str] = None, source: str = "unknown"
+        self, address: str, node_id: str | None = None, source: str = "unknown"
     ) -> None:
         """Add a peer to the known peers list."""
         address = address.strip()
@@ -242,7 +265,7 @@ class DiscoveryService:
         """Record a peer that connected to us."""
         self._add_known_peer(address=address, node_id=node_id, source="incoming")
 
-    async def get_peers_for_pex(self, max_peers: int = None) -> List[PeerInfo]:
+    async def get_peers_for_pex(self, max_peers: int | None = None) -> list[PeerInfo]:
         """Get a list of peers to share via PEX."""
         if max_peers is None:
             max_peers = settings.COMETNET_PEX_BATCH_SIZE
@@ -433,7 +456,7 @@ class DiscoveryService:
                 self._node_id_to_address.pop(self._known_peers[addr].node_id, None)
             del self._known_peers[addr]
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get discovery statistics."""
         sources = {}
         for peer in self._known_peers.values():
@@ -444,7 +467,7 @@ class DiscoveryService:
             "peers_by_source": sources,
         }
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize known peers for persistence."""
         peers_data = []
         for addr, peer in sorted(self._known_peers.items()):
@@ -460,9 +483,10 @@ class DiscoveryService:
                     "last_seen": peer.last_seen,
                 }
             )
-        return {"known_peers": peers_data}
+        canonical_peers, _ = canonicalize_persisted_peers(peers_data)
+        return {"known_peers": canonical_peers}
 
-    async def from_dict(self, data: Dict) -> None:
+    async def from_dict(self, data: dict) -> None:
         """Load known peers from persisted data."""
         if type(data) is not dict or set(data) != {"known_peers"}:
             raise ValueError("discovery state does not match the current schema")

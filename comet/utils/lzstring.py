@@ -1,7 +1,10 @@
+from typing import ClassVar
+
+
 class LZString:
     keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
     keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$"
-    baseReverseDic = {}
+    baseReverseDic: ClassVar[dict] = {}
 
     @staticmethod
     def getBaseValue(alphabet, character):

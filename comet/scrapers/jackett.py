@@ -1,5 +1,4 @@
 import asyncio
-from typing import List, Set
 
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
@@ -72,7 +71,7 @@ class JackettScraper(BaseScraper):
                 torrents.append(base_torrent)
                 return torrents
 
-        if "InfoHash" in result and result["InfoHash"]:
+        if result.get("InfoHash"):
             base_torrent["infoHash"] = result["InfoHash"].lower()
             if result["MagnetUri"] is not None:
                 base_torrent["sources"] = extract_trackers_from_magnet(
@@ -116,7 +115,7 @@ class JackettScraper(BaseScraper):
                     indexer_manager.jackett_initialized.wait(),
                     timeout=settings.INDEXER_MANAGER_WAIT_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "Timed out waiting for Jackett indexers; skipping scrape."
                 )
@@ -125,21 +124,19 @@ class JackettScraper(BaseScraper):
         if not settings.JACKETT_INDEXERS:
             logger.warning("No Jackett indexers available, skipping scrape.")
             return []
-        torrents: List[ScrapeResult] = []
-        seen: Set[str] = set()
+        torrents: list[ScrapeResult] = []
+        seen: set[str] = set()
 
         queries = request.title_queries(include_episode_variants=True)
 
         try:
             all_results = await gather_with_error_logging(
                 (
-                    (
-                        f"Jackett query {query!r} via indexer {indexer!r}",
-                        self.fetch_jackett_results(indexer, query),
-                    )
-                    for query in queries
-                    for indexer in settings.JACKETT_INDEXERS
+                    f"Jackett query {query!r} via indexer {indexer!r}",
+                    self.fetch_jackett_results(indexer, query),
                 )
+                for query in queries
+                for indexer in settings.JACKETT_INDEXERS
             )
 
             torrent_tasks = []
