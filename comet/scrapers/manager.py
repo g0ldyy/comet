@@ -25,6 +25,7 @@ ANIME_ONLY_SETTING_BY_SCRAPER = {
     "SeaDexScraper": "SEADEX_ANIME_ONLY",
     "NekoBTScraper": "NEKOBT_ANIME_ONLY",
 }
+INDEXER_MANAGER_SCRAPERS = frozenset({"jackett", "prowlarr"})
 
 
 class ScraperManager:
@@ -72,17 +73,20 @@ class ScraperManager:
     def _resolve_timeout(scraper_name: str, context: ScrapeContext) -> float:
         normalized_name = normalize_scraper_name(scraper_name)
         overrides = settings.SCRAPER_TIMEOUT_OVERRIDES
-        return overrides.get(
-            f"{normalized_name}:{context.value}",
-            overrides.get(
-                normalized_name,
-                (
-                    settings.LIVE_SCRAPE_TIMEOUT
-                    if context == ScrapeContext.LIVE
-                    else settings.BACKGROUND_SCRAPE_TIMEOUT
-                ),
-            ),
+        context_selector = f"{normalized_name}:{context.value}"
+        if context_selector in overrides:
+            return overrides[context_selector]
+        if normalized_name in overrides:
+            return overrides[normalized_name]
+
+        timeout = (
+            settings.LIVE_SCRAPE_TIMEOUT
+            if context == ScrapeContext.LIVE
+            else settings.BACKGROUND_SCRAPE_TIMEOUT
         )
+        if normalized_name in INDEXER_MANAGER_SCRAPERS:
+            timeout += max(0, settings.INDEXER_MANAGER_WAIT_TIMEOUT or 0)
+        return timeout
 
     async def _scrape_wrapper(
         self,

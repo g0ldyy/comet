@@ -42,6 +42,10 @@ Resolution order is context-specific scraper override, scraper override, then
 the context default. A timeout cancels only the affected scraper invocation;
 other providers continue and their results are retained.
 
+Without an explicit override, Jackett and Prowlarr also reserve
+`INDEXER_MANAGER_WAIT_TIMEOUT` for cold indexer-manager initialization before
+their context-specific scrape budget begins.
+
 `HTTP_CLIENT_TIMEOUT_TOTAL` remains the timeout for one HTTP request. Scraper
 budgets cover the complete provider operation, including pagination and retries.
 

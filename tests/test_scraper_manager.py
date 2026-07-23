@@ -74,6 +74,45 @@ class ScraperManagerTaskTests(unittest.IsolatedAsyncioTestCase):
                 60.0,
             )
 
+    def test_indexer_defaults_preserve_the_context_budget_after_initialization(self):
+        manager = ScraperManager.__new__(ScraperManager)
+
+        with (
+            patch.object(settings, "LIVE_SCRAPE_TIMEOUT", 10.0),
+            patch.object(settings, "BACKGROUND_SCRAPE_TIMEOUT", 60.0),
+            patch.object(settings, "INDEXER_MANAGER_WAIT_TIMEOUT", 30),
+            patch.object(settings, "SCRAPER_TIMEOUT_OVERRIDES", {}),
+        ):
+            self.assertEqual(
+                manager._resolve_timeout("Jackett", ScrapeContext.LIVE), 40.0
+            )
+            self.assertEqual(
+                manager._resolve_timeout("Prowlarr", ScrapeContext.BACKGROUND),
+                90.0,
+            )
+            self.assertEqual(
+                manager._resolve_timeout("Zilean", ScrapeContext.LIVE), 10.0
+            )
+
+    def test_indexer_override_replaces_the_derived_default(self):
+        manager = ScraperManager.__new__(ScraperManager)
+
+        with (
+            patch.object(settings, "LIVE_SCRAPE_TIMEOUT", 10.0),
+            patch.object(settings, "INDEXER_MANAGER_WAIT_TIMEOUT", 30),
+            patch.object(
+                settings,
+                "SCRAPER_TIMEOUT_OVERRIDES",
+                {"jackett": 15.0, "prowlarr:live": 20.0},
+            ),
+        ):
+            self.assertEqual(
+                manager._resolve_timeout("Jackett", ScrapeContext.LIVE), 15.0
+            )
+            self.assertEqual(
+                manager._resolve_timeout("Prowlarr", ScrapeContext.LIVE), 20.0
+            )
+
     def test_unknown_timeout_override_is_rejected(self):
         manager = ScraperManager.__new__(ScraperManager)
         manager.scrapers = {"ZileanScraper": object()}
