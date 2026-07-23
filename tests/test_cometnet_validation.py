@@ -5,10 +5,12 @@ from comet.cometnet.protocol import PeerRequest
 from comet.cometnet.reputation import ReputationStore
 from comet.cometnet.validation import validate_message_security
 
+_DEFAULT_KEY = object()
+
 
 class CometNetValidationTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
-    def _keystore(*, verified=True, key=object()):
+    def _keystore(*, verified=True, key=_DEFAULT_KEY):
         return Mock(
             is_verified=Mock(return_value=verified),
             get_key_obj=Mock(return_value=key),

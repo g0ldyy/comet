@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from comet.api.endpoints.playback import (
+    _build_playback_media_id,
     _cache_download_link_safely,
     _decode_sources,
     _parse_playback_path,
@@ -10,6 +11,24 @@ from comet.api.endpoints.playback import (
 
 
 class PlaybackCacheTests(unittest.IsolatedAsyncioTestCase):
+    def test_playback_media_id_preserves_aggregate_series_scopes(self):
+        self.assertEqual(
+            _build_playback_media_id("tt1234567", "series", None, None),
+            "tt1234567",
+        )
+        self.assertEqual(
+            _build_playback_media_id("tt1234567", "series", 2, None),
+            "tt1234567:2",
+        )
+        self.assertEqual(
+            _build_playback_media_id("tt1234567", "series", 2, 3),
+            "tt1234567:2:3",
+        )
+        self.assertEqual(
+            _build_playback_media_id("tt1234567", "movie", None, None),
+            "tt1234567",
+        )
+
     def test_sources_require_current_string_list_schema(self):
         self.assertEqual(
             _decode_sources(b'["tracker:first", null, "", 42, "tracker:second"]'),

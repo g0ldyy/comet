@@ -4,7 +4,11 @@ from urllib.parse import quote_plus
 
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper, deduplicate_torrents
+from comet.scrapers.base import (
+    BaseScraper,
+    deduplicate_torrents,
+    gather_with_error_logging,
+)
 from comet.scrapers.models import ScrapeRequest
 from comet.services.torrent_manager import extract_trackers_from_magnet
 
@@ -112,12 +116,15 @@ class AnimeToshoScraper(BaseScraper):
                         break
 
                     tasks.append(
-                        self.scrape_page(query, current_offset, limit, semaphore)
+                        (
+                            f"AnimeTosho query {query!r} offset {current_offset}",
+                            self.scrape_page(query, current_offset, limit, semaphore),
+                        )
                     )
                     current_offset += limit
 
                 if tasks:
-                    results = await asyncio.gather(*tasks)
+                    results = await gather_with_error_logging(tasks)
                     for batch_items, _ in results:
                         torrents.extend(batch_items)
 
@@ -125,15 +132,13 @@ class AnimeToshoScraper(BaseScraper):
 
     async def scrape(self, request: ScrapeRequest):
         semaphore = asyncio.Semaphore(settings.ANIMETOSHO_MAX_CONCURRENT_PAGES)
-        results = await asyncio.gather(
-            *(self._scrape_query(query, semaphore) for query in request.query_titles),
-            return_exceptions=True,
+        results = await gather_with_error_logging(
+            (
+                f"AnimeTosho query {query!r}",
+                self._scrape_query(query, semaphore),
+            )
+            for query in request.query_titles
         )
         return deduplicate_torrents(
-            [
-                torrent
-                for torrents in results
-                if isinstance(torrents, list)
-                for torrent in torrents
-            ]
+            [torrent for torrents in results for torrent in torrents]
         )

@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 
@@ -30,8 +29,8 @@ def verify_message_signature_sync(
 async def validate_message_security(
     message: BaseMessage,
     sender_id: str,
-    keystore: Optional[PublicKeyStore],
-    reputation: Optional[ReputationStore],
+    keystore: PublicKeyStore | None,
+    reputation: ReputationStore | None,
 ) -> bool:
     """
     Validate message security: sender match, timestamp, and signature.

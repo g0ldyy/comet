@@ -1,12 +1,15 @@
 import asyncio
 import unittest
+from typing import ClassVar
 from unittest.mock import patch
 
 from comet.api.endpoints.stream import (
+    _select_debrid_refresh_hashes,
     check_multi_service_availability,
     get_and_cache_multi_service_availability,
 )
 from comet.debrid.exceptions import DebridAuthError
+from comet.utils.parsing import MediaScope
 
 
 class _DebridService:
@@ -27,7 +30,7 @@ class _DebridService:
 
 
 class _CredentialDebridService:
-    attempts = []
+    attempts: ClassVar[list] = []
 
     def __init__(self, service, api_key, ip):
         del ip
@@ -43,7 +46,85 @@ class _CredentialDebridService:
         return {info_hash}, {info_hash: {"title": "Valid account.mkv"}}
 
 
+class _SelectiveDebridService:
+    checked_hashes: ClassVar[dict] = {}
+
+    def __init__(self, service, api_key, ip):
+        del api_key, ip
+        self.service = service
+
+    async def get_and_cache_availability(
+        self,
+        session,
+        info_hashes,
+        *args,
+        **kwargs,
+    ):
+        del session, args, kwargs
+        self.checked_hashes[self.service] = info_hashes
+        return set(), {}
+
+
 class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
+    def test_partial_cache_refresh_selects_only_new_hashes_at_zero_ratio(self):
+        old_hash = "a" * 40
+        new_hash = "b" * 40
+
+        with patch(
+            "comet.api.endpoints.stream.settings.DEBRID_CACHE_CHECK_RATIO",
+            0.0,
+        ):
+            selected = _select_debrid_refresh_hashes(
+                {old_hash, new_hash},
+                {old_hash},
+                {old_hash: {"torbox": True}},
+                had_cached_torrents=True,
+                use_account_scrape=False,
+            )
+
+        self.assertEqual(selected, {new_hash})
+
+    async def test_fresh_check_skips_service_specific_positive_cache_hits(self):
+        first_hash = "a" * 40
+        second_hash = "b" * 40
+        torrents = {
+            info_hash: {
+                "title": f"{info_hash}.mkv",
+                "seeders": 1,
+                "tracker": "tracker",
+                "sources": [],
+            }
+            for info_hash in (first_hash, second_hash)
+        }
+        entries = [
+            {"service": "first", "apiKey": "one"},
+            {"service": "second", "apiKey": "two"},
+        ]
+        _SelectiveDebridService.checked_hashes = {}
+
+        with patch(
+            "comet.api.endpoints.stream.DebridService",
+            new=_SelectiveDebridService,
+        ):
+            await get_and_cache_multi_service_availability(
+                None,
+                entries,
+                torrents,
+                "tt123:1",
+                "tt123",
+                1,
+                None,
+                MediaScope.SEASON,
+                "",
+                known_cache_status={
+                    first_hash: {"first": True},
+                    second_hash: {"second": True},
+                },
+            )
+
+        self.assertEqual(_SelectiveDebridService.checked_hashes["first"], [second_hash])
+        self.assertEqual(_SelectiveDebridService.checked_hashes["second"], [first_hash])
+
     async def test_cached_enrichment_uses_configured_order_not_completion_order(self):
         info_hash = "a" * 40
         torrents = {info_hash: {"title": "Original.mkv"}}
@@ -57,7 +138,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
             new=_DebridService,
         ):
             status = await check_multi_service_availability(
-                entries, torrents, None, None
+                entries, torrents, None, None, MediaScope.MOVIE
             )
 
         self.assertEqual(torrents[info_hash]["title"], "First.mkv")
@@ -91,6 +172,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
                 "tt123",
                 None,
                 None,
+                MediaScope.MOVIE,
                 "",
             )
 
@@ -128,6 +210,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
                 "tt123",
                 None,
                 None,
+                MediaScope.MOVIE,
                 "",
             )
 

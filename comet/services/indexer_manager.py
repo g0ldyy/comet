@@ -1,7 +1,6 @@
 import asyncio
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import aiohttp
 
@@ -63,9 +62,7 @@ def _active_prowlarr_ids(
                 if not isinstance(disabled_till, str):
                     continue
                 try:
-                    disabled_until = datetime.fromisoformat(
-                        disabled_till.replace("Z", "+00:00")
-                    )
+                    disabled_until = datetime.fromisoformat(disabled_till)
                 except ValueError:
                     continue
                 if disabled_until.tzinfo is None or disabled_until > current_time:
@@ -88,7 +85,7 @@ def _active_prowlarr_ids(
 
 class IndexerManager:
     def __init__(self):
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session: aiohttp.ClientSession | None = None
         self.refresh_interval = settings.INDEXER_MANAGER_UPDATE_INTERVAL
         self.original_jackett_config = settings.JACKETT_INDEXERS.copy()
         self.original_prowlarr_config = settings.PROWLARR_INDEXERS.copy()
@@ -191,7 +188,7 @@ class IndexerManager:
                     )
                     return
 
-                current_time = datetime.now(timezone.utc)
+                current_time = datetime.now(UTC)
                 active_ids = _active_prowlarr_ids(
                     indexers,
                     statuses,

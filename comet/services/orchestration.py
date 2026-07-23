@@ -11,13 +11,14 @@ from comet.scrapers.models import ScrapeRequest
 from comet.services.filtering import filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
-from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.languages import select_indexer_titles
+from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.parsing import (
+    MediaScope,
     ensure_multi_language,
     load_cached_parsed,
     load_cached_string_list,
-    parsed_matches_target,
+    resolve_media_scope,
 )
 from comet.utils.torrent_cache import build_torrent_cache_where, normalize_search_params
 
@@ -73,6 +74,7 @@ class TorrentManager:
         cache_media_ids: list[str] | None = None,
         target_air_date: str | None = None,
         reject_unknown_episode_files: bool = False,
+        media_scope: MediaScope | None = None,
     ):
         self.media_type = media_type
         self.media_id = media_full_id
@@ -85,6 +87,11 @@ class TorrentManager:
         search = normalize_search_params(season, episode, search_season, search_episode)
         self.search_episode = search.episode
         self.search_season = search.season
+        self.media_scope = (
+            resolve_media_scope(media_type, season, episode)
+            if media_scope is None
+            else media_scope
+        )
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
         self.is_kitsu = is_kitsu
@@ -105,18 +112,20 @@ class TorrentManager:
         parsed: ParsedData,
         *,
         reject_unknown_override: bool | None = None,
+        scope_is_known: bool = False,
     ) -> bool:
         reject_unknown = (
             self.reject_unknown_episode_files
             if reject_unknown_override is None
             else reject_unknown_override
         )
-        return parsed_matches_target(
+        return self.media_scope.matches_parsed(
             parsed,
             self.search_season,
             self.search_episode,
             target_air_date=self.target_air_date,
             reject_unknown_episode_files=reject_unknown,
+            scope_is_known=scope_is_known,
         )
 
     async def scrape_torrents(
@@ -171,7 +180,10 @@ class TorrentManager:
 
     async def _fetch_cached_rows(self, media_id: str):
         where_clause, params = build_torrent_cache_where(
-            media_id, self.search_season, self.search_episode
+            media_id,
+            self.media_scope,
+            self.search_season,
+            self.search_episode,
         )
         query = (
             "SELECT info_hash, file_index, title, seeders, size, tracker, sources_json, parsed_json, episode, updated_at "
@@ -196,17 +208,19 @@ class TorrentManager:
             best_rows = {}
 
             def row_priority(row):
-                exact_episode_match = (
-                    self.search_episode is not None
-                    and row["episode"] == self.search_episode
+                preferred_scope = (
+                    row["episode"] is None
+                    if self.media_scope.is_aggregate
+                    else (
+                        self.search_episode is not None
+                        and row["episode"] == self.search_episode
+                    )
                 )
-                has_episode_scope = row["episode"] is not None
                 has_file_index = row["file_index"] is not None
                 has_specific_title = bool(row["title"])
                 updated_at = row["updated_at"] or 0
                 return (
-                    exact_episode_match,
-                    has_episode_scope,
+                    preferred_scope,
                     has_file_index,
                     has_specific_title,
                     updated_at,
@@ -243,7 +257,9 @@ class TorrentManager:
                 else None
             )
             if not self._matches_requested_scope(
-                parsed_data, reject_unknown_override=reject_unknown_override
+                parsed_data,
+                reject_unknown_override=reject_unknown_override,
+                scope_is_known=True,
             ):
                 continue
 
@@ -379,7 +395,7 @@ class TorrentManager:
         remove_trash: int,
     ):
         loop = asyncio.get_running_loop()
-        self.ranked_torrents = await loop.run_in_executor(
+        ranked_torrents = await loop.run_in_executor(
             get_executor(),
             rank_worker,
             self.torrents,
@@ -389,3 +405,12 @@ class TorrentManager:
             max_size,
             remove_trash,
         )
+        if self.media_scope.is_aggregate:
+            ranked_torrents = sorted(
+                ranked_torrents,
+                key=lambda info_hash: self.media_scope.granularity_priority(
+                    self.torrents[info_hash]["parsed"]
+                ),
+                reverse=True,
+            )
+        self.ranked_torrents = ranked_torrents

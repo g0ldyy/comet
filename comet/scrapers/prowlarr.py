@@ -1,10 +1,13 @@
 import asyncio
-from typing import List, Set
 
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper, deduplicate_torrents
+from comet.scrapers.base import (
+    BaseScraper,
+    deduplicate_torrents,
+    gather_with_error_logging,
+)
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
 from comet.services.indexer_manager import indexer_manager
 from comet.services.torrent_manager import (
@@ -68,7 +71,7 @@ class ProwlarrScraper(BaseScraper):
                 torrents.append(base_torrent)
                 return torrents
 
-        if "infoHash" in result and result["infoHash"]:
+        if result.get("infoHash"):
             base_torrent["infoHash"] = result["infoHash"].lower()
             if "guid" in result and result["guid"].startswith("magnet:"):
                 base_torrent["sources"] = extract_trackers_from_magnet(result["guid"])
@@ -87,25 +90,24 @@ class ProwlarrScraper(BaseScraper):
         return torrents
 
     async def _fetch_search_results(self, query):
-        try:
-            url = f"{self.url}/api/v1/search"
-            params = [
-                ("query", query),
-                *(
-                    ("indexerIds", indexer_id)
-                    for indexer_id in settings.PROWLARR_INDEXERS
-                ),
-                ("type", "search"),
-            ]
-            async with self.session.get(
-                url,
-                params=params,
-                headers={"X-Api-Key": settings.PROWLARR_API_KEY},
-                timeout=INDEXER_TIMEOUT,
-            ) as response:
-                return await response.json()
-        except Exception as e:
-            return e
+        url = f"{self.url}/api/v1/search"
+        params = [
+            ("query", query),
+            *(("indexerIds", indexer_id) for indexer_id in settings.PROWLARR_INDEXERS),
+            ("type", "search"),
+        ]
+        async with self.session.get(
+            url,
+            params=params,
+            headers={"X-Api-Key": settings.PROWLARR_API_KEY},
+            timeout=INDEXER_TIMEOUT,
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"HTTP {response.status}")
+            data = await response.json()
+            if not isinstance(data, list):
+                raise ValueError("response payload is not a list")
+            return data
 
     async def scrape(self, request: ScrapeRequest):
         if not settings.PROWLARR_INDEXERS:
@@ -114,49 +116,32 @@ class ProwlarrScraper(BaseScraper):
                     indexer_manager.prowlarr_initialized.wait(),
                     timeout=settings.INDEXER_MANAGER_WAIT_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
-                pass
+            except TimeoutError:
+                logger.warning(
+                    "Timed out waiting for Prowlarr indexers; skipping scrape."
+                )
+                return []
 
         if not settings.PROWLARR_INDEXERS:
             logger.warning("No Prowlarr indexers available, skipping scrape.")
             return []
 
-        torrents: List[ScrapeResult] = []
-        seen: Set[str] = set()
+        torrents: list[ScrapeResult] = []
+        seen: set[str] = set()
 
         queries = request.title_queries(include_episode_variants=True)
 
         try:
-            tasks = []
-            for query in queries:
-                tasks.append(self._fetch_search_results(query))
-
-            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            responses = await gather_with_error_logging(
+                (
+                    f"Prowlarr query {query!r} ({self.url})",
+                    self._fetch_search_results(query),
+                )
+                for query in queries
+            )
             all_results = []
             for response in responses:
-                if isinstance(response, Exception):
-                    if isinstance(response, asyncio.TimeoutError):
-                        logger.warning(
-                            f"Timeout while getting torrents for {request.title} with Prowlarr"
-                        )
-                    else:
-                        logger.warning(
-                            f"Exception while getting torrents for {request.title} with Prowlarr: {response}"
-                        )
-                    continue
-
-                try:
-                    response_json = response
-                    if isinstance(response_json, list):
-                        all_results.extend(response_json)
-                    else:
-                        logger.warning(
-                            f"Unexpected Prowlarr response format: {response_json}"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Exception while parsing Prowlarr JSON response: {e}"
-                    )
+                all_results.extend(response)
 
             torrent_tasks = []
             for result in all_results:
@@ -168,16 +153,16 @@ class ProwlarrScraper(BaseScraper):
 
                 seen.add(info_url)
                 torrent_tasks.append(
-                    self.process_torrent(result, request.media_only_id, request.season)
+                    (
+                        f"Prowlarr result {info_url!r}",
+                        self.process_torrent(
+                            result, request.media_only_id, request.season
+                        ),
+                    )
                 )
 
-            processed_torrents = await asyncio.gather(
-                *torrent_tasks, return_exceptions=True
-            )
+            processed_torrents = await gather_with_error_logging(torrent_tasks)
             for sublist in processed_torrents:
-                if isinstance(sublist, Exception):
-                    logger.warning(f"Error processing torrent with Prowlarr: {sublist}")
-                    continue
                 for t in sublist:
                     if isinstance(t, dict) and t.get("infoHash"):
                         torrents.append(t)

@@ -148,9 +148,9 @@ def format_quality_info(data: ParsedData):
         quality_parts.append("UPSCALED")
     if hasattr(data, "remastered") and data.remastered:
         quality_parts.append("REMASTERED")
-    if hasattr(data, "directorsCut") and data.directorsCut:
-        quality_parts.append("DIRECTOR'S CUT")
-    elif hasattr(data, "directors_cut") and data.directors_cut:
+    if (hasattr(data, "directorsCut") and data.directorsCut) or (
+        hasattr(data, "directors_cut") and data.directors_cut
+    ):
         quality_parts.append("DIRECTOR'S CUT")
     if hasattr(data, "extended") and data.extended:
         quality_parts.append("EXTENDED")

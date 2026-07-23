@@ -351,7 +351,7 @@ async def backend_lock(
             lock_file = None
             lock_acquired = False
             try:
-                lock_file = open(sqlite_lock_path, "a+")
+                lock_file = await asyncio.to_thread(open, sqlite_lock_path, "a+")
 
                 async def _try_acquire_sqlite_lock() -> bool:
                     nonlocal lock_acquired
@@ -385,7 +385,7 @@ async def backend_lock(
                     yield acquired
             finally:
                 if lock_file is not None:
-                    lock_file.close()
+                    await asyncio.to_thread(lock_file.close)
             return
 
         fallback_lock_path = f"{sqlite_lock_path}.lock"

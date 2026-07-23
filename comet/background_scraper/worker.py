@@ -9,6 +9,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.core.scrape import ScrapeContext
 from comet.metadata.manager import MetadataScraper
+from comet.services.cache_state import mark_scope_scraped
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
 from comet.utils.http_client import http_client_manager
@@ -545,8 +546,6 @@ class BackgroundScraperWorker:
                         scheduling_stopped = True
                         await _defer_remaining()
                         break
-        except asyncio.CancelledError:
-            raise
         finally:
             if in_flight:
                 for task in in_flight:
@@ -1130,8 +1129,7 @@ class BackgroundScraperWorker:
             votes_raw = votes_raw.replace(",", "")
         try:
             votes = int(votes_raw) if type(votes_raw) in (int, str) else 0
-            if votes < 0:
-                votes = 0
+            votes = max(votes, 0)
         except (TypeError, ValueError, OverflowError):
             votes = 0
 
@@ -1303,7 +1301,7 @@ class BackgroundScraperWorker:
         await manager.scrape_torrents(ScrapeContext.BACKGROUND)
         torrents_found = len(manager.torrents)
         if torrents_found > 0:
-            await self._seed_media_demand(media_id)
+            await mark_scope_scraped(media_id)
         return torrents_found
 
     async def _scrape_series(self, item: dict, deadline: float | None) -> int:
@@ -1368,7 +1366,7 @@ class BackgroundScraperWorker:
             )
 
             if success:
-                await self._seed_media_demand(episode_media_id)
+                await mark_scope_scraped(episode_media_id)
             total_torrents += episode_torrents
 
         return total_torrents
@@ -1712,25 +1710,6 @@ class BackgroundScraperWorker:
             "status": "degraded" if reasons else "healthy",
             "reasons": reasons,
         }
-
-    async def _seed_media_demand(self, media_id: str):
-        current_time = time.time()
-        await database.execute(
-            """
-            INSERT INTO media_demand (
-                media_id,
-                first_seen_at,
-                last_seen_at
-            )
-            VALUES (:media_id, :current_time, :last_seen_at)
-            ON CONFLICT DO NOTHING
-            """,
-            {
-                "media_id": media_id,
-                "current_time": current_time,
-                "last_seen_at": current_time,
-            },
-        )
 
     def _compute_backoff(self, failures: int) -> float:
         base = max(1, settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF)

@@ -4,7 +4,6 @@ import inspect
 import os
 import pkgutil
 import time
-from typing import Dict
 
 from comet.core.logger import logger
 from comet.core.models import settings
@@ -30,7 +29,7 @@ INDEXER_MANAGER_SCRAPERS = frozenset({"jackett", "prowlarr"})
 
 class ScraperManager:
     def __init__(self):
-        self.scrapers: Dict[str, BaseScraper] = {}
+        self.scrapers: dict[str, type[BaseScraper]] = {}
         self.discover_scrapers()
         self._validate_timeout_overrides()
 

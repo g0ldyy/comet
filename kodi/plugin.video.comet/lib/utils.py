@@ -1,5 +1,4 @@
 import sys
-from typing import List
 from urllib import parse
 
 import requests
@@ -52,7 +51,7 @@ def fetch_data(url: str):
 
 def convert_info_hash_to_magnet(
     info_hash: str,
-    trackers: List[str],
+    trackers: list[str],
     display_name: str = "",
 ):
     magnet_parts = [f"magnet:?xt=urn:btih:{info_hash.strip()}"]

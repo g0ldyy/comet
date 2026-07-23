@@ -3,9 +3,13 @@ import html
 import re
 from urllib.parse import quote_plus
 
-from comet.core.logger import log_scraper_error, logger
+from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper, deduplicate_torrents
+from comet.scrapers.base import (
+    BaseScraper,
+    deduplicate_torrents,
+    gather_with_error_logging,
+)
 from comet.scrapers.models import ScrapeRequest
 from comet.services.torrent_manager import extract_trackers_from_magnet
 from comet.utils.formatting import size_to_bytes
@@ -89,13 +93,12 @@ async def get_all_nyaa_pages(
 
     first_page_url = f"{NYAA_BASE_URL}/?q={quote_plus(query)}"
 
-    async with semaphore:
-        async with session.get(first_page_url) as response:
-            if response.status != 200:
-                logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status}")
-                return []
+    async with semaphore, session.get(first_page_url) as response:
+        if response.status != 200:
+            logger.warning(f"Failed to scrape Nyaa page 1: HTTP {response.status}")
+            return []
 
-            first_page_text = await response.text()
+        first_page_text = await response.text()
 
     first_page_torrents = extract_torrent_data(first_page_text)
     all_torrents.extend(first_page_torrents)
@@ -107,15 +110,15 @@ async def get_all_nyaa_pages(
     last_page_number = int(last_page_matches[0])
 
     if last_page_number > 1:
-        tasks = []
-        for page_number in range(2, last_page_number + 1):
-            tasks.append(scrape_nyaa_page(session, semaphore, query, page_number))
-
-        page_results = await asyncio.gather(*tasks, return_exceptions=True)
-
+        page_results = await gather_with_error_logging(
+            (
+                f"Nyaa query {query!r} page {page_number}",
+                scrape_nyaa_page(session, semaphore, query, page_number),
+            )
+            for page_number in range(2, last_page_number + 1)
+        )
         for result in page_results:
-            if isinstance(result, list):
-                all_torrents.extend(result)
+            all_torrents.extend(result)
 
     return all_torrents
 
@@ -128,21 +131,15 @@ class NyaaScraper(BaseScraper):
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
-
-        try:
-            semaphore = asyncio.Semaphore(settings.NYAA_MAX_CONCURRENT_PAGES)
-            results = await asyncio.gather(
-                *(
-                    get_all_nyaa_pages(self.session, query, semaphore)
-                    for query in request.query_titles
-                ),
-                return_exceptions=True,
+        semaphore = asyncio.Semaphore(settings.NYAA_MAX_CONCURRENT_PAGES)
+        results = await gather_with_error_logging(
+            (
+                f"Nyaa query {query!r} ({NYAA_BASE_URL})",
+                get_all_nyaa_pages(self.session, query, semaphore),
             )
-            for result in results:
-                if isinstance(result, list):
-                    torrents.extend(result)
-
-        except Exception as e:
-            log_scraper_error("Nyaa", NYAA_BASE_URL, request.media_id, e)
+            for query in request.query_titles
+        )
+        for result in results:
+            torrents.extend(result)
 
         return deduplicate_torrents(torrents)

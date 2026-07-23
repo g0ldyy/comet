@@ -408,8 +408,8 @@ class StremThru:
         torrent_name: str,
         season: int,
         episode: int,
-        sources: list = None,
-        aliases: dict = None,
+        sources: list | None = None,
+        aliases: dict | None = None,
     ):
         """
         Smart file selection algorithm with scoring system.

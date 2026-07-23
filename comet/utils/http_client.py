@@ -1,5 +1,4 @@
 import asyncio
-from typing import Optional
 
 import aiohttp
 
@@ -8,7 +7,7 @@ from comet.core.models import settings
 
 class HttpClientManager:
     def __init__(self):
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._lock = asyncio.Lock()
 
     async def init(self) -> aiohttp.ClientSession:

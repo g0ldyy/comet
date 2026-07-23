@@ -488,8 +488,7 @@ def _merge_torrent_updates(
         existing.sources = _dedupe_strings([*existing.sources, *incoming.sources])
     existing.parsed = _merge_parsed_payloads(existing.parsed, incoming.parsed)
     existing.from_cometnet = existing.from_cometnet and incoming.from_cometnet
-    if incoming.attempts > existing.attempts:
-        existing.attempts = incoming.attempts
+    existing.attempts = max(existing.attempts, incoming.attempts)
     return existing
 
 
@@ -739,7 +738,7 @@ async def _collect_queue_batch(
 
         try:
             batch.append(await asyncio.wait_for(queue.get(), timeout=remaining))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
         drain_nowait()
 
@@ -1373,7 +1372,7 @@ class TorrentUpdateQueue:
                     await asyncio.wait_for(
                         self._retry_event.wait(), timeout=wait_timeout
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
         finally:
             async with self._state_lock:

@@ -8,7 +8,7 @@ Uses MsgPack for efficient binary serialization.
 import math
 import time
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import Literal
 
 import msgpack
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -120,10 +120,10 @@ class HandshakeMessage(BaseMessage):
     type: Literal[MessageType.HANDSHAKE] = MessageType.HANDSHAKE
     public_key: str = ""  # Hex-encoded public key
     listen_port: int = 0  # Port this node is listening on (for reverse connections)
-    public_url: Optional[str] = None  # Full public URL (for reverse proxies)
-    alias: Optional[str] = None  # Friendly name for the node
-    capabilities: List[str] = Field(default_factory=list)  # Future extension
-    network_token: Optional[str] = None  # HMAC token for private network auth
+    public_url: str | None = None  # Full public URL (for reverse proxies)
+    alias: str | None = None  # Friendly name for the node
+    capabilities: list[str] = Field(default_factory=list)  # Future extension
+    network_token: str | None = None  # HMAC token for private network auth
 
     @field_validator("listen_port", mode="before")
     @classmethod
@@ -187,7 +187,7 @@ class PeerResponse(BaseMessage):
     """Response containing a list of known peers."""
 
     type: Literal[MessageType.PEER_RESPONSE] = MessageType.PEER_RESPONSE
-    peers: List[PeerInfo] = Field(default_factory=list)
+    peers: list[PeerInfo] = Field(default_factory=list)
 
 
 class TorrentMetadata(BaseModel):
@@ -200,14 +200,14 @@ class TorrentMetadata(BaseModel):
     info_hash: str  # 40-character hex string
     title: str
     size: int  # Size in bytes
-    seeders: Optional[int] = None
+    seeders: int | None = None
     tracker: str  # Source/tracker name
     imdb_id: str
-    file_index: Optional[int] = None
-    season: Optional[int] = None
-    episode: Optional[int] = None
-    sources: List[str] = Field(default_factory=list)
-    parsed: Optional[dict] = None  # Serialized RTN ParsedData
+    file_index: int | None = None
+    season: int | None = None
+    episode: int | None = None
+    sources: list[str] = Field(default_factory=list)
+    parsed: dict | None = None  # Serialized RTN ParsedData
     updated_at: float = Field(default_factory=time.time)
     contributor_id: str = ""  # Node ID of the original contributor
     contributor_public_key: str = (
@@ -216,7 +216,7 @@ class TorrentMetadata(BaseModel):
     contributor_signature: str = ""  # Signature from the contributor
 
     # Pool association
-    pool_id: Optional[str] = None  # Pool this torrent belongs to (if any)
+    pool_id: str | None = None  # Pool this torrent belongs to (if any)
 
     @field_validator("info_hash")
     @classmethod
@@ -253,9 +253,7 @@ class TorrentMetadata(BaseModel):
 
     @field_validator("seeders", "file_index", "season", "episode")
     @classmethod
-    def validate_optional_non_negative_integer(
-        cls, value: Optional[int]
-    ) -> Optional[int]:
+    def validate_optional_non_negative_integer(cls, value: int | None) -> int | None:
         if value is not None and value < 0:
             raise ValueError("torrent integer fields must be non-negative")
         return value
@@ -296,12 +294,12 @@ class TorrentAnnounce(BaseMessage):
     """
 
     type: Literal[MessageType.TORRENT_ANNOUNCE] = MessageType.TORRENT_ANNOUNCE
-    torrents: List[TorrentMetadata] = Field(default_factory=list)
+    torrents: list[TorrentMetadata] = Field(default_factory=list)
     ttl: int = 5  # Time-to-live (hops remaining)
 
     @field_validator("torrents")
     @classmethod
-    def validate_torrents(cls, v: List[TorrentMetadata]) -> List[TorrentMetadata]:
+    def validate_torrents(cls, v: list[TorrentMetadata]) -> list[TorrentMetadata]:
         """Validate that we don't exceed max torrents per message."""
         if len(v) > 1000:
             raise ValueError("Maximum 1000 torrents per announce message")
@@ -314,7 +312,7 @@ class TorrentAnnounce(BaseMessage):
             raise ValueError("ttl must be an integer between 1 and 32")
         return value
 
-    visited_nodes: List[str] = Field(
+    visited_nodes: list[str] = Field(
         default_factory=list
     )  # List of nodes that have seen this message
 
@@ -323,8 +321,8 @@ class TorrentQuery(BaseMessage):
     """Query for specific torrents (by info_hash or media ID)."""
 
     type: Literal[MessageType.TORRENT_QUERY] = MessageType.TORRENT_QUERY
-    info_hashes: List[str] = Field(default_factory=list)
-    imdb_id: Optional[str] = None
+    info_hashes: list[str] = Field(default_factory=list)
+    imdb_id: str | None = None
     limit: int = 50
 
     @field_validator("limit", mode="before")
@@ -339,7 +337,7 @@ class TorrentResponse(BaseMessage):
     """Response to a torrent query."""
 
     type: Literal[MessageType.TORRENT_RESPONSE] = MessageType.TORRENT_RESPONSE
-    torrents: List[TorrentMetadata] = Field(default_factory=list)
+    torrents: list[TorrentMetadata] = Field(default_factory=list)
     query_id: str = ""  # Reference to the original query
 
 
@@ -355,7 +353,7 @@ class PoolMemberPayload(BaseModel):
     role: Literal["creator", "admin", "member"] = "member"
     added_at: float
     added_by: str
-    alias: Optional[str] = None
+    alias: str | None = None
     contribution_count: int = 0
     last_seen: float = 0.0
 
@@ -391,7 +389,7 @@ class PoolManifestMessage(BaseMessage):
     display_name: str
     description: str = ""
     creator_key: str
-    members: List[PoolMemberPayload] = Field(default_factory=list)
+    members: list[PoolMemberPayload] = Field(default_factory=list)
     join_mode: Literal["invite"] = "invite"
     manifest_version: int = 1
     created_at: float = 0.0  # Creation timestamp
@@ -441,10 +439,10 @@ class PoolJoinRequest(BaseMessage):
 
     type: Literal[MessageType.POOL_JOIN_REQUEST] = MessageType.POOL_JOIN_REQUEST
     pool_id: str
-    invite_code: Optional[str] = None  # For invite-based join
+    invite_code: str | None = None  # For invite-based join
 
     requester_key: str
-    alias: Optional[str] = None  # Friendly name of the requester
+    alias: str | None = None  # Friendly name of the requester
 
     @field_validator("pool_id", mode="before")
     @classmethod
@@ -466,9 +464,9 @@ class PoolMemberUpdate(BaseMessage):
     pool_id: str
     action: Literal["add", "remove", "promote", "demote", "leave"]
     member_key: str
-    new_role: Optional[Literal["admin", "member"]] = None
+    new_role: Literal["admin", "member"] | None = None
     updated_by: str  # Admin who made the change
-    manifest_signatures: Dict[str, str] = Field(
+    manifest_signatures: dict[str, str] = Field(
         default_factory=dict
     )  # Signatures of the NEW manifest state
 
@@ -515,23 +513,23 @@ class PoolDeleteMessage(BaseMessage):
 
 
 # Union type for all possible message types
-AnyMessage = Union[
-    HandshakeMessage,
-    PingMessage,
-    PongMessage,
-    PeerRequest,
-    PeerResponse,
-    TorrentAnnounce,
-    TorrentQuery,
-    TorrentResponse,
-    PoolManifestMessage,
-    PoolJoinRequest,
-    PoolMemberUpdate,
-    PoolDeleteMessage,
-]
+AnyMessage = (
+    HandshakeMessage
+    | PingMessage
+    | PongMessage
+    | PeerRequest
+    | PeerResponse
+    | TorrentAnnounce
+    | TorrentQuery
+    | TorrentResponse
+    | PoolManifestMessage
+    | PoolJoinRequest
+    | PoolMemberUpdate
+    | PoolDeleteMessage
+)
 
 
-def parse_message(data: Union[str, bytes]) -> Optional[AnyMessage]:
+def parse_message(data: str | bytes) -> AnyMessage | None:
     """
     Parse MsgPack bytes into the appropriate message type.
     """

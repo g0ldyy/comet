@@ -8,7 +8,7 @@ across the network.
 import asyncio
 import time
 from collections import deque
-from typing import Awaitable, Callable, Deque, Dict, List, Optional, Set
+from collections.abc import Awaitable, Callable
 
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.protocol import TorrentAnnounce, TorrentMetadata
@@ -25,19 +25,19 @@ from comet.core.models import settings
 SaveTorrentCallback = Callable[[TorrentMetadata], Awaitable[None]]
 
 # Type for getting random peers
-GetRandomPeersCallback = Callable[[int, Optional[Set[str]]], List[str]]
+GetRandomPeersCallback = Callable[[int, set[str] | None], list[str]]
 
 # Type for sending a message to peers
 SendMessageCallback = Callable[[str, TorrentAnnounce | bytes], Awaitable[None]]
 
 # Type for broadcasting a message
-BroadcastCallback = Callable[[TorrentAnnounce, Optional[Set[str]]], Awaitable[None]]
+BroadcastCallback = Callable[[TorrentAnnounce, set[str] | None], Awaitable[None]]
 
 # Type for disconnecting a peer
 DisconnectPeerCallback = Callable[[str], Awaitable[None]]
 
 # Type for checking if torrents exist locally (batch)
-CheckTorrentsExistCallback = Callable[[List[str]], Awaitable[Set[str]]]
+CheckTorrentsExistCallback = Callable[[list[str]], Awaitable[set[str]]]
 
 
 def sign_object_sync(identity: NodeIdentity, obj: object) -> str:
@@ -48,7 +48,7 @@ def sign_object_sync(identity: NodeIdentity, obj: object) -> str:
     return identity.sign_hex(obj.to_signable_bytes())
 
 
-def batch_sign_objects_sync(identity: NodeIdentity, objects: List[object]) -> List[str]:
+def batch_sign_objects_sync(identity: NodeIdentity, objects: list[object]) -> list[str]:
     """
     Helper to sign a list of objects in a single executor call.
     """
@@ -69,7 +69,7 @@ class GossipEngine:
     """
 
     # Valid contribution modes
-    CONTRIBUTION_MODES = {"full", "consumer", "source", "leech"}
+    CONTRIBUTION_MODES = frozenset({"full", "consumer", "source", "leech"})
 
     def __init__(
         self,
@@ -100,20 +100,20 @@ class GossipEngine:
             self.contribution_mode = "full"
 
         # Queue of torrents waiting to be gossiped
-        self._outgoing_queue: Deque[TorrentMetadata] = deque(maxlen=10000)
+        self._outgoing_queue: deque[TorrentMetadata] = deque(maxlen=10000)
 
         # Callbacks (set by manager)
-        self._get_random_peers: Optional[GetRandomPeersCallback] = None
-        self._send_message: Optional[SendMessageCallback] = None
-        self._broadcast: Optional[BroadcastCallback] = None
-        self._save_torrent: Optional[SaveTorrentCallback] = None
-        self._disconnect_peer: Optional[DisconnectPeerCallback] = None
-        self._check_torrents_exist: Optional[CheckTorrentsExistCallback] = None
+        self._get_random_peers: GetRandomPeersCallback | None = None
+        self._send_message: SendMessageCallback | None = None
+        self._broadcast: BroadcastCallback | None = None
+        self._save_torrent: SaveTorrentCallback | None = None
+        self._disconnect_peer: DisconnectPeerCallback | None = None
+        self._check_torrents_exist: CheckTorrentsExistCallback | None = None
 
         # Running state
         self._running = False
-        self._gossip_task: Optional[asyncio.Task] = None
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._gossip_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task | None = None
 
         # Statistics
         self.stats = {
@@ -137,8 +137,8 @@ class GossipEngine:
         send_message: SendMessageCallback,
         broadcast: BroadcastCallback,
         save_torrent: SaveTorrentCallback,
-        disconnect_peer: Optional[DisconnectPeerCallback] = None,
-        check_torrents_exist: Optional[CheckTorrentsExistCallback] = None,
+        disconnect_peer: DisconnectPeerCallback | None = None,
+        check_torrents_exist: CheckTorrentsExistCallback | None = None,
     ) -> None:
         """Set the callbacks for network operations."""
         self._get_random_peers = get_random_peers
@@ -178,7 +178,7 @@ class GossipEngine:
         logger.log("COMETNET", "Gossip engine stopped")
 
     async def queue_torrents(
-        self, metadata_list: List[TorrentMetadata], pool_id: Optional[str] = None
+        self, metadata_list: list[TorrentMetadata], pool_id: str | None = None
     ) -> None:
         """
         Queue multiple torrents for gossiping.
@@ -200,9 +200,8 @@ class GossipEngine:
             metadata.contributor_public_key = self.identity.public_key_hex
 
             # Set pool_id if provided and we're a member
-            if pool_id and self._pool_store:
-                if self._pool_store.is_member_of(pool_id):
-                    metadata.pool_id = pool_id
+            if pool_id and self._pool_store and self._pool_store.is_member_of(pool_id):
+                metadata.pool_id = pool_id
 
             valid_list.append(metadata)
 
@@ -234,7 +233,7 @@ class GossipEngine:
         self._outgoing_queue.extend(valid_list)
 
     async def queue_torrent(
-        self, metadata: TorrentMetadata, pool_id: Optional[str] = None
+        self, metadata: TorrentMetadata, pool_id: str | None = None
     ) -> None:
         """
         Queue a torrent for gossiping.
@@ -242,7 +241,7 @@ class GossipEngine:
         await self.queue_torrents([metadata], pool_id)
 
     async def handle_announce(
-        self, sender_id: str, announce: TorrentAnnounce, sender_ip: str = None
+        self, sender_id: str, announce: TorrentAnnounce, sender_ip: str | None = None
     ) -> None:
         """
         Handle an incoming torrent announce message.
@@ -330,12 +329,11 @@ class GossipEngine:
                     continue
 
                 # Check if contributor is trusted (pool-based filtering)
-                if self._pool_store:
-                    if not self._pool_store.is_contributor_trusted(
-                        torrent.contributor_public_key, torrent.pool_id
-                    ):
-                        self.stats["torrents_filtered_untrusted"] += 1
-                        continue
+                if self._pool_store and not self._pool_store.is_contributor_trusted(
+                    torrent.contributor_public_key, torrent.pool_id
+                ):
+                    self.stats["torrents_filtered_untrusted"] += 1
+                    continue
 
                 # Store the contributor key in our keystore for future reference (optional)
                 if self._keystore:
@@ -358,7 +356,7 @@ class GossipEngine:
         # Record contributions in pool store (track member stats)
         if valid_torrents and self._pool_store:
             # Group by contributor to batch the updates
-            contributions: Dict[tuple, int] = {}
+            contributions: dict[tuple, int] = {}
             for torrent in valid_torrents:
                 key = (torrent.contributor_public_key, torrent.pool_id)
                 contributions[key] = contributions.get(key, 0) + 1
@@ -412,9 +410,8 @@ class GossipEngine:
                 self.stats["torrents_repropagated"] += len(torrents_to_repropagate)
 
         # Check if peer is still acceptable after processing
-        if not self.reputation.is_peer_acceptable(sender_id):
-            if self._disconnect_peer:
-                await self._disconnect_peer(sender_id)
+        if not self.reputation.is_peer_acceptable(sender_id) and self._disconnect_peer:
+            await self._disconnect_peer(sender_id)
 
     def _validate_torrent(self, torrent: TorrentMetadata) -> bool:
         """
@@ -452,21 +449,16 @@ class GossipEngine:
                 > now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
             ):  # Future tolerance
                 return False
-            if (
-                torrent.updated_at < now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE
-            ):  # Max age
-                return False
-
-            return True
+            return torrent.updated_at >= now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE
         except (ValueError, TypeError):
             return False
 
     async def _repropagate(
         self,
-        torrents: List[TorrentMetadata],
+        torrents: list[TorrentMetadata],
         ttl: int,
-        exclude: Optional[Set[str]] = None,
-        visited_history: Optional[List[str]] = None,
+        exclude: set[str] | None = None,
+        visited_history: list[str] | None = None,
     ) -> int:
         """Re-propagate torrents to random peers. Returns the number of peers reached."""
         if not self._get_random_peers or not self._send_message:
@@ -529,7 +521,7 @@ class GossipEngine:
                 total_sent = 0
                 while self._outgoing_queue:
                     # Take up to MAX_TORRENTS_PER_MESSAGE from queue
-                    to_send: List[TorrentMetadata] = []
+                    to_send: list[TorrentMetadata] = []
                     for _ in range(
                         min(self.max_torrents_per_message, len(self._outgoing_queue))
                     ):
@@ -576,19 +568,19 @@ class GossipEngine:
             except Exception:
                 pass
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get gossip statistics."""
         return {
             **self.stats,
             "queue_size": len(self._outgoing_queue),
         }
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialize the gossip engine state for persistence."""
         return {
             "stats": self.stats,
         }
 
-    def from_dict(self, data: Dict) -> None:
+    def from_dict(self, data: dict) -> None:
         """Load the gossip engine state from a dictionary."""
         self.stats = data["stats"].copy()

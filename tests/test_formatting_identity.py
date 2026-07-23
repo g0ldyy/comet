@@ -12,7 +12,7 @@ class FormattingIdentityContractTests(unittest.TestCase):
 
     def test_byte_formatting_rejects_nonfinite_negative_and_coerced_values(self):
         self.assertEqual(format_bytes(0), "0.0 B")
-        self.assertEqual(format_bytes(Decimal("1536")), "1.5 KB")
+        self.assertEqual(format_bytes(Decimal(1536)), "1.5 KB")
 
         for value in (True, "1024", -1, float("nan"), float("inf")):
             with self.subTest(value=value):

@@ -70,7 +70,7 @@ def _valid_download_url(value) -> str | None:
         parsed = urlsplit(value)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             return None
-        parsed.port
+        _ = parsed.port
     except (ValueError, UnicodeError):
         return None
     return value
@@ -88,6 +88,31 @@ def _decode_sources(sources_json) -> list[str]:
     if not isinstance(sources, list):
         return []
     return [source for source in sources if isinstance(source, str) and source]
+
+
+def _build_playback_media_id(
+    media_only_id: str,
+    media_type: str,
+    season: int | None,
+    episode: int | None,
+) -> str:
+    if media_type not in {"movie", "series"}:
+        raise ValueError("media type must be movie or series")
+
+    is_imdb = media_only_id.startswith("tt")
+    if media_type == "movie":
+        return media_only_id if is_imdb else f"kitsu:{media_only_id}"
+    if not is_imdb:
+        return (
+            f"kitsu:{media_only_id}:{episode}"
+            if episode is not None
+            else f"kitsu:{media_only_id}"
+        )
+    if season is None:
+        return media_only_id
+    if episode is None:
+        return f"{media_only_id}:{season}"
+    return f"{media_only_id}:{season}:{episode}"
 
 
 async def cache_download_link(
@@ -173,6 +198,7 @@ async def playback(
     torrent_name: str = Query(),
     name: str = Query(),
     media_id: str | None = Query(default=None),
+    media_type: str | None = Query(default=None),
 ):
     config = config_check(b64config, strict_b64config=True)
     if not config:
@@ -184,7 +210,7 @@ async def playback(
     torrent_name = torrent_name.strip()
     name = name.strip()
     media_id = media_id.strip() if media_id else None
-    if not torrent_name or not name:
+    if not torrent_name or not name or media_type not in {None, "movie", "series"}:
         return build_status_video_response(
             ["BAD_REQUEST"],
             default_key="BAD_REQUEST",
@@ -289,24 +315,25 @@ async def playback(
         debrid_media_only_id = context_media_id
         if context_media_id:
             metadata_scraper = MetadataScraper(session)
-            media_type = "series" if season is not None else "movie"
-
-            if "tt" in context_media_id:
-                full_media_id = (
-                    f"{context_media_id}:{season}:{episode}"
-                    if media_type == "series"
-                    else context_media_id
+            resolved_media_type = media_type or (
+                "series" if season is not None else "movie"
+            )
+            try:
+                full_media_id = _build_playback_media_id(
+                    context_media_id,
+                    resolved_media_type,
+                    season,
+                    episode,
                 )
-            else:
-                full_media_id = (
-                    f"kitsu:{context_media_id}:{episode}"
-                    if media_type == "series"
-                    else f"kitsu:{context_media_id}"
+            except ValueError:
+                return build_status_video_response(
+                    ["BAD_REQUEST"],
+                    default_key="BAD_REQUEST",
                 )
 
             debrid_video_id = full_media_id
             _, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                media_type, full_media_id
+                resolved_media_type, full_media_id
             )
 
         debrid = get_debrid(

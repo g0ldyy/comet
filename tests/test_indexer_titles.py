@@ -188,3 +188,23 @@ class IndexerTitleTests(unittest.TestCase):
                 "Localized S02E03",
             ),
         )
+
+    def test_season_variants_do_not_require_an_episode(self):
+        request = ScrapeRequest(
+            media_type="series",
+            media_id="tt123:2",
+            media_only_id="tt123",
+            title="English",
+            season=2,
+            search_titles=("English", "Localized"),
+        )
+
+        self.assertEqual(
+            request.title_queries(include_episode_variants=True),
+            (
+                "English",
+                "English S02",
+                "Localized",
+                "Localized S02",
+            ),
+        )

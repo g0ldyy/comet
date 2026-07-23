@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 
@@ -23,13 +21,13 @@ class CreatePoolRequest(StrictRequest):
 
 
 class CreateInviteRequest(StrictRequest):
-    expires_in: Optional[int] = None
-    max_uses: Optional[int] = None
+    expires_in: int | None = None
+    max_uses: int | None = None
 
 
 class JoinPoolRequest(StrictRequest):
     invite_code: str
-    node_url: Optional[str] = (
+    node_url: str | None = (
         None  # URL of the node that created the invite (for remote joining)
     )
 
@@ -47,13 +45,13 @@ class ReportRequest(StrictRequest):
     info_hash: str
     reason: str
     description: str = ""
-    pool_id: Optional[str] = None
+    pool_id: str | None = None
 
 
 class BlacklistRequest(StrictRequest):
     info_hash: str
     reason: str
-    pool_id: Optional[str] = None
+    pool_id: str | None = None
 
 
 # --- Endpoints ---

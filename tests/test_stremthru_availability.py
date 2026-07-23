@@ -123,20 +123,22 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unexpected_link_error_is_typed_and_visible(self):
         client = StremThru(None, None, None, "realdebrid:token", "")
-        with patch.object(
-            client,
-            "_post_store_json",
-            new=AsyncMock(side_effect=RuntimeError("transport failed")),
+        with (
+            patch.object(
+                client,
+                "_post_store_json",
+                new=AsyncMock(side_effect=RuntimeError("transport failed")),
+            ),
+            self.assertRaises(DebridLinkGenerationError) as raised,
         ):
-            with self.assertRaises(DebridLinkGenerationError) as raised:
-                await client.generate_download_link(
-                    "a" * 40,
-                    "0",
-                    "Movie.mkv",
-                    "Movie",
-                    None,
-                    None,
-                )
+            await client.generate_download_link(
+                "a" * 40,
+                "0",
+                "Movie.mkv",
+                "Movie",
+                None,
+                None,
+            )
 
         self.assertEqual(raised.exception.payload["error_type"], "RuntimeError")
         self.assertIsInstance(raised.exception.__cause__, RuntimeError)

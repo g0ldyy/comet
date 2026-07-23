@@ -43,7 +43,7 @@ class DistributedLock:
         self.instance_id = str(uuid.uuid4())
         self.acquired = False
 
-    async def acquire(self, wait_timeout: int = None):
+    async def acquire(self, wait_timeout: int | None = None):
         start_time = time.time()
 
         while True:

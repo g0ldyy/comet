@@ -28,7 +28,6 @@ import secrets
 import sys
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import List, Optional
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -55,19 +54,19 @@ class BroadcastRequest(StrictRequest):
     title: str
     size: int
     tracker: str = ""
-    imdb_id: Optional[str] = None
-    file_index: Optional[int] = None
-    seeders: Optional[int] = None
-    season: Optional[int] = None
-    episode: Optional[int] = None
-    sources: Optional[List[str]] = None
-    parsed: Optional[dict] = None
+    imdb_id: str | None = None
+    file_index: int | None = None
+    seeders: int | None = None
+    season: int | None = None
+    episode: int | None = None
+    sources: list[str] | None = None
+    parsed: dict | None = None
 
 
 class BroadcastBatchRequest(StrictRequest):
     """Request model for batch torrent broadcast."""
 
-    torrents: List[BroadcastRequest]
+    torrents: list[BroadcastRequest]
 
 
 class CreatePoolRequest(StrictRequest):
@@ -83,14 +82,14 @@ class JoinPoolRequest(StrictRequest):
     """Request model for joining a pool."""
 
     invite_code: str
-    node_url: Optional[str] = None
+    node_url: str | None = None
 
 
 class CreateInviteRequest(StrictRequest):
     """Request model for creating pool invite."""
 
-    expires_in: Optional[int] = None
-    max_uses: Optional[int] = None
+    expires_in: int | None = None
+    max_uses: int | None = None
 
 
 class AddMemberRequest(StrictRequest):
@@ -109,7 +108,7 @@ class UpdateMemberRoleRequest(StrictRequest):
 _api_key: str = settings.COMETNET_API_KEY
 
 
-def _require_broadcast_media_id(imdb_id: Optional[str]) -> None:
+def _require_broadcast_media_id(imdb_id: str | None) -> None:
     if not imdb_id:
         raise HTTPException(status_code=400, detail="imdb_id is required")
 
@@ -154,12 +153,12 @@ class StandaloneCometNet:
         self,
         ws_port: int = 8765,
         http_port: int = 8766,
-        bootstrap_nodes: Optional[List[str]] = None,
-        manual_peers: Optional[List[str]] = None,
+        bootstrap_nodes: list[str] | None = None,
+        manual_peers: list[str] | None = None,
         max_peers: int = 50,
         min_peers: int = 3,
-        keys_dir: Optional[str] = None,
-        advertise_url: Optional[str] = None,
+        keys_dir: str | None = None,
+        advertise_url: str | None = None,
     ):
         self.ws_port = ws_port
         self.http_port = http_port

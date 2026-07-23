@@ -166,7 +166,7 @@ class TitleMatcher:
 
 
 class _ParseCacheShard:
-    __slots__ = ("lock", "data", "inflight")
+    __slots__ = ("data", "inflight", "lock")
 
     def __init__(self):
         self.lock = Lock()
@@ -329,7 +329,7 @@ def filter_worker(
                 continue
 
             if len(langs) == 1:
-                lang = list(langs)[0]
+                lang = next(iter(langs))
                 if lang not in ("neutral", "en"):
                     country_aliases[scrubbed_t] = lang
     for torrent in torrents:

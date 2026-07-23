@@ -6,7 +6,6 @@ Handles UPnP port mapping using miniupnpc.
 
 import asyncio
 import threading
-from typing import Optional
 
 import miniupnpc
 
@@ -20,11 +19,11 @@ class UPnPManager:
         self.port = port
         self.lease_duration = lease_duration
         self._running = False
-        self._thread: Optional[threading.Thread] = None
-        self._external_ip: Optional[str] = None
+        self._thread: threading.Thread | None = None
+        self._external_ip: str | None = None
         self._stop_event = threading.Event()
 
-    async def start(self) -> Optional[str]:
+    async def start(self) -> str | None:
         """
         Start the UPnP manager and attempt to map the port.
         Returns the external IP if successful, None otherwise.
@@ -58,7 +57,7 @@ class UPnPManager:
         if miniupnpc:
             threading.Thread(target=self._remove_mapping, daemon=True).start()
 
-    def _setup_upnp(self) -> Optional[str]:
+    def _setup_upnp(self) -> str | None:
         """Sync function to discover UPnP device and map port."""
         try:
             upnp = miniupnpc.UPnP()

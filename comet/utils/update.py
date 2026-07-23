@@ -3,8 +3,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 import aiohttp
@@ -19,8 +18,8 @@ _GITHUB_COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 @dataclass
 class VersionInfo:
-    commit_hash: Optional[str] = None
-    build_date: Optional[str] = None
+    commit_hash: str | None = None
+    build_date: str | None = None
     branch: str = "main"
     is_docker: bool = False
 
@@ -28,21 +27,21 @@ class VersionInfo:
 @dataclass
 class UpdateStatus:
     has_update: bool
-    latest_commit_hash: Optional[str] = None
-    latest_url: Optional[str] = None
-    checked_at: Optional[datetime] = None
-    error: Optional[str] = None
+    latest_commit_hash: str | None = None
+    latest_url: str | None = None
+    checked_at: datetime | None = None
+    error: str | None = None
 
 
 class UpdateManager:
     _instance = None
-    _version_info: Optional[VersionInfo] = None
-    _update_status: Optional[UpdateStatus] = None
-    _check_task: Optional[asyncio.Task] = None
+    _version_info: VersionInfo | None = None
+    _update_status: UpdateStatus | None = None
+    _check_task: asyncio.Task | None = None
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(UpdateManager, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
         return cls._instance
 
     @classmethod
@@ -171,14 +170,14 @@ class UpdateManager:
                     has_update=has_update,
                     latest_commit_hash=short_latest_sha,
                     latest_url=latest_url,
-                    checked_at=datetime.now(timezone.utc),
+                    checked_at=datetime.now(UTC),
                 )
         except Exception as e:
             logger.warning(f"Failed to check for updates: {e}")
             cls._update_status = UpdateStatus(
                 has_update=False,
                 error=str(e),
-                checked_at=datetime.now(timezone.utc),
+                checked_at=datetime.now(UTC),
             )
 
         return cls._update_status
@@ -202,7 +201,7 @@ class UpdateManager:
         if type(commit_date) is not str:
             raise ValueError("GitHub commit response has an invalid commit date")
         try:
-            parsed_date = datetime.fromisoformat(commit_date.replace("Z", "+00:00"))
+            parsed_date = datetime.fromisoformat(commit_date)
         except ValueError as error:
             raise ValueError(
                 "GitHub commit response has an invalid commit date"
@@ -216,16 +215,14 @@ class UpdateManager:
 
     @staticmethod
     def _compare_dates(
-        latest_date_str: Optional[str], current_date_str: Optional[str]
+        latest_date_str: str | None, current_date_str: str | None
     ) -> bool:
         if not latest_date_str or not current_date_str:
             raise ValueError("commit dates are unavailable")
 
         try:
-            latest_date = datetime.fromisoformat(latest_date_str.replace("Z", "+00:00"))
-            current_date = datetime.fromisoformat(
-                current_date_str.replace("Z", "+00:00")
-            )
+            latest_date = datetime.fromisoformat(latest_date_str)
+            current_date = datetime.fromisoformat(current_date_str)
         except ValueError as error:
             raise ValueError("commit dates are invalid") from error
         if latest_date.tzinfo is None or current_date.tzinfo is None:

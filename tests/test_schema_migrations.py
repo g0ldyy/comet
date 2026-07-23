@@ -12,6 +12,7 @@ from comet.core.schema_migrations import (
     _drop_column_if_exists,
     _ensure_managed_table,
     _migration_debrid_account_cleanup_index,
+    _migration_media_demand_scrape_coverage,
     _migration_original_indexer_titles,
     _migration_tmdb_title_aliases,
     _rename_column_if_missing,
@@ -20,6 +21,52 @@ from comet.core.schema_specs import ManagedTableSpec
 
 
 class SchemaMigrationMetadataCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scope_coverage_migration_preserves_existing_demand(self):
+        with TemporaryDirectory() as temp_dir:
+            database = ReplicaAwareDatabase(
+                Database(f"sqlite+aiosqlite:///{temp_dir}/migration.db")
+            )
+            await database.connect()
+            try:
+                await database.execute(
+                    """
+                    CREATE TABLE media_demand (
+                        media_id TEXT PRIMARY KEY,
+                        first_seen_at REAL NOT NULL,
+                        last_seen_at REAL NOT NULL
+                    )
+                    """
+                )
+                await database.execute(
+                    """
+                    INSERT INTO media_demand (
+                        media_id,
+                        first_seen_at,
+                        last_seen_at
+                    ) VALUES (
+                        'tt123:2',
+                        1,
+                        2
+                    )
+                    """
+                )
+                context = MigrationContext(database, is_sqlite=True, is_postgres=False)
+
+                await _migration_media_demand_scrape_coverage(context)
+
+                row = await database.fetch_one(
+                    """
+                    SELECT media_id, first_seen_at, last_seen_at, last_scraped_at
+                    FROM media_demand
+                    """
+                )
+                self.assertEqual(row["media_id"], "tt123:2")
+                self.assertEqual(row["first_seen_at"], 1)
+                self.assertEqual(row["last_seen_at"], 2)
+                self.assertIsNone(row["last_scraped_at"])
+            finally:
+                await database.disconnect()
+
     async def test_debrid_account_cleanup_migration_creates_partial_index(self):
         with TemporaryDirectory() as temp_dir:
             database = ReplicaAwareDatabase(

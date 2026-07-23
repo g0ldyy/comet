@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 from comet.core.logger import logger
 from comet.core.models import database, settings
@@ -13,8 +13,8 @@ class DigitalReleaseFilter:
         session,
         media_type: str,
         media_id: str,
-        season: int = None,
-        episode: int = None,
+        season: int | None = None,
+        episode: int | None = None,
     ):
         if not media_id.startswith("tt"):
             return True
@@ -75,7 +75,9 @@ class DigitalReleaseFilter:
                     )
             else:
                 release_date_timestamp = int(
-                    datetime.strptime(release_date_str, "%Y-%m-%d").timestamp()
+                    datetime.strptime(release_date_str, "%Y-%m-%d")
+                    .replace(tzinfo=UTC)
+                    .timestamp()
                 )
 
             await database.execute(

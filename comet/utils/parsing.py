@@ -1,5 +1,6 @@
-from functools import lru_cache
 import re
+from enum import StrEnum
+from functools import lru_cache
 
 import orjson
 from RTN import ParsedData
@@ -9,6 +10,80 @@ SCRAPE_URL_MODES = frozenset((SCRAPE_URL_MODE_BOTH, "live", "background"))
 _CANONICAL_NONNEGATIVE_INTEGER = re.compile(r"0|[1-9][0-9]*")
 _IMDB_ID = re.compile(r"tt[0-9]{7,10}")
 _KITSU_ID = re.compile(r"[1-9][0-9]*")
+
+
+class MediaScope(StrEnum):
+    MOVIE = "movie"
+    SERIES = "series"
+    SEASON = "season"
+    EPISODE = "episode"
+
+    @property
+    def is_aggregate(self) -> bool:
+        return self in (MediaScope.SERIES, MediaScope.SEASON)
+
+    def matches_file(
+        self,
+        season: int | None,
+        episode: int | None,
+        file_season: int | None,
+        file_episode: int | None,
+    ) -> bool:
+        if self is MediaScope.SERIES:
+            return True
+        if file_season is not None and file_season != season:
+            return False
+        if self is MediaScope.SEASON:
+            return True
+        return file_episode is None or file_episode == episode
+
+    def matches_parsed(
+        self,
+        parsed: ParsedData,
+        season: int | None,
+        episode: int | None,
+        *,
+        target_air_date: str | None = None,
+        reject_unknown_episode_files: bool = False,
+        scope_is_known: bool = False,
+    ) -> bool:
+        if self is MediaScope.SERIES:
+            return True
+        if self is MediaScope.SEASON:
+            if scope_is_known:
+                return True
+            if parsed.seasons:
+                return season in parsed.seasons
+            return not parsed.episodes
+        return match_parsed_episode_target(
+            parsed,
+            season,
+            episode,
+            target_air_date=target_air_date,
+            reject_unknown_episode_files=reject_unknown_episode_files,
+        )
+
+    def granularity_priority(self, parsed: ParsedData) -> int:
+        if not self.is_aggregate:
+            return 0
+        episode_count = len(parsed.episodes or ())
+        if episode_count == 0:
+            return 2
+        return 1 if episode_count > 1 else 0
+
+
+def resolve_media_scope(
+    media_type: str, season: int | None, episode: int | None
+) -> MediaScope:
+    if media_type == "movie":
+        return MediaScope.MOVIE
+    if media_type != "series":
+        raise ValueError("media type must be movie or series")
+    if episode is not None:
+        return MediaScope.EPISODE
+    if season is not None:
+        return MediaScope.SEASON
+    return MediaScope.SERIES
 
 
 def load_cached_parsed(value) -> ParsedData | None:
@@ -134,13 +209,16 @@ def parse_media_id(media_type: str, media_id: str):
     if _IMDB_ID.fullmatch(parts[0]) is None:
         raise ValueError("IMDb media ID has an invalid current shape")
     if media_type == "series":
-        if (
-            len(parts) != 3
-            or parse_optional_int(parts[1]) is None
-            or parse_optional_int(parts[2]) is None
-        ):
-            raise ValueError("series IMDb ID must include season and episode")
-        return parts[0], int(parts[1]), int(parts[2])
+        if len(parts) == 1:
+            return parts[0], None, None
+        if len(parts) not in {2, 3}:
+            raise ValueError("series IMDb ID has an invalid current shape")
+
+        season = parse_optional_int(parts[1])
+        episode = parse_optional_int(parts[2]) if len(parts) == 3 else None
+        if season is None or (len(parts) == 3 and episode is None):
+            raise ValueError("series IMDb ID has an invalid season or episode")
+        return parts[0], season, episode
 
     if len(parts) != 1:
         raise ValueError("movie IMDb IDs cannot include episode segments")
@@ -172,9 +250,9 @@ def match_parsed_episode_target(
         return False
 
     if parsed_seasons or parsed_episodes:
-        if reject_unknown_episode_files and (not parsed_episodes or not parsed_seasons):
-            return False
-        return True
+        return not (
+            reject_unknown_episode_files and (not parsed_episodes or not parsed_seasons)
+        )
 
     parsed_date = parsed.date
     if isinstance(parsed_date, str) and parsed_date:

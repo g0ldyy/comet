@@ -983,6 +983,11 @@ async def _migration_debrid_account_cleanup_index(ctx: MigrationContext):
     return True
 
 
+async def _migration_media_demand_scrape_coverage(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, MEDIA_DEMAND_TABLE_SPEC)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1001,5 +1006,9 @@ MIGRATIONS = [
     (
         "2026072204_debrid_account_cleanup_index",
         _migration_debrid_account_cleanup_index,
+    ),
+    (
+        "2026072301_media_demand_scrape_coverage",
+        _migration_media_demand_scrape_coverage,
     ),
 ]

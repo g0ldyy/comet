@@ -6,8 +6,8 @@ from RTN import parse
 from comet.services.filtering import (
     _clone_parsed,
     _normalize_aliases,
-    filter_worker,
     exact_alias_match,
+    filter_worker,
     settings,
 )
 

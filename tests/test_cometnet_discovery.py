@@ -42,12 +42,14 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             ]
         }
 
-        with patch(
-            "comet.cometnet.discovery.is_valid_peer_address",
-            new=AsyncMock(side_effect=[True, False]),
+        with (
+            patch(
+                "comet.cometnet.discovery.is_valid_peer_address",
+                new=AsyncMock(side_effect=[True, False]),
+            ),
+            self.assertRaisesRegex(ValueError, "address is invalid"),
         ):
-            with self.assertRaisesRegex(ValueError, "address is invalid"):
-                await service.from_dict(candidate)
+            await service.from_dict(candidate)
 
         self.assertEqual(service.to_dict(), original)
 
@@ -70,6 +72,25 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(added, 1)
         self.assertEqual(set(service._known_peers), {"wss://valid.example"})
+
+    def test_persistence_keeps_freshest_address_for_each_node(self):
+        service = DiscoveryService()
+        service._add_known_peer("wss://old.example", "peer", "pex")
+        service._add_known_peer("wss://new.example", "peer", "pex")
+        service._known_peers["wss://old.example"].last_seen = 1
+        service._known_peers["wss://new.example"].last_seen = 2
+
+        self.assertEqual(
+            service.to_dict()["known_peers"],
+            [
+                {
+                    "address": "wss://new.example",
+                    "node_id": "peer",
+                    "source": "pex",
+                    "last_seen": 2,
+                }
+            ],
+        )
 
     async def test_pex_limit_requires_a_positive_exact_integer(self):
         service = DiscoveryService()
