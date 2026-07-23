@@ -61,6 +61,38 @@ class DashboardTemplateTests(unittest.TestCase):
         self.assertNotIn('app.mount("/static"', app_source)
 
 
+class ConfigurationTemplateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.template = Path("comet/templates/index.html").read_text(encoding="utf-8")
+
+    def test_configuration_restore_receives_preview_callback(self):
+        self.assertIn(
+            "populateFormFromSettings(settings, updateResultFormatPreview);",
+            self.template,
+        )
+        self.assertIn(
+            "function populateFormFromSettings(settings, updatePreview)",
+            self.template,
+        )
+        self.assertIn("updatePreview();", self.template)
+
+    def test_language_emojis_are_rendered_from_the_shared_mapping(self):
+        self.assertIn(
+            "const languagesEmojis = {{ languageEmojis | tojson }};",
+            self.template,
+        )
+        self.assertNotIn('"pa": "🇵🇰"', self.template)
+        self.assertLess(
+            self.template.index(
+                'populateSelect("languages_preferred", Object.keys(languagesEmojis))'
+            ),
+            self.template.index(
+                "populateFormFromSettings(settings, updateResultFormatPreview)"
+            ),
+        )
+
+
 class StatusVideoIndexTests(unittest.TestCase):
     def tearDown(self):
         status_video._build_status_video_index.cache_clear()

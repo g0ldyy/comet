@@ -1,6 +1,58 @@
 import unicodedata
 
 
+LANGUAGE_EMOJIS = {
+    "multi": "🌎",  # Dubbed
+    "en": "🇬🇧",  # English
+    "ja": "🇯🇵",  # Japanese
+    "zh": "🇨🇳",  # Chinese
+    "ru": "🇷🇺",  # Russian
+    "ar": "🇸🇦",  # Arabic
+    "pt": "🇵🇹",  # Portuguese
+    "es": "🇪🇸",  # Spanish
+    "fr": "🇫🇷",  # French
+    "de": "🇩🇪",  # German
+    "it": "🇮🇹",  # Italian
+    "ko": "🇰🇷",  # Korean
+    "hi": "🇮🇳",  # Hindi
+    "bn": "🇧🇩",  # Bengali
+    "pa": "🇮🇳",  # Punjabi
+    "mr": "🇮🇳",  # Marathi
+    "gu": "🇮🇳",  # Gujarati
+    "ta": "🇮🇳",  # Tamil
+    "te": "🇮🇳",  # Telugu
+    "kn": "🇮🇳",  # Kannada
+    "ml": "🇮🇳",  # Malayalam
+    "th": "🇹🇭",  # Thai
+    "vi": "🇻🇳",  # Vietnamese
+    "id": "🇮🇩",  # Indonesian
+    "tr": "🇹🇷",  # Turkish
+    "he": "🇮🇱",  # Hebrew
+    "fa": "🇮🇷",  # Persian
+    "uk": "🇺🇦",  # Ukrainian
+    "el": "🇬🇷",  # Greek
+    "lt": "🇱🇹",  # Lithuanian
+    "lv": "🇱🇻",  # Latvian
+    "et": "🇪🇪",  # Estonian
+    "pl": "🇵🇱",  # Polish
+    "cs": "🇨🇿",  # Czech
+    "sk": "🇸🇰",  # Slovak
+    "hu": "🇭🇺",  # Hungarian
+    "ro": "🇷🇴",  # Romanian
+    "bg": "🇧🇬",  # Bulgarian
+    "sr": "🇷🇸",  # Serbian
+    "hr": "🇭🇷",  # Croatian
+    "sl": "🇸🇮",  # Slovenian
+    "nl": "🇳🇱",  # Dutch
+    "da": "🇩🇰",  # Danish
+    "fi": "🇫🇮",  # Finnish
+    "sv": "🇸🇪",  # Swedish
+    "no": "🇳🇴",  # Norwegian
+    "ms": "🇲🇾",  # Malay
+    "la": "💃🏻",  # Latino
+}
+
+
 COUNTRY_TO_LANGUAGE = {
     "ad": "fr",
     "ae": "ar",
