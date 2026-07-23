@@ -29,7 +29,7 @@ INDEXER_MANAGER_SCRAPERS = frozenset({"jackett", "prowlarr"})
 
 class ScraperManager:
     def __init__(self):
-        self.scrapers: dict[str, BaseScraper] = {}
+        self.scrapers: dict[str, type[BaseScraper]] = {}
         self.discover_scrapers()
         self._validate_timeout_overrides()
 

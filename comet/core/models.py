@@ -1,6 +1,5 @@
 import math
 import os
-import random
 import secrets
 import string
 import time
@@ -32,6 +31,13 @@ from comet.core.scrape import normalize_scraper_timeout_selector
 
 _comet_fk_enabled = False
 _SQLITE_BUSY_TIMEOUT_MS = 30000
+_SECRET_ALPHABET = string.ascii_letters + string.digits
+
+
+def _generate_secret() -> str:
+    return "".join(secrets.choice(_SECRET_ALPHABET) for _ in range(16))
+
+
 _SCRAPER_MODE_FIELDS = (
     "INDEXER_MANAGER_MODE",
     "SCRAPE_JACKETT",
@@ -152,9 +158,7 @@ class AppSettings(BaseSettings):
     USE_GUNICORN: bool | None = True
     GUNICORN_PRELOAD_APP: bool | None = True
     EXECUTOR_MAX_WORKERS: int | None = 1
-    ADMIN_DASHBOARD_PASSWORD: str | None = "".join(
-        random.choices(string.ascii_letters + string.digits, k=16)
-    )
+    ADMIN_DASHBOARD_PASSWORD: str | None = Field(default_factory=_generate_secret)
     ADMIN_DASHBOARD_SESSION_TTL: int | None = 86400
     CONFIGURE_PAGE_PASSWORD: str | None = None
     CONFIGURE_PAGE_SESSION_TTL: int | None = 86400
@@ -249,9 +253,7 @@ class AppSettings(BaseSettings):
     SCRAPE_PEERFLIX: bool | str = False
     CUSTOM_HEADER_HTML: str | None = None
     PROXY_DEBRID_STREAM: bool | None = False
-    PROXY_DEBRID_STREAM_PASSWORD: str | None = "".join(
-        random.choices(string.ascii_letters + string.digits, k=16)
-    )
+    PROXY_DEBRID_STREAM_PASSWORD: str | None = Field(default_factory=_generate_secret)
     PROXY_DEBRID_STREAM_MAX_CONNECTIONS: int | None = -1
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE: str | None = "realdebrid"
     PROXY_DEBRID_STREAM_DEBRID_DEFAULT_APIKEY: str | None = None
@@ -341,8 +343,8 @@ class AppSettings(BaseSettings):
     COMETNET_UPNP_ENABLED: bool | None = False
     COMETNET_UPNP_LEASE_DURATION: int | None = 3600
     COMETNET_RELAY_URL: str | None = None
-    COMETNET_API_KEY: str | None = "".join(
-        random.choices(string.ascii_letters + string.digits, k=16)
+    COMETNET_API_KEY: str | None = Field(
+        default_factory=_generate_secret
     )  # API key for standalone service auth
     COMETNET_STATE_SAVE_INTERVAL: int | None = (
         300  # Periodic state save interval in seconds (5 minutes)

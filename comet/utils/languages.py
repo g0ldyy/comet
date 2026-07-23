@@ -1,6 +1,5 @@
 import unicodedata
 
-
 LANGUAGE_EMOJIS = {
     "multi": "🌎",  # Dubbed
     "en": "🇬🇧",  # English

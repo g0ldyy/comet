@@ -92,7 +92,11 @@ async def chilllink_streams(
     if type == "movie":
         media_id = imdbID
     elif type == "series":
-        media_id = f"{imdbID}:{season}:{episode}"
+        media_id = imdbID
+        if season is not None:
+            media_id += f":{season}"
+            if episode is not None:
+                media_id += f":{episode}"
     else:
         return {"sources": []}
 
