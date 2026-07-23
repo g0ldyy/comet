@@ -29,6 +29,8 @@ _crypto_executor: Optional[ThreadPoolExecutor] = None
 
 def _format_host_port(host: str, port: int) -> str:
     """Format a host and port as a URI authority."""
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
     return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
 
 

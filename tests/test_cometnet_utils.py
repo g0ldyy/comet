@@ -13,6 +13,7 @@ class CometNetUtilsTests(unittest.TestCase):
             ("192.0.2.1", 8765, "ws", "ws://192.0.2.1:8765"),
             ("peer.example", 443, "wss", "wss://peer.example:443"),
             ("2001:db8::1", 8765, "ws", "ws://[2001:db8::1]:8765"),
+            ("[2001:db8::1]", 8765, "ws", "ws://[2001:db8::1]:8765"),
             ("fe80::1%eth0", 8765, "ws", "ws://[fe80::1%eth0]:8765"),
         ]
         for host, port, scheme, expected in cases:
