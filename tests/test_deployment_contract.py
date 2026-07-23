@@ -11,12 +11,12 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('"forwarded_allow_ips": "*"', launcher)
         self.assertNotIn("TRUSTED_PROXY_IPS", launcher)
 
-    def test_runtime_image_drops_root_before_startup(self):
+    def test_runtime_image_preserves_root_volume_compatibility(self):
         dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
-        self.assertIn("adduser -S -D -H -G comet comet", dockerfile)
-        self.assertIn("COPY --from=builder --chown=comet:comet", dockerfile)
-        self.assertLess(dockerfile.index("USER comet"), dockerfile.index("ENTRYPOINT"))
+        self.assertNotIn("adduser -S -D -H -G comet comet", dockerfile)
+        self.assertNotIn("--chown=comet:comet", dockerfile)
+        self.assertNotRegex(dockerfile, r"(?m)^USER\s+comet\s*$")
         self.assertIn("PYTHONDONTWRITEBYTECODE=1", dockerfile)
         self.assertIn("${FASTAPI_PORT:-8000}/health", dockerfile)
 

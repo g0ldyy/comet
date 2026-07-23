@@ -19,13 +19,8 @@ RUN apk add --no-cache libgcc libstdc++ tzdata mimalloc2
 
 WORKDIR /app
 
-RUN addgroup -S comet && \
-    adduser -S -D -H -G comet comet && \
-    mkdir -p /app/data && \
-    chown comet:comet /app/data
-
-COPY --from=builder --chown=comet:comet /app/.venv /app/.venv
-COPY --chown=comet:comet comet ./comet
+COPY --from=builder /app/.venv /app/.venv
+COPY comet ./comet
 
 ENV TZ=UTC \
     PATH="/app/.venv/bin:$PATH" \
@@ -41,8 +36,6 @@ ARG COMET_BRANCH
 ENV COMET_COMMIT_HASH=${COMET_COMMIT_HASH} \
     COMET_BUILD_DATE=${COMET_BUILD_DATE} \
     COMET_BRANCH=${COMET_BRANCH}
-
-USER comet
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- "http://127.0.0.1:${FASTAPI_PORT:-8000}/health" >/dev/null || exit 1
