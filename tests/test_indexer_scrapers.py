@@ -134,6 +134,33 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
             [torrent["infoHash"] for torrent in torrents], ["first", "second"]
         )
 
+    async def test_prowlarr_logs_failed_query_and_preserves_other_results(self):
+        request = REQUEST.model_copy(update={"search_titles": ("Working", "Failed")})
+
+        async def search(query):
+            if query == "Failed":
+                raise RuntimeError("transport failed")
+            return [{"infoUrl": "working"}]
+
+        scraper = ProwlarrScraper(None, None, "https://prowlarr.test")
+        scraper._fetch_search_results = AsyncMock(side_effect=search)
+        scraper.process_torrent = AsyncMock(return_value=[_torrent("working")])
+        with (
+            patch("comet.scrapers.prowlarr.settings.PROWLARR_INDEXERS", ["1"]),
+            patch("comet.scrapers.base.logger.opt") as logger_opt,
+        ):
+            torrents = await scraper.scrape(request)
+
+        self.assertEqual(
+            [torrent["infoHash"] for torrent in torrents],
+            ["working"],
+        )
+        logger_opt.assert_called_once_with(depth=1)
+        logger_opt.return_value.warning.assert_called_once_with(
+            "Prowlarr query 'Failed' (https://prowlarr.test) failed: "
+            "RuntimeError: transport failed"
+        )
+
     async def test_stremthru_discards_invalid_magnets_before_filtering(self):
         xml = """
         <rss xmlns:torznab="http://torznab.com/schemas/2015/feed">

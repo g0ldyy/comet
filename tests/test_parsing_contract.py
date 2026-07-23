@@ -1,12 +1,25 @@
 import unittest
 
-from comet.utils.parsing import parse_media_id, parse_optional_int
+from comet.utils.parsing import (
+    MediaScope,
+    parse_media_id,
+    parse_optional_int,
+    resolve_media_scope,
+)
 
 
 class MediaIdContractTests(unittest.TestCase):
     def test_current_imdb_and_kitsu_shapes(self):
         self.assertEqual(
             parse_media_id("movie", "tt1234567"), ("tt1234567", None, None)
+        )
+        self.assertEqual(
+            parse_media_id("series", "tt1234567"),
+            ("tt1234567", None, None),
+        )
+        self.assertEqual(
+            parse_media_id("series", "tt1234567:2"),
+            ("tt1234567", 2, None),
         )
         self.assertEqual(
             parse_media_id("series", "tt1234567:0:2"),
@@ -23,7 +36,8 @@ class MediaIdContractTests(unittest.TestCase):
             ("movie", "imdb_id:tt1234567"),
             ("movie", "tt123"),
             ("movie", "tt1234567:1:2"),
-            ("series", "tt1234567"),
+            ("series", "tt1234567:01"),
+            ("series", "tt1234567:-1"),
             ("series", "tt1234567:01:2"),
             ("series", "tt1234567:-1:2"),
             ("movie", "kitsu:"),
@@ -37,6 +51,12 @@ class MediaIdContractTests(unittest.TestCase):
             with self.subTest(media_type=media_type, media_id=media_id):
                 with self.assertRaises(ValueError):
                     parse_media_id(media_type, media_id)
+
+    def test_media_scope_resolution_is_unambiguous(self):
+        self.assertIs(resolve_media_scope("movie", None, None), MediaScope.MOVIE)
+        self.assertIs(resolve_media_scope("series", None, None), MediaScope.SERIES)
+        self.assertIs(resolve_media_scope("series", 2, None), MediaScope.SEASON)
+        self.assertIs(resolve_media_scope("series", 2, 1), MediaScope.EPISODE)
 
     def test_optional_integer_accepts_only_current_path_form(self):
         self.assertIsNone(parse_optional_int("n"))

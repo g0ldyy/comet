@@ -1,7 +1,13 @@
+import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Iterable
+from typing import TypeVar
 
+from comet.core.logger import logger
 from comet.scrapers.models import ScrapeRequest
 from comet.utils.network_manager import AsyncClientWrapper
+
+T = TypeVar("T")
 
 
 def deduplicate_torrents(torrents: list[dict]) -> list[dict]:
@@ -23,6 +29,32 @@ def deduplicate_torrents(torrents: list[dict]) -> list[dict]:
         seen.add(identity)
         unique.append(torrent)
     return unique
+
+
+async def gather_with_error_logging(
+    tasks: Iterable[tuple[str, Awaitable[T]]],
+) -> list[T]:
+    """Run independent tasks concurrently while preserving successful results."""
+
+    entries = tuple(tasks)
+    if not entries:
+        return []
+
+    results = await asyncio.gather(
+        *(task for _, task in entries),
+        return_exceptions=True,
+    )
+    successful = []
+    for (context, _), result in zip(entries, results, strict=True):
+        if isinstance(result, BaseException):
+            if not isinstance(result, Exception):
+                raise result
+            logger.opt(depth=1).warning(
+                f"{context} failed: {type(result).__name__}: {result}"
+            )
+            continue
+        successful.append(result)
+    return successful
 
 
 class BaseScraper(ABC):

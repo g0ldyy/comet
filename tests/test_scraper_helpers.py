@@ -1,10 +1,42 @@
+import asyncio
 import unittest
 from unittest.mock import patch
 
 from comet.core.models import settings
+from comet.scrapers.base import gather_with_error_logging
 from comet.scrapers.helpers.aiostreams import AIOStreamsConfig
 from comet.scrapers.helpers.mediafusion import MediaFusionConfig
 from comet.utils.parsing import associate_urls_credentials
+
+
+class ScraperTaskTests(unittest.IsolatedAsyncioTestCase):
+    async def test_gather_logs_failures_and_preserves_successes(self):
+        async def succeed():
+            return "result"
+
+        async def fail():
+            raise RuntimeError("transport failed")
+
+        with patch("comet.scrapers.base.logger.opt") as logger_opt:
+            results = await gather_with_error_logging(
+                (
+                    ("successful operation", succeed()),
+                    ("failed operation", fail()),
+                )
+            )
+
+        self.assertEqual(results, ["result"])
+        logger_opt.assert_called_once_with(depth=1)
+        logger_opt.return_value.warning.assert_called_once_with(
+            "failed operation failed: RuntimeError: transport failed"
+        )
+
+    async def test_gather_does_not_absorb_task_cancellation(self):
+        async def cancel():
+            raise asyncio.CancelledError
+
+        with self.assertRaises(asyncio.CancelledError):
+            await gather_with_error_logging((("cancelled operation", cancel()),))
 
 
 class ScraperHelperConfigTests(unittest.TestCase):

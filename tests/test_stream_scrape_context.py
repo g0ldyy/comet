@@ -17,9 +17,15 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
 
         lock.run.side_effect = run
 
-        with patch(
-            "comet.api.endpoints.stream.DistributedLock",
-            return_value=lock,
+        with (
+            patch(
+                "comet.api.endpoints.stream.DistributedLock",
+                return_value=lock,
+            ),
+            patch(
+                "comet.api.endpoints.stream.mark_scope_scraped",
+                new=AsyncMock(),
+            ) as mark_scraped,
         ):
             await background_scrape(
                 manager,
@@ -30,4 +36,5 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
             )
 
         manager.scrape_torrents.assert_awaited_once_with(ScrapeContext.BACKGROUND)
+        mark_scraped.assert_awaited_once()
         lock.release.assert_awaited_once()

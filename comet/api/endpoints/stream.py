@@ -14,7 +14,7 @@ from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
 from comet.services.anime import anime_mapper
-from comet.services.cache_state import CacheStateManager
+from comet.services.cache_state import CacheStateManager, mark_scope_scraped
 from comet.services.debrid import DebridService
 from comet.services.debrid_account_scraper import (
     ensure_account_snapshot_ready,
@@ -40,7 +40,7 @@ from comet.utils.formatting import (
 )
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
-from comet.utils.parsing import parse_media_id
+from comet.utils.parsing import MediaScope, parse_media_id, resolve_media_scope
 
 streams = APIRouter()
 STREMIO_API_PREFIX = settings.STREMIO_API_PREFIX
@@ -262,6 +262,30 @@ def _group_debrid_entries_by_service(debrid_entries: list) -> list[tuple[str, li
     return list(service_entries.items())
 
 
+def _select_debrid_refresh_hashes(
+    current_hashes: set[str],
+    initial_hashes: set[str],
+    verified_cache_status: dict,
+    *,
+    had_cached_torrents: bool,
+    use_account_scrape: bool,
+) -> set[str]:
+    if not current_hashes:
+        return set()
+
+    verified_count = sum(
+        any(service_map.values())
+        for info_hash, service_map in verified_cache_status.items()
+        if info_hash in current_hashes
+    )
+    requires_full_refresh = (
+        (not had_cached_torrents and not use_account_scrape)
+        or verified_count == 0
+        or (verified_count / len(current_hashes)) < settings.DEBRID_CACHE_CHECK_RATIO
+    )
+    return current_hashes if requires_full_refresh else current_hashes - initial_hashes
+
+
 async def background_scrape(
     torrent_manager: TorrentManager,
     media_id: str,
@@ -291,12 +315,14 @@ async def background_scrape(
                 torrent_manager.media_only_id,
                 torrent_manager.search_season,
                 torrent_manager.search_episode,
+                torrent_manager.media_scope,
                 ip,
                 target_air_date=torrent_manager.target_air_date,
             )
 
     try:
         await scrape_lock.run(run_scrape())
+        await mark_scope_scraped(media_id)
 
         logger.log(
             "SCRAPER",
@@ -311,8 +337,9 @@ async def background_scrape(
 async def check_multi_service_availability(
     debrid_entries: list,
     torrents: dict,
-    season: int,
-    episode: int,
+    season: int | None,
+    episode: int | None,
+    media_scope: MediaScope,
 ):
     service_cache_status = defaultdict(dict)
     info_hashes = list(torrents.keys())
@@ -328,7 +355,7 @@ async def check_multi_service_availability(
             cached_hashes,
             torrent_updates,
         ) = await debrid_instance.check_existing_availability(
-            info_hashes, season, episode, torrents
+            info_hashes, season, episode, media_scope, torrents
         )
 
         return service, cached_hashes, torrent_updates
@@ -366,10 +393,12 @@ async def get_and_cache_multi_service_availability(
     torrents: dict,
     media_id: str,
     media_only_id: str,
-    season: int,
-    episode: int,
+    season: int | None,
+    episode: int | None,
+    media_scope: MediaScope,
     ip: str,
     target_air_date: str | None = None,
+    known_cache_status: dict | None = None,
 ):
     service_cache_status = defaultdict(dict)
     errors = {}
@@ -383,8 +412,17 @@ async def get_and_cache_multi_service_availability(
     sources_map = {h: torrents[h]["sources"] for h in info_hashes}
 
     service_groups = _group_debrid_entries_by_service(debrid_entries)
+    known_cache_status = known_cache_status or {}
 
     async def check_service(service, entries):
+        service_info_hashes = [
+            info_hash
+            for info_hash in info_hashes
+            if not known_cache_status.get(info_hash, {}).get(service, False)
+        ]
+        if not service_info_hashes:
+            return service, set(), {}, None
+
         auth_error = None
         for entry in entries:
             try:
@@ -394,7 +432,7 @@ async def get_and_cache_multi_service_availability(
                     torrent_updates,
                 ) = await debrid_instance.get_and_cache_availability(
                     session,
-                    info_hashes,
+                    service_info_hashes,
                     seeders_map,
                     tracker_map,
                     sources_map,
@@ -403,6 +441,7 @@ async def get_and_cache_multi_service_availability(
                     media_only_id,
                     season,
                     episode,
+                    media_scope,
                     target_air_date=target_air_date,
                 )
                 return service, cached_hashes, torrent_updates, None
@@ -530,6 +569,7 @@ async def stream(
         id, season, episode = parse_media_id(media_type, media_id)
     except ValueError:
         return _stream_response({"streams": []}, is_empty=True)
+    media_scope = resolve_media_scope(media_type, season, episode)
 
     if settings.DIGITAL_RELEASE_FILTER:
         is_released = await release_filter.check_is_released(
@@ -676,23 +716,16 @@ async def stream(
         cache_media_ids=cache_media_ids,
         target_air_date=target_air_date,
         reject_unknown_episode_files=reject_unknown_episode_files,
+        media_scope=media_scope,
     )
 
     await torrent_manager.get_cached_torrents()
     torrent_count = len(torrent_manager.torrents)
+    initial_info_hashes = set(torrent_manager.torrents)
     logger.log("SCRAPER", f"📦 Found cached torrents: {torrent_count}")
     primary_cached = torrent_manager.primary_cached
 
-    cache_manager = CacheStateManager(
-        media_id=media_id,
-        media_only_id=media_only_id,
-        season=season,
-        episode=episode,
-        is_kitsu=is_kitsu,
-        search_episode=search_episode,
-        search_season=search_season,
-        cache_media_ids=cache_media_ids,
-    )
+    cache_manager = CacheStateManager(media_id)
     cache_result = await cache_manager.check_and_decide(torrent_count)
     force_scrape_now = not primary_cached
     lock_acquired = cache_result.lock_acquired
@@ -729,15 +762,6 @@ async def stream(
     if cache_result.should_return_wait_message and not force_scrape_now:
         return _wait_response()
 
-    if cache_result.should_show_first_search_message:
-        cached_results.append(
-            {
-                "name": _stream_notice_name(kodi, "[🔄] Comet", "[INFO] Comet"),
-                "description": "First search for this media - More results will be available in a few seconds...",
-                "url": "https://comet.feels.legal",
-            }
-        )
-
     if cache_result.should_scrape_background and not force_scrape_now:
         logger.log(
             "SCRAPER",
@@ -768,6 +792,7 @@ async def stream(
                 account_snapshot_ready = True
             else:
                 await torrent_manager.scrape_torrents(ScrapeContext.LIVE)
+            await mark_scope_scraped(media_id)
             logger.log(
                 "SCRAPER",
                 f"📥 Torrents after global RTN filtering: {len(torrent_manager.torrents)}",
@@ -839,7 +864,11 @@ async def stream(
 
     if debrid_entries:
         existing_service_cache_status = await check_multi_service_availability(
-            debrid_entries, torrent_manager.torrents, search_season, search_episode
+            debrid_entries,
+            torrent_manager.torrents,
+            search_season,
+            search_episode,
+            media_scope,
         )
         _merge_service_cache_status(service_cache_status, existing_service_cache_status)
         _merge_service_cache_status(
@@ -850,48 +879,47 @@ async def stream(
             list(torrent_manager.torrents.keys()),
             search_season,
             search_episode,
+            media_scope,
             torrent_manager.torrents,
         )
 
-    total_count = len(torrent_manager.torrents)
-    total_verified_cached_count = 0
-    for info_hash in torrent_manager.torrents:
-        for service in verified_service_cache_status.get(info_hash, {}).values():
-            if service:
-                total_verified_cached_count += 1
-                break
-
-    needs_debrid_check = (
-        total_count > 0
-        and debrid_entries
-        and (
-            (not cache_result.has_cached_torrents and not use_account_scrape)
-            or total_verified_cached_count == 0
-            or (total_verified_cached_count / total_count)
-            < settings.DEBRID_CACHE_CHECK_RATIO
-        )
+    current_info_hashes = set(torrent_manager.torrents)
+    debrid_refresh_hashes = _select_debrid_refresh_hashes(
+        current_info_hashes,
+        initial_info_hashes,
+        verified_service_cache_status,
+        had_cached_torrents=cache_result.has_cached_torrents,
+        use_account_scrape=use_account_scrape,
     )
 
     debrid_errors = {}
-    if needs_debrid_check:
+    if debrid_entries and debrid_refresh_hashes:
         services_str = "+".join([e["service"] for e in debrid_entries])
         logger.log(
             "SCRAPER",
-            f"🔄 Checking availability on debrid services: {services_str}",
+            f"🔄 Checking availability on debrid services: {services_str} "
+            f"({len(debrid_refresh_hashes)}/{len(current_info_hashes)} torrents)",
         )
+        torrents_to_check = {
+            info_hash: torrent
+            for info_hash, torrent in torrent_manager.torrents.items()
+            if info_hash in debrid_refresh_hashes
+        }
         (
             fresh_service_cache_status,
             debrid_errors,
         ) = await get_and_cache_multi_service_availability(
             session,
             debrid_entries,
-            torrent_manager.torrents,
+            torrents_to_check,
             media_id,
             media_only_id,
             search_season,
             search_episode,
+            media_scope,
             ip,
             target_air_date=target_air_date,
+            known_cache_status=service_cache_status,
         )
         _merge_service_cache_status(service_cache_status, fresh_service_cache_status)
 

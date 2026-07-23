@@ -133,6 +133,31 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
                 "creator-key",
             )
 
+    async def test_load_migrates_verified_legacy_derived_node_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = PoolStore(directory)
+            manifest_path = Path(directory, "manifests", "pool-a.json")
+            manifest_path.write_text(self._manifest().model_dump_json(indent=2))
+
+            await store.load()
+
+            self.assertIsNotNone(store.get_manifest("pool-a"))
+            persisted = json.loads(manifest_path.read_text())
+            self.assertNotIn("node_id", persisted["members"][0])
+
+    async def test_load_rejects_inconsistent_legacy_derived_node_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = PoolStore(directory)
+            manifest_path = Path(directory, "manifests", "pool-a.json")
+            legacy = self._manifest().model_dump()
+            legacy["members"][0]["node_id"] = "not-derived-from-public-key"
+            manifest_path.write_text(json.dumps(legacy))
+
+            await store.load()
+
+            self.assertIsNone(store.get_manifest("pool-a"))
+            self.assertIn("node_id", json.loads(manifest_path.read_text())["members"][0])
+
     async def test_remote_manifest_requires_existing_pool_authority(self):
         with tempfile.TemporaryDirectory() as directory:
             store = PoolStore(directory)

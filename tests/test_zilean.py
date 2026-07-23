@@ -5,6 +5,8 @@ from comet.scrapers.zilean import ZileanScraper
 
 
 class _Response:
+    status = 200
+
     def __init__(self, payload):
         self.payload = payload
         self.exited = False
@@ -22,9 +24,10 @@ class _Response:
 class _Session:
     def __init__(self, response):
         self.response = response
+        self.requests = []
 
     def get(self, url, **kwargs):
-        del url, kwargs
+        self.requests.append((url, kwargs))
         return self.response
 
 
@@ -61,3 +64,42 @@ class ZileanScraperTests(unittest.IsolatedAsyncioTestCase):
             ["a" * 40, "c" * 40],
         )
         self.assertEqual([torrent["size"] for torrent in torrents], [100, 200])
+
+    async def test_series_request_omits_only_missing_filters(self):
+        cases = (
+            (
+                "tt11198330:1",
+                None,
+                {"query": "House of the Dragon", "season": 1},
+            ),
+            (
+                "tt11198330:1:2",
+                2,
+                {"query": "House of the Dragon", "season": 1, "episode": 2},
+            ),
+        )
+
+        for media_id, episode, expected_params in cases:
+            with self.subTest(episode=episode):
+                session = _Session(_Response([]))
+                scraper = ZileanScraper(None, session, "https://zilean.test")
+                request = ScrapeRequest(
+                    media_type="series",
+                    media_id=media_id,
+                    media_only_id="tt11198330",
+                    title="House of the Dragon",
+                    season=1,
+                    episode=episode,
+                )
+
+                await scraper.scrape(request)
+
+                self.assertEqual(
+                    session.requests,
+                    [
+                        (
+                            "https://zilean.test/dmm/filtered",
+                            {"params": expected_params},
+                        )
+                    ],
+                )

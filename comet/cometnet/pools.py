@@ -344,6 +344,39 @@ class PoolManifest(BaseModel):
         return cls.model_validate(msgpack.unpackb(data, raw=False))
 
 
+def _decode_persisted_manifest(data: object) -> tuple[PoolManifest, bool]:
+    """Validate a manifest, removing only verified legacy derived node IDs."""
+    migrated = False
+    normalized = data
+
+    if type(data) is dict and type(data.get("members")) is list:
+        members = []
+        for member in data["members"]:
+            if type(member) is not dict or "node_id" not in member:
+                members.append(member)
+                continue
+
+            public_key = member.get("public_key")
+            node_id = member["node_id"]
+            if (
+                type(public_key) is not str
+                or type(node_id) is not str
+                or node_id != NodeIdentity.node_id_from_public_key(public_key)
+            ):
+                raise ValueError("persisted member node_id does not match public_key")
+
+            normalized_member = dict(member)
+            del normalized_member["node_id"]
+            members.append(normalized_member)
+            migrated = True
+
+        if migrated:
+            normalized = dict(data)
+            normalized["members"] = members
+
+    return PoolManifest.model_validate(normalized), migrated
+
+
 class PoolInvite(BaseModel):
     """An invitation to join a pool."""
 
@@ -1132,10 +1165,20 @@ class PoolStore:
                 async with aiofiles.open(manifest_file, "r") as f:
                     content = await f.read()
                     data = json.loads(content)
-                manifest = PoolManifest.model_validate(data)
+                manifest, migrated = _decode_persisted_manifest(data)
                 if manifest.pool_id != manifest_file.stem:
                     raise ValueError("manifest pool_id must match its filename")
                 self._manifests[manifest.pool_id] = manifest
+                if migrated:
+                    try:
+                        await write_text_atomic(
+                            manifest_file,
+                            json.dumps(manifest.to_persisted_dict(), indent=2),
+                        )
+                    except Exception as error:
+                        logger.warning(
+                            f"Failed to migrate legacy manifest {manifest_file}: {error}"
+                        )
             except Exception as e:
                 logger.warning(f"Failed to load manifest {manifest_file}: {e}")
 

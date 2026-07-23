@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from comet.scrapers.nekobt import NekoBTScraper
 from comet.scrapers.nyaa import extract_torrent_data
@@ -26,6 +27,11 @@ class _Session:
 
     def get(self, url, **kwargs):
         return _Response(self.payload)
+
+
+class _FailingSession:
+    def get(self, url, **kwargs):
+        raise RuntimeError("transport failed")
 
 
 def _nyaa_row(title, info_hash, *, size="1.5 GiB", seeders="12"):
@@ -99,3 +105,14 @@ class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(more)
         self.assertIsNone(media_id)
+
+    async def test_nekobt_logs_transport_failures(self):
+        scraper = NekoBTScraper(None, _FailingSession())
+
+        with patch("comet.scrapers.nekobt.logger.warning") as warning:
+            result = await scraper._fetch_page({"query": "Movie"})
+
+        self.assertEqual(result, ([], False, None))
+        warning.assert_called_once_with(
+            "NekoBT request {'query': 'Movie'} failed: RuntimeError: transport failed"
+        )

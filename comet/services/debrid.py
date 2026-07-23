@@ -6,7 +6,7 @@ from comet.services.debrid_cache import (
     get_cached_availability_any_service,
     schedule_cache_availability,
 )
-from comet.utils.parsing import ensure_multi_language, load_cached_parsed
+from comet.utils.parsing import MediaScope, ensure_multi_language, load_cached_parsed
 
 
 class DebridService:
@@ -71,6 +71,35 @@ class DebridService:
         ensure_multi_language(merged)
         return merged
 
+    @classmethod
+    def _build_torrent_update(
+        cls,
+        torrent: dict,
+        *,
+        file_index,
+        title: str | None,
+        size: int | None,
+        parsed: ParsedData | str | bytes | None,
+    ) -> dict:
+        update = {}
+
+        if parsed is not None and not isinstance(parsed, ParsedData):
+            parsed = load_cached_parsed(parsed)
+        if parsed is not None:
+            merged_parsed = cls._merge_parsed(torrent.get("parsed"), parsed)
+            if merged_parsed is not None:
+                update["parsed"] = merged_parsed
+
+        file_index = cls._coerce_file_index(file_index)
+        if file_index is not None:
+            update["fileIndex"] = file_index
+        if title is not None:
+            update["title"] = title
+        if size is not None:
+            update["size"] = size
+
+        return update
+
     async def get_and_cache_availability(
         self,
         session,
@@ -81,8 +110,9 @@ class DebridService:
         torrents: dict | None,
         media_id: str,
         media_only_id: str,
-        season: int,
-        episode: int,
+        season: int | None,
+        episode: int | None,
+        media_scope: MediaScope,
         target_air_date: str | None = None,
     ) -> tuple[set[str], dict[str, dict]]:
         availability = await retrieve_debrid_availability(
@@ -106,10 +136,11 @@ class DebridService:
         cached_hashes = set()
         torrent_updates = {}
         for file in availability:
-            file_season = file["season"]
-            file_episode = file["episode"]
-            if (file_season is not None and file_season != season) or (
-                file_episode is not None and file_episode != episode
+            if not media_scope.matches_file(
+                season,
+                episode,
+                file["season"],
+                file["episode"],
             ):
                 continue
 
@@ -117,37 +148,41 @@ class DebridService:
             if info_hash not in info_hash_set:
                 continue
             cached_hashes.add(info_hash)
-            if torrents is not None:
+            if torrents is not None and not media_scope.is_aggregate:
                 torrent = torrents.get(info_hash)
                 if torrent is None:
                     continue
 
-                update = torrent_updates.setdefault(info_hash, {})
-                merged_parsed = self._merge_parsed(
-                    torrent.get("parsed"), file["parsed"]
+                update = self._build_torrent_update(
+                    torrent,
+                    file_index=file["index"],
+                    title=file["title"],
+                    size=file["size"],
+                    parsed=file["parsed"],
                 )
-                if merged_parsed is not None:
-                    update["parsed"] = merged_parsed
-
-                file_index = self._coerce_file_index(file["index"])
-                if file_index is not None:
-                    update["fileIndex"] = file_index
-                if file["title"] is not None:
-                    update["title"] = file["title"]
-                if file["size"] is not None:
-                    update["size"] = file["size"]
+                if update:
+                    torrent_updates.setdefault(info_hash, {}).update(update)
 
         schedule_cache_availability(self.debrid_service, availability)
         return cached_hashes, torrent_updates
 
     async def check_existing_availability(
-        self, info_hashes: list, season: int, episode: int, torrents: dict | None
+        self,
+        info_hashes: list,
+        season: int | None,
+        episode: int | None,
+        media_scope: MediaScope,
+        torrents: dict | None,
     ) -> tuple[set[str], dict[str, dict]]:
         if len(info_hashes) == 0:
-            return set()
+            return set(), {}
 
         rows = await get_cached_availability(
-            self.debrid_service, info_hashes, season, episode
+            self.debrid_service,
+            info_hashes,
+            media_scope,
+            season,
+            episode,
         )
 
         cached_hashes = set()
@@ -155,38 +190,33 @@ class DebridService:
         for row in rows:
             info_hash = row["info_hash"]
             cached_hashes.add(info_hash)
-            if torrents is not None:
+            if torrents is not None and not media_scope.is_aggregate:
                 torrent = torrents.get(info_hash)
                 if torrent is None:
                     continue
 
-                update = torrent_updates.setdefault(info_hash, {})
-                file_index = self._coerce_file_index(row["file_index"])
-                if file_index is not None:
-                    update["fileIndex"] = file_index
-
-                if row["size"] is not None:
-                    update["size"] = row["size"]
-
-                if row["parsed"] is not None:
-                    cached_parsed = load_cached_parsed(row["parsed"])
-                    if cached_parsed is not None:
-                        merged_parsed = self._merge_parsed(
-                            torrent.get("parsed"), cached_parsed
-                        )
-                        if merged_parsed is not None:
-                            update["parsed"] = merged_parsed
-
-                if row["title"] is not None:
-                    update["title"] = row["title"]
+                update = self._build_torrent_update(
+                    torrent,
+                    file_index=row["file_index"],
+                    title=row["title"],
+                    size=row["size"],
+                    parsed=row["parsed"],
+                )
+                if update:
+                    torrent_updates[info_hash] = update
 
         return cached_hashes, torrent_updates
 
     @classmethod
     async def apply_cached_availability_any_service(
-        cls, info_hashes: list, season: int, episode: int, torrents: dict | None
+        cls,
+        info_hashes: list,
+        season: int | None,
+        episode: int | None,
+        media_scope: MediaScope,
+        torrents: dict | None,
     ):
-        if len(info_hashes) == 0 or torrents is None:
+        if len(info_hashes) == 0 or torrents is None or media_scope.is_aggregate:
             return
 
         rows = await get_cached_availability_any_service(info_hashes, season, episode)
@@ -197,21 +227,12 @@ class DebridService:
             if torrent is None:
                 continue
 
-            file_index = cls._coerce_file_index(row["file_index"])
-            if file_index is not None:
-                torrent["fileIndex"] = file_index
-
-            if row["size"] is not None:
-                torrent["size"] = row["size"]
-
-            if row["parsed"] is not None:
-                cached_parsed = load_cached_parsed(row["parsed"])
-                if cached_parsed is not None:
-                    merged_parsed = cls._merge_parsed(
-                        torrent.get("parsed"), cached_parsed
-                    )
-                    if merged_parsed is not None:
-                        torrent["parsed"] = merged_parsed
-
-            if row["title"] is not None:
-                torrent["title"] = row["title"]
+            torrent.update(
+                cls._build_torrent_update(
+                    torrent,
+                    file_index=row["file_index"],
+                    title=row["title"],
+                    size=row["size"],
+                    parsed=row["parsed"],
+                )
+            )

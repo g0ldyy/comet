@@ -1,7 +1,9 @@
-import asyncio
-
-from comet.core.logger import log_scraper_error
-from comet.scrapers.base import BaseScraper, deduplicate_torrents
+from comet.core.logger import logger
+from comet.scrapers.base import (
+    BaseScraper,
+    deduplicate_torrents,
+    gather_with_error_logging,
+)
 from comet.scrapers.models import ScrapeRequest
 from comet.services.torrent_manager import extract_trackers_from_magnet
 
@@ -46,19 +48,27 @@ class NekoBTScraper(BaseScraper):
         }
 
     async def _fetch_page(self, params: dict) -> tuple[list[dict], bool, str | None]:
+        context = f"NekoBT request {params}"
         try:
             async with self.session.get(BASE_URL, params=params) as resp:
                 if resp.status != 200:
+                    logger.warning(f"{context} failed with HTTP {resp.status}")
                     return [], False, None
                 payload = await resp.json()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"{context} failed: {type(e).__name__}: {e}")
             return [], False, None
 
-        if not isinstance(payload, dict) or payload.get("error"):
+        if not isinstance(payload, dict):
+            logger.warning(f"{context} returned an invalid response payload")
+            return [], False, None
+        if payload.get("error"):
+            logger.warning(f"{context} returned API error: {payload.get('error')}")
             return [], False, None
 
         data = payload.get("data")
         if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            logger.warning(f"{context} returned an invalid results list")
             return [], False, None
         results = data["results"]
 
@@ -100,27 +110,31 @@ class NekoBTScraper(BaseScraper):
         return torrents, media_id
 
     async def scrape(self, request: ScrapeRequest) -> list[dict]:
-        try:
-            query_results = await asyncio.gather(
-                *(self._fetch_all({"query": title}) for title in request.query_titles)
+        query_results = await gather_with_error_logging(
+            (
+                (
+                    f"NekoBT query {title!r}",
+                    self._fetch_all({"query": title}),
+                )
+                for title in request.query_titles
             )
-            torrents = [
-                torrent
-                for query_torrents, _ in query_results
-                for torrent in query_torrents
-            ]
-            media_ids = tuple(
-                dict.fromkeys(media_id for _, media_id in query_results if media_id)
+        )
+        torrents = [
+            torrent for query_torrents, _ in query_results for torrent in query_torrents
+        ]
+        media_ids = tuple(
+            dict.fromkeys(media_id for _, media_id in query_results if media_id)
+        )
+        media_results = await gather_with_error_logging(
+            (
+                (
+                    f"NekoBT media ID {media_id!r}",
+                    self._fetch_all({"media_id": media_id}),
+                )
+                for media_id in media_ids
             )
-            media_results = await asyncio.gather(
-                *(self._fetch_all({"media_id": media_id}) for media_id in media_ids)
-            )
-            torrents.extend(
-                torrent
-                for media_torrents, _ in media_results
-                for torrent in media_torrents
-            )
-            return deduplicate_torrents(torrents)
-        except Exception as e:
-            log_scraper_error("NekoBT", BASE_URL, request.media_id, e)
-            return []
+        )
+        torrents.extend(
+            torrent for media_torrents, _ in media_results for torrent in media_torrents
+        )
+        return deduplicate_torrents(torrents)

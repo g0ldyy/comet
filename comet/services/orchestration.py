@@ -14,10 +14,12 @@ from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.languages import select_indexer_titles
 from comet.utils.parsing import (
+    MediaScope,
     ensure_multi_language,
     load_cached_parsed,
     load_cached_string_list,
     parsed_matches_target,
+    resolve_media_scope,
 )
 from comet.utils.torrent_cache import build_torrent_cache_where, normalize_search_params
 
@@ -73,6 +75,7 @@ class TorrentManager:
         cache_media_ids: list[str] | None = None,
         target_air_date: str | None = None,
         reject_unknown_episode_files: bool = False,
+        media_scope: MediaScope | None = None,
     ):
         self.media_type = media_type
         self.media_id = media_full_id
@@ -85,6 +88,11 @@ class TorrentManager:
         search = normalize_search_params(season, episode, search_season, search_episode)
         self.search_episode = search.episode
         self.search_season = search.season
+        self.media_scope = (
+            resolve_media_scope(media_type, season, episode)
+            if media_scope is None
+            else media_scope
+        )
         self.aliases = aliases
         self.remove_adult_content = remove_adult_content
         self.is_kitsu = is_kitsu

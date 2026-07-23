@@ -11,7 +11,7 @@ from comet.core.database import (
 )
 from comet.core.models import database, settings
 from comet.core.logger import logger
-from comet.utils.parsing import default_dump
+from comet.utils.parsing import MediaScope, default_dump
 
 DEBRID_UPDATE_INTERVAL = (
     settings.DEBRID_CACHE_TTL // 2 if settings.DEBRID_CACHE_TTL > 0 else 31536000
@@ -33,10 +33,8 @@ DEBRID_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
 INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "info_hash", "info_hashes"
 )
-SCOPE_FILTER_SQL = """
-season_norm = :season_norm
-AND episode_norm = :episode_norm
-"""
+SEASON_SCOPE_FILTER_SQL = "season_norm = :season_norm"
+EXACT_SCOPE_FILTER_SQL = f"{SEASON_SCOPE_FILTER_SQL}\nAND episode_norm = :episode_norm"
 _cache_write_tasks: set[asyncio.Task] = set()
 
 
@@ -108,6 +106,21 @@ CACHE_AVAILABILITY_QUERY = f"""
 """
 
 
+def _build_scope_lookup(
+    media_scope: MediaScope,
+    season: int | None,
+    episode: int | None,
+) -> tuple[str | None, dict[str, int]]:
+    if media_scope is MediaScope.SERIES:
+        return None, {}
+
+    params = build_scope_lookup_params(season, episode)
+    if media_scope is MediaScope.SEASON:
+        params.pop("episode_norm")
+        return SEASON_SCOPE_FILTER_SQL, params
+    return EXACT_SCOPE_FILTER_SQL, params
+
+
 async def cache_availability(debrid_service: str, availability: list):
     current_time = time.time()
 
@@ -145,10 +158,12 @@ async def cache_availability(debrid_service: str, availability: list):
 async def get_cached_availability(
     debrid_service: str,
     info_hashes: list[str],
+    media_scope: MediaScope,
     season: int | None = None,
     episode: int | None = None,
 ):
     select_clause = "SELECT info_hash, file_index, title, size, parsed_json AS parsed"
+    scope_filter_sql, scope_params = _build_scope_lookup(media_scope, season, episode)
 
     min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
     base_from_where = f"""
@@ -160,13 +175,31 @@ async def get_cached_availability(
     params = {
         "info_hashes": encode_json_param(info_hashes),
         "min_timestamp": min_timestamp,
-        **build_scope_lookup_params(season, episode),
+        **scope_params,
     }
 
     base_from_where += " AND debrid_service = :debrid_service"
     params["debrid_service"] = debrid_service
 
-    if debrid_service == "offcloud":
+    if media_scope.is_aggregate:
+        scope_condition = ""
+        if scope_filter_sql is not None:
+            offcloud_fallback = (
+                " OR title IS NULL" if debrid_service == "offcloud" else ""
+            )
+            scope_condition = f"""
+                AND (
+                    ({scope_filter_sql})
+                    {offcloud_fallback}
+                )
+            """
+        query = f"""
+            SELECT DISTINCT info_hash
+            {base_from_where}
+            {scope_condition}
+        """
+        results = await database.fetch_all(query, params)
+    elif debrid_service == "offcloud":
         query = f"""
             SELECT info_hash, file_index, title, size, parsed
             FROM (
@@ -179,12 +212,12 @@ async def get_cached_availability(
                     ROW_NUMBER() OVER (
                         PARTITION BY info_hash
                         ORDER BY
-                            CASE WHEN {SCOPE_FILTER_SQL} THEN 0 ELSE 1 END,
+                            CASE WHEN {scope_filter_sql} THEN 0 ELSE 1 END,
                             updated_at DESC
                     ) AS row_number
                 {base_from_where}
                 AND (
-                    ({SCOPE_FILTER_SQL})
+                    ({scope_filter_sql})
                     OR title IS NULL
                 )
             ) ranked_offcloud_availability
@@ -195,7 +228,7 @@ async def get_cached_availability(
         query = f"""
             {select_clause}
             {base_from_where}
-            AND {SCOPE_FILTER_SQL}
+            AND {scope_filter_sql}
         """
         results = await database.fetch_all(query, params)
 
@@ -203,15 +236,14 @@ async def get_cached_availability(
 
 
 async def get_cached_availability_any_service(
-    info_hashes: list, season: int = None, episode: int = None
+    info_hashes: list, season: int | None = None, episode: int | None = None
 ):
     min_timestamp = time.time() - settings.DEBRID_CACHE_TTL
     base_from_where = f"""
         FROM debrid_availability
         WHERE {INFO_HASH_MEMBERSHIP_SQL}
         AND updated_at >= :min_timestamp
-        AND season_norm = :season_norm
-        AND episode_norm = :episode_norm
+        AND {EXACT_SCOPE_FILTER_SQL}
     """
 
     params = {

@@ -1,7 +1,8 @@
-import asyncio
-
-from comet.core.logger import logger
-from comet.scrapers.base import BaseScraper, deduplicate_torrents
+from comet.scrapers.base import (
+    BaseScraper,
+    deduplicate_torrents,
+    gather_with_error_logging,
+)
 from comet.scrapers.models import ScrapeRequest
 
 
@@ -35,33 +36,35 @@ class ZileanScraper(BaseScraper):
 
     async def scrape(self, request: ScrapeRequest):
         torrents = []
-        try:
+        series_filters = {}
+        if request.media_type == "series":
+            if request.season is not None:
+                series_filters["season"] = request.season
+            if request.episode is not None:
+                series_filters["episode"] = request.episode
 
-            async def fetch(title):
-                params = {"query": title}
-                if request.media_type == "series":
-                    params.update(
-                        {"season": request.season, "episode": request.episode}
-                    )
-                async with self.session.get(
-                    f"{self.url}/dmm/filtered", params=params
-                ) as response:
-                    return await response.json()
-
-            responses = await asyncio.gather(
-                *(fetch(title) for title in request.query_titles),
-                return_exceptions=True,
-            )
-            for data in responses:
+        async def fetch(title):
+            async with self.session.get(
+                f"{self.url}/dmm/filtered",
+                params={"query": title, **series_filters},
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"HTTP {response.status}")
+                data = await response.json()
                 if not isinstance(data, list):
-                    continue
-                for result in data:
-                    parsed = self._parse_result(result)
-                    if parsed is not None:
-                        torrents.append(parsed)
-        except Exception as e:
-            logger.warning(
-                f"Exception while getting torrents for {request.title} with Zilean ({self.url}): {e}"
+                    raise ValueError("response payload is not a list")
+                return data
+
+        responses = await gather_with_error_logging(
+            (
+                (f"Zilean query {title!r} ({self.url})", fetch(title))
+                for title in request.query_titles
             )
+        )
+        for data in responses:
+            for result in data:
+                parsed = self._parse_result(result)
+                if parsed is not None:
+                    torrents.append(parsed)
 
         return deduplicate_torrents(torrents)

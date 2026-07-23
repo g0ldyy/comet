@@ -76,7 +76,8 @@ class BitmagnetScraper(BaseScraper):
                     return []
                 root = ET.fromstring(data_text)
                 return self.parse_items(root)
-        except ET.ParseError:
+        except ET.ParseError as e:
+            logger.warning(f"Error parsing BitMagnet page offset={offset}: {e}")
             return []
         except Exception as e:
             logger.warning(f"Error scraping BitMagnet page offset={offset}: {e}")

@@ -258,9 +258,16 @@ MEDIA_DEMAND_TABLE_SPEC = ManagedTableSpec(
         CREATE TABLE {table_name} (
             media_id TEXT PRIMARY KEY,
             first_seen_at REAL NOT NULL,
-            last_seen_at REAL NOT NULL
+            last_seen_at REAL NOT NULL,
+            last_scraped_at REAL
         )
     """,
+    legacy_columns=(
+        LegacyColumnMigration(
+            column_name="last_scraped_at",
+            column_sql="last_scraped_at REAL",
+        ),
+    ),
     index_sql=(
         """
             CREATE INDEX IF NOT EXISTS idx_media_demand_last_seen_v1
