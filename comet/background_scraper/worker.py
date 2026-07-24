@@ -9,6 +9,7 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.core.scrape import ScrapeContext
 from comet.metadata.manager import MetadataScraper
+from comet.observability import metrics
 from comet.services.cache_state import mark_scope_scraped
 from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentManager
@@ -318,13 +319,15 @@ class BackgroundScraperWorker:
         )
         total_queue = queue_movies + queue_series + queue_episodes
 
-        return {
+        snapshot = {
             "movies": queue_movies,
             "series": queue_series,
             "episodes": queue_episodes,
             "total": total_queue,
             "oldest_age_s": oldest_queue_age_s,
         }
+        metrics.set_background_queue(snapshot)
+        return snapshot
 
     def _discovery_queue_limits(self):
         low = max(0, settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK)
@@ -986,6 +989,7 @@ class BackgroundScraperWorker:
                     f"failed={self.stats.total_failed} torrents={self.stats.total_torrents_found} "
                     f"discovered={self.stats.discovered_items} duration={self.stats.duration:.2f}s",
                 )
+                metrics.observe_background_run(run_status, self.stats)
                 self.current_run_id = None
                 self.metadata_scraper = None
 

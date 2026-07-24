@@ -1,6 +1,10 @@
+import time
+
 from RTN import ParsedData
 
+from comet.debrid.exceptions import DebridAuthError
 from comet.debrid.manager import retrieve_debrid_availability
+from comet.observability import metrics
 from comet.services.debrid_cache import (
     get_cached_availability,
     get_cached_availability_any_service,
@@ -115,19 +119,37 @@ class DebridService:
         media_scope: MediaScope,
         target_air_date: str | None = None,
     ) -> tuple[set[str], dict[str, dict]]:
-        availability = await retrieve_debrid_availability(
-            session,
-            media_id,
-            media_only_id,
-            self.debrid_service,
-            self.debrid_api_key,
-            self.ip,
-            info_hashes,
-            seeders_map,
-            tracker_map,
-            sources_map,
-            target_air_date=target_air_date,
-        )
+        started_at = time.perf_counter() if metrics.enabled else 0.0
+        outcome = "success"
+        try:
+            availability = await retrieve_debrid_availability(
+                session,
+                media_id,
+                media_only_id,
+                self.debrid_service,
+                self.debrid_api_key,
+                self.ip,
+                info_hashes,
+                seeders_map,
+                tracker_map,
+                sources_map,
+                target_air_date=target_air_date,
+            )
+        except DebridAuthError:
+            outcome = "auth_error"
+            raise
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            if metrics.enabled:
+                metrics.observe_debrid(
+                    self.debrid_service,
+                    "availability",
+                    outcome,
+                    time.perf_counter() - started_at,
+                    len(availability) if "availability" in locals() else 0,
+                )
 
         if len(availability) == 0:
             return set(), {}
@@ -177,13 +199,33 @@ class DebridService:
         if len(info_hashes) == 0:
             return set(), {}
 
-        rows = await get_cached_availability(
-            self.debrid_service,
-            info_hashes,
-            media_scope,
-            season,
-            episode,
-        )
+        started_at = time.perf_counter() if metrics.enabled else 0.0
+        try:
+            rows = await get_cached_availability(
+                self.debrid_service,
+                info_hashes,
+                media_scope,
+                season,
+                episode,
+            )
+        except Exception:
+            if metrics.enabled:
+                metrics.observe_debrid(
+                    self.debrid_service,
+                    "cache_lookup",
+                    "error",
+                    time.perf_counter() - started_at,
+                    0,
+                )
+            raise
+        if metrics.enabled:
+            metrics.observe_debrid(
+                self.debrid_service,
+                "cache_lookup",
+                "hit" if rows else "miss",
+                time.perf_counter() - started_at,
+                len(rows),
+            )
 
         cached_hashes = set()
         torrent_updates = {}

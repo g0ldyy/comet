@@ -257,6 +257,20 @@ def log_startup_info(settings):
         f"Admin Dashboard Password: {admin_password} - http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
 
+    prometheus_auth = (
+        "Bearer token"
+        if settings.PROMETHEUS_AUTH_TOKEN
+        else (
+            "Bearer token file"
+            if settings.PROMETHEUS_AUTH_TOKEN_FILE
+            else "unprotected"
+        )
+    )
+    logger.log(
+        "COMET",
+        f"Prometheus: {settings.PROMETHEUS_ENABLED} - Path: {settings.PROMETHEUS_PATH} - Auth: {prometheus_auth}",
+    )
+
     configure_password = settings.CONFIGURE_PAGE_PASSWORD
     configure_session_ttl = settings.CONFIGURE_PAGE_SESSION_TTL
     if configure_password:

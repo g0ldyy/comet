@@ -96,6 +96,7 @@ python -m comet.db_cli cleanup-debrid-account --provider kitsu --apply
 
 - Keep `DATABASE_BATCH_SIZE` tuned to your hardware for import/export.
 - Keep `DATABASE_STARTUP_CLEANUP_INTERVAL` non-zero in larger deployments to avoid heavy cleanup every restart.
+- Use the [Prometheus and Grafana integration](07-observability.md) to monitor database latency, errors, and read-replica fallbacks without running aggregate queries on each scrape.
 
 ## Next
 

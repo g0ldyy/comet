@@ -21,6 +21,7 @@ dependencies = [
     "mediaflow-proxy==2.4.1",
     "orjson",
     "pydantic-settings",
+    "prometheus-client",
     "python-multipart",
     "uvicorn",
     "xxhash",

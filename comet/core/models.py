@@ -165,6 +165,11 @@ class AppSettings(BaseSettings):
     PUBLIC_API_TOKEN: str | None = None
     PUBLIC_API_TOKEN_FILE: str | None = "data/public_api_token.txt"
     PUBLIC_METRICS_API: bool | None = False
+    PROMETHEUS_ENABLED: bool = False
+    PROMETHEUS_PATH: str = "/metrics"
+    PROMETHEUS_AUTH_TOKEN: str | None = None
+    PROMETHEUS_AUTH_TOKEN_FILE: str | None = None
+    PROMETHEUS_MULTIPROC_DIR: str = "/tmp/comet-prometheus"
     DATABASE_TYPE: str | None = "sqlite"
     DATABASE_URL: str | None = "username:password@hostname:port"
     DATABASE_PATH: str | None = "data/comet.db"
@@ -560,6 +565,8 @@ class AppSettings(BaseSettings):
         "CONFIGURE_PAGE_PASSWORD",
         "PUBLIC_API_TOKEN",
         "PUBLIC_API_TOKEN_FILE",
+        "PROMETHEUS_AUTH_TOKEN",
+        "PROMETHEUS_AUTH_TOKEN_FILE",
         mode="before",
     )
     def normalize_optional_secrets(cls, v):
@@ -571,6 +578,30 @@ class AppSettings(BaseSettings):
             return None
 
         return normalized
+
+    @field_validator("PROMETHEUS_PATH")
+    def validate_prometheus_path(cls, value):
+        if (
+            type(value) is not str
+            or not value.startswith("/")
+            or value.startswith("//")
+            or value == "/"
+            or any(character.isspace() for character in value)
+            or "{" in value
+            or "}" in value
+            or "?" in value
+            or "#" in value
+        ):
+            raise ValueError(
+                "PROMETHEUS_PATH must be a static absolute path other than '/'"
+            )
+        return value.rstrip("/")
+
+    @field_validator("PROMETHEUS_MULTIPROC_DIR")
+    def validate_prometheus_multiproc_dir(cls, value):
+        if type(value) is not str or not value.strip():
+            raise ValueError("PROMETHEUS_MULTIPROC_DIR must be a non-empty path")
+        return value.strip()
 
     @field_validator("INDEXER_MANAGER_TYPE")
     def set_indexer_manager_type(cls, v, values):

@@ -11,6 +11,11 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('"forwarded_allow_ips": "*"', launcher)
         self.assertNotIn("TRUSTED_PROXY_IPS", launcher)
 
+    def test_gunicorn_does_not_create_a_control_socket(self):
+        launcher = Path("comet/main.py").read_text(encoding="utf-8")
+
+        self.assertIn('"control_socket_disable": True', launcher)
+
     def test_runtime_image_preserves_root_volume_compatibility(self):
         dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 

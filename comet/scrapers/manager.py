@@ -8,6 +8,7 @@ import time
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.core.scrape import ScrapeContext, normalize_scraper_name
+from comet.observability import metrics
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.services.anime import anime_mapper
@@ -95,19 +96,30 @@ class ScraperManager:
         timeout: float,
     ):
         started_at = time.perf_counter()
+        outcome = "success"
         try:
             async with asyncio.timeout(timeout):
                 results = await scraper.scrape(request)
         except TimeoutError:
+            outcome = "timeout"
             logger.warning(
                 f"Scraper {name} timed out "
                 f"(context={request.context.value}, budget={timeout:g}s)"
             )
             results = []
         except Exception as e:
+            outcome = "error"
             logger.warning(f"Scraper {name} failed: {e}")  # todo: better error handling
             results = []
-        return name, results, time.perf_counter() - started_at
+        duration = time.perf_counter() - started_at
+        metrics.observe_scraper(
+            name,
+            request.context.value,
+            outcome,
+            duration,
+            len(results) if isinstance(results, list) else 0,
+        )
+        return name, results, duration
 
     @staticmethod
     def _resolve_url_for_context(url: str, context: str):

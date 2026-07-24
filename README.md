@@ -14,6 +14,7 @@
 - Proxy Debrid Streams to allow simultaneous use on multiple IPs!
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
+- Production-ready [Prometheus and Grafana observability](docs/advanced/07-observability.md)
 - Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB, Peerflix, DMM and SeaDex
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper

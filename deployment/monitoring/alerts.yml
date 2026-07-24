@@ -1,0 +1,87 @@
+groups:
+  - name: comet
+    rules:
+      - alert: CometUnavailable
+        expr: up{job="comet"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Comet is unavailable
+          description: Prometheus has been unable to scrape Comet for two minutes.
+
+      - alert: CometHighHttpErrorRate
+        expr: |
+          (
+            sum(rate(comet_http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(comet_http_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated Comet HTTP error rate
+          description: More than 5% of Comet HTTP responses are 5xx over ten minutes.
+
+      - alert: CometHighHttpLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(comet_http_request_duration_seconds_bucket[10m]))
+          ) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated Comet HTTP latency
+          description: Global p95 HTTP latency has exceeded ten seconds for ten minutes.
+
+      - alert: CometScraperFailureRate
+        expr: |
+          (
+            sum(rate(comet_scraper_requests_total{outcome=~"error|timeout"}[15m]))
+            /
+            clamp_min(sum(rate(comet_scraper_requests_total[15m])), 0.001)
+          ) > 0.30
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scraper failures are elevated
+          description: More than 30% of scraper executions have failed or timed out.
+
+      - alert: CometDatabaseErrors
+        expr: sum(increase(comet_database_operations_total{outcome="error"}[5m])) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Repeated Comet database errors
+          description: More than five database operations failed in the last five minutes.
+
+      - alert: CometReadReplicaFallbacks
+        expr: sum(increase(comet_database_replica_fallbacks_total[10m])) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Comet is falling back from read replicas
+          description: Read replica failures repeatedly forced reads onto the primary.
+
+      - alert: CometBackgroundQueueStale
+        expr: comet_background_scraper_oldest_queue_item_age_seconds > 86400
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Background scraper queue is stale
+          description: The oldest ready background scraper item is more than one day old.
+
+      - alert: CometBackgroundRunFailed
+        expr: increase(comet_background_scraper_runs_total{status="failed"}[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A background scraper run failed
+          description: At least one background scraper run failed during the last hour.
