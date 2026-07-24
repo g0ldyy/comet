@@ -9,6 +9,14 @@ cached, human-oriented database aggregates. `/metrics` provides inexpensive
 time-series telemetry for Prometheus and never performs database scans while it
 is being scraped.
 
+## Dashboard Preview
+
+The provisioned Grafana dashboard brings Comet health, HTTP and stream traffic,
+scraper and debrid performance, database activity, background queues, and proxy
+streams together in one production-ready view.
+
+[![Comet production overview in Grafana](../assets/grafana.png)](../assets/grafana.png)
+
 ## Quick Start with Docker Compose
 
 The overlay requires the same PostgreSQL password as the base deployment:
