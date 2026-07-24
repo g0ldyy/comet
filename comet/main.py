@@ -75,6 +75,7 @@ def run_with_gunicorn():
         "forwarded_allow_ips": "*",
         "loglevel": "warning",
         "child_exit": child_exit,
+        "control_socket_disable": True,
     }
 
     log_startup_info(settings)
