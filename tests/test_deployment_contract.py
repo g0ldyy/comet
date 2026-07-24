@@ -19,6 +19,16 @@ class DeploymentContractTests(unittest.TestCase):
     def test_runtime_image_preserves_root_volume_compatibility(self):
         dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
+        self.assertEqual(dockerfile.count("FROM python:3.13-slim-trixie"), 2)
+        self.assertIn("FROM ghcr.io/astral-sh/uv:0.11.32 AS uv", dockerfile)
+        self.assertIn(
+            "FROM rust:1.97.1-slim-trixie AS rust-toolchain", dockerfile
+        )
+        self.assertNotRegex(dockerfile, r"(?m)^FROM\s+\S*alpine")
+        self.assertIn("DEBIAN_FRONTEND=noninteractive apt-get install", dockerfile)
+        self.assertIn("--no-install-recommends", dockerfile)
+        self.assertIn("rm -rf /var/lib/apt/lists/*", dockerfile)
+        self.assertIn("LD_PRELOAD=libmimalloc.so.3", dockerfile)
         self.assertNotIn("adduser -S -D -H -G comet comet", dockerfile)
         self.assertNotIn("--chown=comet:comet", dockerfile)
         self.assertNotRegex(dockerfile, r"(?m)^USER\s+comet\s*$")

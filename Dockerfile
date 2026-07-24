@@ -1,6 +1,26 @@
-FROM ghcr.io/astral-sh/uv:python3.13-alpine AS builder
+FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
 
-RUN apk add --no-cache gcc python3-dev musl-dev linux-headers git make
+FROM rust:1.97.1-slim-trixie AS rust-toolchain
+
+FROM python:3.13-slim-trixie AS builder
+
+COPY --from=uv /uv /uvx /bin/
+COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
+
+ENV CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH="/usr/local/cargo/bin:$PATH"
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install \
+        --yes \
+        --no-install-recommends \
+        gcc \
+        git \
+        libc6-dev \
+        make \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -9,13 +29,21 @@ COPY pyproject.toml uv.lock ./
 ARG TARGETPLATFORM
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${TARGETPLATFORM},sharing=locked uv sync --frozen --no-install-project
 
-FROM python:3.13-alpine AS runtime
+FROM python:3.13-slim-trixie AS runtime
 
 LABEL name="Comet" \
       description="Stremio's fastest torrent/debrid search add-on." \
       url="https://github.com/g0ldyy/comet"
 
-RUN apk add --no-cache libgcc libstdc++ tzdata mimalloc2
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install \
+        --yes \
+        --no-install-recommends \
+        libgcc-s1 \
+        libmimalloc3 \
+        libstdc++6 \
+        tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -27,7 +55,7 @@ ENV TZ=UTC \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONMALLOC=malloc \
-    LD_PRELOAD=/usr/lib/libmimalloc.so.2
+    LD_PRELOAD=libmimalloc.so.3
 
 ARG COMET_COMMIT_HASH
 ARG COMET_BUILD_DATE
