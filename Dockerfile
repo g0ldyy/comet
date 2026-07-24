@@ -38,6 +38,6 @@ ENV COMET_COMMIT_HASH=${COMET_COMMIT_HASH} \
     COMET_BRANCH=${COMET_BRANCH}
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- "http://127.0.0.1:${FASTAPI_PORT:-8000}/health" >/dev/null || exit 1
+    CMD python -m comet.healthcheck
 
 ENTRYPOINT ["python", "-m", "comet.main"]

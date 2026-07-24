@@ -9,7 +9,7 @@ import RTN
 from databases import Database
 from databases.backends.sqlite import SQLiteConnection
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
 from RTN.models import (
     AudioRankModel,
@@ -28,6 +28,7 @@ from RTN.models import (
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.logger import logger
 from comet.core.scrape import normalize_scraper_timeout_selector
+from comet.core.server_settings import ServerSettings
 
 _comet_fk_enabled = False
 _SQLITE_BUSY_TIMEOUT_MS = 30000
@@ -145,18 +146,9 @@ if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
     SQLiteConnection._comet_pragmas_patched = True
 
 
-class AppSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="allow"
-    )
-
+class AppSettings(ServerSettings):
     ADDON_ID: str | None = "stremio.comet.fast"
     ADDON_NAME: str | None = "Comet"
-    FASTAPI_HOST: str | None = "0.0.0.0"
-    FASTAPI_PORT: int | None = 8000
-    FASTAPI_WORKERS: int | None = 1
-    USE_GUNICORN: bool | None = True
-    GUNICORN_PRELOAD_APP: bool | None = True
     EXECUTOR_MAX_WORKERS: int | None = 1
     ADMIN_DASHBOARD_PASSWORD: str | None = Field(default_factory=_generate_secret)
     ADMIN_DASHBOARD_SESSION_TTL: int | None = 86400
@@ -193,7 +185,7 @@ class AppSettings(BaseSettings):
     INDEXER_MANAGER_API_KEY: str | None = None
     INDEXER_MANAGER_MODE: bool | str = "both"
     INDEXER_MANAGER_TIMEOUT: int | None = 30
-    INDEXER_MANAGER_INDEXERS: list[str] = []
+    INDEXER_MANAGER_INDEXERS: list[str] = Field(default_factory=list)
     INDEXER_MANAGER_UPDATE_INTERVAL: int | None = 900
     INDEXER_MANAGER_WAIT_TIMEOUT: int | None = 30
     INDEXER_INCLUDE_CANONICAL_TITLE: bool = True
@@ -202,11 +194,11 @@ class AppSettings(BaseSettings):
     SCRAPE_JACKETT: bool | str = False
     JACKETT_URL: str | None = "http://127.0.0.1:9117"
     JACKETT_API_KEY: str | None = None
-    JACKETT_INDEXERS: list[str] = []
+    JACKETT_INDEXERS: list[str] = Field(default_factory=list)
     SCRAPE_PROWLARR: bool | str = False
     PROWLARR_URL: str | None = "http://127.0.0.1:9696"
     PROWLARR_API_KEY: str | None = None
-    PROWLARR_INDEXERS: list[str] = []
+    PROWLARR_INDEXERS: list[str] = Field(default_factory=list)
     GET_TORRENT_TIMEOUT: int | None = 5
     MAGNET_RESOLVE_TIMEOUT: int | None = 60
     CATALOG_TIMEOUT: int | None = 30
@@ -330,8 +322,8 @@ class AppSettings(BaseSettings):
     COMETNET_ENABLED: bool | None = False
     COMETNET_LISTEN_PORT: int | None = 8765
     COMETNET_HTTP_PORT: int | None = 8766
-    COMETNET_BOOTSTRAP_NODES: list[str] = []
-    COMETNET_MANUAL_PEERS: list[str] = []
+    COMETNET_BOOTSTRAP_NODES: list[str] = Field(default_factory=list)
+    COMETNET_MANUAL_PEERS: list[str] = Field(default_factory=list)
     COMETNET_MAX_PEERS: int | None = 50
     COMETNET_MIN_PEERS: int | None = 3
     COMETNET_KEYS_DIR: str | None = "data/cometnet"
@@ -412,7 +404,7 @@ class AppSettings(BaseSettings):
     # CometNet Trust Pools
     # List of pool IDs to subscribe to
     # If empty: accept from everyone (open mode)
-    COMETNET_TRUSTED_POOLS: list[str] = []
+    COMETNET_TRUSTED_POOLS: list[str] = Field(default_factory=list)
     # Directory for storing pool manifests and membership data
     COMETNET_POOLS_DIR: str | None = "data/cometnet/pools"
 
@@ -424,7 +416,7 @@ class AppSettings(BaseSettings):
     # Password to join the private network (Argon2 hashed for auth)
     COMETNET_NETWORK_PASSWORD: str | None = None
     # Pools to ingest from even when in private mode
-    COMETNET_INGEST_POOLS: list[str] = []
+    COMETNET_INGEST_POOLS: list[str] = Field(default_factory=list)
 
     # CometNet Node Alias
     # Optional friendly name for this node (exchanged with other peers)

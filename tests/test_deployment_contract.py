@@ -23,7 +23,7 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertNotIn("--chown=comet:comet", dockerfile)
         self.assertNotRegex(dockerfile, r"(?m)^USER\s+comet\s*$")
         self.assertIn("PYTHONDONTWRITEBYTECODE=1", dockerfile)
-        self.assertIn("${FASTAPI_PORT:-8000}/health", dockerfile)
+        self.assertIn("CMD python -m comet.healthcheck", dockerfile)
 
     def test_compose_limits_writable_and_process_privileges(self):
         compose = Path("deployment/docker-compose.yml").read_text(encoding="utf-8")
@@ -34,7 +34,6 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("comet_data:/app/data", compose)
         self.assertIn("/tmp:size=64m,mode=1777", compose)
         self.assertIn("${FASTAPI_PORT:-8000}:${FASTAPI_PORT:-8000}", compose)
-        self.assertIn("$${FASTAPI_PORT:-8000}/health", compose)
         self.assertIn("${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}", compose)
         self.assertNotIn("comet:comet@postgres", compose)
 

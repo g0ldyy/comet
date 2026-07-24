@@ -20,16 +20,6 @@ services:
       - comet_data:/app/data
     tmpfs:
       - /tmp:size=64m,mode=1777
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'wget -qO- "http://127.0.0.1:$${FASTAPI_PORT:-8000}/health"',
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
