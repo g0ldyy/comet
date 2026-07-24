@@ -28,6 +28,9 @@ docker compose \
   up -d
 ```
 
+Keep both `-f` arguments on subsequent Compose commands that recreate services;
+running the base file alone recreates Comet without Prometheus enabled.
+
 For an existing database, export its current `POSTGRES_PASSWORD` instead of
 generating a new one. Persist these values in `deployment/.env` for future runs.
 
