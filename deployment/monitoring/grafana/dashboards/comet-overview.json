@@ -45,7 +45,7 @@
       "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
       "id": 3,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
-      "targets": [{"expr": "sum(rate(comet_http_requests_total{status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(comet_http_requests_total[$__rate_interval])), 0.001)", "refId": "A"}],
+      "targets": [{"expr": "(sum(rate(comet_http_requests_total{status=~\"5..\"}[$__rate_interval])) or vector(0)) / clamp_min(sum(rate(comet_http_requests_total[$__rate_interval])), 0.001)", "refId": "A"}],
       "title": "HTTP 5xx ratio",
       "type": "stat"
     },
@@ -65,7 +65,7 @@
       "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
       "id": 5,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
-      "targets": [{"expr": "sum(rate(comet_torrent_cache_lookups_total{result=\"hit\"}[$__rate_interval])) / clamp_min(sum(rate(comet_torrent_cache_lookups_total[$__rate_interval])), 0.001)", "refId": "A"}],
+      "targets": [{"expr": "(sum(rate(comet_torrent_cache_lookups_total{result=\"hit\"}[$__rate_interval])) or vector(0)) / clamp_min(sum(rate(comet_torrent_cache_lookups_total[$__rate_interval])), 0.001)", "refId": "A"}],
       "title": "Torrent cache hit ratio",
       "type": "stat"
     },
@@ -75,7 +75,7 @@
       "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
       "id": 6,
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
-      "targets": [{"expr": "sum(increase(comet_database_operations_total{outcome=\"error\"}[5m]))", "refId": "A"}],
+      "targets": [{"expr": "sum(increase(comet_database_operations_total{outcome=\"error\"}[5m])) or vector(0)", "refId": "A"}],
       "title": "DB errors · 5m",
       "type": "stat"
     },

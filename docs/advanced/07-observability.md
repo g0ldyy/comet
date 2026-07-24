@@ -33,6 +33,8 @@ running the base file alone recreates Comet without Prometheus enabled.
 
 For an existing database, export its current `POSTGRES_PASSWORD` instead of
 generating a new one. Persist these values in `deployment/.env` for future runs.
+Grafana applies `GRAFANA_ADMIN_PASSWORD` only when creating `grafana_data`; use
+`grafana cli admin reset-admin-password` to change an existing admin password.
 
 Open `http://localhost:3000` (or `GRAFANA_PORT`) and select
 **Comet / Comet · Production Overview**. The overlay does not publish the

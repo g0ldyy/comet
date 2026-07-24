@@ -2,17 +2,24 @@ import os
 
 import uvicorn
 
-import comet.observability.runtime  # noqa: F401  # prepares mmap state before app import
-from comet.api.app import app
 from comet.core.logger import log_startup_info, logger
 from comet.core.models import settings
-from comet.observability.metrics import mark_process_dead
+from comet.observability.metrics import (
+    mark_process_dead,
+    prepare_multiprocess_directory,
+)
+
+
+def _load_app():
+    from comet.api.app import app
+
+    return app
 
 
 def run_with_uvicorn():
     """Run the server with uvicorn only"""
     config = uvicorn.Config(
-        app,
+        _load_app(),
         host=settings.FASTAPI_HOST,
         port=settings.FASTAPI_PORT,
         proxy_headers=True,
@@ -37,6 +44,8 @@ def run_with_uvicorn():
 def run_with_gunicorn():
     """Run the server with gunicorn and uvicorn workers"""
     import gunicorn.app.base
+
+    app = _load_app()
 
     class StandaloneApplication(gunicorn.app.base.BaseApplication):
         def __init__(self, app, options=None):
@@ -84,8 +93,15 @@ def run_with_gunicorn():
     StandaloneApplication(app, options).run()
 
 
-if __name__ == "__main__":
+def main():
+    if settings.PROMETHEUS_ENABLED:
+        prepare_multiprocess_directory(settings.PROMETHEUS_MULTIPROC_DIR)
+
     if os.name == "nt" or not settings.USE_GUNICORN:
         run_with_uvicorn()
     else:
         run_with_gunicorn()
+
+
+if __name__ == "__main__":
+    main()

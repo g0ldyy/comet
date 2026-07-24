@@ -71,6 +71,32 @@ class ObservabilityConfigurationTests(unittest.TestCase):
         self.assertEqual(directory, Path("/metrics"))
         mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
+    def test_multiprocessing_import_does_not_clear_metric_files(self):
+        script = """
+import os
+import runpy
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+metric_file = directory / "counter_123.db"
+metric_file.write_bytes(b"live")
+os.environ["PROMETHEUS_ENABLED"] = "true"
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = str(directory)
+runpy.run_module("comet.main", run_name="__mp_main__")
+assert metric_file.read_bytes() == b"live"
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            completed = subprocess.run(
+                [sys.executable, "-c", script, directory],
+                cwd=Path(__file__).parents[1],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_protected_api_prefix_is_redacted_from_route_label(self):
         request = Request(
             {
@@ -124,7 +150,7 @@ from comet.api.app import app
 from comet.observability import metrics, render_metrics
 
 metrics.observe_torrent_cache("movie", "hit", 3)
-assert any(route.path == "/metrics" for route in app.routes)
+assert str(app.url_path_for("prometheus_metrics")) == "/metrics"
 assert b"comet_torrent_cache_lookups_total" in render_metrics()
 """
         with tempfile.TemporaryDirectory() as directory:
@@ -160,6 +186,19 @@ assert b"comet_torrent_cache_lookups_total" in render_metrics()
 
         self.assertEqual(dashboard["uid"], "comet-production-overview")
         self.assertGreaterEqual(len(dashboard["panels"]), 20)
+        healthy_zero_panels = {
+            panel["title"]: panel["targets"][0]["expr"]
+            for panel in dashboard["panels"]
+            if panel["title"]
+            in {"HTTP 5xx ratio", "Torrent cache hit ratio", "DB errors · 5m"}
+        }
+        self.assertEqual(
+            set(healthy_zero_panels),
+            {"HTTP 5xx ratio", "Torrent cache hit ratio", "DB errors · 5m"},
+        )
+        self.assertTrue(
+            all("or vector(0)" in query for query in healthy_zero_panels.values())
+        )
         self.assertIn("PROMETHEUS_AUTH_TOKEN_FILE: /run/secrets/", compose)
         self.assertIn("no-new-privileges:true", compose)
         self.assertNotRegex(compose, r"(?m)^\s+ports:\n\s+- [\"']?9090")
