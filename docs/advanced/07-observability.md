@@ -81,6 +81,58 @@ scrape_configs:
       - targets: ["comet:8000"]
 ```
 
+## Multiple Comet Replicas
+
+The supplied Compose overlay targets one Comet instance. A multi-replica
+deployment is supported, but Prometheus must discover and scrape every replica
+as a separate target. Keep Traefik or another reverse proxy in front of user
+traffic, but do not use its load-balanced Comet route as the single scrape
+target. Successive scrapes could reach different replicas under the same
+Prometheus `instance` label, producing misleading counter resets and incomplete
+telemetry.
+
+For replicas with stable internal names, enumerate them directly:
+
+```yaml
+static_configs:
+  - targets:
+      - comet-1:8000
+      - comet-2:8000
+      - comet-3:8000
+      - comet-4:8000
+    labels:
+      service: comet
+```
+
+For dynamic deployments, use discovery that returns one target per task or pod.
+For example, Docker Swarm can use DNS discovery:
+
+```yaml
+dns_sd_configs:
+  - names: ["tasks.comet"]
+    type: A
+    port: 8000
+```
+
+Use pod or endpoint discovery, such as a `ServiceMonitor`, for Kubernetes.
+Prometheus assigns a distinct `instance` label to each discovered target, and
+the provisioned dashboard's rate, histogram, and active-connection queries
+already aggregate those targets into service-wide results.
+
+`PROMETHEUS_MULTIPROC_DIR` aggregates Gunicorn workers within one Comet replica
+only. Every replica must use its own local directory; never place this directory
+on a volume shared by multiple replicas. The same metrics bearer token may be
+used by every replica.
+
+The dashboard's **Comet up** panel uses `max(up{job="comet"})`, so it reports
+whether at least one replica is reachable. For a fixed four-replica deployment,
+use `sum(up{job="comet"})` to display the number of healthy replicas and consider
+an additional capacity alert:
+
+```promql
+(sum(up{job="comet"}) or vector(0)) < 4
+```
+
 ## Metric Catalog
 
 All labels are selected from bounded application vocabularies. Comet never uses
