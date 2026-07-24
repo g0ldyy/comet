@@ -15,6 +15,7 @@ from comet.api import app as app_module
 from comet.api.endpoints import prometheus
 from comet.observability import metrics
 from comet.observability.metrics import (
+    configure_multiprocess_directory,
     load_auth_token,
     prepare_multiprocess_directory,
 )
@@ -58,6 +59,17 @@ class ObservabilityConfigurationTests(unittest.TestCase):
                     os.environ["PROMETHEUS_MULTIPROC_DIR"],
                     str(metrics_dir.resolve()),
                 )
+
+    def test_single_level_multiprocess_directory_is_accepted(self):
+        with (
+            patch.object(Path, "mkdir") as mkdir,
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            directory = configure_multiprocess_directory("/metrics")
+            self.assertEqual(os.environ["PROMETHEUS_MULTIPROC_DIR"], "/metrics")
+
+        self.assertEqual(directory, Path("/metrics"))
+        mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
     def test_protected_api_prefix_is_redacted_from_route_label(self):
         request = Request(
@@ -156,10 +168,14 @@ assert b"comet_torrent_cache_lookups_total" in render_metrics()
 class PrometheusEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_bearer_token_is_required_when_configured(self):
         with patch.object(metrics, "auth_token", "secret"):
-            with self.assertRaises(HTTPException) as context:
-                await prometheus.prometheus_metrics(None)
+            for authorization in (None, "Bearer incorrect", "Bearer secrét"):
+                with (
+                    self.subTest(authorization=authorization),
+                    self.assertRaises(HTTPException) as context,
+                ):
+                    await prometheus.prometheus_metrics(authorization)
 
-        self.assertEqual(context.exception.status_code, 401)
+                self.assertEqual(context.exception.status_code, 401)
 
     async def test_endpoint_returns_prometheus_content_type(self):
         with (

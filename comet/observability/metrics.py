@@ -361,7 +361,7 @@ def load_auth_token(token: str | None, token_file: str | None) -> str | None:
 
 def configure_multiprocess_directory(path: str) -> Path:
     directory = Path(path).resolve()
-    if directory == Path(directory.anchor) or len(directory.parts) < 3:
+    if directory == Path(directory.anchor):
         raise ValueError("PROMETHEUS_MULTIPROC_DIR must be a dedicated directory")
 
     directory.mkdir(parents=True, exist_ok=True)

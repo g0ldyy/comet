@@ -35,8 +35,9 @@ Open `http://localhost:3000` (or `GRAFANA_PORT`) and select
 **Comet / Comet · Production Overview**. The overlay does not publish the
 Prometheus port.
 
-The supplied scrape target is `comet:8000`. If `FASTAPI_PORT` is changed, update
-the target in `deployment/monitoring/prometheus.yml`.
+The supplied scrape target is `comet:8000`. In
+`deployment/monitoring/prometheus.yml`, update the target when `FASTAPI_PORT`
+changes and the job's `metrics_path` when `PROMETHEUS_PATH` changes.
 
 The dashboard and data source are provisioned from version-controlled files.
 Grafana intentionally prevents UI saves because a later provisioning refresh

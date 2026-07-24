@@ -21,7 +21,7 @@ async def prometheus_metrics(
     if expected_token is not None:
         expected_header = f"Bearer {expected_token}"
         if authorization is None or not secrets.compare_digest(
-            authorization, expected_header
+            authorization.encode(), expected_header.encode()
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
