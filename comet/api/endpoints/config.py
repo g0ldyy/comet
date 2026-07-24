@@ -72,9 +72,9 @@ def _apply_private_no_cache(response):
 
 def _render_configure_login(request: Request, next_url: str, error: str = ""):
     response = templates.TemplateResponse(
-        "admin_login.html",
-        {
-            "request": request,
+        request=request,
+        name="admin_login.html",
+        context={
             "error": error,
             "form_action": "/configure/login",
             "password_label": "Configure Password",
@@ -147,9 +147,9 @@ async def configure(
         return _render_configure_login(request, next_url=_next_url(request))
 
     response = templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
+        request=request,
+        name="index.html",
+        context={
             "CUSTOM_HEADER_HTML": settings.CUSTOM_HEADER_HTML
             if settings.CUSTOM_HEADER_HTML
             else "",

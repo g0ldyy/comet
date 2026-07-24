@@ -86,7 +86,7 @@ async def admin_root(
 ):
     if verify_admin_session(admin_session):
         return RedirectResponse("/admin/dashboard")
-    return templates.TemplateResponse("admin_login.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="admin_login.html")
 
 
 @router.post(
@@ -102,7 +102,9 @@ async def admin_login(
 
     if not is_correct:
         return templates.TemplateResponse(
-            "admin_login.html", {"request": request, "error": "Invalid password"}
+            request=request,
+            name="admin_login.html",
+            context={"error": "Invalid password"},
         )
 
     session_token = create_admin_session()
@@ -144,9 +146,9 @@ async def admin_dashboard(
     try:
         require_admin_auth(admin_session)
         return templates.TemplateResponse(
-            "admin_dashboard.html",
-            {
-                "request": request,
+            request=request,
+            name="admin_dashboard.html",
+            context={
                 "version_info": UpdateManager.get_version_info(),
                 "background_scraper_interval": max(
                     1, settings.BACKGROUND_SCRAPER_INTERVAL
