@@ -99,6 +99,32 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ValueError):
                     await service.get_peers_for_pex(max_peers)
 
+    async def test_pex_peer_snapshot_tolerates_discovery_updates_during_validation(
+        self,
+    ):
+        service = DiscoveryService()
+        service._add_known_peer("wss://first.example", "first", "pex")
+        service._add_known_peer("wss://second.example", "second", "pex")
+        service._get_connected_ids = lambda: ["first", "second"]
+        validation_count = 0
+
+        async def validate_address(address, *, allow_private):
+            nonlocal validation_count
+            self.assertFalse(allow_private)
+            validation_count += 1
+            if validation_count == 1:
+                service._add_known_peer("wss://new.example", "new", "pex")
+            return True
+
+        with patch(
+            "comet.cometnet.discovery.is_valid_peer_address",
+            new=validate_address,
+        ):
+            peers = await service.get_peers_for_pex()
+
+        self.assertEqual([peer.node_id for peer in peers], ["first", "second"])
+        self.assertIn("wss://new.example", service._known_peers)
+
     async def test_stop_clears_cancelled_worker_reference(self):
         service = DiscoveryService()
         service._running = True

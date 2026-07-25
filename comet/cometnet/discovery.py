@@ -278,22 +278,30 @@ class DiscoveryService:
         # Only share private IPs if explicitly allowed
         allow_private = settings.COMETNET_ALLOW_PRIVATE_PEX
 
+        # Snapshot eligible peer data before address validation yields control.
+        # Discovery updates can otherwise resize _known_peers while its dynamic
+        # view is being iterated.
+        candidates = [
+            (peer.node_id, peer.address, peer.last_seen)
+            for peer in self._known_peers.values()
+            if peer.node_id and peer.node_id in connected_ids
+        ]
+
         peers = []
-        for address, known_peer in self._known_peers.items():
-            if known_peer.node_id and known_peer.node_id in connected_ids:
-                if not allow_private and not await is_valid_peer_address(
-                    address, allow_private=False
-                ):
-                    continue
-                peers.append(
-                    PeerInfo(
-                        node_id=known_peer.node_id,
-                        address=known_peer.address,
-                        last_seen=known_peer.last_seen,
-                    )
+        for node_id, address, last_seen in candidates:
+            if not allow_private and not await is_valid_peer_address(
+                address, allow_private=False
+            ):
+                continue
+            peers.append(
+                PeerInfo(
+                    node_id=node_id,
+                    address=address,
+                    last_seen=last_seen,
                 )
-                if len(peers) >= max_peers:
-                    break
+            )
+            if len(peers) >= max_peers:
+                break
 
         return peers
 
