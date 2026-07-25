@@ -1,8 +1,8 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from comet.api.endpoints.stream import background_scrape
 from comet.core.scrape import ScrapeContext
+from comet.services.media_search import background_scrape
 
 
 class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
@@ -19,11 +19,11 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "comet.api.endpoints.stream.DistributedLock",
+                "comet.services.media_search.DistributedLock",
                 return_value=lock,
             ),
             patch(
-                "comet.api.endpoints.stream.mark_scope_scraped",
+                "comet.services.media_search.mark_scope_scraped",
                 new=AsyncMock(),
             ) as mark_scraped,
         ):
@@ -52,11 +52,11 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "comet.api.endpoints.stream.DistributedLock",
+                "comet.services.media_search.DistributedLock",
                 return_value=lock,
             ),
             patch(
-                "comet.api.endpoints.stream.mark_scope_scraped",
+                "comet.services.media_search.mark_scope_scraped",
                 new=AsyncMock(),
             ) as mark_scraped,
         ):

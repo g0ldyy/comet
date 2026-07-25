@@ -516,7 +516,7 @@ async def ingest_account_torrents_to_public_cache(
 
 
 async def schedule_account_snapshot_refresh(
-    background_tasks,
+    add_background_task,
     session,
     debrid_entries: list[dict],
     ip: str,
@@ -562,7 +562,7 @@ async def schedule_account_snapshot_refresh(
         if not lock_acquired:
             continue
 
-        background_tasks.add_task(
+        add_background_task(
             _sync_task,
             lock,
             session,

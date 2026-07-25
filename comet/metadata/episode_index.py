@@ -22,6 +22,19 @@ _TARGET_EPISODE_AIR_DATE_QUERY = """
       )
 """
 
+_EPISODE_BY_AIR_DATE_QUERY = """
+    SELECT season, episode
+    FROM series_episode_index
+    WHERE series_id = :series_id
+      AND air_date = :air_date
+      AND (
+          CAST(:min_timestamp AS REAL) IS NULL
+          OR updated_at >= CAST(:min_timestamp AS REAL)
+      )
+    ORDER BY season, episode
+    LIMIT 1
+"""
+
 _SERIES_INDEX_LAST_REFRESH_QUERY = """
     SELECT refreshed_at
     FROM series_episode_index_refresh
@@ -102,6 +115,24 @@ class EpisodeIndexService:
         if row is None:
             return None
         return _normalize_air_date(row["air_date"])
+
+    async def _get_cached_episode(
+        self,
+        series_id: str,
+        air_date: str,
+        min_timestamp: float | None,
+    ) -> tuple[int, int] | None:
+        row = await database.fetch_one(
+            _EPISODE_BY_AIR_DATE_QUERY,
+            {
+                "series_id": series_id,
+                "air_date": air_date,
+                "min_timestamp": min_timestamp,
+            },
+        )
+        if row is None:
+            return None
+        return int(row["season"]), int(row["episode"])
 
     async def _is_series_index_fresh(
         self, series_id: str, min_timestamp: float
@@ -283,3 +314,33 @@ class EpisodeIndexService:
             return tmdb_air_date
 
         return await self._get_cached_air_date(series_id, season, episode, None)
+
+    async def get_episode_by_air_date(
+        self,
+        series_id: str,
+        air_date: str,
+    ) -> tuple[int, int] | None:
+        normalized_air_date = _normalize_air_date(air_date)
+        if (
+            not isinstance(series_id, str)
+            or not series_id.startswith("tt")
+            or normalized_air_date is None
+        ):
+            return None
+
+        min_timestamp = time.time() - settings.METADATA_CACHE_TTL
+        cached_episode = await self._get_cached_episode(
+            series_id, normalized_air_date, min_timestamp
+        )
+        if cached_episode is not None:
+            return cached_episode
+
+        if not await self._is_series_index_fresh(series_id, min_timestamp):
+            await self._refresh_from_cinemeta(series_id)
+            cached_episode = await self._get_cached_episode(
+                series_id, normalized_air_date, min_timestamp
+            )
+            if cached_episode is not None:
+                return cached_episode
+
+        return await self._get_cached_episode(series_id, normalized_air_date, None)

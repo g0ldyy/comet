@@ -1,6 +1,6 @@
 import unittest
 from contextlib import asynccontextmanager
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from comet.metadata.episode_index import EpisodeIndexService, database
 
@@ -29,6 +29,33 @@ class EpisodeIndexRefreshTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(database, "fetch_val", return_value=value),
             ):
                 self.assertFalse(await service._is_series_index_fresh("tt123", 1.0))
+
+    async def test_air_date_reverse_lookup_refreshes_the_existing_index_once(self):
+        service = EpisodeIndexService(session=None)
+        with (
+            patch.object(
+                service,
+                "_get_cached_episode",
+                new=AsyncMock(side_effect=[None, (3, 9)]),
+            ) as cached_lookup,
+            patch.object(
+                service,
+                "_is_series_index_fresh",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(
+                service,
+                "_refresh_from_cinemeta",
+                new=AsyncMock(),
+            ) as refresh,
+        ):
+            episode = await service.get_episode_by_air_date(
+                "tt1234567", "2026-07-25"
+            )
+
+        self.assertEqual(episode, (3, 9))
+        self.assertEqual(cached_lookup.await_count, 2)
+        refresh.assert_awaited_once_with("tt1234567")
 
     async def test_rows_and_refresh_marker_share_one_transaction(self):
         service = EpisodeIndexService(session=None)

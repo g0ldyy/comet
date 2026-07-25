@@ -36,6 +36,9 @@ dependencies = [
 [tool.uv.sources]
 torrent-parse-rank = { git = "https://github.com/g0ldyy/torrent-parse-rank" }
 
+[dependency-groups]
+dev = ["pytest>=7.0"]
+
 [tool.ruff.lint]
 # Broad exception handling is intentional at task, network, and plugin boundaries.
 # ValueError is also part of the validation contract for malformed external data.
@@ -43,3 +46,6 @@ ignore = ["BLE001", "S110", "S112", "SIM117", "TRY004"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

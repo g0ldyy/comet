@@ -33,6 +33,10 @@ If you plan to use Stremio from another device/network, complete the reverse-pro
 - [CometNet Full Reference](cometnet/cometnet.md)
 - [CometNet Docker Deployment](cometnet/docker.md)
 
+## Integrations
+
+- [Torznab clients: Prowlarr, Sonarr, Radarr, and Jackett](integrations/torznab.md)
+
 ## Troubleshooting
 
 - [Troubleshooting Guide](troubleshooting.md)

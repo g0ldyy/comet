@@ -20,6 +20,7 @@ from comet.api.endpoints import (
     manifest,
     playback,
     prometheus,
+    torznab,
 )
 from comet.api.endpoints import stream as streams_router
 from comet.background_scraper.worker import background_scraper
@@ -267,6 +268,7 @@ stremio_routers = (
     playback.router,
     debrid_sync.router,
     streams_router.streams,
+    torznab.router,
     chilllink.router,
 )
 
