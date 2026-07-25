@@ -5,8 +5,7 @@ import time
 
 from loguru import logger
 
-from comet.core.log_levels import (CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS,
-                                   get_level_info)
+from comet.core.log_levels import CUSTOM_LOG_LEVELS, STANDARD_LOG_LEVELS, get_level_info
 from comet.utils.parsing import associate_urls_credentials
 
 logging.getLogger("demagnetize").setLevel(
@@ -251,15 +250,29 @@ def log_startup_info(settings):
         admin_password = censor(admin_password)
     else:
         admin_password = f"{admin_password} (Randomly Generated)"
-    admin_session_ttl = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
+    admin_session_ttl = settings.ADMIN_DASHBOARD_SESSION_TTL
 
     logger.log(
         "COMET",
         f"Admin Dashboard Password: {admin_password} - http://{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}/admin - Session TTL: {admin_session_ttl}s - Public Metrics API: {settings.PUBLIC_METRICS_API}",
     )
 
+    prometheus_auth = (
+        "Bearer token"
+        if settings.PROMETHEUS_AUTH_TOKEN
+        else (
+            "Bearer token file"
+            if settings.PROMETHEUS_AUTH_TOKEN_FILE
+            else "unprotected"
+        )
+    )
+    logger.log(
+        "COMET",
+        f"Prometheus: {settings.PROMETHEUS_ENABLED} - Path: {settings.PROMETHEUS_PATH} - Auth: {prometheus_auth}",
+    )
+
     configure_password = settings.CONFIGURE_PAGE_PASSWORD
-    configure_session_ttl = max(60, settings.CONFIGURE_PAGE_SESSION_TTL)
+    configure_session_ttl = settings.CONFIGURE_PAGE_SESSION_TTL
     if configure_password:
         if "CONFIGURE_PAGE_PASSWORD" in settings.model_fields_set:
             configure_password = censor(configure_password)
@@ -392,11 +405,30 @@ def log_startup_info(settings):
         "COMET",
         f"Indexer Manager Update Interval: {settings.INDEXER_MANAGER_UPDATE_INTERVAL}s",
     )
+    indexer_languages = ", ".join(settings.INDEXER_LANGUAGES) or "Disabled"
+    logger.log(
+        "COMET",
+        "Indexer Title Search: "
+        f"INDEXER_INCLUDE_CANONICAL_TITLE={settings.INDEXER_INCLUDE_CANONICAL_TITLE} - "
+        f"INDEXER_INCLUDE_ORIGINAL_TITLE={settings.INDEXER_INCLUDE_ORIGINAL_TITLE} - "
+        f"INDEXER_LANGUAGES={indexer_languages}",
+    )
     logger.log("COMET", f"Get Torrent Timeout: {settings.GET_TORRENT_TIMEOUT}s")
     logger.log("COMET", f"Magnet Resolve Timeout: {settings.MAGNET_RESOLVE_TIMEOUT}s")
     logger.log("COMET", f"Catalog Timeout: {settings.CATALOG_TIMEOUT}s")
     logger.log("COMET", f"Scrape Lock TTL: {settings.SCRAPE_LOCK_TTL}s")
-    logger.log("COMET", f"Scrape Wait Timeout: {settings.SCRAPE_WAIT_TIMEOUT}s")
+    logger.log(
+        "COMET",
+        "Scrape Timeouts: "
+        f"live={settings.LIVE_SCRAPE_TIMEOUT:g}s, "
+        f"background={settings.BACKGROUND_SCRAPE_TIMEOUT:g}s",
+    )
+    if settings.SCRAPER_TIMEOUT_OVERRIDES:
+        overrides = ", ".join(
+            f"{selector}={timeout:g}s"
+            for selector, timeout in sorted(settings.SCRAPER_TIMEOUT_OVERRIDES.items())
+        )
+        logger.log("COMET", f"Scraper Timeout Overrides: {overrides}")
     logger.log("COMET", f"Download Torrent Files: {settings.DOWNLOAD_TORRENT_FILES}")
 
     comet_url = (

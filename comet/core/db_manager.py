@@ -3,9 +3,9 @@ import gzip
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiofiles
 import orjson
@@ -19,9 +19,9 @@ from comet.core.models import settings
 @dataclass
 class TableInfo:
     name: str
-    columns: List[str]
-    primary_key: List[str]
-    unique_constraints: List[Dict[str, Any]]
+    columns: list[str]
+    primary_key: list[str]
+    unique_constraints: list[dict[str, Any]]
     row_count: int = 0
 
 
@@ -186,14 +186,66 @@ class DatabaseManager:
         return table_info
 
     def _build_export_query(
-        self, table_name: str, primary_key: List[str], batch_size: int, offset: int
-    ) -> str:
+        self,
+        table_name: str,
+        primary_key: list[str],
+        batch_size: int,
+        offset: int,
+        last_primary_key: tuple | None = None,
+    ) -> tuple[str, dict]:
+        params = {"batch_size": batch_size}
         if primary_key:
+            where_clause = ""
+            if last_primary_key is not None:
+                cursor_params = []
+                for index, value in enumerate(last_primary_key):
+                    param_name = f"cursor_{index}"
+                    params[param_name] = value
+                    cursor_params.append(f":{param_name}")
+                where_clause = (
+                    f"WHERE ({', '.join(primary_key)}) > ({', '.join(cursor_params)}) "
+                )
             return (
-                f"SELECT * FROM {table_name} ORDER BY {', '.join(primary_key)} "
-                f"LIMIT {batch_size} OFFSET {offset}"
+                (
+                    f"SELECT * FROM {table_name} {where_clause}"
+                    f"ORDER BY {', '.join(primary_key)} LIMIT :batch_size"
+                ),
+                params,
             )
-        return f"SELECT * FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
+
+        params["offset"] = offset
+        return (
+            f"SELECT * FROM {table_name} LIMIT :batch_size OFFSET :offset",
+            params,
+        )
+
+    async def _iter_export_batches(self, table_info: TableInfo, batch_size: int):
+        offset = 0
+        last_primary_key = None
+        while True:
+            query, params = self._build_export_query(
+                table_info.name,
+                table_info.primary_key,
+                batch_size,
+                offset,
+                last_primary_key,
+            )
+            rows = await self.database.fetch_all(query, params)
+            if not rows:
+                return
+            yield rows
+
+            if table_info.primary_key:
+                last_row = rows[-1]
+                last_primary_key = tuple(
+                    last_row[column] for column in table_info.primary_key
+                )
+            else:
+                offset += len(rows)
+
+    @staticmethod
+    def _serialize_export_rows(rows) -> bytes:
+        return b"\n".join(orjson.dumps(dict(row)) for row in rows) + b"\n"
 
     async def list_tables(self):
         if IS_SQLITE:
@@ -217,7 +269,7 @@ class DatabaseManager:
         table_name: str,
         output_file: Path,
         compress: bool = True,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ):
         start_time = time.time()
         batch_size = batch_size or self.batch_size
@@ -230,62 +282,26 @@ class DatabaseManager:
 
         exported_rows = 0
 
-        async with aiofiles.open(output_file, "wb" if compress else "w") as f:
-            metadata = {
-                "table_name": table_name,
-                "export_timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+        metadata = {
+            "table_name": table_name,
+            "export_timestamp": datetime.now(UTC).isoformat(),
+        }
+        metadata_payload = orjson.dumps(metadata) + b"\n"
 
-            if compress:
-                # For gzip, we need to handle it differently
-                with gzip.open(output_file, "wt", encoding="utf-8") as gf:
-                    gf.write(orjson.dumps(metadata).decode("utf-8") + "\n")
-
-                    # Export data in batches
-                    offset = 0
-                    while True:
-                        rows = await self.database.fetch_all(
-                            self._build_export_query(
-                                table_name,
-                                table_info.primary_key,
-                                batch_size,
-                                offset,
-                            )
-                        )
-                        if not rows:
-                            break
-
-                        for row in rows:
-                            row_dict = dict(row)
-
-                            gf.write(orjson.dumps(row_dict).decode("utf-8") + "\n")
-                            exported_rows += 1
-
-                        offset += batch_size
-            else:
-                # Non-compressed version
-                await f.write(orjson.dumps(metadata).decode("utf-8") + "\n")
-
-                offset = 0
-                while True:
-                    rows = await self.database.fetch_all(
-                        self._build_export_query(
-                            table_name,
-                            table_info.primary_key,
-                            batch_size,
-                            offset,
-                        )
+        if compress:
+            with gzip.open(output_file, "wb") as output:
+                await asyncio.to_thread(output.write, metadata_payload)
+                async for rows in self._iter_export_batches(table_info, batch_size):
+                    await asyncio.to_thread(
+                        output.write, self._serialize_export_rows(rows)
                     )
-                    if not rows:
-                        break
-
-                    for row in rows:
-                        row_dict = dict(row)
-
-                        await f.write(orjson.dumps(row_dict).decode("utf-8") + "\n")
-                        exported_rows += 1
-
-                    offset += batch_size
+                    exported_rows += len(rows)
+        else:
+            async with aiofiles.open(output_file, "wb") as output:
+                await output.write(metadata_payload)
+                async for rows in self._iter_export_batches(table_info, batch_size):
+                    await output.write(self._serialize_export_rows(rows))
+                    exported_rows += len(rows)
 
         file_size_mb = output_file.stat().st_size / (1024 * 1024)
         duration = time.time() - start_time
@@ -299,7 +315,7 @@ class DatabaseManager:
 
         return stats
 
-    def _build_upsert_query(self, table_info: TableInfo, columns: List[str]):
+    def _build_upsert_query(self, table_info: TableInfo, columns: list[str]):
         table_name = table_info.name
         placeholders = ", ".join([":" + col for col in columns])
 
@@ -312,8 +328,8 @@ class DatabaseManager:
     async def import_table(
         self,
         input_file: Path,
-        table_name: Optional[str] = None,
-        batch_size: Optional[int] = None,
+        table_name: str | None = None,
+        batch_size: int | None = None,
     ):
         start_time = time.time()
         batch_size = batch_size or self.batch_size
@@ -338,7 +354,7 @@ class DatabaseManager:
             error_rows = 0
             conflicts_resolved = 0
 
-            all_columns = set()
+            all_columns = {}
 
             # First pass: collect all unique columns from the data
             current_pos = f.tell()
@@ -347,23 +363,24 @@ class DatabaseManager:
                 if not line:
                     continue
 
+                total_rows += 1
                 try:
                     row_data = orjson.loads(line)
-                    all_columns.update(row_data.keys())
-                    total_rows += 1
+                    if not isinstance(row_data, dict):
+                        raise ValueError("import row must be a JSON object")
+                    for column in row_data:
+                        all_columns.setdefault(column, None)
 
-                except orjson.JSONDecodeError as e:
-                    error_rows += 1
-                    logger.log(
-                        "DB_IMPORT", f"JSON decode error on row {total_rows + 1}: {e}"
-                    )
+                except (orjson.JSONDecodeError, ValueError):
+                    # The second pass reports malformed rows exactly once.
+                    continue
 
             # Reset file position for actual import
             f.seek(current_pos)
 
             # Filter columns to only those that exist in the target table
             import_columns = [col for col in all_columns if col in table_info.columns]
-            missing_columns = all_columns - set(table_info.columns)
+            missing_columns = set(all_columns) - set(table_info.columns)
 
             if missing_columns:
                 logger.log("DB_IMPORT", f"Skipping missing columns: {missing_columns}")
@@ -389,14 +406,16 @@ class DatabaseManager:
                 if not line:
                     continue
 
+                row_count += 1
                 try:
                     row_data = orjson.loads(line)
+                    if not isinstance(row_data, dict):
+                        raise ValueError("import row must be a JSON object")
 
                     # Filter to import columns only
                     filtered_row = {col: row_data.get(col) for col in import_columns}
 
                     current_batch.append(filtered_row)
-                    row_count += 1
 
                     # Process batch when it reaches the adaptive batch size
                     if len(current_batch) >= adaptive_batch_size:
@@ -428,13 +447,11 @@ class DatabaseManager:
                 except orjson.JSONDecodeError as e:
                     error_rows += 1
                     logger.log(
-                        "DB_IMPORT", f"JSON decode error on row {row_count + 1}: {e}"
+                        "DB_IMPORT", f"JSON decode error on row {row_count}: {e}"
                     )
                 except Exception as e:
                     error_rows += 1
-                    logger.log(
-                        "DB_IMPORT", f"Error processing row {row_count + 1}: {e}"
-                    )
+                    logger.log("DB_IMPORT", f"Error processing row {row_count}: {e}")
 
             # Process final batch
             if current_batch:
@@ -465,7 +482,7 @@ class DatabaseManager:
         return stats
 
     async def _process_batch_with_retry(
-        self, query: str, batch_data: List[Dict], max_retries: int = 5
+        self, query: str, batch_data: list[dict], max_retries: int = 5
     ):
         had_lock_error = False
 
@@ -504,7 +521,7 @@ class DatabaseManager:
 
         return 0
 
-    async def _process_batch(self, query: str, batch_data: List[Dict], table_name: str):
+    async def _process_batch(self, query: str, batch_data: list[dict], table_name: str):
         if not batch_data:
             return 0
 
@@ -515,7 +532,7 @@ class DatabaseManager:
             logger.log("DB_IMPORT", f"Batch processing failed definitively: {e}")
             return await self._process_batch_individual(query, batch_data)
 
-    async def _process_batch_individual(self, query: str, batch_data: List[Dict]):
+    async def _process_batch_individual(self, query: str, batch_data: list[dict]):
         successful_inserts = 0
         for row_data in batch_data:
             try:
@@ -527,7 +544,7 @@ class DatabaseManager:
 
     async def export_tables(
         self,
-        table_names: List[str],
+        table_names: list[str],
         output_dir: Path,
         compress: bool = True,
         parallel: bool = True,
@@ -550,16 +567,12 @@ class DatabaseManager:
                 result = await export_single_table(table_name)
                 results.append(result)
 
-        sum(r.exported_rows for r in results)
-        sum(r.file_size_mb for r in results)
-        max(r.duration_seconds for r in results) if results else 0
-
         return results
 
     async def import_tables(
         self,
         input_dir: Path,
-        table_names: Optional[List[str]] = None,
+        table_names: list[str] | None = None,
         parallel: bool = True,
     ):
         export_files = []
@@ -600,9 +613,5 @@ class DatabaseManager:
             for file_path in export_files:
                 result = await self.import_table(file_path)
                 results.append(result)
-
-        sum(r.inserted_rows for r in results)
-        sum(r.conflicts_resolved for r in results)
-        sum(r.error_rows for r in results)
 
         return results

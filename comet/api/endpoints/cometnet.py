@@ -32,8 +32,8 @@ async def cometnet_websocket(websocket: WebSocket):
         await service.handle_websocket_connection(websocket)
     except WebSocketDisconnect:
         pass
-    except Exception as e:
-        logger.debug(f"CometNet WebSocket error: {e}")
+    except Exception as error:
+        logger.debug(f"CometNet WebSocket error ({type(error).__name__})")
 
 
 @router.get("/health")

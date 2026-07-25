@@ -19,6 +19,50 @@ class DebridioScraper(BaseScraper):
     def __init__(self, manager, session):
         super().__init__(manager, session)
 
+    @staticmethod
+    def _parse_stream(torrent):
+        if not isinstance(torrent, dict):
+            return None
+
+        title_full = torrent.get("title")
+        url = torrent.get("url")
+        if (
+            not isinstance(title_full, str)
+            or not title_full
+            or not isinstance(url, str)
+        ):
+            return None
+
+        url_parts = url.split("/")
+        if len(url_parts) < 2 or not url_parts[-2]:
+            return None
+
+        match = DATA_PATTERN.search(title_full)
+        size_str = match.group(1) if match else None
+        size = (
+            None
+            if not size_str or "Unknown" in size_str or "-" in size_str
+            else size_to_bytes(size_str.replace(",", ""))
+        )
+        seeders_str = match.group(2) if match else None
+        seeders = (
+            None
+            if not seeders_str or seeders_str in ["undefined", "Unknown"]
+            else int(seeders_str)
+        )
+        tracker = (
+            f"Debridio|{match.group(3)}" if match and match.group(3) else "Debridio"
+        )
+        return {
+            "title": title_full.split("\n")[0],
+            "infoHash": url_parts[-2],
+            "fileIndex": None,
+            "seeders": seeders,
+            "size": size,
+            "tracker": tracker,
+            "sources": [],
+        }
+
     async def scrape(self, request: ScrapeRequest):
         if (
             not settings.DEBRIDIO_API_KEY
@@ -36,45 +80,15 @@ class DebridioScraper(BaseScraper):
             ) as response:
                 results = await response.json()
 
+            if not isinstance(results, dict) or not isinstance(
+                results.get("streams"), list
+            ):
+                return []
+
             for torrent in results["streams"]:
-                title_full = torrent["title"]
-                torrent_name = title_full.split("\n")[0]
-
-                match = DATA_PATTERN.search(title_full)
-
-                size_str = match.group(1) if match else None
-                size = (
-                    None
-                    if not size_str or "Unknown" in size_str or "-" in size_str
-                    else size_to_bytes(size_str.replace(",", ""))
-                )
-
-                seeders_str = match.group(2) if match else None
-                seeders = (
-                    None
-                    if not seeders_str or seeders_str in ["undefined", "Unknown"]
-                    else int(seeders_str)
-                )
-
-                tracker = (
-                    f"Debridio|{match.group(3)}"
-                    if match and match.group(3)
-                    else "Debridio"
-                )
-
-                info_hash = torrent["url"].split("/")[-2]
-
-                torrents.append(
-                    {
-                        "title": torrent_name,
-                        "infoHash": info_hash,
-                        "fileIndex": None,
-                        "seeders": seeders,
-                        "size": size,
-                        "tracker": tracker,
-                        "sources": [],
-                    }
-                )
+                parsed = self._parse_stream(torrent)
+                if parsed is not None:
+                    torrents.append(parsed)
 
         except Exception as e:
             log_scraper_error(

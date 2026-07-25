@@ -1,39 +1,44 @@
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from comet.core.logger import logger
-from comet.core.schema_specs import (ACTIVE_CONNECTIONS_TABLE_SPEC,
-                                     ANIME_ENTRIES_TABLE_SPEC,
-                                     ANIME_IDS_COPY_SQL, ANIME_IDS_TABLE_SPEC,
-                                     ANIME_MAPPING_STATE_TABLE_SPEC,
-                                     ANIME_PROVIDER_OVERRIDES_TABLE_SPEC,
-                                     BACKGROUND_SCRAPER_EPISODES_COPY_SQL,
-                                     BACKGROUND_SCRAPER_EPISODES_TABLE_SPEC,
-                                     BACKGROUND_SCRAPER_ITEMS_TABLE_SPEC,
-                                     BACKGROUND_SCRAPER_RUNS_COPY_SQL,
-                                     BACKGROUND_SCRAPER_RUNS_TABLE_SPEC,
-                                     BANDWIDTH_STATS_TABLE_SPEC,
-                                     CURRENT_NON_UNIQUE_INDEX_SPECS,
-                                     DB_MAINTENANCE_TABLE_SPEC,
-                                     DEBRID_ACCOUNT_MAGNETS_TABLE_SPEC,
-                                     DEBRID_ACCOUNT_SYNC_STATE_TABLE_SPEC,
-                                     DEBRID_AVAILABILITY_TABLE_SPEC,
-                                     DMM_ENTRIES_TABLE_SPEC,
-                                     DMM_INGESTED_FILES_TABLE_SPEC,
-                                     DOWNLOAD_LINKS_CACHE_TABLE_SPEC,
-                                     KODI_SETUP_CODES_TABLE_SPEC,
-                                     LEGACY_INDEX_NAMES,
-                                     LEGACY_STORAGE_CLEANUP_MIGRATION,
-                                     LEGACY_STORAGE_COLUMN_CLEANUP,
-                                     MEDIA_DEMAND_TABLE_SPEC,
-                                     MEDIA_METADATA_CACHE_TABLE_SPEC,
-                                     METRICS_CACHE_TABLE_SPEC,
-                                     NULL_SCOPE_SENTINEL,
-                                     SCRAPE_LOCKS_TABLE_SPEC,
-                                     SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC,
-                                     SERIES_EPISODE_INDEX_TABLE_SPEC,
-                                     TORRENTS_TABLE_SPEC, UNIQUE_INDEX_SPECS,
-                                     LegacyColumnMigration, ManagedTableSpec)
+from comet.core.schema_specs import (
+    ACTIVE_CONNECTIONS_TABLE_SPEC,
+    ANIME_ENTRIES_TABLE_SPEC,
+    ANIME_IDS_COPY_SQL,
+    ANIME_IDS_TABLE_SPEC,
+    ANIME_MAPPING_STATE_TABLE_SPEC,
+    ANIME_PROVIDER_OVERRIDES_TABLE_SPEC,
+    BACKGROUND_SCRAPER_EPISODES_COPY_SQL,
+    BACKGROUND_SCRAPER_EPISODES_TABLE_SPEC,
+    BACKGROUND_SCRAPER_ITEMS_TABLE_SPEC,
+    BACKGROUND_SCRAPER_RUNS_COPY_SQL,
+    BACKGROUND_SCRAPER_RUNS_TABLE_SPEC,
+    BANDWIDTH_STATS_TABLE_SPEC,
+    CURRENT_NON_UNIQUE_INDEX_SPECS,
+    DB_MAINTENANCE_TABLE_SPEC,
+    DEBRID_ACCOUNT_MAGNETS_TABLE_SPEC,
+    DEBRID_ACCOUNT_SYNC_STATE_TABLE_SPEC,
+    DEBRID_AVAILABILITY_TABLE_SPEC,
+    DMM_ENTRIES_TABLE_SPEC,
+    DMM_INGESTED_FILES_TABLE_SPEC,
+    DOWNLOAD_LINKS_CACHE_TABLE_SPEC,
+    KODI_SETUP_CODES_TABLE_SPEC,
+    LEGACY_INDEX_NAMES,
+    LEGACY_STORAGE_CLEANUP_MIGRATION,
+    LEGACY_STORAGE_COLUMN_CLEANUP,
+    MEDIA_DEMAND_TABLE_SPEC,
+    MEDIA_METADATA_CACHE_TABLE_SPEC,
+    METRICS_CACHE_TABLE_SPEC,
+    NULL_SCOPE_SENTINEL,
+    SCRAPE_LOCKS_TABLE_SPEC,
+    SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC,
+    SERIES_EPISODE_INDEX_TABLE_SPEC,
+    TORRENTS_TABLE_SPEC,
+    UNIQUE_INDEX_SPECS,
+    LegacyColumnMigration,
+    ManagedTableSpec,
+)
 
 
 @dataclass(slots=True)
@@ -42,6 +47,8 @@ class MigrationContext:
     is_sqlite: bool
     is_postgres: bool
     sqlite_journal_mode: str | None = None
+    table_exists_cache: dict[str, bool] = field(default_factory=dict)
+    table_columns_cache: dict[str, set[str]] = field(default_factory=dict)
 
 
 async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool):
@@ -107,6 +114,10 @@ async def _record_schema_migration(ctx: MigrationContext, version: str):
 
 
 async def _table_exists(ctx: MigrationContext, table_name: str) -> bool:
+    cached = ctx.table_exists_cache.get(table_name)
+    if cached is not None:
+        return cached
+
     if ctx.is_sqlite:
         row = await ctx.database.fetch_one(
             """
@@ -128,7 +139,9 @@ async def _table_exists(ctx: MigrationContext, table_name: str) -> bool:
             {"table_name": table_name},
             force_primary=True,
         )
-    return row is not None
+    exists = row is not None
+    ctx.table_exists_cache[table_name] = exists
+    return exists
 
 
 async def _column_exists(
@@ -137,25 +150,31 @@ async def _column_exists(
     if not await _table_exists(ctx, table_name):
         return False
 
+    cached_columns = ctx.table_columns_cache.get(table_name)
+    if cached_columns is not None:
+        return column_name in cached_columns
+
     if ctx.is_sqlite:
         rows = await ctx.database.fetch_all(
             f"PRAGMA table_info({table_name})",
             force_primary=True,
         )
-        return any(row["name"] == column_name for row in rows)
+        columns = {row["name"] for row in rows}
+    else:
+        rows = await ctx.database.fetch_all(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = :table_name
+            """,
+            {"table_name": table_name},
+            force_primary=True,
+        )
+        columns = {row["column_name"] for row in rows}
 
-    row = await ctx.database.fetch_one(
-        """
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = :table_name
-          AND column_name = :column_name
-        """,
-        {"table_name": table_name, "column_name": column_name},
-        force_primary=True,
-    )
-    return row is not None
+    ctx.table_columns_cache[table_name] = columns
+    return column_name in columns
 
 
 async def _index_exists(ctx: MigrationContext, index_name: str) -> bool:
@@ -197,6 +216,7 @@ async def _add_column_if_missing(
     else:
         sql = f"ALTER TABLE {table_name} ADD COLUMN {column_sql}"
     await ctx.database.execute(sql)
+    ctx.table_columns_cache.setdefault(table_name, set()).add(column_name)
 
 
 async def _drop_index_if_exists(ctx: MigrationContext, index_name: str):
@@ -213,6 +233,8 @@ async def _ensure_table(ctx: MigrationContext, table_name: str, create_sql: str)
     if await _table_exists(ctx, table_name):
         return
     await ctx.database.execute(create_sql)
+    ctx.table_exists_cache[table_name] = True
+    ctx.table_columns_cache.pop(table_name, None)
 
 
 def _render_table_sql(sql: str, table_name: str) -> str:
@@ -266,11 +288,10 @@ async def _ensure_managed_table(
     ensure_indexes: bool = True,
 ) -> bool:
     table_exists = await _table_exists(ctx, spec.table_name)
-    await _ensure_table(
-        ctx,
-        spec.table_name,
-        _render_table_sql(spec.create_sql, spec.table_name),
-    )
+    if not table_exists:
+        await ctx.database.execute(_render_table_sql(spec.create_sql, spec.table_name))
+        ctx.table_exists_cache[spec.table_name] = True
+        ctx.table_columns_cache.pop(spec.table_name, None)
     await _apply_legacy_column_migrations(ctx, spec.table_name, spec.legacy_columns)
     if ensure_indexes:
         for index_sql in spec.index_sql:
@@ -283,6 +304,8 @@ async def _drop_table_if_exists(ctx: MigrationContext, table_name: str):
         return False
 
     await ctx.database.execute(f"DROP TABLE IF EXISTS {table_name}")
+    ctx.table_exists_cache[table_name] = False
+    ctx.table_columns_cache.pop(table_name, None)
     return True
 
 
@@ -295,6 +318,7 @@ async def _drop_column_if_exists(
         return False
 
     await ctx.database.execute(f"ALTER TABLE {table_name} DROP COLUMN {column_name}")
+    ctx.table_columns_cache.setdefault(table_name, set()).discard(column_name)
     return True
 
 
@@ -312,6 +336,9 @@ async def _rename_column_if_missing(
     await ctx.database.execute(
         f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}"
     )
+    columns = ctx.table_columns_cache.setdefault(table_name, set())
+    columns.discard(old_name)
+    columns.add(new_name)
     return True
 
 
@@ -577,7 +604,7 @@ async def _migration_foundation(ctx: MigrationContext):
     await _backfill_debrid_foundation_columns(ctx)
 
     if await _table_exists(ctx, "download_links_cache"):
-        await ctx.database.execute("DROP TABLE IF EXISTS download_links_cache")
+        await _drop_table_if_exists(ctx, "download_links_cache")
     await _ensure_table(
         ctx,
         DOWNLOAD_LINKS_CACHE_TABLE_SPEC.table_name,
@@ -618,7 +645,8 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 year,
                 year_end,
                 aliases_json,
-                metadata_updated_at
+                metadata_updated_at,
+                aliases_updated_at
             )
             SELECT
                 media_id,
@@ -626,7 +654,8 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 year,
                 year_end,
                 {aliases_select} AS aliases_json,
-                timestamp AS metadata_updated_at
+                timestamp AS metadata_updated_at,
+                timestamp AS aliases_updated_at
             FROM metadata_cache
             WHERE 1=1
             ON CONFLICT (media_id) DO UPDATE SET
@@ -634,7 +663,8 @@ async def _migration_backfill_canonical_tables(ctx: MigrationContext):
                 year = EXCLUDED.year,
                 year_end = EXCLUDED.year_end,
                 aliases_json = EXCLUDED.aliases_json,
-                metadata_updated_at = EXCLUDED.metadata_updated_at
+                metadata_updated_at = EXCLUDED.metadata_updated_at,
+                aliases_updated_at = EXCLUDED.aliases_updated_at
             """
         )
 
@@ -732,6 +762,11 @@ async def _replace_table(
         await ctx.database.execute(f"ALTER TABLE {temp_name} RENAME TO {table_name}")
         for statement in index_sql or []:
             await ctx.database.execute(statement)
+
+    ctx.table_exists_cache[temp_name] = False
+    ctx.table_exists_cache[table_name] = True
+    ctx.table_columns_cache.pop(temp_name, None)
+    ctx.table_columns_cache.pop(table_name, None)
 
 
 async def _replace_managed_table(
@@ -916,6 +951,43 @@ async def _migration_series_episode_index_refresh(ctx: MigrationContext):
     return True
 
 
+async def _migration_tmdb_title_aliases(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, MEDIA_METADATA_CACHE_TABLE_SPEC)
+    await ctx.database.execute(
+        """
+        UPDATE media_metadata_cache
+        SET aliases_updated_at = NULL
+        WHERE media_id LIKE :imdb_prefix
+        """,
+        {"imdb_prefix": "imdb:%"},
+    )
+    return True
+
+
+async def _migration_original_indexer_titles(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, MEDIA_METADATA_CACHE_TABLE_SPEC)
+    await ctx.database.execute(
+        """
+        UPDATE media_metadata_cache
+        SET aliases_updated_at = NULL
+        WHERE media_id LIKE :imdb_prefix
+        OR media_id LIKE :kitsu_prefix
+        """,
+        {"imdb_prefix": "imdb:%", "kitsu_prefix": "kitsu:%"},
+    )
+    return True
+
+
+async def _migration_debrid_account_cleanup_index(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, TORRENTS_TABLE_SPEC)
+    return True
+
+
+async def _migration_media_demand_scrape_coverage(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, MEDIA_DEMAND_TABLE_SPEC)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -927,5 +999,16 @@ MIGRATIONS = [
     (
         "2026031602_series_episode_index_refresh",
         _migration_series_episode_index_refresh,
+    ),
+    ("2026072201_tmdb_title_aliases", _migration_tmdb_title_aliases),
+    ("2026072202_tmdb_localized_titles", _migration_tmdb_title_aliases),
+    ("2026072203_original_indexer_titles", _migration_original_indexer_titles),
+    (
+        "2026072204_debrid_account_cleanup_index",
+        _migration_debrid_account_cleanup_index,
+    ),
+    (
+        "2026072301_media_demand_scrape_coverage",
+        _migration_media_demand_scrape_coverage,
     ),
 ]

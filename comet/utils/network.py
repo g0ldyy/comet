@@ -1,5 +1,5 @@
 import ipaddress
-from typing import Mapping, Optional, Tuple, Union
+from collections.abc import Mapping
 
 from fastapi import Request, WebSocket
 
@@ -17,6 +17,7 @@ IP_PROXY_HEADERS = [
     "forwarded",  # RFC 7239
     "x-appengine-user-ip",  # Google App Engine
     "cf-pseudo-ipv4",  # Cloudflare IPv6->IPv4
+    "X-AIOStreams-User-IP",  # AIOStreams
 ]
 
 
@@ -40,7 +41,7 @@ def is_valid_ip(ip: str) -> bool:
 
 def extract_ip_from_headers(
     headers: Mapping[str, str], require_public: bool = True
-) -> Optional[str]:
+) -> str | None:
     """
     Extract the real client IP from proxy headers.
 
@@ -61,9 +62,10 @@ def extract_ip_from_headers(
         if header_name in ("x-forwarded-for", "x-forwarded", "forwarded-for"):
             for ip_part in header_value.split(","):
                 ip_part = ip_part.strip()
-                if is_valid_ip(ip_part):
-                    if not require_public or is_public_ip(ip_part):
-                        return ip_part
+                if is_valid_ip(ip_part) and (
+                    not require_public or is_public_ip(ip_part)
+                ):
+                    return ip_part
         elif header_name == "forwarded":
             for part in header_value.split(","):
                 for directive in part.split(";"):
@@ -72,19 +74,19 @@ def extract_ip_from_headers(
                         ip_part = directive[4:].strip().strip('"')
                         if ip_part.startswith("[") and "]" in ip_part:
                             ip_part = ip_part[1 : ip_part.index("]")]
-                        if is_valid_ip(ip_part):
-                            if not require_public or is_public_ip(ip_part):
-                                return ip_part
+                        if is_valid_ip(ip_part) and (
+                            not require_public or is_public_ip(ip_part)
+                        ):
+                            return ip_part
         else:
             ip_part = header_value.strip()
-            if is_valid_ip(ip_part):
-                if not require_public or is_public_ip(ip_part):
-                    return ip_part
+            if is_valid_ip(ip_part) and (not require_public or is_public_ip(ip_part)):
+                return ip_part
 
     return None
 
 
-def get_client_ip(request: Union[Request, WebSocket]) -> str:
+def get_client_ip(request: Request | WebSocket) -> str:
     """
     Get the real client IP from a FastAPI Request or WebSocket.
 
@@ -104,7 +106,7 @@ def get_client_ip(request: Union[Request, WebSocket]) -> str:
     return ""
 
 
-def get_client_ip_any(request: Union[Request, WebSocket]) -> Tuple[str, bool]:
+def get_client_ip_any(request: Request | WebSocket) -> tuple[str, bool]:
     """
     Get the client IP, including private IPs as fallback.
 

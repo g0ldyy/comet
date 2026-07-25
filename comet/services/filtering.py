@@ -1,5 +1,6 @@
 import re
 from collections import OrderedDict, defaultdict
+from collections.abc import Collection
 from threading import Event, Lock
 
 from pydantic import ValidationError
@@ -7,8 +8,10 @@ from RTN import normalize_title, parse, title_match
 
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.utils.languages import COUNTRY_TO_LANGUAGE
+from comet.utils.languages import alias_language
 from comet.utils.parsing import ensure_multi_language
+
+_TITLE_MATCH_CACHE_MAX_ENTRIES = 65_536
 
 if settings.RTN_FILTER_DEBUG:
 
@@ -20,8 +23,31 @@ else:
         pass
 
 
-def quick_alias_match(text_normalized: str, ez_aliases_normalized: list[str]):
-    return any(alias in text_normalized for alias in ez_aliases_normalized)
+def exact_alias_match(
+    text_normalized: str, ez_aliases_normalized: Collection[str]
+) -> bool:
+    # Exact membership prevents short aliases from matching unrelated release text.
+    return bool(text_normalized) and text_normalized in ez_aliases_normalized
+
+
+def _normalize_aliases(aliases: object) -> dict[str, list[str]]:
+    if type(aliases) is not dict:
+        return {}
+
+    normalized = {}
+    for country, titles in aliases.items():
+        if type(country) is not str or not country or type(titles) is not list:
+            continue
+        current_titles = list(
+            dict.fromkeys(
+                normalized_title
+                for title in titles
+                if type(title) is str and (normalized_title := title.strip())
+            )
+        )
+        if current_titles:
+            normalized[country] = current_titles
+    return normalized
 
 
 # Bracketed metadata (e.g. "[1999, BDRip]", "(S2)", "{HEVC}") that pollutes a
@@ -63,8 +89,84 @@ def scrub(t: str):
     return " ".join(normalize_title(t).split())
 
 
+class TitleMatcher:
+    """Prepared title/year matcher shared by live and persisted torrents."""
+
+    __slots__ = (
+        "_matches_cache",
+        "aliases",
+        "aliases_normalized",
+        "max_year",
+        "min_year",
+        "title",
+        "year",
+        "year_end",
+    )
+
+    def __init__(self, title, year, year_end, media_type, aliases):
+        self._matches_cache = None
+        self.title = title
+        self.year = year
+        self.year_end = year_end
+        self.aliases = _normalize_aliases(aliases)
+        self.aliases_normalized = frozenset(
+            normalized
+            for titles in self.aliases.values()
+            for alias in titles
+            if (normalized := scrub(alias))
+        )
+
+        self.min_year = 0
+        self.max_year = float("inf")
+        if year:
+            if year_end:
+                self.min_year = year
+                self.max_year = year_end
+            elif media_type == "series":
+                self.min_year = year - 1
+            else:
+                self.min_year = year - 1
+                self.max_year = year + 1
+
+    def matches_title(self, torrent_title: str, parsed_title: str) -> bool:
+        if exact_alias_match(scrub(parsed_title), self.aliases_normalized):
+            return True
+        return title_match(
+            self.title, parsed_title, aliases=self.aliases
+        ) or alternate_title_match(torrent_title, self.title, self.aliases)
+
+    def matches_year(self, parsed_year: int | None) -> bool:
+        return not (
+            self.year
+            and parsed_year
+            and not (self.min_year <= parsed_year <= self.max_year)
+        )
+
+    def matches(
+        self, torrent_title: str, parsed_title: str, parsed_year: int | None
+    ) -> bool:
+        cache_key = (
+            torrent_title if "/" in torrent_title else None,
+            parsed_title,
+            parsed_year,
+        )
+        cache = self._matches_cache
+        if cache is None:
+            cache = self._matches_cache = {}
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        matched = self.matches_title(torrent_title, parsed_title) and self.matches_year(
+            parsed_year
+        )
+        if len(cache) < _TITLE_MATCH_CACHE_MAX_ENTRIES:
+            cache[cache_key] = matched
+        return matched
+
+
 class _ParseCacheShard:
-    __slots__ = ("lock", "data", "inflight")
+    __slots__ = ("data", "inflight", "lock")
 
     def __init__(self):
         self.lock = Lock()
@@ -100,9 +202,10 @@ def _parse_cache_shard_for(title: str):
 
 
 def _clone_parsed(parsed):
-    if hasattr(parsed, "model_copy"):
-        return parsed.model_copy(deep=True)
-    return parsed.copy(deep=True)
+    # Filtering only mutates languages; keep immutable parse fields shared.
+    clone = parsed.model_copy()
+    clone.languages = list(parsed.languages)
+    return clone
 
 
 def _parse_with_cache(title: str):
@@ -195,8 +298,9 @@ def filter_worker(
     torrents, title, year, year_end, media_type, aliases, remove_adult_content
 ):
     results = []
+    matcher = TitleMatcher(title, year, year_end, media_type, aliases)
+    aliases = matcher.aliases
 
-    tz_aliases = set()
     country_aliases = {}
     alias_to_langs = defaultdict(set)
 
@@ -207,14 +311,12 @@ def filter_worker(
             if country == "ez":
                 for t in titles:
                     scrubbed_t = scrub(t)
-                    tz_aliases.add(scrubbed_t)
                     alias_to_langs[scrubbed_t].add("neutral")
                 continue
 
-            lang = COUNTRY_TO_LANGUAGE.get(country)
+            lang = alias_language(country)
             for t in titles:
                 scrubbed_t = scrub(t)
-                tz_aliases.add(scrubbed_t)
                 if lang:
                     alias_to_langs[scrubbed_t].add(lang)
                 else:
@@ -227,28 +329,9 @@ def filter_worker(
                 continue
 
             if len(langs) == 1:
-                lang = list(langs)[0]
+                lang = next(iter(langs))
                 if lang not in ("neutral", "en"):
                     country_aliases[scrubbed_t] = lang
-    else:
-        for country, titles in aliases.items():
-            for t in titles:
-                tz_aliases.add(scrub(t))
-
-    ez_aliases_normalized = list(tz_aliases)
-    min_year = 0
-    max_year = float("inf")
-
-    if year:
-        if year_end:
-            min_year = year
-            max_year = year_end
-        elif media_type == "series":
-            min_year = year - 1
-        else:
-            min_year = year - 1
-            max_year = year + 1
-
     for torrent in torrents:
         torrent_title = torrent["title"]
         torrent_title_lower = torrent_title.lower()
@@ -282,31 +365,24 @@ def filter_worker(
             _log_exclusion(f"❌ Rejected (No Parsed Title) | {torrent_title}")
             continue
 
-        alias_matched = ez_aliases_normalized and quick_alias_match(
-            scrub(torrent_title), ez_aliases_normalized
-        )
-        if not alias_matched:
-            if not title_match(
-                title, parsed.parsed_title, aliases=aliases
-            ) and not alternate_title_match(torrent_title, title, aliases):
-                _log_exclusion(
-                    f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
-                )
-                continue
+        if not matcher.matches_title(torrent_title, parsed.parsed_title):
+            _log_exclusion(
+                f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
+            )
+            continue
 
-        if year and parsed.year:
-            if not (min_year <= parsed.year <= max_year):
-                if year_end:
-                    expected = f"{year}-{year_end}"
-                elif media_type == "series":
-                    expected = f">{year}"
-                else:
-                    expected = f"~{year}"
+        if not matcher.matches_year(parsed.year):
+            if year_end:
+                expected = f"{year}-{year_end}"
+            elif media_type == "series":
+                expected = f">{year}"
+            else:
+                expected = f"~{year}"
 
-                _log_exclusion(
-                    f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: {expected}"
-                )
-                continue
+            _log_exclusion(
+                f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: {expected}"
+            )
+            continue
 
         torrent["parsed"] = parsed
         results.append(torrent)

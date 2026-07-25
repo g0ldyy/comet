@@ -38,6 +38,13 @@ _FRIBB_PROVIDER_ORDER = (
 
 _DB_CHUNK_SIZE = 10000
 _ANIME_REFRESH_LOCK_ID = 0xA11E0001
+_ANIME_MEDIA_TYPES = {
+    "MOVIE": "movie",
+    "ONA": "series",
+    "OVA": "series",
+    "SPECIAL": "series",
+    "TV": "series",
+}
 
 
 @asynccontextmanager
@@ -76,6 +83,12 @@ class AnimeMapper:
 
         return await self._refresh_from_remote(session)
 
+    async def load_cached_mapping(self) -> bool:
+        """Load persisted mappings without scheduling downloads or refreshes."""
+        if self.loaded:
+            return True
+        return await self._load_from_database(schedule_refresh=False)
+
     def is_anime_content(self, media_id: str, media_only_id: str):
         if not settings.ANIME_MAPPING_ENABLED:
             return False
@@ -111,7 +124,11 @@ class AnimeMapper:
         if not row:
             return None
 
-        return orjson.loads(row["data_json"])
+        try:
+            data = orjson.loads(row["data_json"])
+        except (TypeError, orjson.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
 
     async def get_aliases(self, media_id: str):
         if not self.loaded:
@@ -122,17 +139,37 @@ class AnimeMapper:
             return {}
 
         title = data.get("title")
-        synonyms = data.get("synonyms")
+        if not isinstance(title, str) or not title:
+            title = None
+        raw_synonyms = data.get("synonyms")
+
+        synonyms = []
+        seen = set()
+        for value in raw_synonyms if isinstance(raw_synonyms, list) else []:
+            if not isinstance(value, str) or not value or value == title:
+                continue
+            if value not in seen:
+                seen.add(value)
+                synonyms.append(value)
 
         if not title and not synonyms:
             return {}
 
-        if title and synonyms:
-            return {"ez": [title, *synonyms]}
-        elif title:
-            return {"ez": [title]}
-        else:
-            return {"ez": list(synonyms)}
+        aliases = {}
+        if title:
+            aliases["original"] = [title]
+        if synonyms:
+            aliases["ez"] = synonyms
+        return aliases
+
+    async def get_media_type(self, media_id: str) -> str | None:
+        data = await self._get_entry_data(media_id)
+        if not data:
+            return None
+        raw_type = data.get("type")
+        if not isinstance(raw_type, str):
+            return None
+        return _ANIME_MEDIA_TYPES.get(raw_type.upper())
 
     async def get_imdb_from_kitsu(self, kitsu_id: str | int):
         if not self.loaded:
@@ -224,8 +261,9 @@ class AnimeMapper:
         if media_id.startswith("tt"):
             return "imdb", media_id.split(":")[0]
 
-        if media_id.startswith("kitsu"):
-            return "kitsu", media_id.split(":")[1]
+        if media_id.startswith("kitsu:"):
+            provider_id = media_id.partition(":")[2]
+            return ("kitsu", provider_id) if provider_id else (None, None)
 
         provider, sep, provider_id = media_id.partition(":")
 
@@ -252,48 +290,50 @@ class AnimeMapper:
 
         return (time.time() - float(last_refresh)) >= interval
 
-    async def _load_provider_ids(self):
-        try:
-            query = "SELECT provider_id FROM anime_ids WHERE provider = 'imdb'"
-            rows = await database.fetch_all(query)
+    async def _read_provider_ids(self):
+        query = "SELECT provider_id FROM anime_ids WHERE provider = 'imdb'"
+        rows = await database.fetch_all(query)
+        return {row["provider_id"] for row in rows}
 
-            self.anime_imdb_ids = {row["provider_id"] for row in rows}
-        except Exception as e:
-            logger.error(f"Failed to load anime provider IDs: {e}")
+    async def _read_kitsu_mapping_caches(self):
+        rows = await database.fetch_all(
+            """
+            SELECT source_id, target_id, from_season, from_episode
+            FROM anime_provider_overrides
+            WHERE source_provider = 'kitsu'
+              AND target_provider = 'imdb'
+              AND (
+                    (from_episode IS NOT NULL AND from_episode > 1)
+                    OR from_season IS NOT NULL
+                  )
+            """
+        )
 
-    async def _load_kitsu_mapping_cache(self):
-        try:
-            rows = await database.fetch_all(
-                """
-                SELECT source_id, target_id, from_season, from_episode
-                FROM anime_provider_overrides
-                WHERE source_provider = 'kitsu'
-                  AND target_provider = 'imdb'
-                  AND (
-                        (from_episode IS NOT NULL AND from_episode > 1)
-                        OR from_season IS NOT NULL
-                      )
-                """
-            )
+        kitsu_mapping_cache = {}
+        imdb_kitsu_mapping_cache = {}
+        for row in rows:
+            kitsu_id = row["source_id"]
+            imdb_id = row["target_id"]
 
-            self._kitsu_mapping_cache.clear()
-            self._imdb_kitsu_mapping_cache.clear()
+            kitsu_mapping_cache[str(kitsu_id)] = {
+                "imdb_id": imdb_id,
+                "from_season": row["from_season"],
+                "from_episode": row["from_episode"],
+            }
 
-            for row in rows:
-                kitsu_id = row["source_id"]
-                imdb_id = row["target_id"]
+            imdb_kitsu_mapping_cache.setdefault(str(imdb_id), []).append(str(kitsu_id))
 
-                self._kitsu_mapping_cache[str(kitsu_id)] = {
-                    "imdb_id": imdb_id,
-                    "from_season": row["from_season"],
-                    "from_episode": row["from_episode"],
-                }
+        return kitsu_mapping_cache, imdb_kitsu_mapping_cache
 
-                self._imdb_kitsu_mapping_cache.setdefault(str(imdb_id), []).append(
-                    str(kitsu_id)
-                )
-        except Exception as e:
-            logger.warning(f"Failed to load Kitsu-IMDB mapping cache: {e}")
+    async def _load_mapping_caches(self):
+        anime_imdb_ids = await self._read_provider_ids()
+        (
+            kitsu_mapping_cache,
+            imdb_kitsu_mapping_cache,
+        ) = await self._read_kitsu_mapping_caches()
+        self.anime_imdb_ids = anime_imdb_ids
+        self._kitsu_mapping_cache = kitsu_mapping_cache
+        self._imdb_kitsu_mapping_cache = imdb_kitsu_mapping_cache
 
     async def _needs_refresh(self) -> bool:
         kitsu_count = await database.fetch_val(
@@ -310,15 +350,31 @@ class AnimeMapper:
     def _handle_refresh_task_done(self, task: asyncio.Task):
         if self._refresh_task is task:
             self._refresh_task = None
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.warning(f"Anime mapping refresh task failed: {error}")
 
     def _schedule_background_refresh(self):
         if self._refresh_task is not None and not self._refresh_task.done():
             return
 
         self._refresh_task = asyncio.create_task(
-            self._refresh_from_remote(background=True)
+            self._refresh_from_remote(background=True),
+            name="anime-mapping-refresh",
         )
         self._refresh_task.add_done_callback(self._handle_refresh_task_done)
+
+    async def stop(self):
+        task = self._refresh_task
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if self._refresh_task is task:
+            self._refresh_task = None
 
     async def _load_from_database(
         self,
@@ -330,8 +386,11 @@ class AnimeMapper:
         if not count or count <= 0:
             return False
 
-        await self._load_provider_ids()
-        await self._load_kitsu_mapping_cache()
+        try:
+            await self._load_mapping_caches()
+        except Exception as exc:
+            logger.warning(f"Failed to load anime mapping caches: {exc}")
+            return False
 
         if schedule_refresh and await self._needs_refresh():
             self._schedule_background_refresh()
@@ -407,10 +466,20 @@ class AnimeMapper:
                     data_fribb = orjson.loads(fribb_payload)
                     data_kitsu_imdb = orjson.loads(kitsu_payload)
 
-                    anime_list = data_aod.get("data", [])
-                    total_entries = await self._persist_mapping(anime_list, data_fribb)
-
-                    await self._persist_provider_overrides(data_kitsu_imdb)
+                    if not isinstance(data_aod, dict):
+                        raise ValueError("AOD payload must be an object")
+                    anime_list = data_aod.get("data")
+                    if (
+                        not isinstance(anime_list, list)
+                        or not isinstance(data_fribb, list)
+                        or not isinstance(data_kitsu_imdb, list)
+                    ):
+                        raise ValueError("Anime mapping payloads have invalid shapes")
+                    total_entries = await self._persist_remote_mapping(
+                        anime_list,
+                        data_fribb,
+                        data_kitsu_imdb,
+                    )
 
                     del data_aod
                     del data_fribb
@@ -418,8 +487,7 @@ class AnimeMapper:
                     del anime_list
                     trim_process_memory()
 
-                    await self._load_provider_ids()
-                    await self._load_kitsu_mapping_cache()
+                    await self._load_mapping_caches()
 
                     self.loaded = True
                     logger.log(
@@ -435,6 +503,17 @@ class AnimeMapper:
             finally:
                 if own_session and session:
                     await session.close()
+
+    async def _persist_remote_mapping(
+        self,
+        anime_list: list,
+        fribb_list: list,
+        kitsu_imdb_data: list,
+    ) -> int:
+        async with database.transaction():
+            total_entries = await self._persist_mapping(anime_list, fribb_list)
+            await self._persist_provider_overrides(kitsu_imdb_data)
+        return total_entries
 
     async def _persist_mapping(self, anime_list: list, fribb_list: list):
         timestamp = time.time()
@@ -579,7 +658,7 @@ class AnimeMapper:
             return total_entries
         except Exception as exc:
             logger.error(f"Failed to persist anime mapping cache: {exc}")
-            return 0
+            raise
 
     async def _persist_provider_overrides(self, kitsu_imdb_data: list):
         total_count = 0
@@ -652,7 +731,7 @@ class AnimeMapper:
             return total_count
         except Exception as exc:
             logger.error(f"Failed to persist anime provider overrides: {exc}")
-            return 0
+            raise
 
 
 anime_mapper = AnimeMapper()

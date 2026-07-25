@@ -1,42 +1,25 @@
-import contextlib
 import os
-import sys
-import threading
-import time
-import traceback
 
 import uvicorn
 
-from comet.api.app import app
 from comet.core.logger import log_startup_info, logger
 from comet.core.models import settings
+from comet.observability.metrics import (
+    mark_process_dead,
+    prepare_multiprocess_directory,
+)
 
 
-class Server(uvicorn.Server):
-    def install_signal_handlers(self):
-        pass
+def _load_app():
+    from comet.api.app import app
 
-    @contextlib.contextmanager
-    def run_in_thread(self):
-        thread = threading.Thread(target=self.run, name="Comet")
-        thread.start()
-        try:
-            while not self.started:
-                time.sleep(1e-3)
-            yield
-        except Exception as e:
-            logger.error(f"Error in server thread: {e}")
-            logger.exception(traceback.format_exc())
-            raise e
-        finally:
-            self.should_exit = True
-            sys.exit(0)
+    return app
 
 
 def run_with_uvicorn():
     """Run the server with uvicorn only"""
     config = uvicorn.Config(
-        app,
+        _load_app(),
         host=settings.FASTAPI_HOST,
         port=settings.FASTAPI_PORT,
         proxy_headers=True,
@@ -51,9 +34,9 @@ def run_with_uvicorn():
         server.run()
     except KeyboardInterrupt:
         logger.log("COMET", "Server stopped by user")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        logger.exception(traceback.format_exc())
+    except Exception as error:
+        logger.exception(f"Unexpected server error: {error}")
+        raise
     finally:
         logger.log("COMET", "Server Shutdown")
 
@@ -61,6 +44,8 @@ def run_with_uvicorn():
 def run_with_gunicorn():
     """Run the server with gunicorn and uvicorn workers"""
     import gunicorn.app.base
+
+    app = _load_app()
 
     class StandaloneApplication(gunicorn.app.base.BaseApplication):
         def __init__(self, app, options=None):
@@ -84,6 +69,10 @@ def run_with_gunicorn():
     if workers < 1:
         workers = min((os.cpu_count() or 1) * 2 + 1, 12)
 
+    def child_exit(_server, worker):
+        if settings.PROMETHEUS_ENABLED:
+            mark_process_dead(worker.pid, settings.PROMETHEUS_MULTIPROC_DIR)
+
     options = {
         "bind": f"{settings.FASTAPI_HOST}:{settings.FASTAPI_PORT}",
         "workers": workers,
@@ -94,6 +83,8 @@ def run_with_gunicorn():
         "proxy_protocol": True,
         "forwarded_allow_ips": "*",
         "loglevel": "warning",
+        "child_exit": child_exit,
+        "control_socket_disable": True,
     }
 
     log_startup_info(settings)
@@ -102,8 +93,15 @@ def run_with_gunicorn():
     StandaloneApplication(app, options).run()
 
 
-if __name__ == "__main__":
+def main():
+    if settings.PROMETHEUS_ENABLED:
+        prepare_multiprocess_directory(settings.PROMETHEUS_MULTIPROC_DIR)
+
     if os.name == "nt" or not settings.USE_GUNICORN:
         run_with_uvicorn()
     else:
         run_with_gunicorn()
+
+
+if __name__ == "__main__":
+    main()

@@ -12,6 +12,7 @@ import xbmcgui
 ADDON_ID = "plugin.video.comet"
 REQUEST_TIMEOUT = 20
 POLL_INTERVAL_SECONDS = 3
+MAX_SETUP_POLL_SECONDS = 600
 HTTP_SESSION = requests.Session()
 
 
@@ -57,6 +58,38 @@ def _get_json(url: str):
     return response.json()
 
 
+def _parse_setup_code_response(data):
+    if not isinstance(data, dict):
+        raise ValueError("Invalid response from /kodi/generate_setup_code")
+
+    code = data.get("code")
+    configure_url = data.get("configure_url")
+    expires_in = data.get("expires_in")
+    stremio_api_prefix = data.get("stremio_api_prefix", "")
+    if (
+        not isinstance(code, str)
+        or not code
+        or not isinstance(configure_url, str)
+        or not configure_url.startswith(("http://", "https://"))
+        or type(expires_in) is not int
+        or not 0 < expires_in <= MAX_SETUP_POLL_SECONDS
+        or not isinstance(stremio_api_prefix, str)
+    ):
+        raise ValueError("Invalid response from /kodi/generate_setup_code")
+
+    return code, configure_url, expires_in, stremio_api_prefix
+
+
+def _parse_manifest_response(data):
+    if not isinstance(data, dict):
+        raise ValueError("Invalid response from /kodi/get_manifest")
+    secret_string = data.get("secret_string")
+    stremio_api_prefix = data.get("stremio_api_prefix", "")
+    if not isinstance(secret_string, str) or not isinstance(stremio_api_prefix, str):
+        raise ValueError("Invalid response from /kodi/get_manifest")
+    return secret_string, stremio_api_prefix
+
+
 def configure_comet():
     try:
         addon = xbmcaddon.Addon(ADDON_ID)
@@ -96,13 +129,9 @@ def configure_comet():
             xbmc.log(f"Failed to generate setup code: {exc}", xbmc.LOGERROR)
             return
 
-        try:
-            code = data["code"]
-            configure_url = data["configure_url"]
-            expires_in = data["expires_in"]
-            stremio_api_prefix = data.get("stremio_api_prefix", "")
-        except (KeyError, ValueError, TypeError) as exc:
-            raise ValueError("Invalid response from /kodi/generate_setup_code") from exc
+        code, configure_url, expires_in, stremio_api_prefix = (
+            _parse_setup_code_response(data)
+        )
 
         addon.setSetting("stremio_api_prefix", stremio_api_prefix)
 
@@ -136,17 +165,24 @@ def configure_comet():
             except requests.RequestException as exc:
                 xbmc.log(f"Polling setup status failed: {exc}", xbmc.LOGWARNING)
             else:
-                addon.setSetting("secret_string", manifest_data["secret_string"])
-                if "stremio_api_prefix" in manifest_data:
-                    addon.setSetting(
-                        "stremio_api_prefix", manifest_data["stremio_api_prefix"]
+                try:
+                    paired_secret, paired_prefix = _parse_manifest_response(
+                        manifest_data
                     )
-                dialog.notification(
-                    "Comet",
-                    "Kodi setup complete",
-                    xbmcgui.NOTIFICATION_INFO,
-                )
-                return
+                except ValueError as exc:
+                    xbmc.log(
+                        f"Polling setup status returned invalid data: {exc}",
+                        xbmc.LOGWARNING,
+                    )
+                else:
+                    addon.setSetting("secret_string", paired_secret)
+                    addon.setSetting("stremio_api_prefix", paired_prefix)
+                    dialog.notification(
+                        "Comet",
+                        "Kodi setup complete",
+                        xbmcgui.NOTIFICATION_INFO,
+                    )
+                    return
 
             if monitor.waitForAbort(POLL_INTERVAL_SECONDS):
                 return

@@ -3,9 +3,13 @@ from fastapi import APIRouter, Request
 from comet.core.config_validation import config_check
 from comet.core.models import settings
 from comet.debrid.manager import build_addon_name
-from comet.utils.cache import (CachedJSONResponse, CachePolicies,
-                               check_etag_match, generate_etag,
-                               not_modified_response)
+from comet.utils.cache import (
+    CachedJSONResponse,
+    CachePolicies,
+    check_etag_match,
+    generate_etag,
+    not_modified_response,
+)
 
 router = APIRouter()
 
@@ -22,7 +26,7 @@ router = APIRouter()
     summary="Add-on Manifest",
     description="Returns the add-on manifest with existing configuration.",
 )
-async def manifest(request: Request, b64config: str = None):
+async def manifest(request: Request, b64config: str | None = None):
     base_manifest = {
         "id": settings.ADDON_ID,
         "description": "Stremio's fastest torrent/debrid search add-on.",

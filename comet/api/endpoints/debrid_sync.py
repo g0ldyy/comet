@@ -28,6 +28,8 @@ async def debrid_sync(
         return build_status_video_response(["BAD_REQUEST"], default_key="BAD_REQUEST")
 
     parsed_service_index = parse_optional_int(service_index)
+    if parsed_service_index is None:
+        return build_status_video_response(["BAD_REQUEST"], default_key="BAD_REQUEST")
 
     debrid_service, debrid_api_key = get_debrid_credentials(
         config, parsed_service_index

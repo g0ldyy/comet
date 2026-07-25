@@ -29,6 +29,15 @@ Examples:
 - `GET /{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}?torrent_name={torrent_name}&name={name}`
 - `GET /{b64config}/debrid-sync/{service_index}`
 
+## Torznab
+
+The complete endpoint is `https://host[/s/token]/torznab/api`. It exposes the
+Movies and TV categories and supports text, IMDb, season, and episode searches.
+Capabilities can be checked with `GET /torznab/api?t=caps`.
+
+See the [Torznab client integration guide](../integrations/torznab.md) for the
+official Prowlarr, Sonarr, Radarr, and Jackett configurations.
+
 ## ChillLink
 
 - `GET /manifest`

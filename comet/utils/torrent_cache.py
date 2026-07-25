@@ -1,18 +1,19 @@
 from dataclasses import dataclass
-from typing import Optional
+
+from comet.utils.parsing import MediaScope
 
 
 @dataclass(frozen=True)
 class SearchParams:
-    season: Optional[int]
-    episode: Optional[int]
+    season: int | None
+    episode: int | None
 
 
 def normalize_search_params(
-    season: Optional[int],
-    episode: Optional[int],
-    search_season: Optional[int] = None,
-    search_episode: Optional[int] = None,
+    season: int | None,
+    episode: int | None,
+    search_season: int | None = None,
+    search_episode: int | None = None,
 ) -> SearchParams:
     return SearchParams(
         season=search_season if search_season is not None else season,
@@ -21,19 +22,24 @@ def normalize_search_params(
 
 
 def build_torrent_cache_where(
-    media_id: str, season: Optional[int], episode: Optional[int]
+    media_id: str,
+    media_scope: MediaScope,
+    season: int | None,
+    episode: int | None,
 ) -> tuple[str, dict]:
     where_clause = """
         FROM torrents
         WHERE media_id = :media_id
     """
-    params = {"media_id": media_id, "episode": episode}
-    if season is not None:
+    params = {"media_id": media_id}
+    if media_scope is not MediaScope.SERIES and season is not None:
         where_clause += """
         AND season = CAST(:season as INTEGER)
         """
         params["season"] = season
-    where_clause += """
+    if media_scope in (MediaScope.MOVIE, MediaScope.EPISODE):
+        where_clause += """
         AND (episode IS NULL OR episode = CAST(:episode as INTEGER))
-    """
+        """
+        params["episode"] = episode
     return where_clause, params

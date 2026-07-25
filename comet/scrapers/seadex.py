@@ -24,16 +24,43 @@ class SeaDexScraper(BaseScraper):
                     return []
                 data = await response.json()
 
-            for item in data.get("items", []):
-                for torrent in item.get("expand", {}).get("trs", []):
+            if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+                return []
+
+            for item in data["items"]:
+                if not isinstance(item, dict) or not isinstance(
+                    item.get("expand"), dict
+                ):
+                    continue
+                torrent_items = item["expand"].get("trs")
+                if not isinstance(torrent_items, list):
+                    continue
+                for torrent in torrent_items:
+                    if not isinstance(torrent, dict):
+                        continue
                     info_hash = torrent.get("infoHash")
-                    if not info_hash or info_hash == "<redacted>":
+                    files = torrent.get("files")
+                    if (
+                        not isinstance(info_hash, str)
+                        or not info_hash
+                        or info_hash == "<redacted>"
+                        or not isinstance(files, list)
+                    ):
                         continue
 
-                    for idx, file in enumerate(torrent.get("files", [])):
+                    for idx, file in enumerate(files):
+                        if not isinstance(file, dict):
+                            continue
+                        name = file.get("name")
+                        if (
+                            not isinstance(name, str)
+                            or not name
+                            or "length" not in file
+                        ):
+                            continue
                         torrents.append(
                             {
-                                "title": file["name"],
+                                "title": name,
                                 "infoHash": info_hash,
                                 "fileIndex": idx,
                                 "seeders": None,

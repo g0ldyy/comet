@@ -9,11 +9,15 @@ from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.exceptions import DebridAuthError, DebridLinkGenerationError
 from comet.metadata.episode_index import EpisodeIndexService
-from comet.services.debrid_cache import cache_availability
-from comet.services.filtering import quick_alias_match
+from comet.services.debrid_cache import schedule_cache_availability
+from comet.services.filtering import exact_alias_match
 from comet.services.torrent_manager import torrent_update_queue
-from comet.utils.parsing import (ensure_multi_language, is_video,
-                                 match_parsed_episode_target, parse_media_id)
+from comet.utils.parsing import (
+    ensure_multi_language,
+    is_video,
+    match_parsed_episode_target,
+    parse_media_id,
+)
 
 
 def batch_parse(filenames):
@@ -21,6 +25,55 @@ def batch_parse(filenames):
     for parsed in parsed_results:
         ensure_multi_language(parsed)
     return parsed_results
+
+
+def _prepare_cached_torrents(responses, *, is_offcloud: bool):
+    prepared = []
+    filenames = []
+
+    for response in responses:
+        if not isinstance(response, dict):
+            continue
+        data = response.get("data")
+        if not isinstance(data, dict):
+            continue
+        items = data.get("items")
+        if not isinstance(items, list):
+            continue
+
+        for torrent in items:
+            if not isinstance(torrent, dict) or torrent.get("status") != "cached":
+                continue
+            info_hash = torrent.get("hash")
+            if not isinstance(info_hash, str) or not info_hash:
+                continue
+
+            prepared_files = []
+            if not is_offcloud:
+                torrent_files = torrent.get("files")
+                if not isinstance(torrent_files, list):
+                    continue
+
+                for file in torrent_files:
+                    if not isinstance(file, dict):
+                        continue
+                    name = file.get("name")
+                    if not isinstance(name, str) or not name:
+                        continue
+                    filename = name.rsplit("/", 1)[-1]
+                    if not is_video(filename) or "sample" in filename.lower():
+                        continue
+                    prepared_files.append((file, filename))
+                    filenames.append(filename)
+
+            prepared.append(
+                {
+                    "info_hash": info_hash,
+                    "files": prepared_files,
+                }
+            )
+
+    return prepared, filenames
 
 
 class StremThru:
@@ -71,7 +124,10 @@ class StremThru:
     def _requested_episode_scope(self) -> tuple[str | None, int | None, int | None]:
         if not isinstance(self.sid, str) or ":" not in self.sid:
             return None, None, None
-        series_id, season, episode = parse_media_id("series", self.sid)
+        try:
+            series_id, season, episode = parse_media_id("series", self.sid)
+        except ValueError:
+            return None, None, None
         return series_id, season, episode
 
     @staticmethod
@@ -112,64 +168,63 @@ class StremThru:
         return True, season, episode, target_air_date
 
     async def _post_store_json(self, endpoint: str, payload: dict, action: str) -> dict:
-        response = await self.session.post(
+        async with self.session.post(
             f"{self.base_url}{endpoint}",
             json=payload,
             headers=self._headers(),
-        )
+        ) as response:
+            try:
+                data = await response.json(content_type=None)
+            except Exception as exc:
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    f"{self.store_name}: Failed to {action}.",
+                    payload={
+                        "status_code": response.status,
+                        "raw": await response.text(),
+                    },
+                ) from exc
 
-        try:
-            data = await response.json(content_type=None)
-        except Exception as exc:
+            if isinstance(data, dict):
+                error = data.get("error")
+                if isinstance(error, dict):
+                    upstream = error.get("__upstream_cause__")
+                    message = error.get("message")
+                    if not message and isinstance(upstream, dict):
+                        message = upstream.get("detail") or upstream.get("message")
+
+                    raise DebridLinkGenerationError(
+                        self.store_name,
+                        message or f"{self.store_name}: Failed to {action}.",
+                        error_code=error.get("code"),
+                        upstream_error_code=self._extract_upstream_error_code(upstream),
+                        payload=data,
+                    )
+                elif error:
+                    raise DebridLinkGenerationError(
+                        self.store_name,
+                        str(error)
+                        if isinstance(error, str)
+                        else f"{self.store_name}: Failed to {action}.",
+                        payload=data,
+                    )
+
+                if response.status < 400:
+                    return data
+
             raise DebridLinkGenerationError(
                 self.store_name,
                 f"{self.store_name}: Failed to {action}.",
-                payload={
-                    "status_code": response.status,
-                    "raw": await response.text(),
-                },
-            ) from exc
-
-        if isinstance(data, dict):
-            error = data.get("error")
-            if isinstance(error, dict):
-                upstream = error.get("__upstream_cause__")
-                message = error.get("message")
-                if not message and isinstance(upstream, dict):
-                    message = upstream.get("detail") or upstream.get("message")
-
-                raise DebridLinkGenerationError(
-                    self.store_name,
-                    message or f"{self.store_name}: Failed to {action}.",
-                    error_code=error.get("code"),
-                    upstream_error_code=self._extract_upstream_error_code(upstream),
-                    payload=data,
-                )
-            elif error:
-                raise DebridLinkGenerationError(
-                    self.store_name,
-                    str(error)
-                    if isinstance(error, str)
-                    else f"{self.store_name}: Failed to {action}.",
-                    payload=data,
-                )
-
-            if response.status < 400:
-                return data
-
-        raise DebridLinkGenerationError(
-            self.store_name,
-            f"{self.store_name}: Failed to {action}.",
-            payload={"response": data, "status_code": response.status},
-        )
+                payload={"response": data, "status_code": response.status},
+            )
 
     async def check_premium(self):
         try:
-            response = await self.session.get(
+            async with self.session.get(
                 f"{self.base_url}/user?client_ip={self.client_ip}",
                 headers=self._headers(),
-            )
-            user = await response.json()
+            ) as response:
+                user = await response.json()
 
             if "data" not in user:
                 raise DebridAuthError(
@@ -193,8 +248,8 @@ class StremThru:
     async def get_instant(self, magnets: list):
         try:
             url = f"{self.base_url}/magnets/check?magnet={','.join(magnets)}&client_ip={self.client_ip}&sid={self.sid}"
-            magnet = await self.session.get(url, headers=self._headers())
-            return await magnet.json()
+            async with self.session.get(url, headers=self._headers()) as response:
+                return await response.json()
         except Exception as e:
             logger.warning(
                 f"Exception while checking hash instant availability on {self.store_name}: {e}"
@@ -202,11 +257,11 @@ class StremThru:
 
     async def list_magnets(self, limit: int = 500, offset: int = 0):
         try:
-            response = await self.session.get(
+            async with self.session.get(
                 f"{self.base_url}/magnets?limit={limit}&offset={offset}&client_ip={self.client_ip}",
                 headers=self._headers(),
-            )
-            payload = await response.json()
+            ) as response:
+                payload = await response.json()
             data = payload["data"]
             return data["items"], int(data["total_items"])
         except Exception as e:
@@ -237,13 +292,11 @@ class StremThru:
 
         responses = await asyncio.gather(*tasks)
 
-        availability = [
-            response["data"]["items"]
-            for response in responses
-            if response and "data" in response
-        ]
-
         is_offcloud = self.store_name == "offcloud"
+        cached_torrents, filenames_to_parse = _prepare_cached_torrents(
+            responses,
+            is_offcloud=is_offcloud,
+        )
         requested_series_id, requested_season, requested_episode = (
             self._requested_episode_scope()
         )
@@ -259,18 +312,6 @@ class StremThru:
             target_air_date=target_air_date,
         )
 
-        filenames_to_parse = []
-        if not is_offcloud:
-            for result in availability:
-                for torrent in result:
-                    if torrent["status"] != "cached":
-                        continue
-                    for file in torrent["files"]:
-                        filename = file["name"].split("/")[-1]
-                        if not is_video(filename) or "sample" in filename.lower():
-                            continue
-                        filenames_to_parse.append(filename)
-
         parsed_iter = iter([])
         if filenames_to_parse:
             loop = asyncio.get_running_loop()
@@ -280,25 +321,20 @@ class StremThru:
             parsed_iter = iter(parsed_results)
 
         files = []
-        cached_count = 0
-        for result in availability:
-            for torrent in result:
-                if torrent["status"] != "cached":
+        for torrent in cached_torrents:
+            info_hash = torrent["info_hash"]
+            seeders = seeders_map.get(info_hash, 0)
+            tracker = tracker_map.get(info_hash, "")
+            sources = sources_map.get(info_hash, [])
+
+            if is_offcloud:
+                if is_episode_request:
+                    # Strict matching for episode requests: offcloud does not expose
+                    # per-file metadata here, so we cannot map a specific episode.
                     continue
-
-                cached_count += 1
-                hash = torrent["hash"]
-                seeders = seeders_map.get(hash, 0)
-                tracker = tracker_map.get(hash, "")
-                sources = sources_map.get(hash, [])
-
-                if is_offcloud:
-                    if is_episode_request:
-                        # Strict matching for episode requests: offcloud does not expose
-                        # per-file metadata here, so we cannot map a specific episode.
-                        continue
-                    file_info = {
-                        "info_hash": hash,
+                files.append(
+                    {
+                        "info_hash": info_hash,
                         "index": None,
                         "title": None,
                         "size": None,
@@ -306,66 +342,61 @@ class StremThru:
                         "episode": None,
                         "parsed": None,
                     }
+                )
+                continue
 
-                    files.append(file_info)
+            for file, filename in torrent["files"]:
+                filename_parsed = next(parsed_iter)
+
+                parsed_season = (
+                    filename_parsed.seasons[0] if filename_parsed.seasons else None
+                )
+                parsed_episode = (
+                    filename_parsed.episodes[0] if filename_parsed.episodes else None
+                )
+
+                if is_episode_request:
+                    if not self._strict_episode_match(
+                        filename_parsed,
+                        requested_season,
+                        requested_episode,
+                        target_air_date,
+                    ):
+                        continue
+                    season = requested_season
+                    episode = requested_episode
                 else:
-                    for file in torrent["files"]:
-                        filename = file["name"].split("/")[-1]
+                    season = parsed_season
+                    episode = parsed_episode
 
-                        if not is_video(filename) or "sample" in filename.lower():
-                            continue
+                index = file.get("index")
+                if not isinstance(index, int) or index < 0:
+                    index = None
+                size = file.get("size")
+                if not isinstance(size, int) or size < 0:
+                    size = None
 
-                        filename_parsed = next(parsed_iter)
+                file_info = {
+                    "info_hash": info_hash,
+                    "index": index,
+                    "title": filename,
+                    "size": size,
+                    "season": season,
+                    "episode": episode,
+                    "parsed": filename_parsed,
+                    "seeders": seeders,
+                    "tracker": tracker,
+                    "sources": sources,
+                }
 
-                        parsed_season = (
-                            filename_parsed.seasons[0]
-                            if filename_parsed.seasons
-                            else None
-                        )
-                        parsed_episode = (
-                            filename_parsed.episodes[0]
-                            if filename_parsed.episodes
-                            else None
-                        )
-
-                        if is_episode_request:
-                            if not self._strict_episode_match(
-                                filename_parsed,
-                                requested_season,
-                                requested_episode,
-                                target_air_date,
-                            ):
-                                continue
-                            season = requested_season
-                            episode = requested_episode
-                        else:
-                            season = parsed_season
-                            episode = parsed_episode
-
-                        index = file["index"] if file["index"] != -1 else None
-                        size = file["size"] if file["size"] != -1 else None
-
-                        file_info = {
-                            "info_hash": hash,
-                            "index": index,
-                            "title": filename,
-                            "size": size,
-                            "season": season,
-                            "episode": episode,
-                            "parsed": filename_parsed,
-                            "seeders": seeders,
-                            "tracker": tracker,
-                            "sources": sources,
-                        }
-
-                        files.append(file_info)
-                        await torrent_update_queue.add_torrent_info(
-                            file_info, self.media_only_id
-                        )
+                files.append(file_info)
+                await torrent_update_queue.add_torrent_info(
+                    file_info, self.media_only_id
+                )
 
         logger.log(
             "SCRAPER",
-            f"{self.store_name}: Found {cached_count} cached torrents with {len(files)} valid files",
+            f"{self.store_name}: Found {len(cached_torrents)} cached torrents with {len(files)} valid files",
         )
         return files
 
@@ -377,8 +408,8 @@ class StremThru:
         torrent_name: str,
         season: int,
         episode: int,
-        sources: list = None,
-        aliases: dict = None,
+        sources: list | None = None,
+        aliases: dict | None = None,
     ):
         """
         Smart file selection algorithm with scoring system.
@@ -432,9 +463,11 @@ class StremThru:
             torrent_name = unquote(torrent_name)
 
             aliases = aliases or {}
-            ez_aliases = aliases.get("ez", [])
-            if ez_aliases:
-                ez_aliases_normalized = [normalize_title(a) for a in ez_aliases]
+            ez_aliases_normalized = frozenset(
+                normalized
+                for alias in aliases.get("ez", [])
+                if isinstance(alias, str) and (normalized := normalize_title(alias))
+            )
 
             debrid_files = magnet_data.get("files", [])
 
@@ -521,9 +554,9 @@ class StremThru:
 
                 # Title/alias matching
                 if parsed.parsed_title:
-                    # Quick alias match first
-                    if ez_aliases and quick_alias_match(
-                        normalize_title(filename), ez_aliases_normalized
+                    # Exact alias match first
+                    if exact_alias_match(
+                        normalize_title(parsed.parsed_title), ez_aliases_normalized
                     ):
                         score += 50
                         match_reason.append("alias")
@@ -623,9 +656,7 @@ class StremThru:
                 )
 
             if all_files_for_cache:
-                asyncio.create_task(
-                    cache_availability(self.store_name, all_files_for_cache)
-                )
+                schedule_cache_availability(self.store_name, all_files_for_cache)
 
             link = await self._post_store_json(
                 f"/link/generate?client_ip={self.client_ip}",
@@ -655,3 +686,11 @@ class StremThru:
             logger.exception(
                 f"Exception while getting download link for {hash} ({type(e).__name__}): {e!r}"
             )
+            raise DebridLinkGenerationError(
+                self.store_name,
+                f"{self.store_name}: Failed to generate download link.",
+                payload={
+                    "hash": hash,
+                    "error_type": type(e).__name__,
+                },
+            ) from e

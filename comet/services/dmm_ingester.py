@@ -5,8 +5,11 @@ import os
 import random
 import re
 import shutil
+import stat
 import zipfile
+from pathlib import Path
 
+import aiofiles
 import aiohttp
 import RTN
 
@@ -49,7 +52,7 @@ class DMMIngester:
                 lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
                 if await lock.acquire(wait_timeout=None):
                     try:
-                        await self._ingest_cycle(lock)
+                        await lock.run(self._ingest_cycle())
                     finally:
                         await lock.release()
                 else:
@@ -62,7 +65,7 @@ class DMMIngester:
 
             await asyncio.sleep(settings.DMM_INGEST_INTERVAL)
 
-    async def _ingest_cycle(self, lock: DistributedLock):
+    async def _ingest_cycle(self):
         logger.log("DMM_INGEST", "Checking for DMM updates...")
 
         os.makedirs(TEMP_DIR, exist_ok=True)
@@ -79,14 +82,12 @@ class DMMIngester:
                         )
                         return
 
-                    with open(zip_path, "wb") as f:
+                    async with aiofiles.open(zip_path, "wb") as f:
                         while True:
-                            await lock.acquire()
-
                             chunk = await response.content.read(1024 * 1024 * 64)
                             if not chunk:
                                 break
-                            f.write(chunk)
+                            await f.write(chunk)
 
             logger.log("DMM_INGEST", "Extracting DMM hashlists...")
             extract_dir = os.path.join(TEMP_DIR, "extracted")
@@ -118,8 +119,6 @@ class DMMIngester:
                 if not self.is_running:
                     break
 
-                await lock.acquire()
-
                 batch_files = new_files[i : i + batch_size]
 
                 logger.log(
@@ -141,6 +140,11 @@ class DMMIngester:
                     batch_entries = []
                     processed_files_batch = []
                     for file_path, entries in zip(batch_files, results):
+                        if entries is None:
+                            logger.warning(
+                                f"Failed to decode DMM hashlist, leaving it retryable: {os.path.basename(file_path)}"
+                            )
+                            continue
                         if entries:
                             batch_entries.extend(entries)
 
@@ -171,7 +175,7 @@ class DMMIngester:
                             if "database is locked" in str(e).lower() and attempt < 2:
                                 await asyncio.sleep(random.uniform(0.1, 0.5))
                                 continue
-                            raise e
+                            raise
 
                 except Exception as e:
                     logger.error(f"Error processing batch starting at {i}: {e}")
@@ -188,7 +192,7 @@ class DMMIngester:
         processed_rows = await database.fetch_all(
             "SELECT filename FROM dmm_ingested_files"
         )
-        processed_set = set(row["filename"] for row in processed_rows)
+        processed_set = {row["filename"] for row in processed_rows}
 
         return [f for f in all_files if os.path.basename(f) not in processed_set]
 
@@ -233,7 +237,7 @@ def process_file_sync(file_path):
         json_str = decompressFromEncodedURIComponent(encoded_data)
 
         if not json_str:
-            return []
+            return None
 
         data = json.loads(json_str)
 
@@ -243,14 +247,27 @@ def process_file_sync(file_path):
         elif isinstance(data, dict) and "torrents" in data:
             items = data["torrents"]
         else:
-            return []
+            return None
+
+        if not isinstance(items, list):
+            return None
 
         for item in items:
+            if not isinstance(item, dict):
+                continue
             filename = item.get("filename")
             info_hash = item.get("hash")
             size = item.get("bytes", 0)
 
-            if not filename or not info_hash:
+            if (
+                not isinstance(filename, str)
+                or not filename
+                or not isinstance(info_hash, str)
+                or not info_hash
+                or not isinstance(size, int)
+                or isinstance(size, bool)
+                or size < 0
+            ):
                 continue
 
             try:
@@ -258,7 +275,10 @@ def process_file_sync(file_path):
             except UnicodeEncodeError:
                 filename = filename.encode("utf-8", "ignore").decode("utf-8")
 
-            parsed = RTN.parse(filename)
+            try:
+                parsed = RTN.parse(filename)
+            except Exception:
+                continue
 
             results.append(
                 {
@@ -272,12 +292,25 @@ def process_file_sync(file_path):
 
         return results
     except Exception:
-        return []
+        return None
 
 
 def extract_zip_sync(zip_path, extract_dir):
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(extract_dir)
+        target = Path(extract_dir).resolve()
+        members = zip_ref.infolist()
+        for member in members:
+            member_path = Path(member.filename)
+            mode = member.external_attr >> 16
+            if (
+                member_path.is_absolute()
+                or ".." in member_path.parts
+                or stat.S_ISLNK(mode)
+                or not (target / member_path).resolve().is_relative_to(target)
+            ):
+                raise ValueError(f"Unsafe DMM archive member: {member.filename}")
+
+        zip_ref.extractall(target, members)
 
 
 dmm_ingester = DMMIngester()

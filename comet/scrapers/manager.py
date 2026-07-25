@@ -3,17 +3,21 @@ import importlib
 import inspect
 import os
 import pkgutil
-from typing import Dict
+import time
 
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.core.scrape import ScrapeContext, normalize_scraper_name
+from comet.observability import metrics
 from comet.scrapers.base import BaseScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.services.anime import anime_mapper
 from comet.utils.network_manager import network_manager
-from comet.utils.parsing import (associate_urls_credentials,
-                                 parse_url_scrape_mode,
-                                 url_mode_matches_context)
+from comet.utils.parsing import (
+    associate_urls_credentials,
+    parse_url_scrape_mode,
+    url_mode_matches_context,
+)
 
 ANIME_ONLY_SETTING_BY_SCRAPER = {
     "NyaaScraper": "NYAA_ANIME_ONLY",
@@ -21,12 +25,14 @@ ANIME_ONLY_SETTING_BY_SCRAPER = {
     "SeaDexScraper": "SEADEX_ANIME_ONLY",
     "NekoBTScraper": "NEKOBT_ANIME_ONLY",
 }
+INDEXER_MANAGER_SCRAPERS = frozenset({"jackett", "prowlarr"})
 
 
 class ScraperManager:
     def __init__(self):
-        self.scrapers: Dict[str, BaseScraper] = {}
+        self.scrapers: dict[str, type[BaseScraper]] = {}
         self.discover_scrapers()
+        self._validate_timeout_overrides()
 
     def discover_scrapers(self):
         """
@@ -50,14 +56,70 @@ class ScraperManager:
                 ):
                     self.scrapers[obj.__name__] = obj
 
+    def _validate_timeout_overrides(self) -> None:
+        available = {normalize_scraper_name(name) for name in self.scrapers}
+        configured = {
+            selector.partition(":")[0]
+            for selector in settings.SCRAPER_TIMEOUT_OVERRIDES
+        }
+        unknown = sorted(configured - available)
+        if unknown:
+            raise ValueError(
+                "SCRAPER_TIMEOUT_OVERRIDES contains unknown scrapers: "
+                + ", ".join(unknown)
+            )
+
+    @staticmethod
+    def _resolve_timeout(scraper_name: str, context: ScrapeContext) -> float:
+        normalized_name = normalize_scraper_name(scraper_name)
+        overrides = settings.SCRAPER_TIMEOUT_OVERRIDES
+        context_selector = f"{normalized_name}:{context.value}"
+        if context_selector in overrides:
+            return overrides[context_selector]
+        if normalized_name in overrides:
+            return overrides[normalized_name]
+
+        timeout = (
+            settings.LIVE_SCRAPE_TIMEOUT
+            if context == ScrapeContext.LIVE
+            else settings.BACKGROUND_SCRAPE_TIMEOUT
+        )
+        if normalized_name in INDEXER_MANAGER_SCRAPERS:
+            timeout += max(0, settings.INDEXER_MANAGER_WAIT_TIMEOUT or 0)
+        return timeout
+
     async def _scrape_wrapper(
-        self, name: str, scraper: BaseScraper, request: ScrapeRequest
+        self,
+        name: str,
+        scraper: BaseScraper,
+        request: ScrapeRequest,
+        timeout: float,
     ):
+        started_at = time.perf_counter()
+        outcome = "success"
         try:
-            return name, await scraper.scrape(request)
+            async with asyncio.timeout(timeout):
+                results = await scraper.scrape(request)
+        except TimeoutError:
+            outcome = "timeout"
+            logger.warning(
+                f"Scraper {name} timed out "
+                f"(context={request.context.value}, budget={timeout:g}s)"
+            )
+            results = []
         except Exception as e:
+            outcome = "error"
             logger.warning(f"Scraper {name} failed: {e}")  # todo: better error handling
-            return name, []
+            results = []
+        duration = time.perf_counter() - started_at
+        metrics.observe_scraper(
+            name,
+            request.context.value,
+            outcome,
+            duration,
+            len(results) if isinstance(results, list) else 0,
+        )
+        return name, results, duration
 
     @staticmethod
     def _resolve_url_for_context(url: str, context: str):
@@ -72,7 +134,7 @@ class ScraperManager:
         for scraper_name, scraper_class in self.scrapers.items():
             # Determine if scraper should be enabled
             # Convention: Scraper class name "NyaaScraper" -> settings.SCRAPE_NYAA
-            scraper_name_clean = scraper_name.replace("Scraper", "")
+            scraper_name_clean = scraper_name.removesuffix("Scraper")
             setting_name = scraper_name_clean.upper()
             setting_key = f"SCRAPE_{setting_name}"
 
@@ -92,6 +154,8 @@ class ScraperManager:
                     )
                 if not is_anime_content:
                     continue
+
+            scrape_timeout = self._resolve_timeout(scraper_name_clean, request.context)
 
             # Get client wrapper
             client = network_manager.get_client(
@@ -115,6 +179,7 @@ class ScraperManager:
                                 f"{scraper_name_clean} #{active_instance_count}",
                                 scraper,
                                 request,
+                                scrape_timeout,
                             )
                         )
 
@@ -135,6 +200,7 @@ class ScraperManager:
                                 f"{scraper_name_clean} #{active_instance_count}",
                                 scraper,
                                 request,
+                                scrape_timeout,
                             )
                         )
 
@@ -160,21 +226,34 @@ class ScraperManager:
                                 f"{scraper_name_clean} #{active_instance_count}",
                                 scraper,
                                 request,
+                                scrape_timeout,
                             )
                         )
                 else:
                     scraper = scraper_class(self, client)
                     tasks.append(
-                        self._scrape_wrapper(scraper_name_clean, scraper, request)
+                        self._scrape_wrapper(
+                            scraper_name_clean,
+                            scraper,
+                            request,
+                            scrape_timeout,
+                        )
                     )
 
-        for future in asyncio.as_completed(tasks):
-            try:
-                yield await future
-            except Exception as e:
-                logger.error(
-                    f"Error during scraping: {e}"
-                )  # todo: better error handling
+        scraper_tasks = [asyncio.create_task(task) for task in tasks]
+        try:
+            for future in asyncio.as_completed(scraper_tasks):
+                try:
+                    yield await future
+                except Exception as e:
+                    logger.error(
+                        f"Error during scraping: {e}"
+                    )  # todo: better error handling
+        finally:
+            for task in scraper_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*scraper_tasks, return_exceptions=True)
 
 
 scraper_manager = ScraperManager()

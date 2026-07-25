@@ -1,7 +1,5 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from comet.api.endpoints.admin import require_admin_auth
 from comet.cometnet import CometNetBackend, get_active_backend
@@ -11,45 +9,49 @@ router = APIRouter(dependencies=[Depends(require_admin_auth)])
 # --- Models ---
 
 
-class CreatePoolRequest(BaseModel):
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class CreatePoolRequest(StrictRequest):
     pool_id: str
     display_name: str
     description: str = ""
     join_mode: str = "invite"
 
 
-class CreateInviteRequest(BaseModel):
-    expires_in: Optional[int] = None
-    max_uses: Optional[int] = None
+class CreateInviteRequest(StrictRequest):
+    expires_in: int | None = None
+    max_uses: int | None = None
 
 
-class JoinPoolRequest(BaseModel):
-    invite_code: Optional[str] = None
-    node_url: Optional[str] = (
+class JoinPoolRequest(StrictRequest):
+    invite_code: str
+    node_url: str | None = (
         None  # URL of the node that created the invite (for remote joining)
     )
 
 
-class AddMemberRequest(BaseModel):
+class AddMemberRequest(StrictRequest):
     member_key: str
     role: str = "member"
 
 
-class UpdateMemberRoleRequest(BaseModel):
+class UpdateMemberRoleRequest(StrictRequest):
     role: str  # "admin" or "member"
 
 
-class ReportRequest(BaseModel):
+class ReportRequest(StrictRequest):
     info_hash: str
     reason: str
     description: str = ""
-    pool_id: Optional[str] = None
+    pool_id: str | None = None
 
 
-class BlacklistRequest(BaseModel):
+class BlacklistRequest(StrictRequest):
     info_hash: str
     reason: str
-    pool_id: Optional[str] = None
+    pool_id: str | None = None
 
 
 # --- Endpoints ---
@@ -119,8 +121,12 @@ async def create_pool(
             description=request.description,
             join_mode=request.join_mode,
         )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Invalid pool request") from error
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=403, detail="Pool operation is forbidden"
+        ) from error
 
 
 @router.delete(
@@ -147,20 +153,13 @@ async def join_pool(
     request: JoinPoolRequest,
     backend=Depends(get_cometnet_backend),
 ):
-    try:
-        if request.invite_code:
-            success = await backend.join_pool_with_invite(
-                pool_id, request.invite_code, request.node_url
-            )
-        else:
-            raise HTTPException(status_code=400, detail="Invite code required")
+    success = await backend.join_pool_with_invite(
+        pool_id, request.invite_code, request.node_url
+    )
+    if not success:
+        raise HTTPException(status_code=403, detail="Failed to join pool")
 
-        if not success:
-            raise HTTPException(status_code=403, detail="Failed to join pool")
-
-        return {"status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "success"}
 
 
 @router.post(
@@ -299,10 +298,12 @@ async def update_member_role(
         if await backend.update_member_role(pool_id, member_key, request.role):
             return {"status": "success"}
         raise HTTPException(status_code=400, detail="Failed to update role")
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=403, detail="Pool operation is forbidden"
+        ) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Invalid pool request") from error
 
 
 @router.post(
@@ -321,7 +322,9 @@ async def leave_pool(
         raise HTTPException(
             status_code=400, detail="Failed to leave pool (not a member?)"
         )
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=403, detail="Pool operation is forbidden"
+        ) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Invalid pool request") from error

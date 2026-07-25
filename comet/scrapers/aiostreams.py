@@ -15,6 +15,39 @@ class AiostreamsScraper(BaseScraper):
         super().__init__(manager, session, url)
         self.credentials = credentials
 
+    @staticmethod
+    def _parse_stream(torrent):
+        if not isinstance(torrent, dict):
+            return None
+
+        title = torrent.get("filename")
+        info_hash = torrent.get("infoHash")
+        sources = torrent.get("sources", [])
+        if (
+            not isinstance(title, str)
+            or not title
+            or not isinstance(info_hash, str)
+            or not info_hash
+            or "size" not in torrent
+            or not isinstance(sources, list)
+        ):
+            return None
+
+        tracker = "AIOStreams"
+        indexer = torrent.get("indexer")
+        if isinstance(indexer, str) and indexer:
+            tracker += f"|{indexer}"
+
+        return {
+            "title": title,
+            "infoHash": info_hash,
+            "fileIndex": torrent.get("fileIdx"),
+            "seeders": torrent.get("seeders"),
+            "size": torrent["size"],
+            "tracker": tracker,
+            "sources": sources,
+        }
+
     async def scrape(self, request: ScrapeRequest):
         torrents = []
         try:
@@ -32,26 +65,18 @@ class AiostreamsScraper(BaseScraper):
             ) as response:
                 results = await response.json()
 
-            for torrent in results["data"]["results"]:
-                tracker = "AIOStreams"
-                if "indexer" in torrent:
-                    tracker += f"|{torrent['indexer']}"
+            if not isinstance(results, dict) or not isinstance(
+                results.get("data"), dict
+            ):
+                return []
+            streams = results["data"].get("results")
+            if not isinstance(streams, list):
+                return []
 
-                infoHash = torrent["infoHash"]
-                if infoHash is None:
-                    continue
-
-                torrents.append(
-                    {
-                        "title": torrent["filename"],
-                        "infoHash": infoHash,
-                        "fileIndex": torrent.get("fileIdx", None),
-                        "seeders": torrent.get("seeders", None),
-                        "size": torrent["size"],
-                        "tracker": tracker,
-                        "sources": torrent.get("sources") or [],
-                    }
-                )
+            for torrent in streams:
+                parsed = self._parse_stream(torrent)
+                if parsed is not None:
+                    torrents.append(parsed)
         except Exception as e:
             log_scraper_error("AIOStreams", self.url, request.media_id, e)
 

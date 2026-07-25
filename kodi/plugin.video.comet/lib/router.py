@@ -1,7 +1,6 @@
 import json
 import re
 import sys
-from typing import Optional, Tuple
 from urllib import parse
 
 import xbmc
@@ -9,10 +8,19 @@ import xbmcgui
 import xbmcplugin
 
 from .parser import parse_stream_info
-from .utils import (ADDON_HANDLE, ADDON_ID, build_url,
-                    convert_info_hash_to_magnet, ensure_configured, fetch_data,
-                    get_base_url, get_catalog_provider_url, get_config_prefix,
-                    is_elementum_installed_and_enabled, log)
+from .utils import (
+    ADDON_HANDLE,
+    ADDON_ID,
+    build_url,
+    convert_info_hash_to_magnet,
+    ensure_configured,
+    fetch_data,
+    get_base_url,
+    get_catalog_provider_url,
+    get_config_prefix,
+    is_elementum_installed_and_enabled,
+    log,
+)
 
 CATALOG_PAGE_SIZE = 25
 SUPPORTED_CATALOG_TYPES = {"movie", "series"}
@@ -30,7 +38,7 @@ _TAGLINE_KEYS = (
     "trackerInfo",
     "languagesInfo",
 )
-_PROVIDER_CONTEXT_CACHE: Optional[Tuple[str, str]] = None
+_PROVIDER_CONTEXT_CACHE: tuple[str, str] | None = None
 
 
 def _compose_url(base_url: str, path: str):
@@ -71,7 +79,10 @@ def _fetch_provider_meta(catalog_type: str, video_id: str):
             f"meta/{_provider_path(catalog_type)}/{_provider_path(video_id)}.json",
         )
     )
-    return response["meta"] if response else None
+    if not isinstance(response, dict):
+        return None
+    meta = response.get("meta")
+    return meta if isinstance(meta, dict) else None
 
 
 def _catalog_url(catalog_type: str, catalog_id: str, extra: str):
@@ -83,23 +94,36 @@ def _catalog_url(catalog_type: str, catalog_id: str, extra: str):
 
 
 def _catalog_specs(manifest: dict, catalog_type: str):
+    if not isinstance(manifest, dict):
+        return []
+    catalogs = manifest.get("catalogs")
+    if not isinstance(catalogs, list):
+        return []
+
     specs = []
-    for catalog in manifest.get("catalogs", ()):
-        if catalog["type"] != catalog_type:
+    for catalog in catalogs:
+        if not isinstance(catalog, dict) or catalog.get("type") != catalog_type:
             continue
 
         catalog_id = catalog.get("id")
-        if not catalog_id:
+        if not isinstance(catalog_id, str) or not catalog_id:
             continue
 
-        catalog_name = catalog.get("name") or catalog_id
+        catalog_name = catalog.get("name")
+        if catalog_name is None:
+            catalog_name = catalog_id
+        elif not isinstance(catalog_name, str) or not catalog_name:
+            continue
         if (
             catalog_type == "series"
             and catalog_name.strip().lower() in SERIES_CATALOG_EXCLUDED_NAMES
         ):
             continue
 
-        has_search = any(e.get("name") == "search" for e in catalog.get("extra", ()))
+        extra = catalog.get("extra", [])
+        has_search = isinstance(extra, list) and any(
+            isinstance(item, dict) and item.get("name") == "search" for item in extra
+        )
         specs.append({"id": catalog_id, "name": catalog_name, "has_search": has_search})
     return specs
 
@@ -115,7 +139,7 @@ def _parse_release_year(release_info):
     return int(match.group()) if match else None
 
 
-def _upgrade_metahub_url(url: Optional[str]):
+def _upgrade_metahub_url(url: str | None):
     if url and "/poster/small/" in url:
         return url.replace("/poster/small/", "/poster/medium/")
     return url or None
@@ -152,9 +176,7 @@ def _set_video_tags(tags, meta: dict, title: str):
         tags.setGenres(genres)
 
 
-def _build_art(
-    primary: Optional[str], poster: Optional[str], background: Optional[str]
-):
+def _build_art(primary: str | None, poster: str | None, background: str | None):
     art = {}
     if primary:
         art["thumb"] = primary
@@ -214,7 +236,7 @@ def _set_episode_art(list_item, video: dict, meta: dict):
         list_item.setArt(art)
 
 
-def _set_season_art(list_item, meta: dict, season_thumbnail: Optional[str]):
+def _set_season_art(list_item, meta: dict, season_thumbnail: str | None):
     season_thumb = _upgrade_metahub_url(season_thumbnail)
     poster = _upgrade_metahub_url(meta.get("poster"))
     background = _upgrade_metahub_url(meta.get("background")) or poster
@@ -228,7 +250,55 @@ def _stream_tagline(video_info: dict):
     return " | ".join(part for part in parts if part)
 
 
-def _add_directory_items(items: list, total_items: Optional[int] = None):
+def _parse_current_stream(stream):
+    if not isinstance(stream, dict):
+        return None
+
+    name = stream.get("name")
+    description = stream.get("description")
+    behavior_hints = stream.get("behaviorHints", {})
+    if (
+        not isinstance(name, str)
+        or not name
+        or not isinstance(description, str)
+        or not isinstance(behavior_hints, dict)
+    ):
+        return None
+
+    url = stream.get("url")
+    info_hash = stream.get("infoHash")
+    if url is not None:
+        if not isinstance(url, str) or not url:
+            return None
+        info_hash = None
+        sources = []
+    else:
+        if not isinstance(info_hash, str) or not re.fullmatch(
+            r"[0-9a-fA-F]{40}", info_hash
+        ):
+            return None
+        sources = stream.get("sources", [])
+        if not isinstance(sources, list) or not all(
+            isinstance(source, str) for source in sources
+        ):
+            return None
+
+    filename = behavior_hints.get("filename", name)
+    if not isinstance(filename, str) or not filename:
+        filename = name
+
+    return {
+        "name": name,
+        "description": description,
+        "behavior_hints": behavior_hints,
+        "url": url,
+        "info_hash": info_hash,
+        "sources": sources,
+        "filename": filename,
+    }
+
+
+def _add_directory_items(items: list, total_items: int | None = None):
     if not items:
         return
     xbmcplugin.addDirectoryItems(
@@ -603,14 +673,17 @@ def get_streams(params):
     is_imdb = imdb_id.startswith("tt")
 
     stream_items = []
-    stream_count = len(streams)
     elementum_available = None
     elementum_warning_sent = False
 
     for stream in streams:
-        stream_name = stream["name"]
-        stream_description = stream["description"]
-        behavior_hints = stream.get("behaviorHints", {})
+        parsed_stream = _parse_current_stream(stream)
+        if parsed_stream is None:
+            continue
+
+        stream_name = parsed_stream["name"]
+        stream_description = parsed_stream["description"]
+        behavior_hints = parsed_stream["behavior_hints"]
         video_info = parse_stream_info(stream_name, stream_description, behavior_hints)
         stream_tagline = _stream_tagline(video_info)
 
@@ -647,9 +720,9 @@ def get_streams(params):
         )
         list_item.setProperty("IsPlayable", "true")
 
-        if "url" in stream:
-            resolved_stream_url = stream["url"]
-        elif "infoHash" in stream:
+        if parsed_stream["url"] is not None:
+            resolved_stream_url = parsed_stream["url"]
+        else:
             if elementum_available is None:
                 elementum_available = is_elementum_installed_and_enabled()
             if not elementum_available:
@@ -659,17 +732,14 @@ def get_streams(params):
                 continue
 
             magnet_link = convert_info_hash_to_magnet(
-                stream["infoHash"],
-                stream.get("sources", []),
-                behavior_hints.get("filename", stream_name),
+                parsed_stream["info_hash"],
+                parsed_stream["sources"],
+                parsed_stream["filename"],
             )
             resolved_stream_url = (
                 "plugin://plugin.video.elementum/play?uri="
                 + parse.quote_plus(magnet_link)
             )
-        else:
-            continue
-
         playback_params = {"video_url": resolved_stream_url}
         if is_imdb:
             playback_params["imdb"] = imdb_id
@@ -681,7 +751,7 @@ def get_streams(params):
             (build_url("play_video", **playback_params), list_item, False)
         )
 
-    _add_directory_items(stream_items, stream_count)
+    _add_directory_items(stream_items)
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
 

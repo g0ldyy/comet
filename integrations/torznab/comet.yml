@@ -1,0 +1,83 @@
+---
+id: comet
+name: Comet
+description: "Stremio's fastest torrent/debrid search add-on."
+language: en-US
+type: public
+encoding: UTF-8
+links:
+  - http://127.0.0.1:8000/
+  - http://comet:8000/
+
+caps:
+  categorymappings:
+    - {id: 2000, cat: Movies, desc: "Movies", default: true}
+    - {id: 5000, cat: TV, desc: "TV", default: true}
+
+  modes:
+    search: [q]
+    tv-search: [q, season, ep, imdbid]
+    movie-search: [q, imdbid]
+  allowrawsearch: true
+  allowtvsearchimdb: true
+
+settings:
+  - name: endpoint
+    type: text
+    label: Comet Torznab endpoint
+    default: http://comet:8000/torznab/api
+
+login:
+  path: "{{ .Config.endpoint }}"
+  method: get
+  inputs:
+    t: caps
+
+search:
+  paths:
+    - path: "{{ .Config.endpoint }}"
+      response:
+        type: xml
+
+  inputs:
+    t: "{{ .Query.Type }}"
+    q: "{{ .Keywords }}"
+    cat: "{{ join .Categories \",\" }}"
+    imdbid: "{{ .Query.IMDBID }}"
+    season: "{{ .Query.Season }}"
+    ep: "{{ .Query.Ep }}"
+    limit: 100
+
+  rows:
+    selector: rss > channel > item
+
+  fields:
+    category:
+      selector: "[name=category]"
+      attribute: value
+    title:
+      selector: title
+    magnet:
+      selector: link
+    infohash:
+      selector: "[name=infohash]"
+      attribute: value
+    imdbid:
+      selector: "[name=imdb]"
+      attribute: value
+    date:
+      selector: pubDate
+    size:
+      selector: size
+    seeders:
+      selector: "[name=seeders]"
+      attribute: value
+      optional: true
+      default: 0
+    leechers:
+      text: 0
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1
+# torznab xml

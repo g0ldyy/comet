@@ -27,13 +27,12 @@ import asyncio
 import secrets
 import sys
 import time
-from contextlib import asynccontextmanager
-from typing import List, Optional
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from comet.cometnet.manager import CometNetService
 from comet.cometnet.protocol import TorrentMetadata
@@ -41,33 +40,36 @@ from comet.core.database import setup_database, teardown_database
 from comet.core.execution import setup_executor, shutdown_executor
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.services.torrent_manager import (check_torrents_exist,
-                                            torrent_update_queue)
+from comet.services.torrent_manager import check_torrents_exist, torrent_update_queue
 
 
-class BroadcastRequest(BaseModel):
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class BroadcastRequest(StrictRequest):
     """Request model for torrent broadcast endpoint."""
 
     info_hash: str
     title: str
     size: int
     tracker: str = ""
-    imdb_id: Optional[str] = None
-    file_index: Optional[int] = None
-    seeders: Optional[int] = None
-    season: Optional[int] = None
-    episode: Optional[int] = None
-    sources: Optional[List[str]] = None
-    parsed: Optional[dict] = None
+    imdb_id: str | None = None
+    file_index: int | None = None
+    seeders: int | None = None
+    season: int | None = None
+    episode: int | None = None
+    sources: list[str] | None = None
+    parsed: dict | None = None
 
 
-class BroadcastBatchRequest(BaseModel):
+class BroadcastBatchRequest(StrictRequest):
     """Request model for batch torrent broadcast."""
 
-    torrents: List[BroadcastRequest]
+    torrents: list[BroadcastRequest]
 
 
-class CreatePoolRequest(BaseModel):
+class CreatePoolRequest(StrictRequest):
     """Request model for pool creation."""
 
     pool_id: str
@@ -76,28 +78,28 @@ class CreatePoolRequest(BaseModel):
     join_mode: str = "invite"
 
 
-class JoinPoolRequest(BaseModel):
+class JoinPoolRequest(StrictRequest):
     """Request model for joining a pool."""
 
     invite_code: str
-    node_url: Optional[str] = None
+    node_url: str | None = None
 
 
-class CreateInviteRequest(BaseModel):
+class CreateInviteRequest(StrictRequest):
     """Request model for creating pool invite."""
 
-    expires_in: Optional[int] = None
-    max_uses: Optional[int] = None
+    expires_in: int | None = None
+    max_uses: int | None = None
 
 
-class AddMemberRequest(BaseModel):
+class AddMemberRequest(StrictRequest):
     """Request model for adding a pool member."""
 
     member_key: str
     role: str = "member"
 
 
-class UpdateMemberRoleRequest(BaseModel):
+class UpdateMemberRoleRequest(StrictRequest):
     """Request model for updating a member's role."""
 
     role: str
@@ -106,7 +108,7 @@ class UpdateMemberRoleRequest(BaseModel):
 _api_key: str = settings.COMETNET_API_KEY
 
 
-def _require_broadcast_media_id(imdb_id: Optional[str]) -> None:
+def _require_broadcast_media_id(imdb_id: str | None) -> None:
     if not imdb_id:
         raise HTTPException(status_code=400, detail="imdb_id is required")
 
@@ -151,12 +153,12 @@ class StandaloneCometNet:
         self,
         ws_port: int = 8765,
         http_port: int = 8766,
-        bootstrap_nodes: Optional[List[str]] = None,
-        manual_peers: Optional[List[str]] = None,
+        bootstrap_nodes: list[str] | None = None,
+        manual_peers: list[str] | None = None,
         max_peers: int = 50,
         min_peers: int = 3,
-        keys_dir: Optional[str] = None,
-        advertise_url: Optional[str] = None,
+        keys_dir: str | None = None,
+        advertise_url: str | None = None,
     ):
         self.ws_port = ws_port
         self.http_port = http_port
@@ -183,27 +185,27 @@ class StandaloneCometNet:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            await setup_database()
-            setup_executor()
+            async with AsyncExitStack() as cleanup:
+                await setup_database()
+                cleanup.push_async_callback(teardown_database)
 
-            self.service.set_save_torrent_callback(
-                torrent_update_queue.add_network_torrent
-            )
-            self.service.set_check_torrents_exist_callback(check_torrents_exist)
+                setup_executor()
+                cleanup.callback(shutdown_executor)
+                cleanup.push_async_callback(torrent_update_queue.stop)
 
-            await self.service.start()
-            logger.log(
-                "COMETNET",
-                f"Standalone server started - WS:{self.ws_port} HTTP:{self.http_port}",
-            )
+                self.service.set_save_torrent_callback(
+                    torrent_update_queue.add_network_torrent
+                )
+                self.service.set_check_torrents_exist_callback(check_torrents_exist)
 
-            yield
+                cleanup.push_async_callback(self.service.stop)
+                await self.service.start()
+                logger.log(
+                    "COMETNET",
+                    f"Standalone server started - WS:{self.ws_port} HTTP:{self.http_port}",
+                )
 
-            await self.service.stop()
-            await torrent_update_queue.stop()
-
-            await teardown_database()
-            shutdown_executor()
+                yield
 
             logger.log("COMETNET", "Standalone server stopped")
 
@@ -260,8 +262,14 @@ class StandaloneCometNet:
                     description=request.description,
                     join_mode=request.join_mode,
                 )
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=str(e))
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400, detail="Invalid pool request"
+                ) from error
+            except PermissionError as error:
+                raise HTTPException(
+                    status_code=403, detail="Pool operation is forbidden"
+                ) from error
 
         @app.delete("/pools/{pool_id}", dependencies=[Depends(verify_api_key)])
         async def delete_pool(pool_id: str):
@@ -275,15 +283,12 @@ class StandaloneCometNet:
         @app.post("/pools/{pool_id}/join", dependencies=[Depends(verify_api_key)])
         async def join_pool(pool_id: str, request: JoinPoolRequest):
             """Join a pool using an invite code."""
-            try:
-                success = await self.service.join_pool_with_invite(
-                    pool_id, request.invite_code, request.node_url
-                )
-                if not success:
-                    raise HTTPException(status_code=403, detail="Failed to join pool")
-                return {"status": "success"}
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=str(e))
+            success = await self.service.join_pool_with_invite(
+                pool_id, request.invite_code, request.node_url
+            )
+            if not success:
+                raise HTTPException(status_code=403, detail="Failed to join pool")
+            return {"status": "success"}
 
         @app.post("/pools/{pool_id}/invite", dependencies=[Depends(verify_api_key)])
         async def create_pool_invite(pool_id: str, request: CreateInviteRequest):
@@ -367,10 +372,14 @@ class StandaloneCometNet:
                 ):
                     return {"status": "success"}
                 raise HTTPException(status_code=400, detail="Failed to update role")
-            except PermissionError as e:
-                raise HTTPException(status_code=403, detail=str(e))
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+            except PermissionError as error:
+                raise HTTPException(
+                    status_code=403, detail="Pool operation is forbidden"
+                ) from error
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400, detail="Invalid pool request"
+                ) from error
 
         @app.post("/pools/{pool_id}/leave", dependencies=[Depends(verify_api_key)])
         async def leave_pool(pool_id: str):
@@ -381,10 +390,14 @@ class StandaloneCometNet:
                 raise HTTPException(
                     status_code=400, detail="Failed to leave pool (not a member?)"
                 )
-            except PermissionError as e:
-                raise HTTPException(status_code=403, detail=str(e))
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+            except PermissionError as error:
+                raise HTTPException(
+                    status_code=403, detail="Pool operation is forbidden"
+                ) from error
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=400, detail="Invalid pool request"
+                ) from error
 
         @app.post("/broadcast", dependencies=[Depends(verify_api_key)])
         async def broadcast(request: BroadcastRequest):
@@ -478,7 +491,7 @@ class StandaloneCometNet:
         """Run the standalone server."""
         config = uvicorn.Config(
             self.app,
-            host="0.0.0.0",
+            host=None,
             port=self.http_port,
             log_config=None,
             access_log=False,

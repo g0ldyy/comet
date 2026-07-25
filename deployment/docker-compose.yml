@@ -3,21 +3,23 @@ services:
     container_name: comet
     image: g0ldyy/comet
     restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
-      - "8000:8000"
+      - "${FASTAPI_PORT:-8000}:${FASTAPI_PORT:-8000}"
     environment:
       DATABASE_TYPE: ${DATABASE_TYPE:-postgresql}
-      DATABASE_URL: ${DATABASE_URL:-comet:comet@postgres:5432/comet}
+      DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
     env_file:
       - .env
     volumes:
       - comet_data:/app/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,9 +29,9 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: comet
-      POSTGRES_PASSWORD: comet
-      POSTGRES_DB: comet
+      POSTGRES_USER: ${POSTGRES_USER:-comet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-comet}
     command:
       - "postgres"
       - "-c"
@@ -53,7 +55,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U comet -d comet"]
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -U "$${POSTGRES_USER:-comet}" -d "$${POSTGRES_DB:-comet}"',
+        ]
       interval: 5s
       timeout: 5s
       retries: 5

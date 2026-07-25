@@ -1,4 +1,6 @@
+import re
 import time
+from urllib.parse import urlsplit
 
 import mediaflow_proxy.utils.http_utils
 import orjson
@@ -6,21 +8,111 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
 from comet.core.config_validation import config_check
-from comet.core.database import (DOWNLOAD_LINK_CACHE_TTL,
-                                 build_scope_lookup_params, build_scope_params,
-                                 database)
+from comet.core.database import (
+    DOWNLOAD_LINK_CACHE_TTL,
+    build_scope_lookup_params,
+    build_scope_params,
+    database,
+)
+from comet.core.logger import logger
 from comet.core.models import settings
 from comet.debrid.exceptions import DebridLinkGenerationError
-from comet.debrid.manager import (build_account_key_hash, get_debrid,
-                                  get_debrid_credentials)
+from comet.debrid.manager import (
+    build_account_key_hash,
+    get_debrid,
+    get_debrid_credentials,
+)
 from comet.metadata.manager import MetadataScraper
 from comet.services.status_video import build_status_video_response
 from comet.services.streaming.manager import custom_handle_stream_request
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
-from comet.utils.parsing import parse_optional_int
 
 router = APIRouter()
+_INFO_HASH_PATTERN = re.compile(r"[0-9a-f]{40}")
+_NONNEGATIVE_INTEGER_PATTERN = re.compile(r"0|[1-9][0-9]*")
+
+
+def _parse_optional_path_integer(value: str) -> int | None:
+    if value == "n":
+        return None
+    if type(value) is not str or _NONNEGATIVE_INTEGER_PATTERN.fullmatch(value) is None:
+        raise ValueError("path integer must be canonical, non-negative, or 'n'")
+    return int(value)
+
+
+def _parse_playback_path(
+    info_hash: str,
+    service_index: str,
+    file_index: str,
+    season: str,
+    episode: str,
+) -> tuple[str, int, str, int | None, int | None]:
+    if type(info_hash) is not str or _INFO_HASH_PATTERN.fullmatch(info_hash) is None:
+        raise ValueError("info hash must be 40 lowercase hexadecimal characters")
+    parsed_service_index = _parse_optional_path_integer(service_index)
+    if parsed_service_index is None:
+        raise ValueError("service index is required")
+    parsed_file_index = _parse_optional_path_integer(file_index)
+    return (
+        info_hash,
+        parsed_service_index,
+        "n" if parsed_file_index is None else str(parsed_file_index),
+        _parse_optional_path_integer(season),
+        _parse_optional_path_integer(episode),
+    )
+
+
+def _valid_download_url(value) -> str | None:
+    if type(value) is not str or not value or any(ord(char) < 32 for char in value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        _ = parsed.port
+    except (ValueError, UnicodeError):
+        return None
+    return value
+
+
+def _decode_sources(sources_json) -> list[str]:
+    if not sources_json:
+        return []
+
+    try:
+        sources = orjson.loads(sources_json)
+    except (TypeError, orjson.JSONDecodeError):
+        return []
+
+    if not isinstance(sources, list):
+        return []
+    return [source for source in sources if isinstance(source, str) and source]
+
+
+def _build_playback_media_id(
+    media_only_id: str,
+    media_type: str,
+    season: int | None,
+    episode: int | None,
+) -> str:
+    if media_type not in {"movie", "series"}:
+        raise ValueError("media type must be movie or series")
+
+    is_imdb = media_only_id.startswith("tt")
+    if media_type == "movie":
+        return media_only_id if is_imdb else f"kitsu:{media_only_id}"
+    if not is_imdb:
+        return (
+            f"kitsu:{media_only_id}:{episode}"
+            if episode is not None
+            else f"kitsu:{media_only_id}"
+        )
+    if season is None:
+        return media_only_id
+    if episode is None:
+        return f"{media_only_id}:{season}"
+    return f"{media_only_id}:{season}:{episode}"
 
 
 async def cache_download_link(
@@ -78,6 +170,17 @@ async def cache_download_link(
     )
 
 
+async def _cache_download_link_safely(**kwargs) -> None:
+    try:
+        await cache_download_link(**kwargs)
+    except Exception as exc:
+        logger.warning(
+            "Failed to cache generated download link for "
+            f"{kwargs['debrid_service']}:{kwargs['info_hash']} "
+            f"({type(exc).__name__})"
+        )
+
+
 @router.get(
     "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}",
     tags=["Stremio"],
@@ -95,6 +198,7 @@ async def playback(
     torrent_name: str = Query(),
     name: str = Query(),
     media_id: str | None = Query(default=None),
+    media_type: str | None = Query(default=None),
 ):
     config = config_check(b64config, strict_b64config=True)
     if not config:
@@ -106,19 +210,28 @@ async def playback(
     torrent_name = torrent_name.strip()
     name = name.strip()
     media_id = media_id.strip() if media_id else None
-    if not torrent_name or not name:
+    if not torrent_name or not name or media_type not in {None, "movie", "series"}:
         return build_status_video_response(
             ["BAD_REQUEST"],
             default_key="BAD_REQUEST",
         )
 
-    parsed_service_index = parse_optional_int(service_index)
-    season = parse_optional_int(season)
-    episode = parse_optional_int(episode)
-
-    debrid_service, debrid_api_key = get_debrid_credentials(
-        config, parsed_service_index
-    )
+    try:
+        hash, parsed_service_index, index, season, episode = _parse_playback_path(
+            hash,
+            service_index,
+            index,
+            season,
+            episode,
+        )
+        debrid_service, debrid_api_key = get_debrid_credentials(
+            config, parsed_service_index
+        )
+    except ValueError:
+        return build_status_video_response(
+            ["BAD_REQUEST"],
+            default_key="BAD_REQUEST",
+        )
     account_key_hash = build_account_key_hash(debrid_api_key)
 
     session = await http_client_manager.get_session()
@@ -146,7 +259,7 @@ async def playback(
 
     download_url = None
     if cached_link:
-        download_url = cached_link["download_url"]
+        download_url = _valid_download_url(cached_link["download_url"])
 
     ip = get_client_ip(request)
     should_proxy = (
@@ -193,8 +306,7 @@ async def playback(
         sources = []
         context_media_id = media_id
         if torrent_data:
-            if torrent_data["sources_json"]:
-                sources = orjson.loads(torrent_data["sources_json"])
+            sources = _decode_sources(torrent_data["sources_json"])
             if context_media_id is None:
                 context_media_id = torrent_data["media_id"]
 
@@ -203,24 +315,25 @@ async def playback(
         debrid_media_only_id = context_media_id
         if context_media_id:
             metadata_scraper = MetadataScraper(session)
-            media_type = "series" if season is not None else "movie"
-
-            if "tt" in context_media_id:
-                full_media_id = (
-                    f"{context_media_id}:{season}:{episode}"
-                    if media_type == "series"
-                    else context_media_id
+            resolved_media_type = media_type or (
+                "series" if season is not None else "movie"
+            )
+            try:
+                full_media_id = _build_playback_media_id(
+                    context_media_id,
+                    resolved_media_type,
+                    season,
+                    episode,
                 )
-            else:
-                full_media_id = (
-                    f"kitsu:{context_media_id}:{episode}"
-                    if media_type == "series"
-                    else f"kitsu:{context_media_id}"
+            except ValueError:
+                return build_status_video_response(
+                    ["BAD_REQUEST"],
+                    default_key="BAD_REQUEST",
                 )
 
             debrid_video_id = full_media_id
             _, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                media_type, full_media_id
+                resolved_media_type, full_media_id
             )
 
         debrid = get_debrid(
@@ -254,8 +367,14 @@ async def playback(
                 [],
                 default_key="UNKNOWN",
             )
+        download_url = _valid_download_url(download_url)
+        if download_url is None:
+            return build_status_video_response(
+                ["BAD_REQUEST"],
+                default_key="BAD_REQUEST",
+            )
 
-        await cache_download_link(
+        await _cache_download_link_safely(
             debrid_service=debrid_service,
             account_key_hash=account_key_hash,
             info_hash=hash,

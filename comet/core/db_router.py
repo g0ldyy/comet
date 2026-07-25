@@ -1,13 +1,17 @@
 import asyncio
 import contextvars
 import socket
+import time
+from collections.abc import Sequence
 from contextlib import contextmanager
-from typing import List, Optional, Sequence
 
 from databases import Database
 from sqlalchemy.engine.url import make_url
 
 from comet.core.logger import logger
+from comet.observability import metrics
+
+_REPLICA_RETRY_DELAY_SECONDS = 30.0
 
 
 class ReplicaAwareDatabase:
@@ -16,13 +20,14 @@ class ReplicaAwareDatabase:
     def __init__(
         self,
         primary: Database,
-        replicas: Optional[Sequence[Database]] = None,
+        replicas: Sequence[Database] | None = None,
         force_ipv4: bool = False,
     ):
         self._primary = primary
         self._configured_replicas = list(replicas or [])
         self._force_ipv4 = force_ipv4
-        self._active_replicas: List[Database] = []
+        self._active_replicas: list[Database] = []
+        self._replica_retry_after = {}
         self._replica_index = 0
         self._transaction_depth = contextvars.ContextVar(
             "comet_db_replica_tx_depth", default=0
@@ -46,7 +51,7 @@ class ReplicaAwareDatabase:
 
         await self._primary.connect()
 
-        healthy_replicas: List[Database] = []
+        healthy_replicas: list[Database] = []
         for replica in self._configured_replicas:
             try:
                 await replica.connect()
@@ -59,6 +64,7 @@ class ReplicaAwareDatabase:
                 healthy_replicas.append(replica)
 
         self._active_replicas = healthy_replicas
+        self._replica_retry_after.clear()
 
         if self._active_replicas:
             logger.log(
@@ -74,16 +80,48 @@ class ReplicaAwareDatabase:
                 await db.disconnect()
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.log("DATABASE", f"Error disconnecting database: {exc}")
+        self._active_replicas = []
+        self._replica_retry_after.clear()
 
     def transaction(self, *args, **kwargs):
         primary_transaction = self._primary.transaction(*args, **kwargs)
         return _ReplicaAwareTransaction(self, primary_transaction)
 
     async def execute(self, query, values=None, *, force_primary: bool = False):
-        return await self._primary.execute(query, values)
+        return await self._run_primary("execute", query, values)
 
     async def execute_many(self, query, values, *, force_primary: bool = False):
-        return await self._primary.execute_many(query, values)
+        return await self._run_primary("execute_many", query, values)
+
+    async def _run_primary(self, operation: str, *args):
+        if not metrics.enabled:
+            return await getattr(self._primary, operation)(*args)
+        return await self._run_observed(
+            self._primary,
+            operation,
+            "primary",
+            *args,
+        )
+
+    @staticmethod
+    async def _run_observed(target, operation: str, target_name: str, *args):
+        started_at = time.perf_counter()
+        outcome = "success"
+        try:
+            return await getattr(target, operation)(*args)
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        except BaseException:
+            outcome = "error"
+            raise
+        finally:
+            metrics.observe_database(
+                operation,
+                target_name,
+                outcome,
+                time.perf_counter() - started_at,
+            )
 
     async def fetch_all(self, query, values=None, *, force_primary: bool = False):
         return await self._run_read("fetch_all", force_primary, query, values)
@@ -100,20 +138,29 @@ class ReplicaAwareDatabase:
         if explicit_force or self._force_primary_context.get():
             return True
 
-        if not self._active_replicas:
+        if not self._available_replicas():
             return True
 
-        if self._transaction_depth.get() > 0:
-            return True
-
-        return False
+        return self._transaction_depth.get() > 0
 
     def _next_replica(self):
-        replica = self._active_replicas[
-            self._replica_index % len(self._active_replicas)
-        ]
-        self._replica_index = (self._replica_index + 1) % len(self._active_replicas)
+        replicas = self._available_replicas()
+        replica = replicas[self._replica_index % len(replicas)]
+        self._replica_index = (self._replica_index + 1) % len(replicas)
         return replica
+
+    def _available_replicas(self):
+        now = time.monotonic()
+        return [
+            replica
+            for replica in self._active_replicas
+            if self._replica_retry_after.get(replica, 0) <= now
+        ]
+
+    def _deactivate_replica(self, replica):
+        self._replica_retry_after[replica] = (
+            time.monotonic() + _REPLICA_RETRY_DELAY_SECONDS
+        )
 
     async def _run_read(self, method_name: str, force_primary: bool, *args):
         target = (
@@ -122,19 +169,36 @@ class ReplicaAwareDatabase:
             else self._next_replica()
         )
 
-        method = getattr(target, method_name)
+        target_name = "primary" if target is self._primary else "replica"
         try:
-            return await method(*args)
+            return await (
+                self._run_observed(target, method_name, target_name, *args)
+                if metrics.enabled
+                else getattr(target, method_name)(*args)
+            )
         except asyncio.CancelledError:  # pragma: no cover - propagate cancellations
             raise
         except Exception as exc:
             if target is not self._primary and self._primary.is_connected:
+                self._deactivate_replica(target)
+                metrics.observe_database_fallback(method_name)
                 logger.log(
                     "DATABASE",
-                    f"Replica {method_name} failed, retrying on primary: {exc}",
+                    (
+                        f"Replica {method_name} failed and was quarantined; "
+                        f"retrying on primary: {exc}"
+                    ),
                 )
-                fallback = getattr(self._primary, method_name)
-                return await fallback(*args)
+                return await (
+                    self._run_observed(
+                        self._primary,
+                        method_name,
+                        "primary",
+                        *args,
+                    )
+                    if metrics.enabled
+                    else getattr(self._primary, method_name)(*args)
+                )
             raise
 
     @contextmanager
@@ -190,9 +254,10 @@ class _ReplicaAwareTransaction:
         self._token = None
 
     async def __aenter__(self):
+        transaction = await self._transaction_cm.__aenter__()
         current_depth = self._router._transaction_depth.get()
         self._token = self._router._transaction_depth.set(current_depth + 1)
-        return await self._transaction_cm.__aenter__()
+        return transaction
 
     async def __aexit__(self, exc_type, exc, tb):
         try:

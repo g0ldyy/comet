@@ -1,9 +1,12 @@
 import base64
+import math
+from decimal import Decimal
 
 from RTN import ParsedData
 
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.languages import LANGUAGE_EMOJIS
 
 
 def normalize_info_hash(info_hash: str) -> str:
@@ -35,8 +38,13 @@ def normalize_info_hash(info_hash: str) -> str:
 def format_bytes(bytes_value):
     if bytes_value is None:
         return None
-
+    if isinstance(bytes_value, bool) or not isinstance(
+        bytes_value, (int, float, Decimal)
+    ):
+        return None
     bytes_value = float(bytes_value)
+    if not math.isfinite(bytes_value) or bytes_value < 0:
+        return None
 
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if bytes_value < 1024.0:
@@ -48,77 +56,28 @@ def format_bytes(bytes_value):
 def size_to_bytes(size_str: str):
     sizes = ["b", "kb", "mb", "gb", "tb"]
 
-    value, unit = size_str.split()
+    if type(size_str) is not str:
+        return None
+    parts = size_str.split()
+    if len(parts) != 2:
+        return None
+    value, unit = parts
 
-    value = float(value)
+    try:
+        value = float(value)
+    except ValueError:
+        return None
     unit = unit.lower()
 
-    if unit not in sizes:
+    if unit not in sizes or not math.isfinite(value) or value < 0:
         return None
 
     multiplier = 1024 ** sizes.index(unit)
     return int(value * multiplier)
 
 
-languages_emojis = {
-    "multi": "🌎",  # Dubbed
-    "en": "🇬🇧",  # English
-    "ja": "🇯🇵",  # Japanese
-    "zh": "🇨🇳",  # Chinese
-    "ru": "🇷🇺",  # Russian
-    "ar": "🇸🇦",  # Arabic
-    "pt": "🇵🇹",  # Portuguese
-    "es": "🇪🇸",  # Spanish
-    "fr": "🇫🇷",  # French
-    "de": "🇩🇪",  # German
-    "it": "🇮🇹",  # Italian
-    "ko": "🇰🇷",  # Korean
-    "hi": "🇮🇳",  # Hindi
-    "bn": "🇧🇩",  # Bengali
-    "pa": "🇵🇰",  # Punjabi
-    "mr": "🇮🇳",  # Marathi
-    "gu": "🇮🇳",  # Gujarati
-    "ta": "🇮🇳",  # Tamil
-    "te": "🇮🇳",  # Telugu
-    "kn": "🇮🇳",  # Kannada
-    "ml": "🇮🇳",  # Malayalam
-    "th": "🇹🇭",  # Thai
-    "vi": "🇻🇳",  # Vietnamese
-    "id": "🇮🇩",  # Indonesian
-    "tr": "🇹🇷",  # Turkish
-    "he": "🇮🇱",  # Hebrew
-    "fa": "🇮🇷",  # Persian
-    "uk": "🇺🇦",  # Ukrainian
-    "el": "🇬🇷",  # Greek
-    "lt": "🇱🇹",  # Lithuanian
-    "lv": "🇱🇻",  # Latvian
-    "et": "🇪🇪",  # Estonian
-    "pl": "🇵🇱",  # Polish
-    "cs": "🇨🇿",  # Czech
-    "sk": "🇸🇰",  # Slovak
-    "hu": "🇭🇺",  # Hungarian
-    "ro": "🇷🇴",  # Romanian
-    "bg": "🇧🇬",  # Bulgarian
-    "sr": "🇷🇸",  # Serbian
-    "hr": "🇭🇷",  # Croatian
-    "sl": "🇸🇮",  # Slovenian
-    "nl": "🇳🇱",  # Dutch
-    "da": "🇩🇰",  # Danish
-    "fi": "🇫🇮",  # Finnish
-    "sv": "🇸🇪",  # Swedish
-    "no": "🇳🇴",  # Norwegian
-    "ms": "🇲🇾",  # Malay
-    "la": "💃🏻",  # Latino
-}
-
-
 def get_language_emoji(language: str):
-    language_formatted = language.lower()
-    return (
-        languages_emojis[language_formatted]
-        if language_formatted in languages_emojis
-        else language
-    )
+    return LANGUAGE_EMOJIS.get(language.lower(), language)
 
 
 def format_video_info(data: ParsedData):
@@ -189,9 +148,9 @@ def format_quality_info(data: ParsedData):
         quality_parts.append("UPSCALED")
     if hasattr(data, "remastered") and data.remastered:
         quality_parts.append("REMASTERED")
-    if hasattr(data, "directorsCut") and data.directorsCut:
-        quality_parts.append("DIRECTOR'S CUT")
-    elif hasattr(data, "directors_cut") and data.directors_cut:
+    if (hasattr(data, "directorsCut") and data.directorsCut) or (
+        hasattr(data, "directors_cut") and data.directors_cut
+    ):
         quality_parts.append("DIRECTOR'S CUT")
     if hasattr(data, "extended") and data.extended:
         quality_parts.append("EXTENDED")

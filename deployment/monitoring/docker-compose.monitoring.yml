@@ -1,0 +1,65 @@
+services:
+  comet:
+    environment:
+      PROMETHEUS_ENABLED: "true"
+      PROMETHEUS_AUTH_TOKEN_FILE: /run/secrets/comet_metrics_token
+      PROMETHEUS_MULTIPROC_DIR: /tmp/comet-prometheus
+    secrets:
+      - comet_metrics_token
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    secrets:
+      - comet_metrics_token
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    depends_on:
+      comet:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:13.1.1
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+secrets:
+  comet_metrics_token:
+    file: ${PROMETHEUS_AUTH_TOKEN_FILE:?PROMETHEUS_AUTH_TOKEN_FILE must point to a metrics token file}

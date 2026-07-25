@@ -7,13 +7,12 @@ dedicated CometNet standalone service.
 """
 
 import asyncio
-import traceback
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import aiohttp
 
 from comet.cometnet.interface import CometNetBackend
-from comet.core.logger import logger
+from comet.core.logger import censor_url, logger
 
 
 class CometNetRelay(CometNetBackend):
@@ -26,7 +25,7 @@ class CometNetRelay(CometNetBackend):
     """
 
     def __init__(
-        self, relay_url: str, timeout: float = 30.0, api_key: Optional[str] = None
+        self, relay_url: str, timeout: float = 30.0, api_key: str | None = None
     ):
         """
         Initialize the relay client.
@@ -37,13 +36,14 @@ class CometNetRelay(CometNetBackend):
             api_key: Optional API key for authentication
         """
         self.relay_url = relay_url.rstrip("/")
+        self._display_url = censor_url(self.relay_url)
         self.timeout = timeout
         self.api_key = api_key
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._batch: List[Dict] = []
+        self._session: aiohttp.ClientSession | None = None
+        self._batch: list[dict] = []
         self._batch_lock = asyncio.Lock()
-        self._batch_task: Optional[asyncio.Task] = None
-        self._flush_tasks: Set[asyncio.Task] = set()
+        self._flush_event = asyncio.Event()
+        self._batch_task: asyncio.Task | None = None
         self._running = False
 
         self.batch_size = 50
@@ -51,7 +51,7 @@ class CometNetRelay(CometNetBackend):
 
         self._total_relayed = 0
         self._total_errors = 0
-        self._last_error: Optional[str] = None
+        self._last_error: str | None = None
 
     @property
     def running(self) -> bool:
@@ -75,15 +75,14 @@ class CometNetRelay(CometNetBackend):
             headers=headers,
         )
 
+        self._flush_event.clear()
         self._batch_task = asyncio.create_task(self._batch_flush_loop())
 
-        logger.log("COMETNET", f"Relay client started - Target: {self.relay_url}")
+        logger.log("COMETNET", f"Relay client started - Target: {self._display_url}")
 
     async def stop(self):
         """Stop the relay client and flush remaining batch."""
         self._running = False
-
-        await self._flush_batch()
 
         if self._batch_task:
             self._batch_task.cancel()
@@ -91,14 +90,9 @@ class CometNetRelay(CometNetBackend):
                 await self._batch_task
             except asyncio.CancelledError:
                 pass
+            self._batch_task = None
 
-        if self._flush_tasks:
-            for task in list(self._flush_tasks):
-                task.cancel()
-
-            if self._flush_tasks:
-                await asyncio.gather(*self._flush_tasks, return_exceptions=True)
-            self._flush_tasks.clear()
+        await self._flush_batch()
 
         if self._session:
             await self._session.close()
@@ -115,13 +109,13 @@ class CometNetRelay(CometNetBackend):
         title: str,
         size: int,
         tracker: str = "",
-        imdb_id: Optional[str] = None,
-        file_index: Optional[int] = None,
-        seeders: Optional[int] = None,
-        season: Optional[int] = None,
-        episode: Optional[int] = None,
-        sources: Optional[List[str]] = None,
-        parsed: Optional[dict] = None,
+        imdb_id: str | None = None,
+        file_index: int | None = None,
+        seeders: int | None = None,
+        season: int | None = None,
+        episode: int | None = None,
+        sources: list[str] | None = None,
+        parsed: dict | None = None,
     ) -> bool:
         """
         Queue a torrent for relay to the standalone CometNet service.
@@ -146,12 +140,12 @@ class CometNetRelay(CometNetBackend):
         }
 
         async with self._batch_lock:
+            if not self._running:
+                return False
             self._batch.append(torrent_data)
 
             if len(self._batch) >= self.batch_size:
-                task = asyncio.create_task(self._flush_batch())
-                self._flush_tasks.add(task)
-                task.add_done_callback(self._flush_tasks.discard)
+                self._flush_event.set()
 
         return True
 
@@ -159,12 +153,18 @@ class CometNetRelay(CometNetBackend):
         """Periodically flush the batch."""
         while self._running:
             try:
-                await asyncio.sleep(self.batch_interval)
+                try:
+                    await asyncio.wait_for(
+                        self._flush_event.wait(), timeout=self.batch_interval
+                    )
+                except TimeoutError:
+                    pass
+                self._flush_event.clear()
                 await self._flush_batch()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.debug(f"Relay batch flush error: {e}")
+            except Exception as error:
+                logger.debug(f"Relay batch flush error ({type(error).__name__})")
 
     async def _flush_batch(self):
         """Flush the current batch to the CometNet service."""
@@ -176,6 +176,8 @@ class CometNetRelay(CometNetBackend):
             self._batch = []
 
         if not self._session:
+            async with self._batch_lock:
+                self._batch = batch_to_send + self._batch
             return
 
         try:
@@ -183,18 +185,21 @@ class CometNetRelay(CometNetBackend):
                 await self._send_single(batch_to_send[0])
             else:
                 await self._send_batch(batch_to_send)
-        except asyncio.TimeoutError:
+        except asyncio.CancelledError:
+            async with self._batch_lock:
+                self._batch = batch_to_send + self._batch
+            raise
+        except TimeoutError:
             self._total_errors += len(batch_to_send)
             logger.warning(
                 f"Relay batch send timed out after {self.timeout}s - "
                 f"Remote is likely overloaded ({len(batch_to_send)} torrents dropped)"
             )
-        except Exception as e:
+        except Exception as error:
             self._total_errors += len(batch_to_send)
-            logger.debug(f"Relay batch send failed: {e}")
-            logger.debug(traceback.format_exc())
+            logger.debug(f"Relay batch send failed ({type(error).__name__})")
 
-    async def _send_single(self, torrent: Dict) -> bool:
+    async def _send_single(self, torrent: dict) -> bool:
         """Send a single torrent to the relay."""
         try:
             async with self._session.post(
@@ -205,21 +210,24 @@ class CometNetRelay(CometNetBackend):
                     self._total_relayed += 1
                     logger.log(
                         "COMETNET",
-                        f"Relayed torrent {torrent['info_hash']} to {self.relay_url}",
+                        f"Relayed torrent {torrent['info_hash']} to {self._display_url}",
                     )
                     return True
                 else:
                     self._total_errors += 1
                     logger.warning(
-                        f"Relay returned {response.status} from {self.relay_url}"
+                        f"Relay returned {response.status} from {self._display_url}"
                     )
                     return False
-        except aiohttp.ClientError as e:
+        except aiohttp.ClientError as error:
             self._total_errors += 1
-            logger.warning(f"Relay connection error to {self.relay_url}: {e}")
+            logger.warning(
+                f"Relay connection error to {self._display_url} "
+                f"({type(error).__name__})"
+            )
             return False
 
-    async def _send_batch(self, torrents: List[Dict]) -> int:
+    async def _send_batch(self, torrents: list[dict]) -> int:
         """Send a batch of torrents to the relay. Returns number successfully queued."""
         try:
             async with self._session.post(
@@ -228,24 +236,42 @@ class CometNetRelay(CometNetBackend):
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    queued = data.get("queued", 0)
-                    errors = len(data.get("errors", []))
+                    if not isinstance(data, dict) or data.get("status") != "completed":
+                        raise ValueError("Invalid relay batch response")
+                    queued = data.get("queued")
+                    errors_data = data.get("errors")
+                    total = data.get("total")
+                    if (
+                        isinstance(queued, bool)
+                        or not isinstance(queued, int)
+                        or queued < 0
+                        or isinstance(total, bool)
+                        or not isinstance(total, int)
+                        or total != len(torrents)
+                        or not isinstance(errors_data, list)
+                        or queued + len(errors_data) != total
+                    ):
+                        raise ValueError("Invalid relay batch response")
+                    errors = len(errors_data)
                     self._total_relayed += queued
                     self._total_errors += errors
                     logger.log(
                         "COMETNET",
-                        f"Relayed batch of {queued} torrents to {self.relay_url}",
+                        f"Relayed batch of {queued} torrents to {self._display_url}",
                     )
                     return queued
                 else:
                     self._total_errors += len(torrents)
                     logger.warning(
-                        f"Relay batch returned {response.status} from {self.relay_url}"
+                        f"Relay batch returned {response.status} from {self._display_url}"
                     )
                     return 0
-        except aiohttp.ClientError as e:
+        except aiohttp.ClientError as error:
             self._total_errors += len(torrents)
-            logger.warning(f"Relay batch connection error to {self.relay_url}: {e}")
+            logger.warning(
+                f"Relay batch connection error to {self._display_url} "
+                f"({type(error).__name__})"
+            )
             return 0
 
     async def health_check(self) -> bool:
@@ -262,11 +288,11 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_stats(self) -> Dict:
+    async def get_stats(self) -> dict:
         """Get relay statistics (merges remote stats with local relay stats)."""
         remote_stats = await self.fetch_remote_stats() or {}
         local_stats = {
-            "relay_url": self.relay_url,
+            "relay_url": self._display_url,
             "running": self._running,
             "total_relayed": self._total_relayed,
             "total_errors": self._total_errors,
@@ -277,7 +303,7 @@ class CometNetRelay(CometNetBackend):
         remote_stats["relay"] = local_stats
         return remote_stats
 
-    async def fetch_remote_stats(self) -> Optional[Dict]:
+    async def fetch_remote_stats(self) -> dict | None:
         """Fetch stats from the remote CometNet standalone service."""
         if not self._session or not self._running:
             return None
@@ -294,27 +320,12 @@ class CometNetRelay(CometNetBackend):
                 else:
                     self._last_error = f"Remote error: {response.status}"
                 return None
-        except Exception as e:
-            self._last_error = f"Connection failed: {str(e)}"
-            logger.debug(f"Failed to fetch remote stats: {e}")
+        except Exception as error:
+            self._last_error = f"Connection failed ({type(error).__name__})"
+            logger.debug(f"Failed to fetch remote stats ({type(error).__name__})")
             return None
 
-    async def fetch_remote_pools(self) -> Optional[Dict]:
-        """Fetch pools from the remote CometNet standalone service."""
-        if not self._session or not self._running:
-            return None
-
-        try:
-            async with self._session.get(f"{self.relay_url}/pools") as response:
-                if response.status == 200:
-                    return await response.json()
-                # Pools endpoint might not exist on older standalone versions
-                return {"pools": {}, "memberships": [], "subscriptions": []}
-        except Exception:
-            # Return empty pools if not available
-            return {"pools": {}, "memberships": [], "subscriptions": []}
-
-    async def get_peers(self) -> Dict[str, Any]:
+    async def get_peers(self) -> dict[str, Any]:
         """Get peers from the remote CometNet standalone service."""
         if not self._session or not self._running:
             return {"peers": [], "count": 0}
@@ -330,8 +341,8 @@ class CometNetRelay(CometNetBackend):
     # --- Pool Management (proxied to standalone) ---
 
     async def _pool_request(
-        self, method: str, path: str, json_data: Optional[Dict] = None
-    ) -> Dict:
+        self, method: str, path: str, json_data: dict | None = None
+    ) -> dict:
         """Make a pool management request to the standalone service."""
         if not self._session or not self._running:
             raise RuntimeError("Relay not running")
@@ -352,11 +363,11 @@ class CometNetRelay(CometNetBackend):
                     return await self._handle_pool_response(response)
             else:
                 raise ValueError(f"Unsupported method: {method}")
-        except aiohttp.ClientError as e:
-            logger.warning(f"Pool request failed: {e}")
-            raise RuntimeError(f"Failed to connect to standalone: {e}")
+        except aiohttp.ClientError as error:
+            logger.warning(f"Pool request failed ({type(error).__name__})")
+            raise RuntimeError("Failed to connect to standalone") from error
 
-    async def _handle_pool_response(self, response) -> Dict:
+    async def _handle_pool_response(self, response) -> dict:
         """Handle response from standalone pool endpoints."""
         if response.status == 200:
             return await response.json()
@@ -376,7 +387,7 @@ class CometNetRelay(CometNetBackend):
         display_name: str,
         description: str = "",
         join_mode: str = "invite",
-    ) -> Dict:
+    ) -> dict:
         """Create a pool on the standalone service."""
         return await self._pool_request(
             "POST",
@@ -397,13 +408,20 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_pools(self) -> Dict:
+    async def get_pools(self) -> dict:
         """Get pools from the standalone service."""
-        pools = await self.fetch_remote_pools()
-        return pools if pools else {"pools": {}, "memberships": [], "subscriptions": []}
+        pools = await self._pool_request("GET", "/pools")
+        if (
+            not isinstance(pools, dict)
+            or not isinstance(pools.get("pools"), dict)
+            or not isinstance(pools.get("memberships"), list)
+            or not isinstance(pools.get("subscriptions"), list)
+        ):
+            raise ValueError("Invalid pools response from standalone")
+        return pools
 
     async def join_pool_with_invite(
-        self, pool_id: str, invite_code: str, node_url: Optional[str] = None
+        self, pool_id: str, invite_code: str, node_url: str | None = None
     ) -> bool:
         """Join a pool using an invite code."""
         try:
@@ -419,9 +437,9 @@ class CometNetRelay(CometNetBackend):
     async def create_pool_invite(
         self,
         pool_id: str,
-        expires_in: Optional[int] = None,
-        max_uses: Optional[int] = None,
-    ) -> Optional[str]:
+        expires_in: int | None = None,
+        max_uses: int | None = None,
+    ) -> str | None:
         """Create an invite for a pool."""
         try:
             result = await self._pool_request(
@@ -443,7 +461,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_pool_invites(self, pool_id: str) -> Dict[str, Any]:
+    async def get_pool_invites(self, pool_id: str) -> dict[str, Any]:
         """Get active invites for a pool."""
         try:
             return await self._pool_request("GET", f"/pools/{pool_id}/invites")
@@ -488,7 +506,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def get_pool_details(self, pool_id: str) -> Optional[Dict]:
+    async def get_pool_details(self, pool_id: str) -> dict | None:
         """Get detailed information about a pool including all members."""
         try:
             return await self._pool_request("GET", f"/pools/{pool_id}")
@@ -525,7 +543,7 @@ class CometNetRelay(CometNetBackend):
         except Exception:
             return False
 
-    async def broadcast_torrents(self, metadata_list: List[Any]) -> None:
+    async def broadcast_torrents(self, metadata_list: list[Any]) -> None:
         """Broadcast multiple torrents to the network (via relay)."""
         if not self._running:
             return
@@ -562,27 +580,27 @@ class CometNetRelay(CometNetBackend):
             return
 
         async with self._batch_lock:
+            if not self._running:
+                return
             self._batch.extend(batch_data)
 
             if len(self._batch) >= self.batch_size:
-                task = asyncio.create_task(self._flush_batch())
-                self._flush_tasks.add(task)
-                task.add_done_callback(self._flush_tasks.discard)
+                self._flush_event.set()
 
     async def broadcast_torrent(self, metadata) -> None:
         """Broadcast a torrent to the network (via relay)."""
         await self.broadcast_torrents([metadata])
 
 
-_relay_instance: Optional[CometNetRelay] = None
+_relay_instance: CometNetRelay | None = None
 
 
-def get_relay() -> Optional[CometNetRelay]:
+def get_relay() -> CometNetRelay | None:
     """Get the global relay instance."""
     return _relay_instance
 
 
-async def init_relay(relay_url: str, api_key: Optional[str] = None) -> CometNetRelay:
+async def init_relay(relay_url: str, api_key: str | None = None) -> CometNetRelay:
     """Initialize the global relay instance."""
     global _relay_instance
 

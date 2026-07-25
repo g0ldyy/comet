@@ -57,7 +57,14 @@ Behavior:
 
 5. Scrapers/indexers
 - `SCRAPE_*` flags and related URL/API key variables
+- `LIVE_SCRAPE_TIMEOUT`, `BACKGROUND_SCRAPE_TIMEOUT`
+- `SCRAPER_TIMEOUT_OVERRIDES`
 - Jackett/Prowlarr indexer manager settings
+- `INDEXER_INCLUDE_CANONICAL_TITLE`: includes Comet's canonical metadata title. Defaults to `True`.
+- `INDEXER_INCLUDE_ORIGINAL_TITLE`: includes one original TMDB or anime-mapping title. Defaults to `True`.
+- `INDEXER_LANGUAGES`: includes at most one TMDB title per configured ISO 639-1 language. Defaults to `[]`.
+
+These sources are independent and apply to every title-based scraper. Latin diacritics are removed from search titles for broader indexer compatibility, while non-Latin writing systems are preserved. Equivalent titles are deduplicated, and Comet safely falls back to the canonical title if the selected sources produce no usable title.
 
 6. Background jobs
 - `BACKGROUND_SCRAPER_*`
@@ -66,6 +73,12 @@ Behavior:
 
 7. CometNet
 - `COMETNET_*` (documented separately in `docs/cometnet/`)
+
+8. Observability
+- `PROMETHEUS_ENABLED`, `PROMETHEUS_PATH`
+- `PROMETHEUS_AUTH_TOKEN`, `PROMETHEUS_AUTH_TOKEN_FILE`
+- `PROMETHEUS_MULTIPROC_DIR`
+- Full setup and metric catalog: [Prometheus and Grafana Observability](07-observability.md)
 
 ## Backward-Compatibility Settings
 

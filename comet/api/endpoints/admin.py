@@ -12,20 +12,30 @@ from comet.core.logger import log_capture, logger
 from comet.core.models import database, settings
 from comet.services.bandwidth import bandwidth_monitor
 from comet.utils.formatting import format_bytes
-from comet.utils.signed_session import (derive_session_secret,
-                                        encode_signed_session,
-                                        verify_signed_session)
+from comet.utils.signed_session import (
+    derive_session_secret,
+    encode_signed_session,
+    verify_signed_session,
+)
 from comet.utils.update import UpdateManager
 
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
 background_scraper_start_lock = asyncio.Lock()
 ADMIN_SESSION_COOKIE = "admin_session"
-ADMIN_SESSION_TTL = max(60, settings.ADMIN_DASHBOARD_SESSION_TTL)
+ADMIN_SESSION_TTL = settings.ADMIN_DASHBOARD_SESSION_TTL
 ADMIN_SESSION_SECRET = derive_session_secret(
     settings.ADMIN_DASHBOARD_PASSWORD,
     "admin-dashboard",
 )
+
+
+def _decode_cached_metrics(value):
+    try:
+        payload = orjson.loads(value)
+    except (TypeError, orjson.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _handle_background_scraper_task_done(task: asyncio.Task):
@@ -76,7 +86,7 @@ async def admin_root(
 ):
     if verify_admin_session(admin_session):
         return RedirectResponse("/admin/dashboard")
-    return templates.TemplateResponse("admin_login.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="admin_login.html")
 
 
 @router.post(
@@ -92,7 +102,9 @@ async def admin_login(
 
     if not is_correct:
         return templates.TemplateResponse(
-            "admin_login.html", {"request": request, "error": "Invalid password"}
+            request=request,
+            name="admin_login.html",
+            context={"error": "Invalid password"},
         )
 
     session_token = create_admin_session()
@@ -134,9 +146,9 @@ async def admin_dashboard(
     try:
         require_admin_auth(admin_session)
         return templates.TemplateResponse(
-            "admin_dashboard.html",
-            {
-                "request": request,
+            request=request,
+            name="admin_dashboard.html",
+            context={
                 "version_info": UpdateManager.get_version_info(),
                 "background_scraper_interval": max(
                     1, settings.BACKGROUND_SCRAPER_INTERVAL
@@ -288,11 +300,15 @@ async def admin_api_metrics(
     cached_metrics = await database.fetch_one(
         "SELECT payload_json, refreshed_at FROM metrics_cache WHERE id = 1"
     )
-    if (
-        cached_metrics
-        and cached_metrics["refreshed_at"] + settings.METRICS_CACHE_TTL > current_time
-    ):
-        return JSONResponse(orjson.loads(cached_metrics["payload_json"]))
+    if cached_metrics:
+        refreshed_at = cached_metrics["refreshed_at"]
+        if (
+            isinstance(refreshed_at, (int, float))
+            and refreshed_at + settings.METRICS_CACHE_TTL > current_time
+        ):
+            cached_payload = _decode_cached_metrics(cached_metrics["payload_json"])
+            if cached_payload is not None:
+                return JSONResponse(cached_payload)
 
     # 📊 TORRENTS METRICS
     total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
@@ -542,6 +558,62 @@ async def admin_background_scraper_stop(
     require_admin_auth(admin_session)
     await background_scraper.stop()
     return JSONResponse({"success": True, "message": "Background scraper stopped"})
+
+
+@router.post(
+    "/admin/api/background-scraper/drain",
+    tags=["Admin"],
+    summary="Stop Background Scraper After Current Run",
+    description=(
+        "Lets the active background scrape run finish, then stops the orchestrator "
+        "before another run starts. Stops immediately when no run is active."
+    ),
+)
+async def admin_background_scraper_drain(
+    admin_session: str = Cookie(None, description="Admin session token"),
+):
+    require_admin_auth(admin_session)
+    if not background_scraper.is_running:
+        return JSONResponse(
+            {
+                "success": True,
+                "state": "stopped",
+                "message": "Background scraper is already stopped",
+            }
+        )
+
+    scheduled = await background_scraper.drain()
+    if scheduled:
+        state = "scheduled"
+        message = "Background scraper will stop after the current run"
+    else:
+        state = "stopped"
+        message = "Background scraper stopped; no run was active"
+    return JSONResponse({"success": True, "state": state, "message": message})
+
+
+@router.delete(
+    "/admin/api/background-scraper/drain",
+    tags=["Admin"],
+    summary="Cancel Scheduled Background Scraper Stop",
+    description="Cancels a pending stop-after-current-run request.",
+)
+async def admin_background_scraper_cancel_drain(
+    admin_session: str = Cookie(None, description="Admin session token"),
+):
+    require_admin_auth(admin_session)
+    cancelled = background_scraper.cancel_drain()
+    return JSONResponse(
+        {
+            "success": True,
+            "state": "running" if cancelled else "unchanged",
+            "message": (
+                "Scheduled background scraper stop cancelled"
+                if cancelled
+                else "No scheduled background scraper stop"
+            ),
+        }
+    )
 
 
 @router.post(
