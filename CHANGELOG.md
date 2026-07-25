@@ -2,6 +2,14 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.56.0](https://github.com/g0ldyy/comet/compare/v2.55.0...v2.56.0) (2026-07-25)
+
+
+### Features
+
+* **discovery:** optimize peer validation process and enhance snapsho… ([28d4371](https://github.com/g0ldyy/comet/commit/28d4371e5e1526a7d192d0549a5f2fa4c5600918))
+* **discovery:** optimize peer validation process and enhance snapshot handling during discovery updates ([fc92860](https://github.com/g0ldyy/comet/commit/fc92860906fa994d9391e34df9117cce1087ca4b))
+
 ## [2.55.0](https://github.com/g0ldyy/comet/compare/v2.54.2...v2.55.0) (2026-07-25)
 
 
