@@ -402,7 +402,7 @@ async def search_media(
     episode = metadata["episode"]
 
     log_title = f"({media_id}) {title}"
-    if media_type == "series" and episode is not None:
+    if media_type == "series" and season is not None and episode is not None:
         log_title += f" S{season:02d}E{episode:02d}"
     logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
 
