@@ -61,6 +61,7 @@ def _extract_title_match(
     if not isinstance(payload, dict) or not isinstance(payload.get("d"), list):
         return None
 
+    nearest_match = None
     for element in payload["d"]:
         if not isinstance(element, dict):
             continue
@@ -73,11 +74,15 @@ def _extract_title_match(
         ):
             continue
         candidate_year = parse_year(element.get("y"))
-        if year is not None and candidate_year != year:
+        match = ImdbTitleMatch(imdb_id, candidate_type, candidate_year)
+        if year is None or candidate_year == year:
+            return match
+        if candidate_year is None or abs(candidate_year - year) > 1:
             continue
-        return ImdbTitleMatch(imdb_id, candidate_type, candidate_year)
+        if nearest_match is None:
+            nearest_match = match
 
-    return None
+    return nearest_match
 
 
 async def resolve_imdb_title(
