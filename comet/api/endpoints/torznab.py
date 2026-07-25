@@ -447,9 +447,15 @@ def _torrent_trackers(torrent: dict) -> list[str]:
 
 
 def build_magnet(info_hash: str, title: str, torrent: dict) -> str:
-    parameters = [("xt", f"urn:btih:{info_hash}"), ("dn", _clean_xml(title))]
+    xt = urlencode(
+        [("xt", f"urn:btih:{info_hash}")],
+        quote_via=quote,
+        safe=":",
+    )
+    parameters = [("dn", _clean_xml(title))]
     parameters.extend(("tr", tracker) for tracker in _torrent_trackers(torrent))
-    return "magnet:?" + urlencode(parameters, doseq=True, quote_via=quote)
+    encoded_parameters = urlencode(parameters, doseq=True, quote_via=quote)
+    return f"magnet:?{xt}&{encoded_parameters}"
 
 
 def _pub_date(value: object, fallback_timestamp: float) -> str:
@@ -475,23 +481,16 @@ def _add_torznab_attribute(item: ET.Element, name: str, value: object) -> None:
     )
 
 
-def _serializable_items(
+def _serializable_torrents(
     result: MediaSearchResult,
-    media_type: str,
-    request_timestamp: float,
-) -> list[ET.Element]:
-    items = []
-    imdb_digits = result.media_only_id.removeprefix("tt")
-    category_id = "2000" if media_type == "movie" else "5000"
-    category_name = "Movies" if media_type == "movie" else "TV"
-
+) -> list[tuple[str, dict, str]]:
+    serializable = []
     for raw_info_hash in result.ranked_info_hashes:
         if (
             not isinstance(raw_info_hash, str)
             or _INFO_HASH.fullmatch(raw_info_hash) is None
         ):
             continue
-        info_hash = raw_info_hash.lower()
         torrent = result.torrents.get(raw_info_hash)
         if not isinstance(torrent, dict):
             continue
@@ -499,9 +498,23 @@ def _serializable_items(
         if not isinstance(raw_title, str) or not raw_title:
             continue
         title = _clean_xml(raw_title)
-        if not title:
-            continue
+        if title:
+            serializable.append((raw_info_hash.lower(), torrent, title))
+    return serializable
 
+
+def _serialize_items(
+    result: MediaSearchResult,
+    media_type: str,
+    request_timestamp: float,
+    candidates: list[tuple[str, dict, str]],
+) -> list[ET.Element]:
+    items = []
+    imdb_digits = result.media_only_id.removeprefix("tt")
+    category_id = "2000" if media_type == "movie" else "5000"
+    category_name = "Movies" if media_type == "movie" else "TV"
+
+    for info_hash, torrent, title in candidates:
         raw_size = torrent.get("size")
         size = (
             raw_size
@@ -576,13 +589,22 @@ def serialize_feed(
     request_timestamp: float | None = None,
 ) -> tuple[bytes, int, int]:
     timestamp = request_timestamp if request_timestamp is not None else time.time()
-    items = (
-        _serializable_items(result, media_type, timestamp)
+    candidates = (
+        _serializable_torrents(result)
         if result is not None and media_type is not None
         else []
     )
-    total = len(items)
-    page = items[offset : offset + limit]
+    total = len(candidates)
+    page = (
+        _serialize_items(
+            result,
+            media_type,
+            timestamp,
+            candidates[offset : offset + limit],
+        )
+        if result is not None and media_type is not None
+        else []
+    )
 
     rss = ET.Element(
         "rss",
