@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from RTN import DefaultRanking, ParsedData
 
@@ -106,6 +107,7 @@ class TorrentManager:
         self.ready_to_cache = []
         self.ranked_torrents = {}
         self.primary_cached = False
+        self.live_result_timestamp = time.time()
 
     def _matches_requested_scope(
         self,
@@ -176,6 +178,7 @@ class TorrentManager:
                 "tracker": torrent["tracker"],
                 "sources": torrent["sources"],
                 "parsed": torrent["parsed"],
+                "updatedAt": self.live_result_timestamp,
             }
 
     async def _fetch_cached_rows(self, media_id: str):
@@ -272,6 +275,7 @@ class TorrentManager:
                 "tracker": row["tracker"],
                 "sources": load_cached_string_list(row["sources_json"]),
                 "parsed": parsed_data,
+                "updatedAt": row["updated_at"],
             }
 
     def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):

@@ -29,6 +29,25 @@ Examples:
 - `GET /{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}?torrent_name={torrent_name}&name={name}`
 - `GET /{b64config}/debrid-sync/{service_index}`
 
+## Torznab
+
+The complete endpoint is `https://host[/s/token]/torznab/api`. It exposes the
+Movies and TV categories and supports text, IMDb, season, and episode searches.
+Capabilities can be checked with `GET /torznab/api?t=caps`.
+
+For a Generic Torznab indexer in Prowlarr:
+
+- set the base URL to `https://host[/s/token]/torznab`;
+- keep the API Path as `/api`;
+- leave the API key empty.
+
+Do not include `/api` in both the base URL and API Path. Clients that request a
+single complete endpoint should use `https://host[/s/token]/torznab/api`.
+
+On a completely new instance, perform one successful media search in Comet
+before adding the indexer. This warm-up is only needed when the instance has
+never produced a real torrent result for any media.
+
 ## ChillLink
 
 - `GET /manifest`

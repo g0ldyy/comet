@@ -43,3 +43,6 @@ ignore = ["BLE001", "S110", "S112", "SIM117", "TRY004"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -3,10 +3,10 @@ import unittest
 from typing import ClassVar
 from unittest.mock import patch
 
-from comet.api.endpoints.stream import (
-    _select_debrid_refresh_hashes,
+from comet.services.media_search import (
     check_multi_service_availability,
     get_and_cache_multi_service_availability,
+    select_debrid_refresh_hashes,
 )
 from comet.debrid.exceptions import DebridAuthError
 from comet.utils.parsing import MediaScope
@@ -71,10 +71,10 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         new_hash = "b" * 40
 
         with patch(
-            "comet.api.endpoints.stream.settings.DEBRID_CACHE_CHECK_RATIO",
+            "comet.services.media_search.settings.DEBRID_CACHE_CHECK_RATIO",
             0.0,
         ):
-            selected = _select_debrid_refresh_hashes(
+            selected = select_debrid_refresh_hashes(
                 {old_hash, new_hash},
                 {old_hash},
                 {old_hash: {"torbox": True}},
@@ -103,7 +103,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         _SelectiveDebridService.checked_hashes = {}
 
         with patch(
-            "comet.api.endpoints.stream.DebridService",
+            "comet.services.media_search.DebridService",
             new=_SelectiveDebridService,
         ):
             await get_and_cache_multi_service_availability(
@@ -134,7 +134,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch(
-            "comet.api.endpoints.stream.DebridService",
+            "comet.services.media_search.DebridService",
             new=_DebridService,
         ):
             status = await check_multi_service_availability(
@@ -161,7 +161,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch(
-            "comet.api.endpoints.stream.DebridService",
+            "comet.services.media_search.DebridService",
             new=_DebridService,
         ):
             status, errors = await get_and_cache_multi_service_availability(
@@ -199,7 +199,7 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         _CredentialDebridService.attempts = []
 
         with patch(
-            "comet.api.endpoints.stream.DebridService",
+            "comet.services.media_search.DebridService",
             new=_CredentialDebridService,
         ):
             status, errors = await get_and_cache_multi_service_availability(
