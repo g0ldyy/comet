@@ -11,6 +11,7 @@
 # Features
 - **CometNet**: Decentralized P2P network for automatic torrent metadata sharing ([documentation](docs/cometnet/README.md))
 - **Kodi Support**: Dedicated official add-on with automatic updates ([documentation](kodi/README.md))
+- **Torznab Support**: Official Prowlarr, Sonarr, Radarr, and Jackett integration ([documentation](docs/integrations/torznab.md))
 - Proxy Debrid Streams to allow simultaneous use on multiple IPs!
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
