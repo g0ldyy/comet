@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comet - Kodi Repository</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6b6ef8;
+            --primary-light: #8b8dfa;
+            --bg: #0c0d13;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --text: #ffffff;
+            --text-dim: rgba(255, 255, 255, 0.6);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(107, 110, 248, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(107, 110, 248, 0.1) 0px, transparent 50%);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100dvh;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 440px;
+            text-align: center;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo-wrapper {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 32px;
+        }
+
+        .logo-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120%;
+            height: 120%;
+            background: var(--primary);
+            filter: blur(30px);
+            opacity: 0.3;
+            z-index: -1;
+            border-radius: 50%;
+        }
+
+        .logo {
+            width: 100px;
+            height: 100px;
+            border-radius: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -1px;
+            background: linear-gradient(to bottom, #fff, #bbb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .tagline {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+            margin: 12px 0 40px;
+            font-weight: 400;
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 24px;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: scale(1.02);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--primary-light);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .card:active {
+            transform: scale(0.98);
+        }
+
+        .card-info {
+            text-align: left;
+        }
+
+        .card-name {
+            display: block;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .card-desc {
+            display: block;
+            font-size: 0.9rem;
+            color: var(--text-dim);
+        }
+
+        .badge {
+            background: var(--primary);
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(107, 110, 248, 0.3);
+        }
+
+        .footer {
+            margin-top: 60px;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.2);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        @media (max-width: 400px) {
+            h1 { font-size: 2rem; }
+            .container { padding: 0 8px; }
+            .card { padding: 20px; }
+        }
+    </style>
+</head>
+<body style="margin: 0;">
+    <div style="display: none !important; opacity: 0; position: absolute; z-index: -100;">
+        <a href="plugin.video.comet/plugin.video.comet-1.0.2.zip">plugin.video.comet/plugin.video.comet-1.0.2.zip</a>
+        <a href="repository.comet/repository.comet-1.0.0.zip">repository.comet/repository.comet-1.0.0.zip</a>
+    </div>
+
+    <div class="container">
+        <div class="logo-wrapper">
+            <div class="logo-glow"></div>
+            <img src="https://raw.githubusercontent.com/g0ldyy/comet/refs/heads/main/comet/assets/icon.png" alt="Comet" class="logo">
+        </div>
+        
+        <h1>Comet</h1>
+        <p class="tagline">Kodi Repository & Add-on</p>
+
+        <div class="grid">
+            <a href="plugin.video.comet/plugin.video.comet-1.0.2.zip" class="card">
+                <div class="card-info">
+                    <span class="card-name">Comet Add-on</span>
+                    <span class="card-desc">Video Plugin</span>
+                </div>
+                <div class="badge">v1.0.2</div>
+            </a>
+
+            <a href="repository.comet/repository.comet-1.0.0.zip" class="card">
+                <div class="card-info">
+                    <span class="card-name">Comet Repository</span>
+                    <span class="card-desc">Auto-updates</span>
+                </div>
+                <div class="badge">v1.0.0</div>
+            </a>
+        </div>
+
+        <div class="footer">
+            Designed for Kodi
+        </div>
+    </div>
+</body>
+</html>

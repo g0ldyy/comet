@@ -1,0 +1,38 @@
+<?xml version='1.0' encoding='utf-8'?>
+<addons><addon id="plugin.video.comet" version="1.0.2" name="Comet" provider-name="Goldy">
+    <requires>
+        <import addon="xbmc.python" version="3.0.1" />
+        <import addon="xbmc.metadata" version="2.1.0" />
+        <import addon="script.module.requests" version="2.31.0" />
+        <import addon="plugin.video.elementum" version="0.1.112" optional="true" />
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="main.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en_GB">Comet add-on for Kodi</summary>
+        <description lang="en_GB">Kodi's fastest torrent/debrid search add-on.</description>
+        <platform>all</platform>
+        <assets>
+            <icon>resources/icon.png</icon>
+            <fanart>resources/fanart.png</fanart>
+        </assets>
+    </extension>
+</addon><addon id="repository.comet" version="1.0.0" name="Comet Repository" provider-name="Goldy">
+    <extension point="xbmc.addon.repository" name="Comet Repository">
+        <dir>
+            <info compressed="false">https://g0ldyy.github.io/comet/addons.xml</info>
+            <checksum>https://g0ldyy.github.io/comet/addons.xml.md5</checksum>
+            <datadir zip="true">https://g0ldyy.github.io/comet/</datadir>
+        </dir>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary>Comet Repository</summary>
+        <description>Repository for the Comet Kodi add-on</description>
+        <platform>all</platform>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.png</fanart>
+        </assets>
+    </extension>
+</addon></addons>
