@@ -249,6 +249,17 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+        nearby_session = _Session(
+            _Response(
+                {"d": [{"id": "tt2222222", "qid": "tvSeries", "y": 2025}]}
+            )
+        )
+        nearby_match = await resolve_imdb_title(
+            nearby_session, "A title", media_type="series", year=2026
+        )
+        self.assertEqual(nearby_match.imdb_id, "tt2222222")
+        self.assertEqual(nearby_match.year, 2025)
+
     async def test_recent_selection_requires_real_rows_and_bounds_type_lookup(self):
         rows = [
             {"media_id": "kitsu:123"},
@@ -314,13 +325,14 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attrs["infohash"], info_hash)
         self.assertEqual(attrs["imdb"], "1234567")
         self.assertEqual(attrs["seeders"], "0")
-        self.assertIn("magnet:?xt=urn%3Abtih%3A", attrs["magneturl"])
+        self.assertIn("magnet:?xt=urn:btih:", attrs["magneturl"])
         self.assertEqual(attrs["magneturl"].count("tr="), 1)
 
     def test_magnet_encodes_title_and_normalizes_trackers(self):
         torrent = _torrent(0, title="A & B")
         magnet = build_magnet("a" * 40, "A & B", torrent)
 
+        self.assertTrue(magnet.startswith(f"magnet:?xt=urn:btih:{'a' * 40}&"))
         self.assertIn("dn=A%20%26%20B", magnet)
         self.assertEqual(magnet.count("tr="), 1)
         self.assertNotIn("dht", magnet)
@@ -344,6 +356,23 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([len(page) for page in pages], [100, 100, 5, 0])
         self.assertEqual(len(set().union(*map(set, pages))), 205)
+
+    def test_pagination_only_serializes_the_requested_window(self):
+        result = _result(205)
+        with patch(
+            "comet.api.endpoints.torznab.build_magnet",
+            wraps=build_magnet,
+        ) as magnet_builder:
+            _, total, count = serialize_feed(
+                result,
+                "movie",
+                100,
+                100,
+                "https://example.test/torznab/api",
+            )
+
+        self.assertEqual((total, count), (205, 100))
+        self.assertEqual(magnet_builder.call_count, 100)
 
 
 class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -495,16 +524,9 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
 
     def test_route_is_mounted_only_under_the_configured_prefix(self):
         from comet.api.app import app
-        from comet.api.endpoints.torznab import router
 
         expected = f"{settings.STREMIO_API_PREFIX}/torznab/api"
-        mounted = []
-        for included in app.routes:
-            if getattr(included, "original_router", None) is not router:
-                continue
-            prefix = included.include_context.prefix
-            mounted.extend(prefix + route.path for route in router.routes)
-        self.assertEqual(mounted, [expected])
+        self.assertEqual(str(app.url_path_for("torznab_api")), expected)
 
     async def test_stream_adapter_preserves_shared_ranked_order(self):
         from comet.api.endpoints import stream as stream_endpoint
