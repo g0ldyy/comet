@@ -2,6 +2,61 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.55.0](https://github.com/g0ldyy/comet/compare/v2.54.2...v2.55.0) (2026-07-25)
+
+
+### Features
+
+* add INDEXER_LANGUAGES setting for multi-language title support ([426a74b](https://github.com/g0ldyy/comet/commit/426a74b8d68c45179cfef8d19b9bd2ade66ca113))
+* **background-scraper:** add graceful stop after current run ([ed9403d](https://github.com/g0ldyy/comet/commit/ed9403d829d12995e1df2165ff59d3a86360f6f0))
+* **background-scraper:** add graceful stop after current run ([afa3de2](https://github.com/g0ldyy/comet/commit/afa3de2e4f60d10266cd3d9daa7cb7b5bfb7140c))
+* **background-scraper:** enhance drain endpoint for graceful stop and idempotency ([e391e10](https://github.com/g0ldyy/comet/commit/e391e10f247157289850ec313ea19099cfcd7f2b))
+* **dependencies:** add dev dependency group for pytest ([a78841e](https://github.com/g0ldyy/comet/commit/a78841e68d465b2bcf88a9085b2851d3ea4dd24c))
+* **docker:** update Dockerfile to use slim images and improve package installation ([403b1dc](https://github.com/g0ldyy/comet/commit/403b1dc1fe8fc299e010385b1ed0945def0177ab))
+* enhance debrid account cleanup with provider filtering and anime type resolution ([d2b2a77](https://github.com/g0ldyy/comet/commit/d2b2a77618277c3dd573c08bd1636bd678da9695))
+* enhance indexer title search with canonical and original title options ([52c51fd](https://github.com/g0ldyy/comet/commit/52c51fd6243cfa93a8670bb255b253682de0e81a))
+* **healthcheck:** implement healthcheck module and update Dockerfile for healthcheck command ([be7e691](https://github.com/g0ldyy/comet/commit/be7e6911282ecf6ed611687c70279f52701d4820))
+* **imdb:** enhance title matching to return nearest match for year ([1e5874e](https://github.com/g0ldyy/comet/commit/1e5874ea755eda1969cdf9677ea133612f5a21c1))
+* implement debrid account cache cleanup functionality and related migrations ([1278146](https://github.com/g0ldyy/comet/commit/1278146bd3a85935f8288a2c529544131a07f5ae))
+* **media_search:** refine logging for series with season and episode ([19b6b02](https://github.com/g0ldyy/comet/commit/19b6b023179007e60f386d68864a29417afc8291))
+* **observability:** add documentation for multi-replica Prometheus deployment ([6820e00](https://github.com/g0ldyy/comet/commit/6820e0044fff3c4482af7610c0ce12f5c3ec3a4d))
+* **observability:** add Grafana dashboard preview and image asset ([261da21](https://github.com/g0ldyy/comet/commit/261da21ec80f1e8e9cd4fe4b4cbb6fc980a77ddf))
+* **observability:** add Prometheus metrics and Grafana dashboards ([ed71812](https://github.com/g0ldyy/comet/commit/ed7181227c0125e53b4a48c1a65f25a24ebf3595))
+* **observability:** enhance Prometheus metrics authentication and update documentation for configuration ([3801780](https://github.com/g0ldyy/comet/commit/38017809c3ff207ebafb417a084b68d5b61cb223))
+* **observability:** refactor Prometheus integration and update Grafana dashboard queries ([73e5bb9](https://github.com/g0ldyy/comet/commit/73e5bb91971731bf235563550bc03b57450aa796))
+* **observability:** streamline Grafana admin password generation in Docker setup ([5a7d19a](https://github.com/g0ldyy/comet/commit/5a7d19aab9ba21b45c9e358413645149e4b0bd66))
+* **observability:** update Docker Compose instructions for Prometheus and Grafana setup ([f40ef95](https://github.com/g0ldyy/comet/commit/f40ef9587b3511b67713b39e594459d5045eabe8))
+* remove Latin diacritics from titles for improved indexer compatibility ([de8c8f8](https://github.com/g0ldyy/comet/commit/de8c8f8441dff724ff7079ebbf9a1eef20c13ca5))
+* **scraper:** add context-aware timeout policies ([07f6668](https://github.com/g0ldyy/comet/commit/07f66689860d89687e8b6c72e251285a8d93d2f1))
+* **scraper:** add context-aware timeout policies ([69b1f32](https://github.com/g0ldyy/comet/commit/69b1f32daed02d683bec92241b9e019acb6041ea))
+* **scraper:** enhance timeout resolution for indexer managers and add related tests ([dfad7b8](https://github.com/g0ldyy/comet/commit/dfad7b85b828cfd2c5af4fe51a6098264b5cc7b3))
+* **tests:** add test for Gunicorn control socket configuration ([907acc4](https://github.com/g0ldyy/comet/commit/907acc4ed2626300c2226a463b5c3be8e88e7e8a))
+* **tests:** add unit tests for template response handling in admin and config endpoints ([8eb98c5](https://github.com/g0ldyy/comet/commit/8eb98c522384fc45fa3fa126d3d84c1fe70f5afc))
+* **torznab:** add native Torznab search endpoint ([fa6da35](https://github.com/g0ldyy/comet/commit/fa6da35233fc3c90e3dc13d71bd80ca0a69ac19e))
+* **torznab:** add native Torznab search endpoint ([a49a41b](https://github.com/g0ldyy/comet/commit/a49a41b99eec5108498cccd9af4e488e64e7a268))
+* **torznab:** add Torznab client integration and update documentation ([c32f3cb](https://github.com/g0ldyy/comet/commit/c32f3cbf0dbe7109b50526caa8bacd2f652b99f8))
+* **torznab:** refactor magnet link generation and improve torrent serialization ([bf534dc](https://github.com/g0ldyy/comet/commit/bf534dcc71898e7e5049c2e0f2e4114bdacc91be))
+
+
+### Bug Fixes
+
+* **background:** calculate queue age from eligibility time ([9ed8119](https://github.com/g0ldyy/comet/commit/9ed81191459e776e24f3b2734110988534578c9b))
+* **background:** calculate queue age from eligibility time ([061091e](https://github.com/g0ldyy/comet/commit/061091edd81f1d71b0c46951b5e7de5e4c48df34))
+* **cache:** preserve empty scrape retries and throttle demand writes ([0de0302](https://github.com/g0ldyy/comet/commit/0de03023c0febff0cec59e5de57f823638c0bbfd))
+* **chilllink:** improve media_id construction for series type ([9cb1a8a](https://github.com/g0ldyy/comet/commit/9cb1a8af71c4d8a5292fae30333588771d1da0fe))
+* **cometnet:** add end-to-end IPv6 support ([de1e381](https://github.com/g0ldyy/comet/commit/de1e381ae353a6fc57f162332cd8cd8d9b65e3c7))
+* **cometnet:** add end-to-end IPv6 support ([3eb9988](https://github.com/g0ldyy/comet/commit/3eb9988a4cec56ed940a9d6adc713b3dc8235e15))
+* **cometnet:** handle IPv6 addresses in host formatting ([eefb140](https://github.com/g0ldyy/comet/commit/eefb14076d547bb6522c9e38a23082518f4f63a5))
+* **config:** restore saved filters and update Punjabi flag ([d75a0e5](https://github.com/g0ldyy/comet/commit/d75a0e543a8a32d14f60d15813be3de9afde5674))
+* **config:** restore saved filters and update Punjabi flag ([8caddf6](https://github.com/g0ldyy/comet/commit/8caddf6799c21366c22c850cc30fcb7c1768231f))
+* **deps:** update torrent-parse-rank source to latest commit ([4f11532](https://github.com/g0ldyy/comet/commit/4f11532057934ca1539fd5bf925f1b2dae2a54fc))
+* **docker:** remove unnecessary user creation and ownership in Dockerfile ([3cf92a4](https://github.com/g0ldyy/comet/commit/3cf92a4de9b9305bb5dda0bbcac4e55779206907))
+* **formatting:** simplify director's cut condition check ([9cb1a8a](https://github.com/g0ldyy/comet/commit/9cb1a8af71c4d8a5292fae30333588771d1da0fe))
+* **models:** replace random password generation with secure secret generation ([9cb1a8a](https://github.com/g0ldyy/comet/commit/9cb1a8af71c4d8a5292fae30333588771d1da0fe))
+* **scraper:** update scraper type hint for better clarity ([9cb1a8a](https://github.com/g0ldyy/comet/commit/9cb1a8af71c4d8a5292fae30333588771d1da0fe))
+* **series:** support aggregate searches and scoped debrid caching ([ce5cae5](https://github.com/g0ldyy/comet/commit/ce5cae50a86449a40e744c81dc22eb96b7d88e12))
+* **series:** support aggregate searches and scoped debrid caching ([c2d3d79](https://github.com/g0ldyy/comet/commit/c2d3d79cbf2897b96cc299bb45c45535c369ff12))
+
 ## [2.54.2](https://github.com/g0ldyy/comet/compare/v2.54.1...v2.54.2) (2026-06-29)
 
 
