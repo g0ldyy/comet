@@ -10,11 +10,18 @@ Replace the example host and optional protected prefix with values reachable
 from the client. Inside Docker, use the Comet service name and container port,
 for example `http://comet:8000/torznab/api`.
 
-Check connectivity before configuring a client:
+Check connectivity before configuring a client. For an unprotected instance:
 
 ```sh
 curl --fail-with-body \
   "https://comet.example.com/torznab/api?t=caps"
+```
+
+For an instance using a protected prefix:
+
+```sh
+curl --fail-with-body \
+  "https://comet.example.com/s/<token>/torznab/api?t=caps"
 ```
 
 The response must contain the `Movies` (`2000`) and `TV` (`5000`) categories.
@@ -75,8 +82,9 @@ extra XML parsing and serialization layer.
 
 - A connection failure usually means the client container cannot resolve or
   reach Comet. Test the endpoint from inside that container.
-- A `Function not available` response means direct torrent streams are
-  disabled in Comet.
+- A `Function not available` response to `t=get` is expected because Comet
+  does not implement that function. For search requests, check `t=caps`:
+  `available="no"` means `DISABLE_TORRENT_STREAMS` is enabled.
 - An empty test on a fresh instance usually means Comet has not completed its
   first successful media search.
 - Keep `/api` in exactly one place: either use the complete endpoint, or split
