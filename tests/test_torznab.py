@@ -8,6 +8,7 @@ from RTN import ParsedData
 from starlette.requests import Request
 
 from comet.api.endpoints.torznab import (
+    FEED_LIMIT,
     NEWZNAB_NAMESPACE,
     TORZNAB_NAMESPACE,
     CategoryConstraint,
@@ -113,7 +114,10 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(root.tag, "caps")
         self.assertEqual(root.find("server").attrib["version"], "1.3")
-        self.assertEqual(root.find("limits").attrib, {"max": "100", "default": "100"})
+        self.assertEqual(
+            root.find("limits").attrib,
+            {"max": str(FEED_LIMIT), "default": str(FEED_LIMIT)},
+        )
         self.assertEqual(
             [category.attrib["id"] for category in root.findall("categories/category")],
             ["2000", "5000"],
@@ -147,7 +151,6 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed.imdb_id, "tt1234567")
         self.assertEqual(parsed.categories, (5000, 5030, 5040))
         self.assertEqual((parsed.season, parsed.episode), (0, 2))
-        self.assertEqual((parsed.offset, parsed.limit), (100, 100))
 
         daily = parse_torznab_query(
             _request("t=tvsearch&q=Daily.Show&season=2026&ep=07/25")
@@ -158,8 +161,6 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         invalid_queries = (
             "t=caps&o=json",
             "t=search&cat=-1",
-            "t=search&offset=-1",
-            "t=search&limit=no",
             "t=search&season=one",
             "t=search&ep=E",
             "t=tvsearch&q=Show&season=2026&ep=13/40",
@@ -299,11 +300,9 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
             0, title="A & B < C\x00 😀", seeders=0
         )
 
-        content, total, count = serialize_feed(
+        content, total = serialize_feed(
             result,
             "movie",
-            0,
-            100,
             "https://example.test/torznab/api?a=1&b=2",
             request_timestamp=1_700_000_001,
         )
@@ -314,7 +313,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
             for element in item.findall(f"{{{TORZNAB_NAMESPACE}}}attr")
         }
 
-        self.assertEqual((total, count), (1, 1))
+        self.assertEqual(total, 1)
         self.assertIn(b'xmlns:torznab="http://torznab.com/', content)
         self.assertIn(b'xmlns:newznab="http://www.newznab.com/', content)
         self.assertEqual(item.findtext("title"), "A & B < C 😀")
@@ -337,45 +336,44 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(magnet.count("tr="), 1)
         self.assertNotIn("dht", magnet)
 
-    def test_pagination_uses_ranked_serializable_total_without_overlap(self):
+    def test_feed_serializes_every_ranked_result_in_one_page(self):
         result = _result(205)
-        pages = []
-        for offset in (0, 100, 200, 300):
-            content, total, count = serialize_feed(
-                result, "movie", offset, 100, "https://example.test/torznab/api"
-            )
-            root = ET.fromstring(content)
-            response = root.find(f"channel/{{{NEWZNAB_NAMESPACE}}}response")
-            hashes = [
-                item.findtext("guid") for item in root.findall("channel/item")
-            ]
-            self.assertEqual(int(response.attrib["total"]), 205)
-            self.assertEqual(total, 205)
-            self.assertEqual(len(hashes), count)
-            pages.append(hashes)
+        content, total = serialize_feed(
+            result, "movie", "https://example.test/torznab/api"
+        )
+        root = ET.fromstring(content)
+        response = root.find(f"channel/{{{NEWZNAB_NAMESPACE}}}response")
+        hashes = [item.findtext("guid") for item in root.findall("channel/item")]
 
-        self.assertEqual([len(page) for page in pages], [100, 100, 5, 0])
-        self.assertEqual(len(set().union(*map(set, pages))), 205)
-
-    def test_pagination_only_serializes_the_requested_window(self):
-        result = _result(205)
-        with patch(
-            "comet.api.endpoints.torznab.build_magnet",
-            wraps=build_magnet,
-        ) as magnet_builder:
-            _, total, count = serialize_feed(
-                result,
-                "movie",
-                100,
-                100,
-                "https://example.test/torznab/api",
-            )
-
-        self.assertEqual((total, count), (205, 100))
-        self.assertEqual(magnet_builder.call_count, 100)
+        self.assertEqual(total, 205)
+        self.assertEqual(response.attrib, {"offset": "0", "total": "205"})
+        self.assertEqual(hashes, result.ranked_info_hashes)
 
 
 class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_offset_and_limit_parameters_are_ignored(self):
+        request = _request("t=movie&imdbid=1234567&offset=200&limit=1")
+        with (
+            patch.object(settings, "HTTP_CACHE_ENABLED", False),
+            patch(
+                "comet.api.endpoints.torznab.http_client_manager.get_session",
+                new=AsyncMock(return_value=object()),
+            ),
+            patch("comet.api.endpoints.torznab.config_check", return_value={}),
+            patch(
+                "comet.api.endpoints.torznab.search_media",
+                new=AsyncMock(return_value=_result(205)),
+            ),
+        ):
+            response = await torznab_api(request, BackgroundTasks())
+
+        root = ET.fromstring(response.body)
+        self.assertEqual(len(root.findall("channel/item")), 205)
+        self.assertEqual(
+            root.find(f"channel/{{{NEWZNAB_NAMESPACE}}}response").attrib,
+            {"offset": "0", "total": "205"},
+        )
+
     async def test_category_filter_returns_empty_before_search(self):
         request = _request("t=movie&imdbid=1234567&cat=5000")
         with patch(
