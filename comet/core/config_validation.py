@@ -62,9 +62,14 @@ def _parse_and_validate_config(b64config: str):
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump()
 
-        options = validated_config["options"]
+        default_options = rtn_settings_default_dumped["options"]
+        options = {**default_options, **(validated_config["options"] or {})}
+        remove_ranks_under = options.get("remove_ranks_under")
+        if not isinstance(remove_ranks_under, int | float):
+            remove_ranks_under = default_options["remove_ranks_under"]
+
         validated_config["options"] = {
-            "remove_ranks_under": options["remove_ranks_under"],
+            "remove_ranks_under": remove_ranks_under,
             "allow_english_in_languages": options["allow_english_in_languages"],
             "remove_unknown_languages": options["remove_unknown_languages"],
             "remove_all_trash": validated_config["removeTrash"],
