@@ -46,7 +46,6 @@ search:
     imdbid: "{{ .Query.IMDBID }}"
     season: "{{ .Query.Season }}"
     ep: "{{ .Query.Ep }}"
-    limit: 100
 
   rows:
     selector: rss > channel > item

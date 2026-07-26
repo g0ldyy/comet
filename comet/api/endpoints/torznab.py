@@ -33,8 +33,8 @@ router = APIRouter()
 
 TORZNAB_NAMESPACE = "http://torznab.com/schemas/2015/feed"
 NEWZNAB_NAMESPACE = "http://www.newznab.com/DTD/2010/feeds/attributes/"
-MAX_RESULTS = 100
 RECENT_CANDIDATE_LIMIT = 20
+FEED_LIMIT = 10_000
 
 ET.register_namespace("torznab", TORZNAB_NAMESPACE)
 ET.register_namespace("newznab", NEWZNAB_NAMESPACE)
@@ -68,8 +68,6 @@ class TorznabQuery:
     episode: int | str | None
     year: int | None
     categories: tuple[int, ...]
-    offset: int
-    limit: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,11 +110,10 @@ def _normalize_imdb_id(value: str, *, prefix_optional: bool) -> str:
     raise TorznabProtocolError(201, "Invalid parameter")
 
 
-def _parse_nonnegative(value: str, *, limit: bool = False) -> int:
+def _parse_category(value: str) -> int:
     if _NONNEGATIVE_INTEGER.fullmatch(value.strip()) is None:
         raise TorznabProtocolError(201, "Invalid parameter")
-    parsed = int(value)
-    return min(parsed, MAX_RESULTS) if limit else parsed
+    return int(value)
 
 
 def parse_torznab_query(request: Request) -> TorznabQuery:
@@ -139,14 +136,14 @@ def parse_torznab_query(request: Request) -> TorznabQuery:
     if output not in {"", "xml"}:
         raise TorznabProtocolError(201, "Invalid parameter")
     if function == "caps":
-        return TorznabQuery(function, None, None, None, None, None, (), 0, MAX_RESULTS)
+        return TorznabQuery(function, None, None, None, None, None, ())
 
     categories = []
     for category_group in category_values:
         for category in category_group.split(","):
             if not category.strip():
                 raise TorznabProtocolError(201, "Invalid parameter")
-            categories.append(_parse_nonnegative(category))
+            categories.append(_parse_category(category))
 
     raw_season = values.get("season")
     season = None
@@ -189,8 +186,6 @@ def parse_torznab_query(request: Request) -> TorznabQuery:
     if imdb_id is not None:
         imdb_id = _normalize_imdb_id(imdb_id, prefix_optional=True)
 
-    offset = _parse_nonnegative(values.get("offset", "0"))
-    result_limit = _parse_nonnegative(values.get("limit", str(MAX_RESULTS)), limit=True)
     query = values.get("q")
     if query is not None:
         query = query.strip()
@@ -203,8 +198,6 @@ def parse_torznab_query(request: Request) -> TorznabQuery:
         episode,
         year,
         tuple(categories),
-        offset,
-        result_limit,
     )
 
 
@@ -481,10 +474,16 @@ def _add_torznab_attribute(item: ET.Element, name: str, value: object) -> None:
     )
 
 
-def _serializable_torrents(
+def _serialize_items(
     result: MediaSearchResult,
-) -> list[tuple[str, dict, str]]:
-    serializable = []
+    media_type: str,
+    request_timestamp: float,
+) -> list[ET.Element]:
+    items = []
+    imdb_digits = result.media_only_id.removeprefix("tt")
+    category_id = "2000" if media_type == "movie" else "5000"
+    category_name = "Movies" if media_type == "movie" else "TV"
+
     for raw_info_hash in result.ranked_info_hashes:
         if (
             not isinstance(raw_info_hash, str)
@@ -495,26 +494,13 @@ def _serializable_torrents(
         if not isinstance(torrent, dict):
             continue
         raw_title = torrent.get("title")
-        if not isinstance(raw_title, str) or not raw_title:
+        if not isinstance(raw_title, str):
             continue
         title = _clean_xml(raw_title)
-        if title:
-            serializable.append((raw_info_hash.lower(), torrent, title))
-    return serializable
+        if not title:
+            continue
 
-
-def _serialize_items(
-    result: MediaSearchResult,
-    media_type: str,
-    request_timestamp: float,
-    candidates: list[tuple[str, dict, str]],
-) -> list[ET.Element]:
-    items = []
-    imdb_digits = result.media_only_id.removeprefix("tt")
-    category_id = "2000" if media_type == "movie" else "5000"
-    category_name = "Movies" if media_type == "movie" else "TV"
-
-    for info_hash, torrent, title in candidates:
+        info_hash = raw_info_hash.lower()
         raw_size = torrent.get("size")
         size = (
             raw_size
@@ -582,29 +568,20 @@ def _serialize_items(
 def serialize_feed(
     result: MediaSearchResult | None,
     media_type: str | None,
-    offset: int,
-    limit: int,
     link: str,
     *,
     request_timestamp: float | None = None,
-) -> tuple[bytes, int, int]:
-    timestamp = request_timestamp if request_timestamp is not None else time.time()
-    candidates = (
-        _serializable_torrents(result)
-        if result is not None and media_type is not None
-        else []
-    )
-    total = len(candidates)
-    page = (
+) -> tuple[bytes, int]:
+    items = (
         _serialize_items(
             result,
             media_type,
-            timestamp,
-            candidates[offset : offset + limit],
+            request_timestamp if request_timestamp is not None else time.time(),
         )
         if result is not None and media_type is not None
         else []
     )
+    total = len(items)
 
     rss = ET.Element(
         "rss",
@@ -622,10 +599,10 @@ def serialize_feed(
     ET.SubElement(
         channel,
         "newznab:response",
-        {"offset": str(offset), "total": str(total)},
+        {"offset": "0", "total": str(total)},
     )
-    channel.extend(page)
-    return _xml_bytes(rss), total, len(page)
+    channel.extend(items)
+    return _xml_bytes(rss), total
 
 
 def serialize_caps() -> bytes:
@@ -635,7 +612,7 @@ def serialize_caps() -> bytes:
     ET.SubElement(
         caps,
         "limits",
-        {"max": str(MAX_RESULTS), "default": str(MAX_RESULTS)},
+        {"max": str(FEED_LIMIT), "default": str(FEED_LIMIT)},
     )
     searching = ET.SubElement(caps, "searching")
     ET.SubElement(
@@ -721,6 +698,23 @@ def _request_link(request: Request) -> str:
     return f"{str(request.base_url).rstrip('/')}{request.url.path}"
 
 
+def _feed_response(
+    request: Request,
+    result: MediaSearchResult | None = None,
+    media_type: str | None = None,
+) -> tuple[Response, int]:
+    content, total = serialize_feed(result, media_type, _request_link(request))
+    response = _xml_response(
+        request,
+        content,
+        feed=True,
+        cache_policy=(
+            CachePolicies.streams() if total else CachePolicies.empty_results()
+        ),
+    )
+    return response, total
+
+
 @router.get(
     "/torznab/api",
     tags=["Stremio"],
@@ -745,32 +739,13 @@ async def torznab_api(
             raise TorznabProtocolError(203, "Function not available")
 
         constraint = category_constraint(query.categories)
-        if constraint.unsupported_only:
-            content, _, _ = serialize_feed(
-                None, None, query.offset, query.limit, _request_link(request)
-            )
-            return _xml_response(
-                request,
-                content,
-                feed=True,
-                cache_policy=CachePolicies.empty_results(),
-            )
-
         function_type = _function_media_type(query.function)
-        if (
+        if constraint.unsupported_only or (
             function_type is not None
             and constraint.media_type is not None
             and function_type != constraint.media_type
         ):
-            content, _, _ = serialize_feed(
-                None, None, query.offset, query.limit, _request_link(request)
-            )
-            return _xml_response(
-                request,
-                content,
-                feed=True,
-                cache_policy=CachePolicies.empty_results(),
-            )
+            return _feed_response(request)[0]
 
         session = await http_client_manager.get_session()
         if (
@@ -785,15 +760,7 @@ async def torznab_api(
             target = await resolve_search_target(query, constraint, session)
 
         if target is None:
-            content, _, _ = serialize_feed(
-                None, None, query.offset, query.limit, _request_link(request)
-            )
-            return _xml_response(
-                request,
-                content,
-                feed=True,
-                cache_policy=CachePolicies.empty_results(),
-            )
+            return _feed_response(request)[0]
 
         config = config_check(None, strict_b64config=True)
         if config is None:
@@ -813,40 +780,24 @@ async def torznab_api(
         if result.status is MediaSearchStatus.BUSY:
             raise TorznabProtocolError(900, "Search busy; retry shortly")
 
-        empty_statuses = {
+        empty = result.status in {
             MediaSearchStatus.UNRELEASED,
             MediaSearchStatus.METADATA_UNAVAILABLE,
         }
-        if result.status in empty_statuses:
-            content, total, page_count = serialize_feed(
-                None, None, query.offset, query.limit, _request_link(request)
-            )
-        else:
-            content, total, page_count = serialize_feed(
-                result,
-                target.media_type,
-                query.offset,
-                query.limit,
-                _request_link(request),
-            )
+        response, total = _feed_response(
+            request,
+            None if empty else result,
+            None if empty else target.media_type,
+        )
 
         metrics.observe_stream(
             target.media_type,
             "torznab",
             result.cache_state,
             "empty" if total == 0 else "success",
-            page_count,
+            total,
         )
-        return _xml_response(
-            request,
-            content,
-            feed=True,
-            cache_policy=(
-                CachePolicies.streams()
-                if total
-                else CachePolicies.empty_results()
-            ),
-        )
+        return response
     except TorznabProtocolError as error:
         return _protocol_error_response(
             request,
