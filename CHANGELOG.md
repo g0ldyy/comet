@@ -2,6 +2,13 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.58.0](https://github.com/g0ldyy/comet/compare/v2.57.0...v2.58.0) (2026-07-27)
+
+
+### Features
+
+* **cloudflare:** add Torznab cache rule for improved feed caching ([bd375e7](https://github.com/g0ldyy/comet/commit/bd375e7975902934c44d48104f5a04ae28cf5f37))
+
 ## [2.57.0](https://github.com/g0ldyy/comet/compare/v2.56.0...v2.57.0) (2026-07-26)
 
 
