@@ -216,6 +216,25 @@ MEDIA_METADATA_CACHE_TABLE_SPEC = ManagedTableSpec(
     ),
 )
 
+IMDB_TITLE_LOOKUP_TABLE_SPEC = ManagedTableSpec(
+    table_name="imdb_title_lookup",
+    create_sql="""
+        CREATE TABLE {table_name} (
+            query_key TEXT PRIMARY KEY,
+            imdb_id TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            year INTEGER,
+            updated_at REAL NOT NULL
+        )
+    """,
+    index_sql=(
+        """
+            CREATE INDEX IF NOT EXISTS idx_imdb_title_lookup_updated_at_v1
+            ON {table_name} (updated_at)
+        """,
+    ),
+)
+
 SERIES_EPISODE_INDEX_TABLE_SPEC = ManagedTableSpec(
     table_name="series_episode_index",
     create_sql="""
@@ -825,6 +844,7 @@ CURRENT_NON_UNIQUE_INDEX_SPECS = (
     SCRAPE_LOCKS_TABLE_SPEC,
     KODI_SETUP_CODES_TABLE_SPEC,
     MEDIA_METADATA_CACHE_TABLE_SPEC,
+    IMDB_TITLE_LOOKUP_TABLE_SPEC,
     SERIES_EPISODE_INDEX_TABLE_SPEC,
     SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC,
     MEDIA_DEMAND_TABLE_SPEC,

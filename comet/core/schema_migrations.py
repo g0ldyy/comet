@@ -23,6 +23,7 @@ from comet.core.schema_specs import (
     DMM_ENTRIES_TABLE_SPEC,
     DMM_INGESTED_FILES_TABLE_SPEC,
     DOWNLOAD_LINKS_CACHE_TABLE_SPEC,
+    IMDB_TITLE_LOOKUP_TABLE_SPEC,
     KODI_SETUP_CODES_TABLE_SPEC,
     LEGACY_INDEX_NAMES,
     LEGACY_STORAGE_CLEANUP_MIGRATION,
@@ -951,6 +952,11 @@ async def _migration_series_episode_index_refresh(ctx: MigrationContext):
     return True
 
 
+async def _migration_imdb_title_lookup(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, IMDB_TITLE_LOOKUP_TABLE_SPEC)
+    return True
+
+
 async def _migration_tmdb_title_aliases(ctx: MigrationContext):
     await _ensure_managed_table(ctx, MEDIA_METADATA_CACHE_TABLE_SPEC)
     await ctx.database.execute(
@@ -1011,4 +1017,5 @@ MIGRATIONS = [
         "2026072301_media_demand_scrape_coverage",
         _migration_media_demand_scrape_coverage,
     ),
+    ("2026072701_imdb_title_lookup", _migration_imdb_title_lookup),
 ]

@@ -1,10 +1,12 @@
 import re
+import time
 from dataclasses import dataclass
 from urllib.parse import quote
 
 import aiohttp
 
 from comet.core.logger import logger
+from comet.core.models import database, settings
 from comet.utils.year import parse_year, parse_year_range
 
 _IMDB_SUGGESTION_URL = "https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
@@ -30,12 +32,81 @@ _SERIES_TYPES = frozenset(
     }
 )
 
+_TITLE_LOOKUP_QUERY = """
+    SELECT imdb_id, media_type, year
+    FROM imdb_title_lookup
+    WHERE query_key = :query_key
+      AND updated_at >= CAST(:min_timestamp AS REAL)
+"""
+
+_UPSERT_TITLE_LOOKUP_QUERY = """
+    INSERT INTO imdb_title_lookup (
+        query_key,
+        imdb_id,
+        media_type,
+        year,
+        updated_at
+    )
+    VALUES (
+        :query_key,
+        :imdb_id,
+        :media_type,
+        :year,
+        :updated_at
+    )
+    ON CONFLICT (query_key) DO UPDATE SET
+        imdb_id = EXCLUDED.imdb_id,
+        media_type = EXCLUDED.media_type,
+        year = EXCLUDED.year,
+        updated_at = EXCLUDED.updated_at
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class ImdbTitleMatch:
     imdb_id: str
     media_type: str
     year: int | None
+
+
+def _title_lookup_key(query: str, media_type: str | None, year: int | None) -> str:
+    """Key a resolution by its query and the filters that shaped the answer.
+
+    The two prefixes are colon-free, so they always delimit the free-form query.
+    """
+    return f"{media_type or '*'}:{'*' if year is None else year}:{query.casefold()}"
+
+
+async def _cached_title_match(query_key: str) -> ImdbTitleMatch | None:
+    row = await database.fetch_one(
+        _TITLE_LOOKUP_QUERY,
+        {
+            "query_key": query_key,
+            "min_timestamp": time.time() - settings.METADATA_CACHE_TTL,
+        },
+    )
+    if row is None:
+        return None
+
+    year = row["year"]
+    return ImdbTitleMatch(
+        row["imdb_id"],
+        row["media_type"],
+        int(year) if year is not None else None,
+    )
+
+
+async def _store_title_match(query_key: str, match: ImdbTitleMatch) -> None:
+    await database.execute(
+        _UPSERT_TITLE_LOOKUP_QUERY,
+        {
+            "query_key": query_key,
+            "imdb_id": match.imdb_id,
+            "media_type": match.media_type,
+            "year": match.year,
+            "updated_at": time.time(),
+        },
+    )
 
 
 def _suggestion_media_type(element: dict) -> str | None:
@@ -95,6 +166,11 @@ async def resolve_imdb_title(
     if not normalized_query:
         return None
 
+    query_key = _title_lookup_key(normalized_query, media_type, year)
+    cached_match = await _cached_title_match(query_key)
+    if cached_match is not None:
+        return cached_match
+
     url = _IMDB_SUGGESTION_URL.format(id=quote(normalized_query, safe=""))
     try:
         async with session.get(url) as response:
@@ -111,7 +187,10 @@ async def resolve_imdb_title(
         )
         return None
 
-    return _extract_title_match(payload, media_type, year)
+    match = _extract_title_match(payload, media_type, year)
+    if match is not None:
+        await _store_title_match(query_key, match)
+    return match
 
 
 def _extract_imdb_metadata(payload: dict) -> tuple[str | None, int | None, int | None]:

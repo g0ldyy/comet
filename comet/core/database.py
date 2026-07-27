@@ -727,6 +727,11 @@ async def _perform_startup_cleanup(current_time: float):
         "refreshed_at < :min_timestamp",
         {"min_timestamp": metadata_cutoff},
     )
+    await _delete_where(
+        "imdb_title_lookup",
+        "updated_at < :min_timestamp",
+        {"min_timestamp": metadata_cutoff},
+    )
 
     if settings.TORRENT_CACHE_TTL >= 0:
         await _delete_where(
