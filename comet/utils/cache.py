@@ -1,5 +1,6 @@
 import hashlib
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import orjson
@@ -122,15 +123,8 @@ class CacheControl:
         return ", ".join(parts)
 
 
-def generate_etag(data: Any):
-    if isinstance(data, bytes):
-        content = data
-    elif isinstance(data, str):
-        content = data.encode("utf-8")
-    else:
-        content = orjson.dumps(data, option=orjson.OPT_SORT_KEYS)
-
-    hash_digest = hashlib.md5(content, usedforsecurity=False).hexdigest()[:16]
+def _generate_etag(body: bytes):
+    hash_digest = hashlib.md5(body, usedforsecurity=False).hexdigest()[:16]
     return f'W/"{hash_digest}"'
 
 
@@ -150,43 +144,6 @@ def check_etag_match(request: Request, etag: str):
     return any(
         (client_etag.removeprefix("W/")) == normalized_etag
         for client_etag in client_etags
-    )
-
-
-class CachedJSONResponse(Response):
-    def __init__(
-        self,
-        content: Any,
-        status_code: int = 200,
-        cache_control: CacheControl | None = None,
-        etag: str | None = None,
-        vary: list[str] | None = None,
-        **kwargs,
-    ):
-        body = orjson.dumps(content)
-        super().__init__(
-            content=body,
-            status_code=status_code,
-            media_type="application/json",
-            **kwargs,
-        )
-
-        if cache_control:
-            self.headers["Cache-Control"] = cache_control.build()
-
-        self.headers["ETag"] = etag or generate_etag(body)
-
-        if vary:
-            self.headers["Vary"] = ", ".join(vary)
-
-
-def not_modified_response(etag: str, cache_control: str = "must-revalidate"):
-    return Response(
-        status_code=304,
-        headers={
-            "ETag": etag,
-            "Cache-Control": cache_control,
-        },
     )
 
 
@@ -253,3 +210,50 @@ class CachePolicies:
         Used for playback redirects, errors, etc.
         """
         return CacheControl().private().no_store().no_cache().max_age(0)
+
+
+def cached_response(
+    request: Request,
+    body: bytes,
+    *,
+    media_type: str,
+    cache_policy: CacheControl | None = None,
+    vary: Sequence[str] | None = None,
+) -> Response:
+    """Serve a body as a revalidatable response.
+
+    Returns 304 when the client's `If-None-Match` still matches. With HTTP
+    caching disabled the body is served without any validator, so callers never
+    have to branch on the setting themselves.
+    """
+    if not settings.HTTP_CACHE_ENABLED:
+        return Response(content=body, media_type=media_type)
+
+    cache_control = (cache_policy or CachePolicies.empty_results()).build()
+    etag = _generate_etag(body)
+    if check_etag_match(request, etag):
+        return Response(
+            status_code=304,
+            headers={"ETag": etag, "Cache-Control": cache_control},
+        )
+
+    headers = {"Cache-Control": cache_control, "ETag": etag}
+    if vary:
+        headers["Vary"] = ", ".join(vary)
+    return Response(content=body, media_type=media_type, headers=headers)
+
+
+def cached_json_response(
+    request: Request,
+    content: Any,
+    *,
+    cache_policy: CacheControl | None = None,
+    vary: Sequence[str] | None = None,
+) -> Response:
+    return cached_response(
+        request,
+        orjson.dumps(content),
+        media_type="application/json",
+        cache_policy=cache_policy,
+        vary=vary,
+    )

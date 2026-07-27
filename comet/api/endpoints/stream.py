@@ -9,13 +9,7 @@ from comet.debrid.manager import get_debrid_extension
 from comet.observability import metrics
 from comet.services.media_search import MediaSearchStatus, search_media
 from comet.services.trackers import trackers
-from comet.utils.cache import (
-    CachedJSONResponse,
-    CachePolicies,
-    check_etag_match,
-    generate_etag,
-    not_modified_response,
-)
+from comet.utils.cache import CachePolicies, cached_json_response
 from comet.utils.formatting import (
     format_chilllink,
     format_title,
@@ -114,29 +108,16 @@ def _build_stream_response(
     vary_headers: list | None = None,
     cache_policy=None,
 ):
-    if not settings.HTTP_CACHE_ENABLED:
-        return content
-
-    vary = ["Accept", "Accept-Encoding"]
     if cache_policy is None:
-        if is_empty:
-            cache_policy = CachePolicies.empty_results()
-        else:
-            cache_policy = CachePolicies.streams()
-    cache_control = cache_policy.build()
+        cache_policy = (
+            CachePolicies.empty_results() if is_empty else CachePolicies.streams()
+        )
 
-    etag = generate_etag(content)
-    if check_etag_match(request, etag):
-        return not_modified_response(etag, cache_control=cache_control)
-
-    if vary_headers:
-        vary.extend(vary_headers)
-
-    return CachedJSONResponse(
-        content=content,
-        cache_control=cache_policy,
-        etag=etag,
-        vary=list(dict.fromkeys(vary)),
+    return cached_json_response(
+        request,
+        content,
+        cache_policy=cache_policy,
+        vary=list(dict.fromkeys(["Accept", *(vary_headers or ())])),
     )
 
 
