@@ -1,9 +1,10 @@
 import hashlib
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import bencodepy
 
+from comet.cometnet.manager import CometNetService
 from comet.services import torrent_manager
 from comet.services.torrent_manager import extract_torrent_metadata
 from comet.utils.parsing import is_video
@@ -157,6 +158,30 @@ class TorrentPersistenceTests(unittest.IsolatedAsyncioTestCase):
             await queue.stop()
 
         self.assertEqual(broadcasts, [["valid-a.mkv", "valid-b.mkv"]])
+
+    async def test_queue_skips_metadata_rejected_by_broadcast_contract(self):
+        queue = torrent_manager.TorrentUpdateQueue(batch_size=3, flush_interval=0)
+        backend = Mock(spec=CometNetService)
+        backend.broadcast_torrents = AsyncMock()
+        valid = self._make_update("valid.mkv", 1)
+        missing_size = self._make_update("missing-size.mkv", 2)
+        missing_size.size = None
+        zero_size = self._make_update("zero-size.mkv", 3)
+        zero_size.size = 0
+
+        with patch.object(
+            torrent_manager, "get_active_backend", return_value=backend
+        ):
+            await queue._enqueue_broadcast_items(
+                [missing_size, valid, zero_size], updated_at=123.0
+            )
+            await queue._broadcast_queue.join()
+            await queue.stop()
+
+        backend.broadcast_torrents.assert_awaited_once()
+        metadata_batch = backend.broadcast_torrents.await_args.args[0]
+        self.assertEqual([metadata.title for metadata in metadata_batch], ["valid.mkv"])
+        self.assertEqual(metadata_batch[0].size, 1)
 
     async def test_retryable_error_is_not_split(self):
         rows = [

@@ -16,10 +16,11 @@ import anyio
 import bencodepy
 import orjson
 from demagnetize.core import Demagnetizer
+from pydantic import ValidationError
 from RTN import parse
 from torf import Magnet
 
-from comet.cometnet import CometNetService, get_active_backend
+from comet.cometnet import get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.database import (
@@ -629,37 +630,24 @@ class _TorrentUpdate:
     episode_norm: int = field(init=False)
     row_key: tuple[str, str, int, int] = field(init=False)
 
-    def to_broadcast_payload(self, updated_at: float) -> dict:
-        return {
-            "info_hash": self.info_hash,
-            "title": self.title,
-            "size": int(self.size or 0),
-            "tracker": self.tracker or "",
-            "imdb_id": self.media_id,
-            "file_index": self.file_index,
-            "seeders": self.seeders,
-            "season": self.season,
-            "episode": self.episode,
-            "sources": self.sources,
-            "parsed": self.parsed,
-            "updated_at": updated_at,
-        }
-
-    def to_broadcast_metadata(self, updated_at: float) -> TorrentMetadata:
-        return _construct_torrent_metadata(
-            info_hash=self.info_hash,
-            title=self.title,
-            size=int(self.size or 0),
-            tracker=self.tracker or "",
-            imdb_id=self.media_id,
-            file_index=self.file_index,
-            seeders=self.seeders,
-            season=self.season,
-            episode=self.episode,
-            sources=self.sources,
-            parsed=self.parsed,
-            updated_at=updated_at,
-        )
+    def to_broadcast_metadata(self, updated_at: float) -> TorrentMetadata | None:
+        try:
+            return _construct_torrent_metadata(
+                info_hash=self.info_hash,
+                title=self.title,
+                size=self.size,
+                tracker=self.tracker or "",
+                imdb_id=self.media_id,
+                file_index=self.file_index,
+                seeders=self.seeders,
+                season=self.season,
+                episode=self.episode,
+                sources=self.sources,
+                parsed=self.parsed,
+                updated_at=updated_at,
+            )
+        except ValidationError:
+            return None
 
 
 def _iter_resolved_torrent_updates(
@@ -1249,18 +1237,12 @@ class TorrentUpdateQueue:
         if backend is None:
             return
 
-        if isinstance(backend, CometNetService):
-            metadata_batch = [
-                item.to_broadcast_metadata(updated_at)
-                for item in batch_items
-                if not item.from_cometnet
-            ]
-        else:
-            metadata_batch = [
-                item.to_broadcast_payload(updated_at)
-                for item in batch_items
-                if not item.from_cometnet
-            ]
+        metadata_batch = [
+            metadata
+            for item in batch_items
+            if not item.from_cometnet
+            and (metadata := item.to_broadcast_metadata(updated_at)) is not None
+        ]
         if not metadata_batch:
             return
 
