@@ -33,11 +33,21 @@ Cache the add-on manifest.
 *   **Browser TTL**: Respect origin
 *   **Serve stale content while revalidating**: On
 
-## 4. Tiered Cache
+## 4. Torznab (Cache Rule)
+Cache Torznab feeds.
+
+*   **Rule Name**: Torznab
+*   **Expression**: `(http.request.uri.path contains "/torznab/api")`
+*   **Action**: Eligible for Cache
+*   **Edge TTL**: Use cache-control header if present (first option)
+*   **Browser TTL**: Respect origin
+*   **Serve stale content while revalidating**: On
+
+## 5. Tiered Cache
 Enable **Tiered Cache** in **Caching > Tiered Cache**.
 This minimizes requests to your origin by checking other Cloudflare datacenters first.
 
-## 5. Network Optimizations
+## 6. Network Optimizations
 In **Speed > Protocol**:
 
 *   **HTTP/3 (QUIC)**: On (faster connections, especially on mobile)

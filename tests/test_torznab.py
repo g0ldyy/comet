@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import orjson
 from fastapi import BackgroundTasks
 from RTN import ParsedData
 from starlette.requests import Request
@@ -552,8 +553,9 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIs(search.await_args.args[2], config)
+        payload = orjson.loads(response.body)
         self.assertEqual(
-            [stream["infoHash"] for stream in response["streams"]],
+            [stream["infoHash"] for stream in payload["streams"]],
             result.ranked_info_hashes,
         )
 

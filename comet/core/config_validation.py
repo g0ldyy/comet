@@ -52,6 +52,7 @@ def _default_validated_config():
 _DEFAULT_VALIDATED_CONFIG = default_config.copy()
 _DEFAULT_VALIDATED_CONFIG["_debridEntries"] = []
 _DEFAULT_VALIDATED_CONFIG["_enableTorrent"] = True
+_DEFAULT_OPTIONS = rtn_settings_default.options.model_dump()
 
 
 @lru_cache(maxsize=4096)
@@ -62,7 +63,10 @@ def _parse_and_validate_config(b64config: str):
         validated_config = ConfigModel(**config)
         validated_config = validated_config.model_dump()
 
-        options = validated_config["options"]
+        options = _DEFAULT_OPTIONS | (validated_config["options"] or {})
+        if type(options["remove_ranks_under"]) not in (int, float):
+            options["remove_ranks_under"] = _DEFAULT_OPTIONS["remove_ranks_under"]
+
         validated_config["options"] = {
             "remove_ranks_under": options["remove_ranks_under"],
             "allow_english_in_languages": options["allow_english_in_languages"],

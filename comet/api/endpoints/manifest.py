@@ -3,13 +3,7 @@ from fastapi import APIRouter, Request
 from comet.core.config_validation import config_check
 from comet.core.models import settings
 from comet.debrid.manager import build_addon_name
-from comet.utils.cache import (
-    CachedJSONResponse,
-    CachePolicies,
-    check_etag_match,
-    generate_etag,
-    not_modified_response,
-)
+from comet.utils.cache import CachePolicies, cached_json_response
 
 router = APIRouter()
 
@@ -55,16 +49,9 @@ async def manifest(request: Request, b64config: str | None = None):
 
     base_manifest["name"] = build_addon_name(settings.ADDON_NAME, config)
 
-    if settings.HTTP_CACHE_ENABLED:
-        etag = generate_etag(base_manifest)
-        if check_etag_match(request, etag):
-            return not_modified_response(etag)
-
-        return CachedJSONResponse(
-            content=base_manifest,
-            cache_control=CachePolicies.manifest(),
-            etag=etag,
-            vary=["Accept", "Accept-Encoding"],
-        )
-
-    return base_manifest
+    return cached_json_response(
+        request,
+        base_manifest,
+        cache_policy=CachePolicies.manifest(),
+        vary=["Accept"],
+    )
