@@ -1,5 +1,6 @@
 import unittest
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -25,6 +26,7 @@ from comet.api.endpoints.torznab import (
     torznab_api,
 )
 from comet.core.models import settings
+from comet.metadata import imdb as imdb_metadata
 from comet.metadata.imdb import resolve_imdb_title
 from comet.services.media_search import MediaSearchResult, MediaSearchStatus
 
@@ -96,6 +98,21 @@ class _Response:
 
     async def json(self):
         return self.payload
+
+
+@contextmanager
+def _uncached_title_lookups():
+    """Force title resolution to miss the persistent lookup table.
+
+    Yields the upsert mock so a test can assert what was written back.
+    """
+    with (
+        patch.object(
+            imdb_metadata.database, "fetch_one", new=AsyncMock(return_value=None)
+        ),
+        patch.object(imdb_metadata.database, "execute", new=AsyncMock()) as upsert,
+    ):
+        yield upsert
 
 
 class _Session:
@@ -234,9 +251,10 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        match = await resolve_imdb_title(
-            session, "A title", media_type="series", year=2026
-        )
+        with _uncached_title_lookups():
+            match = await resolve_imdb_title(
+                session, "A title", media_type="series", year=2026
+            )
 
         self.assertEqual(match.imdb_id, "tt3333333")
         self.assertEqual(match.media_type, "series")
@@ -245,22 +263,70 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         no_match_session = _Session(
             _Response({"d": [{"id": "tt1111111", "qid": "movie", "y": 2024}]})
         )
-        self.assertIsNone(
-            await resolve_imdb_title(
-                no_match_session, "A title", media_type="series", year=2026
+        with _uncached_title_lookups() as upsert:
+            self.assertIsNone(
+                await resolve_imdb_title(
+                    no_match_session, "A title", media_type="series", year=2026
+                )
             )
-        )
+        upsert.assert_not_awaited()
 
         nearby_session = _Session(
             _Response(
                 {"d": [{"id": "tt2222222", "qid": "tvSeries", "y": 2025}]}
             )
         )
-        nearby_match = await resolve_imdb_title(
-            nearby_session, "A title", media_type="series", year=2026
-        )
+        with _uncached_title_lookups():
+            nearby_match = await resolve_imdb_title(
+                nearby_session, "A title", media_type="series", year=2026
+            )
         self.assertEqual(nearby_match.imdb_id, "tt2222222")
         self.assertEqual(nearby_match.year, 2025)
+
+    async def test_title_resolution_is_persisted_and_replayed_from_the_lookup_table(
+        self,
+    ):
+        session = _Session(
+            _Response({"d": [{"id": "tt4444444", "qid": "movie", "y": 2024}]})
+        )
+
+        with _uncached_title_lookups() as upsert:
+            resolved = await resolve_imdb_title(session, "  Cached Title ", year=2024)
+
+        self.assertEqual(resolved.imdb_id, "tt4444444")
+        self.assertEqual(len(session.requests), 1)
+        stored = upsert.await_args.args[1]
+        self.assertEqual(stored["query_key"], "*:2024:cached title")
+        self.assertEqual(stored["imdb_id"], "tt4444444")
+
+        with (
+            patch.object(
+                imdb_metadata.database,
+                "fetch_one",
+                new=AsyncMock(
+                    return_value={
+                        "imdb_id": "tt4444444",
+                        "media_type": "movie",
+                        "year": 2024,
+                    }
+                ),
+            ),
+            patch.object(imdb_metadata.database, "execute", new=AsyncMock()) as rewrite,
+        ):
+            replayed = await resolve_imdb_title(session, "CACHED TITLE", year=2024)
+
+        self.assertEqual(replayed, resolved)
+        self.assertEqual(len(session.requests), 1)
+        rewrite.assert_not_awaited()
+
+    def test_lookup_keys_separate_every_filter_scope(self):
+        keys = {
+            imdb_metadata._title_lookup_key(query, media_type, year)
+            for query in ("a title", "a title:2024")
+            for media_type in (None, "movie", "series")
+            for year in (None, 2024)
+        }
+        self.assertEqual(len(keys), 12)
 
     async def test_recent_selection_requires_real_rows_and_bounds_type_lookup(self):
         rows = [

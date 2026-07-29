@@ -33,9 +33,6 @@ dependencies = [
     "torrent-parse-rank",
 ]
 
-[tool.uv.sources]
-torrent-parse-rank = { git = "https://github.com/g0ldyy/torrent-parse-rank" }
-
 [dependency-groups]
 dev = ["pytest>=7.0"]
 
@@ -49,3 +46,6 @@ extend-immutable-calls = ["fastapi.Depends"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.uv.sources]
+torrent-parse-rank = { git = "https://github.com/g0ldyy/torrent-parse-rank" }
