@@ -2,6 +2,19 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.59.0](https://github.com/g0ldyy/comet/compare/v2.58.0...v2.59.0) (2026-07-29)
+
+
+### Features
+
+* **imdb:** implement title lookup caching and upsert functionality ([c1d1766](https://github.com/g0ldyy/comet/commit/c1d1766688549be6058523f6ebf686eb58af3153))
+* **torrent:** enhance metadata broadcasting to skip invalid entries ([77bdada](https://github.com/g0ldyy/comet/commit/77bdada7c79037d035647679ac27d7d132df90b4))
+
+
+### Bug Fixes
+
+* **dependencies:** update torrent-parse-rank source reference to latest commit ([efcb4f8](https://github.com/g0ldyy/comet/commit/efcb4f86684e5be45c25019636ae3588c1ac2f2a))
+
 ## [2.58.0](https://github.com/g0ldyy/comet/compare/v2.57.0...v2.58.0) (2026-07-27)
 
 
