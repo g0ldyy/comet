@@ -249,7 +249,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             [(3, 3)],
         )
 
-    async def test_invalid_public_row_rolls_back_the_complete_migration(self):
+    async def test_invalid_cache_row_is_discarded_without_blocking_valid_data(self):
         await self._insert(
             media_id="tt1234567",
             info_hash="a" * 40,
@@ -261,17 +261,19 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             title="Broken",
         )
 
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "torrent info hash is invalid",
-        ):
-            await backfill_legacy_torrents(self.database)
+        result = await backfill_legacy_torrents(self.database)
 
-        count = await self.database.fetch_val(
-            "SELECT COUNT(*) FROM release_candidates",
+        candidates = await self.database.fetch_all(
+            "SELECT media_id, release_key FROM release_candidates",
             force_primary=True,
         )
-        self.assertEqual(count, 0)
+        self.assertEqual(
+            [tuple(row.values()) for row in candidates],
+            [("tt1234567", "btih:" + "a" * 40)],
+        )
+        self.assertEqual(result.eligible_rows, 1)
+        self.assertEqual(result.persisted_rows, 1)
+        self.assertEqual(result.discarded_rows, 1)
 
     async def test_update_writer_uses_only_generic_public_storage(self):
         public = torrent_manager._construct_torrent_update(
@@ -677,6 +679,13 @@ class FreshGenericSchemaTests(unittest.IsolatedAsyncioTestCase):
                             "title": "Private.2026.1080p.WEB-DL-GROUP",
                             "tracker": "DebridAccount|realdebrid|digest",
                             "parsed_json": parsed_json,
+                        },
+                        {
+                            "media_id": "tt7654321",
+                            "info_hash": "invalid-hash",
+                            "title": "Irrecoverable cache row",
+                            "tracker": "Indexer",
+                            "parsed_json": "{}",
                         },
                     ],
                     force_primary=True,

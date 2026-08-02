@@ -96,7 +96,6 @@ def _validated_row(row: Any) -> dict[str, object]:
         raise RuntimeError("account-derived torrent cannot use the public repository")
     info_hash = info_hash.lower()
     parsed = _parsed(row["parsed_json"])
-    scope = _scope(row, parsed)
     season_norm = row["season_norm"]
     episode_norm = row["episode_norm"]
     if (
@@ -108,6 +107,7 @@ def _validated_row(row: Any) -> dict[str, object]:
         or episode_norm < -1
     ):
         raise RuntimeError("torrent scope is invalid")
+    scope = _scope(row, parsed)
     title = _legacy_title(row["title"], info_hash)
     size = row["size"]
     if type(size) is not int or not 1 <= size <= MAX_SIGNED_BIGINT:
@@ -115,6 +115,13 @@ def _validated_row(row: Any) -> dict[str, object]:
     file_index = row["file_index"]
     if type(file_index) is not int or file_index < 0:
         file_index = None
+    updated_at = row["updated_at"]
+    if (
+        isinstance(updated_at, bool)
+        or not isinstance(updated_at, (int, float))
+        or updated_at < 0
+    ):
+        raise RuntimeError("torrent timestamp is invalid")
     return {
         "row": row,
         "media_id": media_id,
@@ -129,6 +136,7 @@ def _validated_row(row: Any) -> dict[str, object]:
         "size": size,
         "source": _legacy_source(row["tracker"]),
         "tracker_sources": load_cached_string_list(row["sources_json"]),
+        "updated_at": float(updated_at),
     }
 
 
@@ -215,7 +223,7 @@ def _candidate_from_rows(
 def torrent_candidates_from_rows(
     raw_rows: list[Any],
 ) -> tuple[tuple[MediaQuery, ReleaseCandidate], ...]:
-    grouped = _group_validated_rows(raw_rows)
+    grouped, _discarded = _group_validated_rows(raw_rows)
     return tuple(_candidate_from_rows(rows) for rows in grouped.values())
 
 
@@ -383,12 +391,21 @@ def torrent_candidate_from_scrape_result(
 
 def _group_validated_rows(
     raw_rows: list[Any],
-) -> dict[tuple[str, str], list[dict[str, object]]]:
+    *,
+    discard_invalid: bool = False,
+) -> tuple[dict[tuple[str, str], list[dict[str, object]]], int]:
     grouped: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+    discarded = 0
     for raw_row in raw_rows:
-        row = _validated_row(raw_row)
+        try:
+            row = _validated_row(raw_row)
+        except (RuntimeError, ValueError):
+            if not discard_invalid:
+                raise
+            discarded += 1
+            continue
         grouped[(row["media_id"], row["info_hash"])].append(row)
-    return grouped
+    return grouped, discarded
 
 
 class TorrentReleaseRepository:
@@ -396,23 +413,31 @@ class TorrentReleaseRepository:
         self._database = database
 
     async def persist_rows(self, rows: list[Any]) -> int:
+        validated_groups, _discarded = _group_validated_rows(rows)
+        return await self._persist_validated_groups(validated_groups)
+
+    async def persist_migratable_rows(self, rows: list[Any]) -> tuple[int, int]:
+        """Persist valid public cache rows and count irrecoverable cache entries."""
+        validated_groups, discarded = _group_validated_rows(
+            rows,
+            discard_invalid=True,
+        )
+        persisted = await self._persist_validated_groups(validated_groups)
+        return persisted, discarded
+
+    async def _persist_validated_groups(
+        self,
+        validated_groups: dict[tuple[str, str], list[dict[str, object]]],
+    ) -> int:
         grouped: dict[MediaQuery, list[ReleaseCandidate]] = defaultdict(list)
         observed_at: dict[MediaQuery, float] = {}
-        validated_groups = _group_validated_rows(rows)
         for candidate_group in validated_groups.values():
             query, candidate = _candidate_from_rows(candidate_group)
             grouped[query].append(candidate)
             for row in candidate_group:
-                updated_at = row["row"]["updated_at"]
-                if (
-                    isinstance(updated_at, bool)
-                    or not isinstance(updated_at, (int, float))
-                    or updated_at < 0
-                ):
-                    raise RuntimeError("torrent timestamp is invalid")
                 observed_at[query] = max(
                     observed_at.get(query, 0),
-                    float(updated_at),
+                    row["updated_at"],
                 )
         persisted = 0
         release_repository = ReleaseDiscoveryRepository(self._database)

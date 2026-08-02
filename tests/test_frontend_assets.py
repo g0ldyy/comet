@@ -63,6 +63,7 @@ def test_asset_mounts_do_not_capture_application_routes(monkeypatch, tmp_path):
         assert "<title>Comet Administration</title>" in response.text
         assert 'content="noindex, nofollow, noarchive"' in response.text
         assert response.headers["cache-control"] == "private, no-store"
+        assert response.headers["referrer-policy"] == "no-referrer"
         assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
 
 

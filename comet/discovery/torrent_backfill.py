@@ -14,6 +14,7 @@ _BATCH_SIZE = 500
 class TorrentBackfillResult:
     eligible_rows: int
     persisted_rows: int
+    discarded_rows: int
 
 
 async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
@@ -22,6 +23,7 @@ async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
     cursor = ("", "", -2, -2)
     eligible_rows = 0
     persisted_rows = 0
+    discarded_rows = 0
     while True:
         rows = await database.fetch_all(
             """
@@ -66,8 +68,10 @@ async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
         )
         if not rows:
             break
-        persisted_rows += await repository.persist_rows(rows)
-        eligible_rows += len(rows)
+        persisted, discarded = await repository.persist_migratable_rows(rows)
+        persisted_rows += persisted
+        discarded_rows += discarded
+        eligible_rows += len(rows) - discarded
         last = rows[-1]
         cursor = (
             last["media_id"],
@@ -78,4 +82,4 @@ async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
 
     if persisted_rows != eligible_rows:
         raise RuntimeError("legacy torrent backfill invariant failed")
-    return TorrentBackfillResult(eligible_rows, persisted_rows)
+    return TorrentBackfillResult(eligible_rows, persisted_rows, discarded_rows)

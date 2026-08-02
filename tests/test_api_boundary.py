@@ -47,17 +47,6 @@ class ApiBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.headers["access-control-allow-origin"], "*")
         self.assertNotIn("access-control-allow-credentials", response.headers)
 
-    async def test_admin_responses_are_private_and_non_storable(self):
-        async with AsyncClient(
-            transport=ASGITransport(app=app_module.app),
-            base_url="http://test",
-        ) as client:
-            response = await client.get("/admin")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["cache-control"], "private, no-store")
-        self.assertEqual(response.headers["referrer-policy"], "no-referrer")
-
     async def test_request_failure_log_omits_raw_exception_message(self):
         application = FastAPI()
 
