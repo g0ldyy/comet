@@ -53,7 +53,9 @@ async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
                         AND episode_norm > :cursor_episode
                     )
                   )
-            ORDER BY media_id, info_hash, season_norm, episode_norm
+            ORDER BY media_id, info_hash, season_norm, episode_norm,
+                     COALESCE(updated_at, 0) DESC,
+                     COALESCE(seeders, -1) DESC, title DESC
             LIMIT :batch_size
             """,
             {

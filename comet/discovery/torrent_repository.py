@@ -81,6 +81,16 @@ def _parsed(value: object) -> object | None:
     return parsed
 
 
+def _legacy_locator_id(row: Mapping[str, object]) -> str:
+    digest = hashlib.sha256(
+        (
+            f"{row['media_id']}\0{row['info_hash']}\0{row['season_norm']}\0"
+            f"{row['episode_norm']}\0{row['file_index']}\0{row['title']}"
+        ).encode()
+    ).hexdigest()
+    return f"lc1:{digest}"
+
+
 def _validated_row(row: Any) -> dict[str, object]:
     media_id = row["media_id"]
     info_hash = row["info_hash"]
@@ -171,15 +181,9 @@ def _candidate_from_rows(
     )
     locators = []
     for row in ordered:
-        locator_key = hashlib.sha256(
-            (
-                f"{media_id}\0{info_hash}\0{row['season_norm']}\0"
-                f"{row['episode_norm']}\0{row['file_index']}\0{row['title']}"
-            ).encode()
-        ).hexdigest()
         locators.append(
             TorrentLocator(
-                locator_id=f"lc1:{locator_key}",
+                locator_id=_legacy_locator_id(row),
                 kind=LocatorKind.TORRENT,
                 policy=LocatorPolicy(TORRENT_PROVIDER_KINDS),
                 info_hash=info_hash,
@@ -395,6 +399,7 @@ def _group_validated_rows(
     discard_invalid: bool = False,
 ) -> tuple[dict[tuple[str, str], list[dict[str, object]]], int]:
     grouped: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+    locator_ids: set[str] = set()
     discarded = 0
     for raw_row in raw_rows:
         try:
@@ -404,6 +409,13 @@ def _group_validated_rows(
                 raise
             discarded += 1
             continue
+        locator_id = _legacy_locator_id(row)
+        if locator_id in locator_ids:
+            if not discard_invalid:
+                raise RuntimeError("duplicate torrent locator")
+            discarded += 1
+            continue
+        locator_ids.add(locator_id)
         grouped[(row["media_id"], row["info_hash"])].append(row)
     return grouped, discarded
 

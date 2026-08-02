@@ -335,6 +335,29 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.persisted_rows, 1)
         self.assertEqual(result.discarded_rows, 1)
 
+    async def test_duplicate_legacy_locator_is_discarded_without_losing_candidate(self):
+        await self.database.execute("DROP INDEX unq_torrents_scope_v3")
+        for _ in range(2):
+            await self._insert(
+                media_id="tt1234567",
+                info_hash="a" * 40,
+                title="Movie.2026.1080p.WEB-DL-GROUP",
+            )
+
+        result = await backfill_legacy_torrents(self.database)
+
+        self.assertEqual(result.eligible_rows, 1)
+        self.assertEqual(result.persisted_rows, 1)
+        self.assertEqual(result.discarded_rows, 1)
+        self.assertEqual(
+            await self.database.fetch_val("SELECT COUNT(*) FROM release_candidates"),
+            1,
+        )
+        self.assertEqual(
+            await self.database.fetch_val("SELECT COUNT(*) FROM release_locators"),
+            1,
+        )
+
     async def test_backfill_preserves_unbounded_legacy_tracker_sources(self):
         await self._insert(
             media_id="tt1234567",
