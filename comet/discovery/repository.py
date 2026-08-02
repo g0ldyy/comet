@@ -1266,7 +1266,12 @@ def decode_candidate_attributes(payload: str) -> dict[str, object]:
     return _decode_attributes(payload)
 
 
-def _safe_attribute_value(value: object, depth: int) -> object:
+def _safe_attribute_value(
+    value: object,
+    depth: int,
+    *,
+    unbounded_list: bool = False,
+) -> object:
     if depth > 6:
         raise ValueError("candidate attributes are too deeply nested")
     if value is None or isinstance(value, bool):
@@ -1284,7 +1289,7 @@ def _safe_attribute_value(value: object, depth: int) -> object:
             raise ValueError("candidate attribute text is invalid")
         return value
     if isinstance(value, (list, tuple)):
-        if len(value) > 128:
+        if not unbounded_list and len(value) > 128:
             raise ValueError("candidate attribute list is too large")
         return [_safe_attribute_value(item, depth + 1) for item in value]
     if isinstance(value, Mapping):
@@ -1294,7 +1299,11 @@ def _safe_attribute_value(value: object, depth: int) -> object:
         for key, item in value.items():
             if not isinstance(key, str) or len(key) > 128:
                 raise ValueError("candidate attribute key is invalid")
-            result[key] = _safe_attribute_value(item, depth + 1)
+            result[key] = _safe_attribute_value(
+                item,
+                depth + 1,
+                unbounded_list=key == "tracker_sources",
+            )
         return result
     raise ValueError("candidate attribute value is unsupported")
 

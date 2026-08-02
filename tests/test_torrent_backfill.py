@@ -275,6 +275,27 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.persisted_rows, 1)
         self.assertEqual(result.discarded_rows, 1)
 
+    async def test_backfill_preserves_unbounded_legacy_tracker_sources(self):
+        await self._insert(
+            media_id="tt1234567",
+            info_hash="a" * 40,
+            title="Movie.2026.1080p.WEB-DL-GROUP",
+        )
+        sources = [f"udp://tracker-{index}" for index in range(256)]
+        await self.database.execute(
+            "UPDATE torrents SET sources_json = :sources_json",
+            {"sources_json": orjson.dumps(sources).decode()},
+        )
+
+        await backfill_legacy_torrents(self.database)
+
+        attributes_json = await self.database.fetch_val(
+            "SELECT attributes_json FROM release_candidates",
+            force_primary=True,
+        )
+        attributes = orjson.loads(attributes_json)
+        self.assertEqual(attributes["transport_stats"]["tracker_sources"], sources)
+
     async def test_update_writer_uses_only_generic_public_storage(self):
         public = torrent_manager._construct_torrent_update(
             media_id="tt1234567",
