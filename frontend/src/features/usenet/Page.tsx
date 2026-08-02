@@ -216,14 +216,6 @@ export function UsenetPage() {
                           <dt>{t("usenet.failovers")}</dt>
                           <dd>{stats.nntp_provider_failovers_total}</dd>
                         </div>
-                        <div>
-                          <dt>{t("usenet.openCircuits")}</dt>
-                          <dd>
-                            {stats.nntp_circuits_auth_open +
-                              stats.nntp_circuits_transient_open +
-                              stats.nntp_circuits_half_open}
-                          </dd>
-                        </div>
                       </dl>
                     ) : null}
                     {runtime.healthy && stats ? (

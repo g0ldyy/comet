@@ -685,7 +685,6 @@
     "queue": "Sıraya alındı",
     "jobs": "Arşivleme / onarım işleri",
     "failovers": "Yük devretmeler",
-    "openCircuits": "Açık devreler",
     "resume": "Kabulü devam ettir",
     "drain": "Drenaj girişi",
     "noRuntime": "Yeni yerel çalışma zamanı anlık görüntüsü yok.",

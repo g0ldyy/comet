@@ -685,7 +685,6 @@
     "queue": "排队",
     "jobs": "归档/修复工作",
     "failovers": "故障转移",
-    "openCircuits": "开路",
     "resume": "恢复入学",
     "drain": "排水入口",
     "noRuntime": "没有新的本机运行时快照。",

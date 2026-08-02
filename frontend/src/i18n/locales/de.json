@@ -685,7 +685,6 @@
     "queue": "In der Warteschlange",
     "jobs": "Archivierungs-/Reparaturaufträge",
     "failovers": "Failover",
-    "openCircuits": "Offene Kreisläufe",
     "resume": "Aufnahme wieder aufnehmen",
     "drain": "Einlass ablassen",
     "noRuntime": "Kein neuer nativer Laufzeit-Snapshot.",

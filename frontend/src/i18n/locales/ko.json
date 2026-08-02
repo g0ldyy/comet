@@ -685,7 +685,6 @@
     "queue": "대기 중",
     "jobs": "보관/복구 작업",
     "failovers": "장애 조치",
-    "openCircuits": "개방 회로",
     "resume": "입학 재개",
     "drain": "배수구 입장",
     "noRuntime": "새로운 기본 런타임 스냅샷이 없습니다.",

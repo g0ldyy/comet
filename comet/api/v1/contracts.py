@@ -566,9 +566,6 @@ class UsenetEngineStats(StrictModel):
     nntp_reserved_decoded_bytes: int
     nntp_scheduler_busy_rejections_total: int
     nntp_connections_poisoned: int
-    nntp_circuits_auth_open: int
-    nntp_circuits_transient_open: int
-    nntp_circuits_half_open: int
     nntp_provider_attempts_total: int
     nntp_provider_suppliers_total: int
     nntp_provider_hits_total: int
@@ -577,7 +574,6 @@ class UsenetEngineStats(StrictModel):
     nntp_provider_failures_total: int
     nntp_provider_cancellations_total: int
     nntp_provider_failovers_total: int
-    nntp_circuit_skips_total: int
 
 
 class UsenetEngineRuntimeView(StrictModel):

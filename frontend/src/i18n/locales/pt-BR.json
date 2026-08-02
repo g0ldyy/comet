@@ -685,7 +685,6 @@
     "queue": "Na fila",
     "jobs": "Trabalhos de arquivamento/reparo",
     "failovers": "Failovers",
-    "openCircuits": "Circuitos abertos",
     "resume": "Retomar admissão",
     "drain": "Drenagem de admissão",
     "noRuntime": "Nenhum instantâneo de tempo de execução nativo novo.",

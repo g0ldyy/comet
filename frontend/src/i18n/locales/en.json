@@ -616,7 +616,6 @@
     "queue": "Queued",
     "jobs": "Archive / repair jobs",
     "failovers": "Failovers",
-    "openCircuits": "Open circuits",
     "resume": "Resume admission",
     "drain": "Drain admission",
     "noRuntime": "No fresh native runtime snapshot.",

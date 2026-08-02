@@ -685,7 +685,6 @@
     "queue": "In de wachtrij",
     "jobs": "Archief-/reparatiewerkzaamheden",
     "failovers": "Failovers",
-    "openCircuits": "Open circuits",
     "resume": "Hervat de toelating",
     "drain": "Toelating afvoer",
     "noRuntime": "Geen nieuwe native runtime-momentopname.",

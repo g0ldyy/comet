@@ -685,7 +685,6 @@
     "queue": "In coda",
     "jobs": "Archiviazione/riparazione dei lavori",
     "failovers": "Failover",
-    "openCircuits": "Circuiti aperti",
     "resume": "Riprendere l'ammissione",
     "drain": "Ingresso dello scarico",
     "noRuntime": "Nessun nuovo snapshot di runtime nativo.",

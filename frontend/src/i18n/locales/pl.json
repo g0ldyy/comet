@@ -685,7 +685,6 @@
     "queue": "W kolejce",
     "jobs": "Archiwizuj / naprawiaj zadania",
     "failovers": "Przełączanie awaryjne",
-    "openCircuits": "Obwody otwarte",
     "resume": "Wznów przyjęcie",
     "drain": "Wstęp do drenażu",
     "noRuntime": "Brak świeżej, natywnej migawki środowiska wykonawczego.",

@@ -1327,7 +1327,7 @@ impl EngineState {
             }
         }
 
-        let mut failures = PostingFailureAggregate::new();
+        let mut failures = PostingFailureAggregate::new(source.provider_set.servers.len());
         #[allow(clippy::needless_range_loop)]
         for server_index in 0..source.provider_set.servers.len() {
             let mut provider_unavailable = false;
@@ -1909,17 +1909,23 @@ struct BackgroundPrefetchPermit {
 struct PostingFailureAggregate {
     last: &'static str,
     auth: Option<&'static str>,
-    inconclusive: bool,
+    transient: Option<&'static str>,
+    mixed_transient: bool,
+    content_evidence: bool,
     all_auth: bool,
+    provider_count: usize,
 }
 
 impl PostingFailureAggregate {
-    fn new() -> Self {
+    fn new(provider_count: usize) -> Self {
         Self {
             last: "nntp_materialization_failed",
             auth: None,
-            inconclusive: false,
+            transient: None,
+            mixed_transient: false,
+            content_evidence: false,
             all_auth: true,
+            provider_count,
         }
     }
 
@@ -1930,17 +1936,28 @@ impl PostingFailureAggregate {
         } else {
             self.all_auth = false;
         }
-        if code != "nntp_article_missing" && !yenc::integrity_failure(code) {
-            self.inconclusive = true;
+        if code == "nntp_article_missing" || yenc::integrity_failure(code) {
+            self.content_evidence = true;
+        } else if let Some(transient) = self.transient {
+            self.mixed_transient |= transient != code;
+        } else {
+            self.transient = Some(code);
         }
     }
 
     fn finish(self) -> &'static str {
-        if !self.inconclusive {
-            self.last
-        } else if self.all_auth {
+        let Some(transient) = self.transient else {
+            return self.last;
+        };
+        if self.all_auth {
             self.auth
                 .expect("inconclusive all-auth aggregate contains an authentication failure")
+        } else if self.provider_count == 1
+            && !self.content_evidence
+            && !self.mixed_transient
+            && nntp::retryable_provider_failure(transient)
+        {
+            transient
         } else {
             "nntp_availability_unknown"
         }
@@ -2038,26 +2055,27 @@ fn native_work_failure_response(code: &str) -> Vec<u8> {
 }
 
 fn native_failure_retryable(code: &str) -> bool {
-    matches!(
-        code,
-        "materialization_cancelled"
-            | "materialization_unavailable"
-            | "native_busy"
-            | "native_disk_pressure"
-            | "native_resource_unavailable"
-            | "native_spool_full"
-            | "nntp_availability_unknown"
-            | "nntp_cancelled"
-            | "provider_set_busy"
-            | "provider_set_capacity"
-            | "provider_set_random_unavailable"
-            | "provider_set_unavailable"
-            | "session_busy"
-            | "session_capacity"
-            | "session_random_unavailable"
-            | "session_reader_capacity"
-            | "session_unavailable"
-    )
+    nntp::retryable_provider_failure(code)
+        || matches!(
+            code,
+            "materialization_cancelled"
+                | "materialization_unavailable"
+                | "native_busy"
+                | "native_disk_pressure"
+                | "native_resource_unavailable"
+                | "native_spool_full"
+                | "nntp_availability_unknown"
+                | "nntp_cancelled"
+                | "provider_set_busy"
+                | "provider_set_capacity"
+                | "provider_set_random_unavailable"
+                | "provider_set_unavailable"
+                | "session_busy"
+                | "session_capacity"
+                | "session_random_unavailable"
+                | "session_reader_capacity"
+                | "session_unavailable"
+        )
 }
 
 fn failure_body(code: &str, retryable: bool) -> String {
@@ -3211,9 +3229,6 @@ struct RuntimeStatsSnapshot {
     nntp_reserved_decoded_bytes: u64,
     nntp_scheduler_busy_rejections_total: u64,
     nntp_connections_poisoned: u64,
-    nntp_circuits_auth_open: u64,
-    nntp_circuits_transient_open: u64,
-    nntp_circuits_half_open: u64,
     nntp_provider_attempts_total: u64,
     nntp_provider_suppliers_total: u64,
     nntp_provider_hits_total: u64,
@@ -3222,7 +3237,6 @@ struct RuntimeStatsSnapshot {
     nntp_provider_failures_total: u64,
     nntp_provider_cancellations_total: u64,
     nntp_provider_failovers_total: u64,
-    nntp_circuit_skips_total: u64,
 }
 
 fn runtime_stats_body(state: &EngineState) -> String {
@@ -3328,9 +3342,6 @@ fn runtime_stats_body(state: &EngineState) -> String {
         nntp_reserved_decoded_bytes: pool_stats.reserved_decoded_bytes,
         nntp_scheduler_busy_rejections_total: pool_stats.scheduler_busy_rejections,
         nntp_connections_poisoned: pool_stats.poisoned,
-        nntp_circuits_auth_open: pool_stats.circuits_auth_open,
-        nntp_circuits_transient_open: pool_stats.circuits_transient_open,
-        nntp_circuits_half_open: pool_stats.circuits_half_open,
         nntp_provider_attempts_total: pool_stats.provider_attempts,
         nntp_provider_suppliers_total: pool_stats.provider_suppliers,
         nntp_provider_hits_total: pool_stats.provider_hits,
@@ -3339,7 +3350,6 @@ fn runtime_stats_body(state: &EngineState) -> String {
         nntp_provider_failures_total: pool_stats.provider_failures,
         nntp_provider_cancellations_total: pool_stats.provider_cancellations,
         nntp_provider_failovers_total: pool_stats.provider_failovers,
-        nntp_circuit_skips_total: pool_stats.circuit_skips,
     })
     .expect("serialize runtime statistics")
 }
@@ -7899,6 +7909,36 @@ mod request_tests {
     }
 
     #[test]
+    fn native_single_provider_reports_the_exact_retryable_outage() {
+        let root = temporary_directory("single-provider-outage");
+        let local_data = root.join("data");
+        std::fs::create_dir(&local_data).expect("create single provider outage data");
+        let state = Arc::new(
+            super::EngineState::new(&local_data, 16 * 1024 * 1024, 0, 0, 1)
+                .expect("initialize single provider outage state"),
+        );
+        let unavailable = TcpListener::bind("127.0.0.1:0").expect("reserve unavailable port");
+        let port = unavailable
+            .local_addr()
+            .expect("read unavailable port")
+            .port();
+        drop(unavailable);
+        let request = register_provider_from_request(
+            &materialization_request(port, "primary"),
+            &local_data,
+            &state,
+        );
+
+        let response = engine_response(&request, local_data, false, state);
+
+        assert!(response.starts_with(b"HTTP/1.1 503"));
+        assert!(
+            response.ends_with(br#"{"version":1,"code":"nntp_connect_failed","retryable":true}"#)
+        );
+        std::fs::remove_dir_all(root).expect("remove single provider outage directory");
+    }
+
+    #[test]
     fn native_provider_routing_never_turns_partial_topology_failure_into_absence() {
         for unavailable_first in [true, false] {
             let root = temporary_directory("inconclusive-failover");
@@ -7939,24 +7979,33 @@ mod request_tests {
 
     #[test]
     fn native_provider_failure_scope_preserves_only_unanimous_authentication() {
-        let mut authentication = super::PostingFailureAggregate::new();
+        let mut authentication = super::PostingFailureAggregate::new(1);
         authentication.observe("nntp_auth_required");
         authentication.observe("nntp_auth_failed");
         assert_eq!(authentication.finish(), "nntp_auth_required");
 
-        let mut mixed_provider_failure = super::PostingFailureAggregate::new();
+        let mut mixed_provider_failure = super::PostingFailureAggregate::new(1);
         mixed_provider_failure.observe("nntp_auth_failed");
         mixed_provider_failure.observe("nntp_connect_failed");
         assert_eq!(mixed_provider_failure.finish(), "nntp_availability_unknown");
 
-        let mut mixed_content_failure = super::PostingFailureAggregate::new();
+        let mut mixed_content_failure = super::PostingFailureAggregate::new(1);
         mixed_content_failure.observe("nntp_article_missing");
         mixed_content_failure.observe("nntp_auth_failed");
         assert_eq!(mixed_content_failure.finish(), "nntp_availability_unknown");
 
-        let mut terminal_content = super::PostingFailureAggregate::new();
+        let mut terminal_content = super::PostingFailureAggregate::new(1);
         terminal_content.observe("nntp_article_missing");
         assert_eq!(terminal_content.finish(), "nntp_article_missing");
+
+        let mut exact_transient = super::PostingFailureAggregate::new(1);
+        exact_transient.observe("nntp_connect_failed");
+        exact_transient.observe("nntp_connect_failed");
+        assert_eq!(exact_transient.finish(), "nntp_connect_failed");
+
+        let mut ambiguous_transient = super::PostingFailureAggregate::new(2);
+        ambiguous_transient.observe("nntp_connect_failed");
+        assert_eq!(ambiguous_transient.finish(), "nntp_availability_unknown");
     }
 
     #[test]
@@ -10450,6 +10499,11 @@ mod request_tests {
         let cancelled = super::native_work_failure_response("nntp_cancelled");
         assert!(cancelled.starts_with(b"HTTP/1.1 503"));
         assert!(cancelled.ends_with(br#"{"version":1,"code":"nntp_cancelled","retryable":true}"#));
+        let provider = super::native_work_failure_response("nntp_connect_failed");
+        assert!(provider.starts_with(b"HTTP/1.1 503"));
+        assert!(
+            provider.ends_with(br#"{"version":1,"code":"nntp_connect_failed","retryable":true}"#)
+        );
         std::fs::remove_dir_all(root).expect("remove session failure policy directory");
     }
 
@@ -10667,9 +10721,6 @@ mod request_tests {
             "nntp_reserved_decoded_bytes",
             "nntp_scheduler_busy_rejections_total",
             "nntp_connections_poisoned",
-            "nntp_circuits_auth_open",
-            "nntp_circuits_transient_open",
-            "nntp_circuits_half_open",
             "nntp_provider_attempts_total",
             "nntp_provider_suppliers_total",
             "nntp_provider_hits_total",
@@ -10678,7 +10729,6 @@ mod request_tests {
             "nntp_provider_failures_total",
             "nntp_provider_cancellations_total",
             "nntp_provider_failovers_total",
-            "nntp_circuit_skips_total",
         ] {
             assert_eq!(stats[field], 0);
         }

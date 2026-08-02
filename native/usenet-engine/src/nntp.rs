@@ -23,9 +23,6 @@ const CANCELLATION_POLL: Duration = Duration::from_millis(100);
 const MAX_PHYSICAL_POOL_ENTRIES: usize = 16_384;
 const MAX_PIPELINE_QUEUE: usize = 1024;
 const PIPELINE_COALESCE_WINDOW: Duration = Duration::from_millis(2);
-const CIRCUIT_TRANSIENT_FAILURES: u8 = 3;
-const CIRCUIT_OPEN_INTERVAL: Duration = Duration::from_secs(30);
-const CIRCUIT_MAX_OPEN_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const DEFAULT_HEDGE_DELAY: Duration = Duration::from_millis(500);
 const MIN_HEDGE_DELAY: Duration = Duration::from_millis(100);
 const MAX_HEDGE_DELAY: Duration = Duration::from_millis(750);
@@ -286,19 +283,8 @@ impl Drop for GroupDispatch {
     }
 }
 
-#[derive(Clone, Copy)]
-enum CircuitState {
-    Closed { transient_failures: u8 },
-    AuthOpen,
-    TransientOpen { retry_at: Instant, backoff_step: u8 },
-    HalfOpen,
-}
-
 #[derive(Default)]
-struct CircuitTelemetry {
-    auth_open: AtomicU64,
-    transient_open: AtomicU64,
-    half_open: AtomicU64,
+struct ProviderTelemetry {
     provider_attempts: AtomicU64,
     provider_suppliers: AtomicU64,
     provider_hits: AtomicU64,
@@ -307,35 +293,10 @@ struct CircuitTelemetry {
     provider_failures: AtomicU64,
     provider_cancellations: AtomicU64,
     provider_failovers: AtomicU64,
-    circuit_skips: AtomicU64,
     scheduler_busy_rejections: AtomicU64,
 }
 
-impl CircuitTelemetry {
-    fn enter(&self, state: CircuitState) {
-        let gauge = match state {
-            CircuitState::AuthOpen => Some(&self.auth_open),
-            CircuitState::TransientOpen { .. } => Some(&self.transient_open),
-            CircuitState::HalfOpen => Some(&self.half_open),
-            CircuitState::Closed { .. } => None,
-        };
-        if let Some(gauge) = gauge {
-            gauge.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    fn leave(&self, state: CircuitState) {
-        let gauge = match state {
-            CircuitState::AuthOpen => Some(&self.auth_open),
-            CircuitState::TransientOpen { .. } => Some(&self.transient_open),
-            CircuitState::HalfOpen => Some(&self.half_open),
-            CircuitState::Closed { .. } => None,
-        };
-        if let Some(gauge) = gauge {
-            gauge.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-
+impl ProviderTelemetry {
     fn increment(counter: &AtomicU64) {
         let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             Some(value.saturating_add(1))
@@ -343,178 +304,20 @@ impl CircuitTelemetry {
     }
 }
 
-struct CircuitBreaker {
-    state: Mutex<CircuitState>,
-    telemetry: Arc<CircuitTelemetry>,
-}
-
-impl CircuitBreaker {
-    fn new(telemetry: Arc<CircuitTelemetry>) -> Self {
-        Self {
-            state: Mutex::new(CircuitState::Closed {
-                transient_failures: 0,
-            }),
-            telemetry,
-        }
-    }
-
-    fn transition(&self, state: &mut CircuitState, next: CircuitState) {
-        self.telemetry.leave(*state);
-        self.telemetry.enter(next);
-        *state = next;
-    }
-
-    fn acquire(self: &Arc<Self>, now: Instant) -> Result<CircuitPermit, &'static str> {
-        let mut state = self.state.lock().expect("NNTP circuit lock");
-        let half_open_step = match *state {
-            CircuitState::Closed { .. } => None,
-            CircuitState::AuthOpen => return Err("nntp_circuit_open"),
-            CircuitState::TransientOpen { retry_at, .. } if now < retry_at => {
-                return Err("nntp_circuit_open");
-            }
-            CircuitState::TransientOpen { backoff_step, .. } => {
-                self.transition(&mut state, CircuitState::HalfOpen);
-                Some(backoff_step)
-            }
-            CircuitState::HalfOpen => return Err("nntp_circuit_open"),
-        };
-        Ok(CircuitPermit {
-            circuit: Arc::clone(self),
-            half_open_step,
-            completed: false,
-        })
-    }
-
-    fn record(&self, result: Result<(), &'static str>, now: Instant, half_open_step: Option<u8>) {
-        let mut state = self.state.lock().expect("NNTP circuit lock");
-        if matches!(*state, CircuitState::AuthOpen) && result.is_err() {
-            return;
-        }
-        match result {
-            Ok(()) => {
-                self.transition(
-                    &mut state,
-                    CircuitState::Closed {
-                        transient_failures: 0,
-                    },
-                );
-            }
-            Err(code) if authentication_failure(code) => {
-                self.transition(&mut state, CircuitState::AuthOpen);
-            }
-            Err(code) if transient_circuit_failure(code) => {
-                let failures = if half_open_step.is_some() {
-                    CIRCUIT_TRANSIENT_FAILURES
-                } else {
-                    match *state {
-                        CircuitState::Closed { transient_failures } => {
-                            transient_failures.saturating_add(1)
-                        }
-                        _ => CIRCUIT_TRANSIENT_FAILURES,
-                    }
-                };
-                let next = if failures >= CIRCUIT_TRANSIENT_FAILURES {
-                    let backoff_step = half_open_step
-                        .map(|step| step.saturating_add(1))
-                        .unwrap_or(0);
-                    CircuitState::TransientOpen {
-                        retry_at: now + circuit_open_interval(backoff_step),
-                        backoff_step,
-                    }
-                } else {
-                    CircuitState::Closed {
-                        transient_failures: failures,
-                    }
-                };
-                self.transition(&mut state, next);
-            }
-            Err(_) if half_open_step.is_some() => {
-                let backoff_step = half_open_step
-                    .expect("checked half-open step")
-                    .saturating_add(1);
-                self.transition(
-                    &mut state,
-                    CircuitState::TransientOpen {
-                        retry_at: now + circuit_open_interval(backoff_step),
-                        backoff_step,
-                    },
-                );
-            }
-            Err(_) => {}
-        }
-    }
-
-    #[cfg(test)]
-    fn reset(&self) {
-        let mut state = self.state.lock().expect("NNTP circuit lock");
-        self.transition(
-            &mut state,
-            CircuitState::Closed {
-                transient_failures: 0,
-            },
-        );
-    }
-}
-
-impl Drop for CircuitBreaker {
-    fn drop(&mut self) {
-        self.telemetry
-            .leave(*self.state.get_mut().expect("NNTP circuit lock"));
-    }
-}
-
-struct CircuitPermit {
-    circuit: Arc<CircuitBreaker>,
-    half_open_step: Option<u8>,
-    completed: bool,
-}
-
-impl CircuitPermit {
-    fn complete(&mut self, result: Result<(), &'static str>, now: Instant) {
-        self.circuit.record(result, now, self.half_open_step);
-        self.completed = true;
-    }
-}
-
-impl Drop for CircuitPermit {
-    fn drop(&mut self) {
-        if self.half_open_step.is_some() && !self.completed {
-            self.circuit.record(
-                Err("nntp_half_open_abandoned"),
-                Instant::now(),
-                self.half_open_step,
-            );
-        }
-    }
-}
-
-fn circuit_open_interval(backoff_step: u8) -> Duration {
-    let multiplier = 1_u32
-        .checked_shl(u32::from(backoff_step.min(31)))
-        .unwrap_or(u32::MAX);
-    CIRCUIT_OPEN_INTERVAL
-        .saturating_mul(multiplier)
-        .min(CIRCUIT_MAX_OPEN_INTERVAL)
-}
-
 fn authentication_failure(code: &str) -> bool {
     matches!(code, "nntp_auth_failed" | "nntp_auth_required")
 }
 
-fn transient_circuit_failure(code: &str) -> bool {
+pub(crate) fn retryable_provider_failure(code: &str) -> bool {
     matches!(
         code,
         "nntp_dns_failed"
             | "nntp_dns_timeout"
+            | "nntp_dns_busy"
+            | "nntp_dns_unavailable"
             | "nntp_connect_failed"
-            | "nntp_timeout_configuration_failed"
             | "nntp_tls_failed"
-            | "nntp_tls_roots_failed"
-            | "nntp_starttls_failed"
-            | "nntp_starttls_unavailable"
             | "nntp_greeting_rejected"
-            | "nntp_capabilities_failed"
-            | "nntp_reader_failed"
             | "nntp_compression_failed"
             | "nntp_compression_desynchronized"
             | "nntp_read_failed"
@@ -522,12 +325,12 @@ fn transient_circuit_failure(code: &str) -> bool {
             | "nntp_invalid_response"
             | "nntp_body_failed"
             | "nntp_article_timeout"
+            | "nntp_pipeline_desynchronized"
             | "nntp_pipeline_unavailable"
-            | "nntp_date_failed"
     )
 }
 
-fn successful_circuit_response(code: &str) -> bool {
+fn reusable_connection_response(code: &str) -> bool {
     matches!(
         code,
         "nntp_article_missing" | "nntp_group_required" | "nntp_group_failed"
@@ -535,7 +338,7 @@ fn successful_circuit_response(code: &str) -> bool {
 }
 
 fn synchronized_connection_response(code: &str) -> bool {
-    code == "nntp_body_failed" || successful_circuit_response(code)
+    code == "nntp_body_failed" || reusable_connection_response(code)
 }
 
 fn reconnectable_connection_failure(code: &str) -> bool {
@@ -1712,7 +1515,7 @@ impl ProviderPerformance {
         Self::update_ewma(&self.latency_micros, latency_micros);
         match result {
             Ok(part) => {
-                CircuitTelemetry::increment(&self.suppliers);
+                ProviderTelemetry::increment(&self.suppliers);
                 let bytes = u64::try_from(part.bytes.len()).expect("bounded NNTP article");
                 let throughput = (bytes * 1_000_000 / latency_micros).max(1);
                 Self::update_ewma(&self.throughput_bytes_per_second, throughput);
@@ -1720,7 +1523,7 @@ impl ProviderPerformance {
                 Self::update_ewma(&self.capacity_ppm, 1_000_000);
             }
             Err("nntp_article_missing") => {
-                CircuitTelemetry::increment(&self.missing);
+                ProviderTelemetry::increment(&self.missing);
                 Self::update_ewma(&self.recent_miss_ppm, 1_000_000);
                 Self::update_ewma(&self.capacity_ppm, 1_000_000);
             }
@@ -1729,13 +1532,13 @@ impl ProviderPerformance {
                 Self::update_ewma(&self.capacity_ppm, 1_000_000);
             }
             Err("native_busy" | "nntp_pipeline_capacity" | "nntp_pool_capacity") => {
-                CircuitTelemetry::increment(&self.failures);
+                ProviderTelemetry::increment(&self.failures);
                 Self::update_ewma(&self.capacity_ppm, 1);
             }
             Err(code) => {
-                CircuitTelemetry::increment(&self.failures);
+                ProviderTelemetry::increment(&self.failures);
                 if authentication_failure(code) {
-                    CircuitTelemetry::increment(&self.authentication_failures);
+                    ProviderTelemetry::increment(&self.authentication_failures);
                 }
                 Self::update_ewma(&self.capacity_ppm, 1);
             }
@@ -1775,7 +1578,6 @@ struct PoolReferenceInner {
     reference_id: u64,
     lane: PipelineLane,
     group_routing: Arc<GroupRouting>,
-    circuit: Arc<CircuitBreaker>,
     performance: Arc<ProviderPerformance>,
 }
 
@@ -1800,7 +1602,7 @@ pub struct PoolRegistry {
     pools: Mutex<HashMap<PhysicalPoolKey, Arc<PhysicalPool>>>,
     maximum_pool_entries: usize,
     poisoned_connections: Arc<AtomicU64>,
-    circuit_telemetry: Arc<CircuitTelemetry>,
+    provider_telemetry: Arc<ProviderTelemetry>,
     next_reference_id: AtomicU64,
 }
 
@@ -1817,9 +1619,6 @@ pub struct PoolStats {
     pub reserved_decoded_bytes: u64,
     pub scheduler_busy_rejections: u64,
     pub poisoned: u64,
-    pub circuits_auth_open: u64,
-    pub circuits_transient_open: u64,
-    pub circuits_half_open: u64,
     pub provider_attempts: u64,
     pub provider_suppliers: u64,
     pub provider_hits: u64,
@@ -1828,7 +1627,6 @@ pub struct PoolStats {
     pub provider_failures: u64,
     pub provider_cancellations: u64,
     pub provider_failovers: u64,
-    pub circuit_skips: u64,
 }
 
 #[cfg(test)]
@@ -1864,7 +1662,7 @@ impl PoolRegistry {
             pools: Mutex::new(HashMap::new()),
             maximum_pool_entries,
             poisoned_connections,
-            circuit_telemetry: Arc::new(CircuitTelemetry::default()),
+            provider_telemetry: Arc::new(ProviderTelemetry::default()),
             next_reference_id: AtomicU64::new(1),
         })
     }
@@ -1919,7 +1717,6 @@ impl PoolRegistry {
                     backup,
                 },
                 group_routing: Arc::new(GroupRouting::new()),
-                circuit: Arc::new(CircuitBreaker::new(Arc::clone(&self.circuit_telemetry))),
                 performance: Arc::new(ProviderPerformance::default()),
             }),
         })
@@ -1960,46 +1757,42 @@ impl PoolRegistry {
             reserved_encoded_bytes: 0,
             reserved_decoded_bytes: 0,
             scheduler_busy_rejections: self
-                .circuit_telemetry
+                .provider_telemetry
                 .scheduler_busy_rejections
                 .load(Ordering::Relaxed),
             poisoned: self.poisoned_connections.load(Ordering::Relaxed),
-            circuits_auth_open: self.circuit_telemetry.auth_open.load(Ordering::Relaxed),
-            circuits_transient_open: self
-                .circuit_telemetry
-                .transient_open
-                .load(Ordering::Relaxed),
-            circuits_half_open: self.circuit_telemetry.half_open.load(Ordering::Relaxed),
             provider_attempts: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_attempts
                 .load(Ordering::Relaxed),
             provider_suppliers: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_suppliers
                 .load(Ordering::Relaxed),
-            provider_hits: self.circuit_telemetry.provider_hits.load(Ordering::Relaxed),
+            provider_hits: self
+                .provider_telemetry
+                .provider_hits
+                .load(Ordering::Relaxed),
             provider_missing: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_missing
                 .load(Ordering::Relaxed),
             provider_corrupt: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_corrupt
                 .load(Ordering::Relaxed),
             provider_failures: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_failures
                 .load(Ordering::Relaxed),
             provider_cancellations: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_cancellations
                 .load(Ordering::Relaxed),
             provider_failovers: self
-                .circuit_telemetry
+                .provider_telemetry
                 .provider_failovers
                 .load(Ordering::Relaxed),
-            circuit_skips: self.circuit_telemetry.circuit_skips.load(Ordering::Relaxed),
         };
         for pool in pools.values() {
             let state = pool.state.lock().expect("physical NNTP pool lock");
@@ -2031,7 +1824,7 @@ impl PoolRegistry {
     }
 
     pub(crate) fn record_provider_failover(&self) {
-        CircuitTelemetry::increment(&self.circuit_telemetry.provider_failovers);
+        ProviderTelemetry::increment(&self.provider_telemetry.provider_failovers);
     }
 
     #[cfg(test)]
@@ -2054,25 +1847,19 @@ impl PoolRegistry {
         F: Fn() -> bool,
     {
         let pool = Arc::clone(&pool_reference.inner.pool);
-        let circuit = Arc::clone(&pool_reference.inner.circuit);
         let mut connection = pool
             .checkout(request, cancelled, &|| self.reclaim_one_idle())
-            .map_err(|code| {
-                circuit.record(Err(code), Instant::now(), None);
-                ConnectionTestError {
-                    phase: connection_test_phase(code),
-                    code,
-                }
+            .map_err(|code| ConnectionTestError {
+                phase: connection_test_phase(code),
+                code,
             })?;
         match connection.date_cancellable(cancelled) {
             Ok(date) => {
                 pool.finish(connection, true);
-                circuit.reset();
                 Ok(date)
             }
             Err(code) => {
                 pool.finish(connection, false);
-                circuit.record(Err(code), Instant::now(), None);
                 Err(ConnectionTestError {
                     phase: if authentication_failure(code) {
                         "authentication"
@@ -2102,18 +1889,10 @@ impl PoolRegistry {
         F: Fn() -> bool,
     {
         let pool = Arc::clone(&pool_reference.inner.pool);
-        let mut circuit_permit = pool_reference.inner.circuit.acquire(Instant::now())?;
         let mut connection =
             pool.checkout_preparation(request, cancelled, &|| self.reclaim_one_idle())?;
         let result = connection.stat_batch(message_ids, group, cancelled);
         pool.finish(connection, result.is_ok());
-        circuit_permit.complete(
-            match &result {
-                Ok(_) | Err("nntp_stat_unsupported" | "nntp_group_required") => Ok(()),
-                Err(code) => Err(*code),
-            },
-            Instant::now(),
-        );
         result
     }
 
@@ -2181,27 +1960,18 @@ impl PoolRegistry {
         cancellation: FlightCancellation,
         scheduling: SchedulingContext,
     ) -> Result<crate::yenc::DecodedPart, &'static str> {
-        let circuit_telemetry = Arc::clone(&self.circuit_telemetry);
+        let telemetry = Arc::clone(&self.provider_telemetry);
         let pool = Arc::clone(&pool_reference.inner.pool);
         let article_limit = article_read_limit(maximum_bytes)?;
         let reservation =
             match pool.reserve_pipeline(scheduling.declared_encoded_bytes, scheduling.work_class) {
                 Ok(reservation) => reservation,
                 Err(code) => {
-                    CircuitTelemetry::increment(&circuit_telemetry.scheduler_busy_rejections);
+                    ProviderTelemetry::increment(&telemetry.scheduler_busy_rejections);
                     return Err(code);
                 }
             };
         let decoded_limit = reservation.decoded_bytes;
-        let mut circuit_permit = match pool_reference.inner.circuit.acquire(Instant::now()) {
-            Ok(permit) => permit,
-            Err(code) => {
-                if code == "nntp_circuit_open" {
-                    CircuitTelemetry::increment(&self.circuit_telemetry.circuit_skips);
-                }
-                return Err(code);
-            }
-        };
         let (result, receive_result) = mpsc::sync_channel(1);
         let caller_cancellation = cancellation.clone();
         let start_dispatcher = pool.enqueue(PipelineTask {
@@ -2216,47 +1986,40 @@ impl PoolRegistry {
             _pool_reference: pool_reference,
             result,
         })?;
-        CircuitTelemetry::increment(&circuit_telemetry.provider_attempts);
+        ProviderTelemetry::increment(&telemetry.provider_attempts);
         if start_dispatcher && !self.spawn_pipeline_dispatcher(Arc::clone(&pool)) {
             self.drive_pipeline(Arc::clone(&pool));
         }
         loop {
             if let Err(code) = caller_cancellation.checkpoint() {
-                CircuitTelemetry::increment(&circuit_telemetry.provider_cancellations);
+                ProviderTelemetry::increment(&telemetry.provider_cancellations);
                 return Err(code);
             }
             match receive_result.recv_timeout(Duration::from_millis(25)) {
                 Ok(result) => {
-                    let circuit_result = match &result {
-                        Ok(_) => Ok(()),
-                        Err(code) if successful_circuit_response(code) => Ok(()),
-                        Err(code) => Err(*code),
-                    };
-                    circuit_permit.complete(circuit_result, Instant::now());
                     match &result {
                         Ok(_) => {
-                            CircuitTelemetry::increment(&circuit_telemetry.provider_suppliers);
-                            CircuitTelemetry::increment(&circuit_telemetry.provider_hits);
+                            ProviderTelemetry::increment(&telemetry.provider_suppliers);
+                            ProviderTelemetry::increment(&telemetry.provider_hits);
                         }
                         Err("nntp_article_missing") => {
-                            CircuitTelemetry::increment(&circuit_telemetry.provider_missing);
+                            ProviderTelemetry::increment(&telemetry.provider_missing);
                         }
                         Err(code) if crate::yenc::integrity_failure(code) => {
-                            CircuitTelemetry::increment(&circuit_telemetry.provider_corrupt);
+                            ProviderTelemetry::increment(&telemetry.provider_corrupt);
                         }
                         Err("nntp_cancelled") => {
-                            CircuitTelemetry::increment(&circuit_telemetry.provider_cancellations);
+                            ProviderTelemetry::increment(&telemetry.provider_cancellations);
                         }
                         Err(_) => {
-                            CircuitTelemetry::increment(&circuit_telemetry.provider_failures);
+                            ProviderTelemetry::increment(&telemetry.provider_failures);
                         }
                     }
                     return result;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    circuit_permit.complete(Err("nntp_pipeline_unavailable"), Instant::now());
-                    CircuitTelemetry::increment(&circuit_telemetry.provider_failures);
+                    ProviderTelemetry::increment(&telemetry.provider_failures);
                     return Err("nntp_pipeline_unavailable");
                 }
             }
@@ -3259,7 +3022,7 @@ impl NntpConnection {
             if result
                 .as_ref()
                 .err()
-                .is_some_and(|code| !successful_circuit_response(code))
+                .is_some_and(|code| !reusable_connection_response(code))
             {
                 healthy = false;
             }
@@ -3703,15 +3466,13 @@ mod tests {
     }
 
     use super::{
-        ARTICLE_RESERVATION_QUANTUM, BodyRequest, CANCELLATION_POLL, CIRCUIT_MAX_OPEN_INTERVAL,
-        CIRCUIT_OPEN_INTERVAL, CircuitBreaker, CircuitTelemetry, FlightCancellation, GroupDispatch,
-        GroupRequirement, MAX_DECLARED_ARTICLE_BYTES, MAX_PIPELINE_DEPTH, MAX_PIPELINE_QUEUE,
-        NntpConnection, NntpStream, PipelineTask, PoolReference, PoolRegistry, PoolStats,
-        ProviderPerformance, SchedulingContext, SecretText, TIMEOUT, WorkClass, article_read_limit,
-        authentication_status_failure, body, body_with_cancellation,
-        capabilities_cancellable_until, circuit_open_interval, code, complete_tls_with,
-        connect_addresses, line_cancellable, resolve_cancellable, rounded_article_cost,
-        successful_circuit_response, transient_circuit_failure, valid_group,
+        ARTICLE_RESERVATION_QUANTUM, BodyRequest, CANCELLATION_POLL, FlightCancellation,
+        GroupDispatch, GroupRequirement, MAX_DECLARED_ARTICLE_BYTES, MAX_PIPELINE_DEPTH,
+        MAX_PIPELINE_QUEUE, NntpConnection, NntpStream, PipelineTask, PoolReference, PoolRegistry,
+        PoolStats, ProviderPerformance, SchedulingContext, SecretText, TIMEOUT, WorkClass,
+        article_read_limit, authentication_status_failure, body, body_with_cancellation,
+        capabilities_cancellable_until, code, complete_tls_with, connect_addresses,
+        line_cancellable, resolve_cancellable, rounded_article_cost, valid_group,
         validate_body_template, verified_part, wait_for_connect_with, wait_for_resolution,
     };
     use std::cell::Cell;
@@ -4262,7 +4023,6 @@ mod tests {
         let stats = pools.stats();
         assert_eq!(stats.provider_attempts, 1);
         assert_eq!(stats.provider_hits, 1);
-        assert_eq!(stats.circuits_auth_open, 0);
         assert_eq!(stats.poisoned, 1);
     }
 
@@ -4316,7 +4076,6 @@ mod tests {
             .expect("join bounded-reauthentication NNTP server");
         let stats = pools.stats();
         assert_eq!(stats.provider_attempts, 1);
-        assert_eq!(stats.circuits_auth_open, 1);
         assert_eq!(stats.poisoned, 2);
     }
 
@@ -4665,125 +4424,6 @@ mod tests {
     }
 
     #[test]
-    fn transient_circuit_allows_only_one_bounded_half_open_probe() {
-        let telemetry = Arc::new(CircuitTelemetry::default());
-        let circuit = Arc::new(CircuitBreaker::new(Arc::clone(&telemetry)));
-        let now = Instant::now();
-        for _ in 0..3 {
-            let mut permit = circuit.acquire(now).expect("acquire closed circuit");
-            permit.complete(Err("nntp_connect_failed"), now);
-        }
-        assert_eq!(telemetry.transient_open.load(Ordering::Relaxed), 1);
-        assert_eq!(circuit.acquire(now).err(), Some("nntp_circuit_open"));
-
-        let retry = now + CIRCUIT_OPEN_INTERVAL;
-        let mut probe = circuit.acquire(retry).expect("acquire one half-open probe");
-        assert_eq!(telemetry.transient_open.load(Ordering::Relaxed), 0);
-        assert_eq!(telemetry.half_open.load(Ordering::Relaxed), 1);
-        assert_eq!(circuit.acquire(retry).err(), Some("nntp_circuit_open"));
-        probe.complete(Err("nntp_connect_failed"), retry);
-        assert_eq!(telemetry.transient_open.load(Ordering::Relaxed), 1);
-        assert_eq!(telemetry.half_open.load(Ordering::Relaxed), 0);
-        assert_eq!(circuit.acquire(retry).err(), Some("nntp_circuit_open"));
-
-        assert_eq!(
-            circuit.acquire(retry + CIRCUIT_OPEN_INTERVAL).err(),
-            Some("nntp_circuit_open")
-        );
-        let recovered_at = retry + circuit_open_interval(1);
-        let mut recovery = circuit
-            .acquire(recovered_at)
-            .expect("acquire bounded recovery probe");
-        recovery.complete(Ok(()), recovered_at);
-        assert_eq!(telemetry.transient_open.load(Ordering::Relaxed), 0);
-        assert_eq!(telemetry.half_open.load(Ordering::Relaxed), 0);
-        assert!(circuit.acquire(recovered_at).is_ok());
-    }
-
-    #[test]
-    fn transient_circuit_backoff_doubles_and_caps_at_five_minutes() {
-        assert_eq!(circuit_open_interval(0), Duration::from_secs(30));
-        assert_eq!(circuit_open_interval(1), Duration::from_secs(60));
-        assert_eq!(circuit_open_interval(2), Duration::from_secs(120));
-        assert_eq!(circuit_open_interval(3), Duration::from_secs(240));
-        assert_eq!(circuit_open_interval(4), CIRCUIT_MAX_OPEN_INTERVAL);
-        assert_eq!(circuit_open_interval(u8::MAX), CIRCUIT_MAX_OPEN_INTERVAL);
-    }
-
-    #[test]
-    fn authentication_circuit_cannot_be_weakened_by_a_failed_explicit_test() {
-        let telemetry = Arc::new(CircuitTelemetry::default());
-        let circuit = Arc::new(CircuitBreaker::new(Arc::clone(&telemetry)));
-        let now = Instant::now();
-        let mut permit = circuit.acquire(now).expect("acquire auth circuit");
-        permit.complete(Err("nntp_auth_failed"), now);
-        assert_eq!(telemetry.auth_open.load(Ordering::Relaxed), 1);
-        circuit.record(
-            Err("nntp_connect_failed"),
-            now + CIRCUIT_OPEN_INTERVAL,
-            None,
-        );
-        assert_eq!(telemetry.auth_open.load(Ordering::Relaxed), 1);
-
-        assert_eq!(
-            circuit
-                .acquire(now + CIRCUIT_OPEN_INTERVAL + CIRCUIT_OPEN_INTERVAL)
-                .err(),
-            Some("nntp_circuit_open")
-        );
-        circuit.reset();
-        assert_eq!(telemetry.auth_open.load(Ordering::Relaxed), 0);
-        assert!(circuit.acquire(now).is_ok());
-    }
-
-    #[test]
-    fn dropping_an_open_circuit_releases_its_aggregate_gauge() {
-        let telemetry = Arc::new(CircuitTelemetry::default());
-        let circuit = Arc::new(CircuitBreaker::new(Arc::clone(&telemetry)));
-        let now = Instant::now();
-        let mut permit = circuit.acquire(now).expect("acquire auth circuit");
-        permit.complete(Err("nntp_auth_failed"), now);
-        drop(permit);
-        assert_eq!(telemetry.auth_open.load(Ordering::Relaxed), 1);
-
-        drop(circuit);
-
-        assert_eq!(telemetry.auth_open.load(Ordering::Relaxed), 0);
-    }
-
-    #[test]
-    fn integrity_evidence_resets_the_transient_circuit_streak() {
-        let telemetry = Arc::new(CircuitTelemetry::default());
-        let circuit = Arc::new(CircuitBreaker::new(Arc::clone(&telemetry)));
-        let now = Instant::now();
-        for _ in 0..2 {
-            let mut permit = circuit.acquire(now).expect("acquire transient circuit");
-            permit.complete(Err("nntp_connect_failed"), now);
-        }
-
-        let mut integrity = circuit.acquire(now).expect("acquire integrity response");
-        assert!(successful_circuit_response("missing_yend"));
-        integrity.complete(Ok(()), now);
-
-        for _ in 0..2 {
-            let mut permit = circuit
-                .acquire(now)
-                .expect("retain circuit below reset threshold");
-            permit.complete(Err("nntp_connect_failed"), now);
-        }
-        assert_eq!(telemetry.transient_open.load(Ordering::Relaxed), 0);
-        let mut threshold = circuit.acquire(now).expect("acquire threshold failure");
-        threshold.complete(Err("nntp_connect_failed"), now);
-        assert_eq!(telemetry.transient_open.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn article_deadlines_are_transient_circuit_failures() {
-        assert!(transient_circuit_failure("nntp_article_timeout"));
-        assert!(!successful_circuit_response("nntp_article_timeout"));
-    }
-
-    #[test]
     fn timeout_defaults_match_the_native_protocol_contract() {
         assert_eq!(TIMEOUT, Duration::from_secs(15));
         assert_eq!(super::ARTICLE_TOTAL_TIMEOUT, Duration::from_secs(30));
@@ -4791,29 +4431,25 @@ mod tests {
     }
 
     #[test]
-    fn authentication_circuit_stays_open_until_an_explicit_test_succeeds() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind auth-circuit NNTP server");
+    fn provider_requests_retry_immediately_after_authentication_recovers() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind recovering NNTP server");
         let port = listener
             .local_addr()
-            .expect("get auth-circuit NNTP address")
+            .expect("get recovering NNTP address")
             .port();
         let server = thread::spawn(move || {
-            let (first, _) = listener
-                .accept()
-                .expect("accept rejected auth-circuit client");
+            let (first, _) = listener.accept().expect("accept rejected NNTP client");
             let mut first = BufReader::new(first);
-            respond(&mut first, b"200 auth-circuit server ready\r\n");
+            respond(&mut first, b"200 recovering server ready\r\n");
             capabilities(&mut first);
             assert_eq!(next_command(&mut first), "MODE READER\r\n");
             respond(&mut first, b"480 authentication required\r\n");
             assert_eq!(next_command(&mut first), "AUTHINFO USER user\r\n");
             respond(&mut first, b"502 authentication rejected\r\n");
 
-            let (second, _) = listener
-                .accept()
-                .expect("accept explicit auth-circuit test");
+            let (second, _) = listener.accept().expect("accept recovered NNTP client");
             let mut second = BufReader::new(second);
-            respond(&mut second, b"200 recovered auth-circuit server ready\r\n");
+            respond(&mut second, b"200 recovered server ready\r\n");
             capabilities(&mut second);
             assert_eq!(next_command(&mut second), "MODE READER\r\n");
             respond(&mut second, b"200 reader enabled\r\n");
@@ -4822,24 +4458,22 @@ mod tests {
             assert_eq!(next_command(&mut second), "AUTHINFO PASS secret\r\n");
             respond(&mut second, b"281 authentication accepted\r\n");
             capabilities(&mut second);
-            assert_eq!(next_command(&mut second), "DATE\r\n");
-            respond(&mut second, b"111 20260727123456\r\n");
             assert_eq!(
                 next_command(&mut second),
-                "BODY <auth-circuit@example.test>\r\n"
+                "BODY <recovered@example.test>\r\n"
             );
             respond(
                 &mut second,
                 b"222 body follows\r\n=ybegin line=128 size=1 name=auth\r\nk\r\n=yend size=1 crc32=d3d99e8b\r\n.\r\n",
             );
         });
-        let pools = Arc::new(PoolRegistry::new(1).expect("create auth-circuit pool registry"));
-        let mut request = pool_request(port, "auth-circuit@example.test");
+        let pools = Arc::new(PoolRegistry::new(1).expect("create recovering pool registry"));
+        let mut request = pool_request(port, "recovered@example.test");
         request.username = Some("user".into());
         request.password = Some("secret".into());
         let reference = pools
             .reference(&request, 1, 1)
-            .expect("reference auth-circuit pool");
+            .expect("reference recovering pool");
 
         assert_eq!(
             pools
@@ -4854,11 +4488,9 @@ mod tests {
             "nntp_auth_failed"
         );
         let failed_stats = pools.stats();
-        assert_eq!(failed_stats.circuits_auth_open, 1);
         assert_eq!(failed_stats.provider_attempts, 1);
         assert_eq!(failed_stats.provider_suppliers, 0);
         assert_eq!(failed_stats.provider_failures, 1);
-        assert_eq!(failed_stats.circuit_skips, 0);
         assert_eq!(
             pools
                 .verified_part(
@@ -4868,42 +4500,16 @@ mod tests {
                     1024,
                     FlightCancellation::new(),
                 )
-                .expect_err("skip open authentication circuit"),
-            "nntp_circuit_open"
-        );
-        let skipped_stats = pools.stats();
-        assert_eq!(skipped_stats.circuits_auth_open, 1);
-        assert_eq!(skipped_stats.provider_attempts, 1);
-        assert_eq!(skipped_stats.provider_suppliers, 0);
-        assert_eq!(skipped_stats.provider_failures, 1);
-        assert_eq!(skipped_stats.circuit_skips, 1);
-        assert_eq!(
-            pools
-                .test_reference(&reference, &request)
-                .expect("recover circuit through explicit test"),
-            "20260727123456"
-        );
-        let recovered_stats = pools.stats();
-        assert_eq!(recovered_stats.circuits_auth_open, 0);
-        assert_eq!(recovered_stats.provider_attempts, 1);
-        assert_eq!(recovered_stats.provider_suppliers, 0);
-        assert_eq!(recovered_stats.provider_failures, 1);
-        assert_eq!(recovered_stats.circuit_skips, 1);
-        assert_eq!(
-            pools
-                .verified_part(reference, request, None, 1024, FlightCancellation::new(),)
-                .expect("fetch after explicit circuit recovery")
+                .expect("retry after authentication recovery")
                 .bytes,
             b"A"
         );
         let stats = pools.stats();
-        assert_eq!(stats.circuits_auth_open, 0);
         assert_eq!(stats.provider_attempts, 2);
         assert_eq!(stats.provider_suppliers, 1);
         assert_eq!(stats.provider_hits, 1);
         assert_eq!(stats.provider_failures, 1);
-        assert_eq!(stats.circuit_skips, 1);
-        server.join().expect("join auth-circuit NNTP server");
+        server.join().expect("join recovering NNTP server");
     }
 
     #[test]

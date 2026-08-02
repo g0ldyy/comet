@@ -47,9 +47,6 @@ ENGINE_STAT_INTEGER_FIELDS = frozenset(
         "nntp_reserved_decoded_bytes",
         "nntp_scheduler_busy_rejections_total",
         "nntp_connections_poisoned",
-        "nntp_circuits_auth_open",
-        "nntp_circuits_transient_open",
-        "nntp_circuits_half_open",
         "nntp_provider_attempts_total",
         "nntp_provider_suppliers_total",
         "nntp_provider_hits_total",
@@ -58,7 +55,6 @@ ENGINE_STAT_INTEGER_FIELDS = frozenset(
         "nntp_provider_failures_total",
         "nntp_provider_cancellations_total",
         "nntp_provider_failovers_total",
-        "nntp_circuit_skips_total",
     }
 )
 ENGINE_STAT_FIELDS = ENGINE_STAT_BOOLEAN_FIELDS | ENGINE_STAT_INTEGER_FIELDS

@@ -618,7 +618,6 @@
     "queue": "En attente",
     "jobs": "Jobs archive / réparation",
     "failovers": "Bascules",
-    "openCircuits": "Circuits ouverts",
     "resume": "Reprendre les admissions",
     "drain": "Vider les admissions",
     "noRuntime": "Aucun état récent du runtime natif.",

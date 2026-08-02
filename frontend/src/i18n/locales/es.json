@@ -685,7 +685,6 @@
     "queue": "En cola",
     "jobs": "Trabajos de archivo/reparación",
     "failovers": "Conmutaciones por error",
-    "openCircuits": "circuitos abiertos",
     "resume": "Reanudar admisión",
     "drain": "Admisión por drenaje",
     "noRuntime": "No hay una nueva instantánea del tiempo de ejecución nativo.",
