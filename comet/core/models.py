@@ -2932,11 +2932,12 @@ class ConfigModel(BaseModel):
                 validate_handoff_config(merged_options)
             except ValueError as exc:
                 raise ValueError("Stremio NNTP options are invalid") from exc
-        if self.nativeAccessToken is not None:
-            if not _is_bounded_opaque_credential(self.nativeAccessToken, 256):
-                raise ValueError(
-                    "nativeAccessToken must be an opaque value of at most 256 bytes"
-                )
+        if self.nativeAccessToken is not None and not _is_bounded_opaque_credential(
+            self.nativeAccessToken, 256
+        ):
+            raise ValueError(
+                "nativeAccessToken must be an opaque value of at most 256 bytes"
+            )
         return self
 
 

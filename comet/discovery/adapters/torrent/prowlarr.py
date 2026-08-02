@@ -11,9 +11,10 @@ from comet.discovery.torrent_base import (
 )
 from comet.discovery.torrent_models import ScrapeRequest, ScrapeResult
 from comet.services.indexer_manager import (
+    MAX_INDEXER_RESPONSE_BYTES,
     active_prowlarr_indexers,
+    decode_indexer_json,
     indexer_manager,
-    read_indexer_json,
 )
 from comet.services.torrent_manager import (
     add_torrent_queue,
@@ -122,10 +123,11 @@ class ProwlarrScraper(TorrentDiscoveryAdapter):
             },
             allow_redirects=False,
             timeout=indexer_timeout(),
+            maximum_body_bytes=MAX_INDEXER_RESPONSE_BYTES,
         ) as response:
             if not is_success_status(response.status):
                 raise RuntimeError(f"HTTP {response.status}")
-            data = await read_indexer_json(response)
+            data = decode_indexer_json(await response.read())
             if not isinstance(data, list) or len(data) > 10_000:
                 raise ValueError("response payload is not a list")
             return data

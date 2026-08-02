@@ -9,7 +9,10 @@ from comet.discovery.adapters.torrent.jackett import JackettScraper
 from comet.discovery.adapters.torrent.prowlarr import ProwlarrScraper
 from comet.discovery.adapters.torrent.stremthru import StremthruScraper
 from comet.discovery.torrent_models import ScrapeRequest
-from comet.services.indexer_manager import indexer_manager
+from comet.services.indexer_manager import (
+    MAX_INDEXER_RESPONSE_BYTES,
+    indexer_manager,
+)
 
 REQUEST = ScrapeRequest(
     media_type="movie",
@@ -55,7 +58,60 @@ class _StremthruSession:
         return _StremthruResponse(self.body)
 
 
+class _IndexerResponse:
+    status = 200
+
+    def __init__(self, body):
+        self.body = body
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return None
+
+    async def read(self):
+        return self.body
+
+
+class _IndexerSession:
+    def __init__(self, body):
+        self.response = _IndexerResponse(body)
+        self.kwargs = None
+
+    def get(self, _url, **kwargs):
+        self.kwargs = kwargs
+        return self.response
+
+
 class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
+    async def test_indexer_scrapers_use_the_bounded_response_contract(self):
+        jackett_session = _IndexerSession(b'{"Results":[]}')
+        prowlarr_session = _IndexerSession(b"[]")
+
+        self.assertEqual(
+            await JackettScraper(
+                None, jackett_session, "https://jackett.test"
+            ).fetch_jackett_results("indexer", "query"),
+            [],
+        )
+        with patch.object(indexer_manager, "active_prowlarr_config", ["1"]):
+            self.assertEqual(
+                await ProwlarrScraper(
+                    None, prowlarr_session, "https://prowlarr.test"
+                )._fetch_search_results("query"),
+                [],
+            )
+
+        self.assertEqual(
+            jackett_session.kwargs["maximum_body_bytes"],
+            MAX_INDEXER_RESPONSE_BYTES,
+        )
+        self.assertEqual(
+            prowlarr_session.kwargs["maximum_body_bytes"],
+            MAX_INDEXER_RESPONSE_BYTES,
+        )
+
     def test_bitmagnet_rejects_an_incomplete_result(self):
         root = ET.fromstring(
             """

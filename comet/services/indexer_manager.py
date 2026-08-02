@@ -11,7 +11,7 @@ from comet.core.provider_json import is_success_status
 from comet.observability import log
 from comet.utils.http_client import read_bounded_body
 
-_MAX_INDEXER_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_INDEXER_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_ACTIVE_INDEXERS = 64
 _MAX_INDEXER_ID_BYTES = 128
 
@@ -43,9 +43,8 @@ def _reject_json_constant(_value):
     raise InvalidIndexerResponse("invalid indexer JSON constant")
 
 
-async def read_indexer_json(response):
+def decode_indexer_json(document: bytes):
     try:
-        document = await read_bounded_body(response, _MAX_INDEXER_RESPONSE_BYTES)
         return json.loads(
             document.decode("utf-8"),
             parse_constant=_reject_json_constant,
@@ -54,9 +53,17 @@ async def read_indexer_json(response):
         raise InvalidIndexerResponse("invalid indexer JSON") from None
 
 
+async def read_indexer_json(response):
+    try:
+        document = await read_bounded_body(response, MAX_INDEXER_RESPONSE_BYTES)
+    except ValueError:
+        raise InvalidIndexerResponse("invalid indexer JSON") from None
+    return decode_indexer_json(document)
+
+
 async def read_indexer_xml(response):
     try:
-        document = await read_bounded_body(response, _MAX_INDEXER_RESPONSE_BYTES)
+        document = await read_bounded_body(response, MAX_INDEXER_RESPONSE_BYTES)
     except ValueError:
         raise InvalidIndexerResponse("invalid indexer XML") from None
     if b"<!entity" in document.lower():
