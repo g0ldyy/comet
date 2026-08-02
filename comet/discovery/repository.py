@@ -384,8 +384,6 @@ class ReleaseDiscoveryRepository:
     ) -> tuple[dict[str, StoredCandidateIds], list[str]]:
         planned: list[tuple[ReleaseCandidate, dict[str, object]]] = []
         for candidate in candidate_batch:
-            if len(candidate.locators) > 32:
-                raise ValueError("release candidate has too many locators")
             planned.append(
                 (
                     candidate,
