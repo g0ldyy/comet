@@ -279,6 +279,36 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             [("tt1234567", info_hash), ("tt2345678", info_hash)],
         )
 
+    async def test_persistence_worker_keeps_same_hash_for_different_media(self):
+        queue = torrent_manager.TorrentUpdateQueue(batch_size=1, flush_interval=0)
+        title = "Shared.Release.2026.1080p.WEB-DL-GROUP"
+        info = {
+            "info_hash": "a" * 40,
+            "title": title,
+            "size": 1_000_000_000,
+            "parsed": parse(title).model_dump(),
+        }
+
+        with patch.object(torrent_manager, "database", self.database):
+            await queue.add_torrent_infos([info], "tt1234567")
+            await queue.queue.join()
+            await queue.add_torrent_infos([info], "tt2345678")
+            await queue.queue.join()
+            await queue.stop()
+
+        rows = await self.database.fetch_all(
+            """
+            SELECT media_id
+            FROM release_candidates
+            ORDER BY media_id
+            """,
+            force_primary=True,
+        )
+        self.assertEqual(
+            [row["media_id"] for row in rows],
+            ["tt1234567", "tt2345678"],
+        )
+
     async def test_invalid_cache_row_is_discarded_without_blocking_valid_data(self):
         await self._insert(
             media_id="tt1234567",

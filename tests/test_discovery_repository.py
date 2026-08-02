@@ -201,6 +201,46 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
             hashlib.sha256(b"one").hexdigest(),
         )
 
+    async def test_candidate_locators_are_unbounded_and_chunked(self):
+        query = MediaQuery("tt1234569", "movie")
+        info_hash = "a" * 40
+        locators = tuple(
+            TorrentLocator(
+                locator_id=f"torrent:locator:{index}",
+                kind=LocatorKind.TORRENT,
+                policy=LocatorPolicy(
+                    frozenset({"direct_torrent"}),
+                    owner_configuration_partition=self.owner_partition,
+                ),
+                info_hash=info_hash,
+                file_index=index,
+                selection_title=f"File.{index}.mkv",
+                selection_size=index + 1,
+                selection_parsed_json="{}",
+            )
+            for index in range(333)
+        )
+        candidate = ReleaseCandidate(
+            candidate_id=f"btih:{info_hash}",
+            media_id=query.media_id,
+            scope=query.scope,
+            transport=TransportKind.BITTORRENT,
+            title="Large.Release.2026.1080p",
+            locators=locators,
+            source="Legacy cache",
+        )
+
+        stored = await self.persist(query, (candidate,), now=1)
+        loaded = await self.repository.load_active(
+            query,
+            self.branch_fingerprint,
+            owner_configuration_partition=self.owner_partition,
+            now=2,
+        )
+
+        self.assertEqual(len(stored[candidate.candidate_id].locator_ids), 333)
+        self.assertEqual(len(loaded[0].locators), 333)
+
     async def test_transport_stats_round_trip_as_opaque_json(self):
         query = MediaQuery("tt1234568", "movie")
         stats = {
