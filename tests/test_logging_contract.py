@@ -116,6 +116,19 @@ class LoggingContractTests(unittest.TestCase):
         self.assertEqual(payload["event"], "config.invalid")
         self.assertIn("public CometNet requires", payload["details"])
 
+    def test_invalid_configuration_preserves_loader_failure_diagnostic(self):
+        self.configure("normal")
+        error = ValueError(
+            "stored operator setting is not recognized: LEGACY_SETTING"
+        )
+
+        records = self.render(lambda: configuration_invalid(exception=error))
+
+        payload = json.loads(records[0])
+        self.assertEqual(payload["event"], "config.invalid")
+        self.assertEqual(payload["error_type"], "ValueError")
+        self.assertEqual(payload["error_message"], str(error))
+
     def test_bootstrap_failure_identifies_invalid_setting_without_its_value(self):
         secret = "short-secret"
         try:

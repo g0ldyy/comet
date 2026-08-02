@@ -670,6 +670,7 @@ def configuration_invalid(
             invalid_count=invalid_count,
             error_code="invalid_configuration",
             details=details,
+            exc=exception,
         )
     except Exception:
         bootstrap_failure()
