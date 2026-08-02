@@ -19,6 +19,7 @@ from comet.core.schema_specs import (
     BACKGROUND_SCRAPER_RUNS_TABLE_SPEC,
     BACKGROUND_SCRAPER_RUNTIMES_TABLE_SPEC,
     BANDWIDTH_STATS_TABLE_SPEC,
+    CANDIDATE_IDENTITIES_COPY_SQL,
     CANDIDATE_IDENTITIES_TABLE_SPEC,
     CANDIDATE_REDIRECTS_TABLE_SPEC,
     CAPABILITY_VALIDATION_STATES_TABLE_SPEC,
@@ -1164,6 +1165,41 @@ async def _migration_usenet_release_schema(ctx: MigrationContext):
     return True
 
 
+async def _migration_candidate_identity_scope(ctx: MigrationContext):
+    if ctx.is_postgres:
+        constraints = await ctx.database.fetch_all(
+            """
+            SELECT constraint_name
+            FROM information_schema.table_constraints
+            WHERE table_schema = current_schema()
+              AND table_name = 'candidate_identities'
+              AND constraint_type = 'UNIQUE'
+            """,
+            force_primary=True,
+        )
+        for constraint in constraints:
+            name = constraint["constraint_name"].replace('"', '""')
+            await ctx.database.execute(
+                f'ALTER TABLE candidate_identities DROP CONSTRAINT "{name}"'
+            )
+    else:
+        indexes = await ctx.database.fetch_all(
+            "PRAGMA index_list(candidate_identities)",
+            force_primary=True,
+        )
+        if any(index["origin"] == "u" for index in indexes):
+            await _replace_managed_table(
+                ctx,
+                CANDIDATE_IDENTITIES_TABLE_SPEC,
+                CANDIDATE_IDENTITIES_COPY_SQL,
+            )
+
+    await _drop_index_if_exists(ctx, "idx_candidate_identities_candidate_v1")
+    for index_sql in _render_index_sql(CANDIDATE_IDENTITIES_TABLE_SPEC):
+        await _ensure_index(ctx, index_sql)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1189,4 +1225,5 @@ MIGRATIONS = [
     ),
     ("2026072701_imdb_title_lookup", _migration_imdb_title_lookup),
     (USENET_RELEASE_SCHEMA_MIGRATION, _migration_usenet_release_schema),
+    ("2026080202_candidate_identity_scope", _migration_candidate_identity_scope),
 ]

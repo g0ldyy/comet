@@ -539,18 +539,31 @@ class ReleaseDiscoveryRepository:
         candidate = await self._candidate_row(candidate_id)
         existing = await self._database.fetch_one(
             """
-            SELECT candidate_id
-            FROM candidate_identities
-            WHERE visibility_partition = :visibility_partition
-              AND transport = :transport
-              AND identity_scheme = :identity_scheme
-              AND identity_value = :identity_value
+            SELECT identity.candidate_id
+            FROM candidate_identities AS identity
+            JOIN release_candidates AS existing
+              ON existing.candidate_id = identity.candidate_id
+            WHERE identity.visibility_partition = :visibility_partition
+              AND identity.transport = :transport
+              AND identity.identity_scheme = :identity_scheme
+              AND identity.identity_value = :identity_value
+              AND existing.media_id = :media_id
+              AND existing.scope = :scope
+              AND existing.season_norm = :season_norm
+              AND existing.episode_norm = :episode_norm
+              AND COALESCE(existing.daily_date, '') =
+                  COALESCE(CAST(:daily_date AS TEXT), '')
             """,
             {
                 "visibility_partition": candidate["visibility_partition"],
                 "transport": candidate["transport"],
                 "identity_scheme": scheme,
                 "identity_value": value,
+                "media_id": candidate["media_id"],
+                "scope": candidate["scope"],
+                "season_norm": candidate["season_norm"],
+                "episode_norm": candidate["episode_norm"],
+                "daily_date": candidate["daily_date"],
             },
             force_primary=True,
         )
@@ -585,15 +598,13 @@ class ReleaseDiscoveryRepository:
                 """
                 UPDATE candidate_identities
                 SET updated_at_ms = :now_ms
-                WHERE visibility_partition = :visibility_partition
-                  AND transport = :transport
+                WHERE candidate_id = :candidate_id
                   AND identity_scheme = :identity_scheme
                   AND identity_value = :identity_value
                 """,
                 {
                     "now_ms": observed_at_ms,
-                    "visibility_partition": candidate["visibility_partition"],
-                    "transport": candidate["transport"],
+                    "candidate_id": candidate_id,
                     "identity_scheme": scheme,
                     "identity_value": value,
                 },
@@ -631,19 +642,7 @@ class ReleaseDiscoveryRepository:
         if left_id == right_id:
             return left_id
         winner_id, loser_id = sorted((left_id, right_id))
-        winner = await self._candidate_row(winner_id)
         loser = await self._candidate_row(loser_id)
-        comparable = (
-            "visibility_partition",
-            "media_id",
-            "transport",
-            "scope",
-            "season_norm",
-            "episode_norm",
-            "daily_date",
-        )
-        if any(winner[column] != loser[column] for column in comparable):
-            raise ValueError("exact identity crosses candidate family or scope")
 
         await self._merge_candidate_locators(
             winner_id,

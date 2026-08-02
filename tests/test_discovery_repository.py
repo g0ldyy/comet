@@ -368,7 +368,7 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(active), 1)
         self.assertEqual(len(active[0].locators), 2)
 
-    async def test_exact_identity_refuses_cross_scope_convergence(self):
+    async def test_exact_identity_is_independent_across_candidate_families(self):
         first_query = MediaQuery("tt5555555", "movie")
         second_query = MediaQuery("tt6666666", "movie")
         first = await self.persist(
@@ -388,12 +388,30 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
             now=3,
         )
 
-        with self.assertRaisesRegex(ValueError, "crosses candidate family or scope"):
-            await self.repository.attach_identity(
-                next(iter(second.values())).candidate_id,
-                identity,
-                now=4,
-            )
+        second_id = next(iter(second.values())).candidate_id
+        self.assertEqual(
+            await self.repository.attach_identity(second_id, identity, now=4),
+            second_id,
+        )
+        rows = await self.database.fetch_all(
+            """
+            SELECT candidate_id
+            FROM candidate_identities
+            WHERE identity_scheme = 'nm1' AND identity_value = :identity_value
+            ORDER BY candidate_id
+            """,
+            {"identity_value": "e" * 64},
+            force_primary=True,
+        )
+        self.assertEqual(
+            [row["candidate_id"] for row in rows],
+            sorted(
+                (
+                    next(iter(first.values())).candidate_id,
+                    second_id,
+                )
+            ),
+        )
 
     async def test_redirect_cycles_are_detected(self):
         query = MediaQuery("tt7777777", "movie")

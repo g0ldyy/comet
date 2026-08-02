@@ -249,6 +249,36 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             [(3, 3)],
         )
 
+    async def test_same_info_hash_can_belong_to_different_media(self):
+        info_hash = "a" * 40
+        await self._insert(
+            media_id="tt1234567",
+            info_hash=info_hash,
+            title="First.Movie.2026.1080p.WEB-DL-GROUP",
+        )
+        await self._insert(
+            media_id="tt2345678",
+            info_hash=info_hash,
+            title="Second.Movie.2026.1080p.WEB-DL-GROUP",
+        )
+
+        await backfill_legacy_torrents(self.database)
+
+        rows = await self.database.fetch_all(
+            """
+            SELECT candidate.media_id, identity.identity_value
+            FROM release_candidates AS candidate
+            JOIN candidate_identities AS identity
+              ON identity.candidate_id = candidate.candidate_id
+            ORDER BY candidate.media_id
+            """,
+            force_primary=True,
+        )
+        self.assertEqual(
+            [(row["media_id"], row["identity_value"]) for row in rows],
+            [("tt1234567", info_hash), ("tt2345678", info_hash)],
+        )
+
     async def test_invalid_cache_row_is_discarded_without_blocking_valid_data(self):
         await self._insert(
             media_id="tt1234567",

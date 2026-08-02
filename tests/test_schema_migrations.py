@@ -11,6 +11,7 @@ from comet.core.schema_migrations import (
     _column_exists,
     _drop_column_if_exists,
     _ensure_managed_table,
+    _migration_candidate_identity_scope,
     _migration_debrid_account_cleanup_index,
     _migration_media_demand_scrape_coverage,
     _migration_original_indexer_titles,
@@ -27,6 +28,89 @@ class SchemaMigrationMetadataCacheTests(unittest.IsolatedAsyncioTestCase):
             MigrationContext(AsyncMock(), is_sqlite=False, is_postgres=False)
         with self.assertRaisesRegex(ValueError, "exactly one database backend"):
             MigrationContext(AsyncMock(), is_sqlite=True, is_postgres=True)
+
+    async def test_candidate_identity_migration_scopes_exact_identity_by_family(self):
+        with TemporaryDirectory() as temp_dir:
+            database = ReplicaAwareDatabase(
+                Database(f"sqlite+aiosqlite:///{temp_dir}/migration.db")
+            )
+            await database.connect()
+            try:
+                await database.execute(
+                    """
+                    CREATE TABLE release_candidates (
+                        candidate_id VARCHAR(36) PRIMARY KEY
+                    )
+                    """
+                )
+                await database.execute(
+                    """
+                    CREATE TABLE candidate_identities (
+                        candidate_id VARCHAR(36) NOT NULL REFERENCES
+                            release_candidates(candidate_id) ON DELETE CASCADE,
+                        visibility_partition CHAR(64) NOT NULL,
+                        transport VARCHAR(16) NOT NULL,
+                        identity_scheme VARCHAR(16) NOT NULL,
+                        identity_value VARCHAR(256) NOT NULL,
+                        created_at_ms BIGINT NOT NULL,
+                        updated_at_ms BIGINT NOT NULL,
+                        PRIMARY KEY (
+                            candidate_id, identity_scheme, identity_value
+                        ),
+                        UNIQUE (
+                            visibility_partition, transport,
+                            identity_scheme, identity_value
+                        )
+                    )
+                    """
+                )
+                candidate_ids = (
+                    "11111111-1111-4111-8111-111111111111",
+                    "22222222-2222-4222-8222-222222222222",
+                )
+                await database.execute_many(
+                    "INSERT INTO release_candidates VALUES (:candidate_id)",
+                    [{"candidate_id": value} for value in candidate_ids],
+                )
+                identity = {
+                    "candidate_id": candidate_ids[0],
+                    "visibility_partition": "a" * 64,
+                    "transport": "bittorrent",
+                    "identity_scheme": "btih",
+                    "identity_value": "b" * 40,
+                    "created_at_ms": 1,
+                    "updated_at_ms": 1,
+                }
+                insert = """
+                    INSERT INTO candidate_identities (
+                        candidate_id, visibility_partition, transport,
+                        identity_scheme, identity_value,
+                        created_at_ms, updated_at_ms
+                    ) VALUES (
+                        :candidate_id, :visibility_partition, :transport,
+                        :identity_scheme, :identity_value,
+                        :created_at_ms, :updated_at_ms
+                    )
+                """
+                await database.execute(insert, identity)
+
+                await _migration_candidate_identity_scope(
+                    MigrationContext(database, is_sqlite=True, is_postgres=False)
+                )
+                await database.execute(
+                    insert,
+                    {**identity, "candidate_id": candidate_ids[1]},
+                )
+
+                rows = await database.fetch_all(
+                    "SELECT candidate_id FROM candidate_identities"
+                )
+                self.assertEqual(
+                    {row["candidate_id"] for row in rows},
+                    set(candidate_ids),
+                )
+            finally:
+                await database.disconnect()
 
     async def test_download_link_cache_scope_separates_file_and_client(self):
         with TemporaryDirectory() as temp_dir:

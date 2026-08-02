@@ -901,20 +901,30 @@ CANDIDATE_IDENTITIES_TABLE_SPEC = ManagedTableSpec(
             ),
             created_at_ms BIGINT NOT NULL CHECK (created_at_ms >= 0),
             updated_at_ms BIGINT NOT NULL CHECK (updated_at_ms >= 0),
-            PRIMARY KEY (candidate_id, identity_scheme, identity_value),
-            UNIQUE (
-                visibility_partition, transport,
-                identity_scheme, identity_value
-            )
+            PRIMARY KEY (candidate_id, identity_scheme, identity_value)
         )
     """,
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_candidate_identities_candidate_v1
-            ON {table_name} (candidate_id)
+            CREATE INDEX IF NOT EXISTS idx_candidate_identities_exact_v1
+            ON {table_name} (
+                visibility_partition, transport,
+                identity_scheme, identity_value
+            )
         """,
     ),
 )
+
+CANDIDATE_IDENTITIES_COPY_SQL = """
+    INSERT INTO {table_name} (
+        candidate_id, visibility_partition, transport,
+        identity_scheme, identity_value, created_at_ms, updated_at_ms
+    )
+    SELECT
+        candidate_id, visibility_partition, transport,
+        identity_scheme, identity_value, created_at_ms, updated_at_ms
+    FROM candidate_identities
+"""
 
 CANDIDATE_REDIRECTS_TABLE_SPEC = ManagedTableSpec(
     table_name="candidate_redirects",
