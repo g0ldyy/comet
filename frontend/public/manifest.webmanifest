@@ -1,0 +1,29 @@
+{
+  "name": "Comet",
+  "short_name": "Comet",
+  "description": "Stremio's fastest torrent/debrid/usenet search add-on.",
+  "id": "/configure",
+  "start_url": "/configure",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#090909",
+  "theme_color": "#090909",
+  "icons": [
+    {
+      "src": "/brand/comet-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/comet-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/comet-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

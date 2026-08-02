@@ -16,11 +16,16 @@ For simple deployments with a single Comet instance.
 ### docker-compose.yml
 
 ```yaml
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   comet:
     container_name: comet
     image: g0ldyy/comet
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8000:8000"
       - "8765:8765"  # CometNet P2P port
@@ -41,6 +46,7 @@ services:
     container_name: comet-postgres
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-comet}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -81,18 +87,23 @@ For production deployments with multiple Comet workers or replicas.
 ### docker-compose.yml
 
 ```yaml
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   comet:
     container_name: comet
     image: g0ldyy/comet
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8000:8000"
     environment:
       DATABASE_TYPE: postgresql
       DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_RELAY_URL: http://cometnet:8766
-      COMETNET_API_KEY: ${COMETNET_API_KEY} # Secure the relay connection
+      COMETNET_API_KEY: ${COMETNET_API_KEY:?COMETNET_API_KEY must be set}
       FASTAPI_WORKERS: "4"  # Can use multiple workers
     env_file:
       - .env
@@ -108,6 +119,7 @@ services:
     container_name: cometnet
     image: g0ldyy/comet
     restart: unless-stopped
+    logging: *default-logging
     entrypoint: ["python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"   # P2P WebSocket
@@ -117,7 +129,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_LISTEN_PORT: "8765"
       COMETNET_HTTP_PORT: "8766"
-      COMETNET_API_KEY: ${COMETNET_API_KEY}
+      COMETNET_API_KEY: ${COMETNET_API_KEY:?COMETNET_API_KEY must be set}
     env_file:
       - .env-cometnet
     volumes:
@@ -135,6 +147,7 @@ services:
     container_name: comet-postgres
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-comet}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -151,6 +164,7 @@ volumes:
   comet_data:
   cometnet_data:
   postgres_data:
+
 ```
 
 ### .env-cometnet
@@ -175,8 +189,7 @@ COMETNET_CONTRIBUTION_MODE=full
 # Optional: Trust Pools
 # COMETNET_TRUSTED_POOLS=["my-community"]
 
-# Mandatory: API Key for security (Auto-generated if not set)
-COMETNET_API_KEY=my-secret-key
+# The same Docker Secret is mounted into the relay and every client.
 ```
 
 ---
@@ -188,15 +201,21 @@ For high-availability deployments.
 ### docker-compose.yml
 
 ```yaml
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   comet:
     image: g0ldyy/comet
+    logging: *default-logging
     deploy:
       replicas: 3
     environment:
       DATABASE_TYPE: postgresql
       DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
       COMETNET_RELAY_URL: http://cometnet:8766
+      COMETNET_API_KEY: ${COMETNET_API_KEY:?COMETNET_API_KEY must be set}
       FASTAPI_WORKERS: "2"
     env_file:
       - .env
@@ -208,12 +227,14 @@ services:
 
   cometnet:
     image: g0ldyy/comet
+    logging: *default-logging
     entrypoint: ["python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
     environment:
       DATABASE_TYPE: postgresql
       DATABASE_URL: ${DATABASE_URL:-${POSTGRES_USER:-comet}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-comet}}
+      COMETNET_API_KEY: ${COMETNET_API_KEY:?COMETNET_API_KEY must be set}
     env_file:
       - .env-cometnet
     volumes:
@@ -225,6 +246,7 @@ services:
 
   load-balancer:
     image: nginx:alpine
+    logging: *default-logging
     ports:
       - "8000:80"
     volumes:
@@ -234,6 +256,7 @@ services:
 
   postgres:
     image: postgres:18-alpine
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-comet}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -245,6 +268,7 @@ volumes:
   comet_data:
   cometnet_data:
   postgres_data:
+
 ```
 
 ---
@@ -256,11 +280,16 @@ For isolated CometNet networks.
 ### docker-compose.yml
 
 ```yaml
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   comet:
     container_name: comet
     image: g0ldyy/comet
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "8000:8000"
       - "8765:8765"
@@ -284,6 +313,7 @@ services:
     container_name: comet-postgres
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-comet}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
@@ -323,6 +353,9 @@ COMETNET_ADVERTISE_URL=wss://comet.yourdomain.com:8765
 ### With SSL termination at Nginx
 
 ```nginx
+access_log off;
+error_log /dev/stderr crit;
+
 server {
     listen 443 ssl http2;
     server_name comet.yourdomain.com;
@@ -397,8 +430,13 @@ This protects against data loss from:
 
 **Recommendation:** Ensure your `data` directory is mounted as a persistent volume:
 ```yaml
-volumes:
-  - ./data:/app/data  # or named volume: comet_data:/app/data
+services:
+  comet:
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    volumes:
+      - ./data:/app/data  # or named volume: comet_data:/app/data
 ```
 
 ### Graceful Shutdown
@@ -406,8 +444,13 @@ volumes:
 To ensure all state is saved on shutdown, allow sufficient time for graceful shutdown:
 
 ```yaml
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   comet:
+    logging: *default-logging
     stop_grace_period: 30s  # Allow 30s for graceful shutdown
 ```
 

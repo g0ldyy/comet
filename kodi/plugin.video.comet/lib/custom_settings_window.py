@@ -1,7 +1,7 @@
 import os
+import re
 import subprocess
 import time
-import traceback
 from urllib.parse import urljoin
 
 import requests
@@ -9,15 +9,36 @@ import xbmc
 import xbmcaddon
 import xbmcgui
 
+try:
+    from .diagnostics import emit, run_boundary
+    from .http_json import (
+        JsonHttpError,
+        normalize_api_prefix,
+        request_json,
+        response_status,
+        validate_http_url,
+    )
+except ImportError:
+    from diagnostics import emit, run_boundary
+    from http_json import (
+        JsonHttpError,
+        normalize_api_prefix,
+        request_json,
+        response_status,
+        validate_http_url,
+    )
+
 ADDON_ID = "plugin.video.comet"
 REQUEST_TIMEOUT = 20
 POLL_INTERVAL_SECONDS = 3
 MAX_SETUP_POLL_SECONDS = 600
 HTTP_SESSION = requests.Session()
+_SETUP_CODE = re.compile(r"[0-9a-f]{8}", re.ASCII)
+_CONFIGURATION = re.compile(r"[A-Za-z0-9_-]*", re.ASCII)
 
 
 def normalize_base_url(url: str):
-    return url.rstrip("/")
+    return validate_http_url(url, base_only=True)
 
 
 def open_configuration_page(url: str):
@@ -28,13 +49,27 @@ def open_configuration_page(url: str):
 
     try:
         if os_osx:
-            subprocess.run(["open", url], check=True)
+            subprocess.run(
+                ["open", url],
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
             return
         if os_windows:
             os.startfile(url)
             return
         if os_linux and not os_android:
-            subprocess.run(["xdg-open", url], check=True)
+            subprocess.run(
+                ["xdg-open", url],
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
             return
         if os_android:
             safe_url = url.replace('"', "%22")
@@ -43,19 +78,26 @@ def open_configuration_page(url: str):
             )
             return
     except Exception as exc:
-        xbmc.log(f"Failed to open configuration page: {exc}", xbmc.LOGERROR)
+        emit("kodi.setup.failed", error=exc, outcome="failed")
 
 
 def _post_json(url: str, payload: dict):
-    response = HTTP_SESSION.post(url, json=payload, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return response.json()
+    return request_json(
+        HTTP_SESSION,
+        "POST",
+        url,
+        timeout=REQUEST_TIMEOUT,
+        payload=payload,
+    )
 
 
 def _get_json(url: str):
-    response = HTTP_SESSION.get(url, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return response.json()
+    return request_json(
+        HTTP_SESSION,
+        "GET",
+        url,
+        timeout=REQUEST_TIMEOUT,
+    )
 
 
 def _parse_setup_code_response(data):
@@ -68,15 +110,19 @@ def _parse_setup_code_response(data):
     stremio_api_prefix = data.get("stremio_api_prefix", "")
     if (
         not isinstance(code, str)
-        or not code
+        or _SETUP_CODE.fullmatch(code) is None
         or not isinstance(configure_url, str)
-        or not configure_url.startswith(("http://", "https://"))
         or type(expires_in) is not int
         or not 0 < expires_in <= MAX_SETUP_POLL_SECONDS
         or not isinstance(stremio_api_prefix, str)
     ):
         raise ValueError("Invalid response from /kodi/generate_setup_code")
 
+    try:
+        configure_url = validate_http_url(configure_url)
+        stremio_api_prefix = normalize_api_prefix(stremio_api_prefix)
+    except JsonHttpError as exc:
+        raise ValueError("Invalid response from /kodi/generate_setup_code") from exc
     return code, configure_url, expires_in, stremio_api_prefix
 
 
@@ -85,12 +131,21 @@ def _parse_manifest_response(data):
         raise ValueError("Invalid response from /kodi/get_manifest")
     secret_string = data.get("secret_string")
     stremio_api_prefix = data.get("stremio_api_prefix", "")
-    if not isinstance(secret_string, str) or not isinstance(stremio_api_prefix, str):
+    if (
+        not isinstance(secret_string, str)
+        or _CONFIGURATION.fullmatch(secret_string) is None
+        or not isinstance(stremio_api_prefix, str)
+    ):
         raise ValueError("Invalid response from /kodi/get_manifest")
+    try:
+        stremio_api_prefix = normalize_api_prefix(stremio_api_prefix)
+    except JsonHttpError as exc:
+        raise ValueError("Invalid response from /kodi/get_manifest") from exc
     return secret_string, stremio_api_prefix
 
 
 def configure_comet():
+    poll_degraded = False
     try:
         addon = xbmcaddon.Addon(ADDON_ID)
         dialog = xbmcgui.Dialog()
@@ -103,7 +158,15 @@ def configure_comet():
         if not entered_url:
             return
 
-        base_url = normalize_base_url(entered_url)
+        try:
+            base_url = normalize_base_url(entered_url)
+        except JsonHttpError:
+            dialog.notification(
+                "Comet",
+                "Enter a valid HTTP(S) Comet base URL",
+                xbmcgui.NOTIFICATION_ERROR,
+            )
+            return
         addon.setSetting("base_url", base_url)
 
         entered_secret = dialog.input(
@@ -120,13 +183,13 @@ def configure_comet():
                 urljoin(base_url + "/", "kodi/generate_setup_code"),
                 {"secret_string": secret_string},
             )
-        except requests.RequestException as exc:
+        except (requests.RequestException, JsonHttpError) as exc:
             dialog.notification(
                 "Comet",
                 "Failed to generate Kodi setup code",
                 xbmcgui.NOTIFICATION_ERROR,
             )
-            xbmc.log(f"Failed to generate setup code: {exc}", xbmc.LOGERROR)
+            emit("kodi.setup.failed", error=exc, outcome="failed")
             return
 
         code, configure_url, expires_in, stremio_api_prefix = (
@@ -158,29 +221,50 @@ def configure_comet():
                 manifest_data = _get_json(
                     urljoin(base_url + "/", f"kodi/get_manifest/{code}")
                 )
-            except requests.HTTPError as exc:
-                response = exc.response
-                if response is None or response.status_code != 404:
-                    xbmc.log(f"Polling setup status failed: {exc}", xbmc.LOGWARNING)
-            except requests.RequestException as exc:
-                xbmc.log(f"Polling setup status failed: {exc}", xbmc.LOGWARNING)
+            except (requests.RequestException, JsonHttpError) as exc:
+                status = response_status(exc)
+                if status != 404 and not poll_degraded:
+                    emit(
+                        "kodi.setup.poll.degraded",
+                        xbmc.LOGWARNING,
+                        error=exc,
+                        status=status,
+                        outcome="failed",
+                    )
+                    poll_degraded = True
             else:
                 try:
                     paired_secret, paired_prefix = _parse_manifest_response(
                         manifest_data
                     )
                 except ValueError as exc:
-                    xbmc.log(
-                        f"Polling setup status returned invalid data: {exc}",
-                        xbmc.LOGWARNING,
-                    )
+                    if not poll_degraded:
+                        emit(
+                            "kodi.setup.poll.degraded",
+                            xbmc.LOGWARNING,
+                            error=exc,
+                            outcome="failed",
+                        )
+                        poll_degraded = True
                 else:
+                    if poll_degraded:
+                        emit(
+                            "kodi.setup.poll.recovered",
+                            xbmc.LOGINFO,
+                            outcome="ok",
+                        )
+                        poll_degraded = False
                     addon.setSetting("secret_string", paired_secret)
                     addon.setSetting("stremio_api_prefix", paired_prefix)
                     dialog.notification(
                         "Comet",
                         "Kodi setup complete",
                         xbmcgui.NOTIFICATION_INFO,
+                    )
+                    emit(
+                        "kodi.setup.completed",
+                        xbmc.LOGINFO,
+                        outcome="ok",
                     )
                     return
 
@@ -192,11 +276,9 @@ def configure_comet():
             "Setup code expired. Run setup again.",
             xbmcgui.NOTIFICATION_ERROR,
         )
-    except Exception:
-        xbmc.log(
-            "Comet Kodi setup crashed:\n" + traceback.format_exc(),
-            xbmc.LOGERROR,
-        )
+        emit("kodi.setup.failed", outcome="timeout")
+    except Exception as exc:
+        emit("kodi.setup.failed", error=exc, outcome="failed")
         xbmcgui.Dialog().notification(
             "Comet",
             "Setup failed (check Kodi log)",
@@ -205,4 +287,4 @@ def configure_comet():
 
 
 if __name__ == "__main__":
-    configure_comet()
+    run_boundary("kodi.setup.failed", configure_comet)

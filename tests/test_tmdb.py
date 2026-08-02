@@ -1,5 +1,7 @@
 import unittest
 
+import orjson
+
 from comet.metadata.tmdb import (
     TMDBApi,
     _extract_all_title_aliases,
@@ -9,10 +11,27 @@ from comet.metadata.tmdb import (
 )
 
 
+class _Content:
+    def __init__(self, payload):
+        self.body = orjson.dumps(payload)
+        self.consumed = False
+
+    async def read(self, _size):
+        if self.consumed:
+            return b""
+        self.consumed = True
+        return self.body
+
+
 class _Response:
     def __init__(self, status, payload):
         self.status = status
-        self.payload = payload
+        body = orjson.dumps(payload)
+        self.headers = {
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        }
+        self.content = _Content(payload)
 
     async def __aenter__(self):
         return self
@@ -20,17 +39,14 @@ class _Response:
     async def __aexit__(self, exc_type, exc, traceback):
         return False
 
-    async def json(self):
-        return self.payload
-
 
 class _Session:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.requests = []
 
-    def get(self, url, headers):
-        self.requests.append((url, headers))
+    def get(self, url, **kwargs):
+        self.requests.append((url, kwargs))
         return self.responses.pop(0)
 
 
@@ -46,26 +62,38 @@ class TmdbMetadataTests(unittest.TestCase):
         self.assertIsNone(_extract_tmdb_id(payload, "movie"))
         self.assertIsNone(_extract_tmdb_id([]))
 
-    def test_title_aliases_are_normalized_and_deduplicated_in_provider_order(self):
+    def test_title_alias_entries_are_collected_in_provider_order(self):
         payload = {
             "titles": [
                 {"title": " First ", "iso_3166_1": "US"},
-                None,
                 {"title": "Second", "iso_3166_1": "us"},
                 {"title": "First", "iso_3166_1": "US"},
                 {"title": "Fallback", "iso_3166_1": "United States"},
                 {"title": "Non-ASCII", "iso_3166_1": "ÉÉ"},
-                {"title": " ", "iso_3166_1": "GB"},
-                {"title": 123, "iso_3166_1": "GB"},
             ]
         }
 
         self.assertEqual(
             _extract_title_aliases(payload, "titles"),
             {
-                "us": ["First", "Second"],
+                "us": ["First", "Second", "First"],
                 "ez": ["Fallback", "Non-ASCII"],
             },
+        )
+
+    def test_optional_title_alias_entries_keep_only_usable_titles(self):
+        self.assertEqual(
+            _extract_title_aliases(
+                {
+                    "titles": [
+                        {"title": "Valid", "iso_3166_1": "US"},
+                        None,
+                        {"title": "", "iso_3166_1": "FR"},
+                    ]
+                },
+                "titles",
+            ),
+            {"us": ["Valid"]},
         )
         self.assertEqual(_extract_title_aliases({"titles": {}}, "titles"), {})
 
@@ -86,7 +114,6 @@ class TmdbMetadataTests(unittest.TestCase):
                         "iso_639_1": "fr",
                         "data": {"title": "La Vie devant soi"},
                     },
-                    None,
                 ]
             },
             "alternative_titles": {
@@ -103,6 +130,31 @@ class TmdbMetadataTests(unittest.TestCase):
                 "lang:fr": ["La Vie devant soi"],
                 "us": ["The Life Ahead"],
             },
+        )
+
+    def test_empty_optional_translations_do_not_break_alias_lookup(self):
+        config = {
+            "title": "title",
+            "original_title": "original_title",
+            "alias_results": "titles",
+        }
+        payload = {
+            "original_title": "Movie",
+            "original_language": "en",
+            "translations": {
+                "translations": [
+                    {"iso_639_1": "fr", "data": {"title": "Film"}},
+                    {"iso_639_1": "en", "data": {"title": ""}},
+                    {"iso_639_1": "de", "data": {"title": ""}},
+                    None,
+                ]
+            },
+            "alternative_titles": {"titles": []},
+        }
+
+        self.assertEqual(
+            _extract_all_title_aliases(payload, config),
+            {"original:en": ["Movie"], "lang:fr": ["Film"]},
         )
 
     def test_release_date_extractor_keeps_valid_current_entries(self):
@@ -167,6 +219,11 @@ class TmdbApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(aliases, {"original:es": ["La casa de papel"]})
         self.assertTrue(session.requests[0][0].endswith("external_source=imdb_id"))
+        self.assertFalse(session.requests[0][1]["allow_redirects"])
+        self.assertEqual(
+            session.requests[0][1]["headers"]["Accept-Encoding"],
+            "identity",
+        )
         self.assertTrue(
             session.requests[1][0].endswith(
                 "tv/456?append_to_response=alternative_titles,translations"
@@ -179,3 +236,10 @@ class TmdbApiTests(unittest.IsolatedAsyncioTestCase):
         aliases = await TMDBApi(session).get_title_aliases("movie", "tt0133093")
 
         self.assertIsNone(aliases)
+
+    async def test_watch_provider_result_requires_the_consumed_object(self):
+        invalid_session = _Session(_Response(200, {"results": "future-shape"}))
+        populated_session = _Session(_Response(200, {"results": {"FR": {}}}))
+
+        self.assertIsNone(await TMDBApi(invalid_session).has_watch_providers("123"))
+        self.assertTrue(await TMDBApi(populated_session).has_watch_providers("123"))

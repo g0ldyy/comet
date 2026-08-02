@@ -8,7 +8,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from comet.cometnet.manager import get_cometnet_service
-from comet.core.logger import logger
 
 router = APIRouter(prefix="/cometnet", tags=["CometNet"])
 
@@ -32,8 +31,8 @@ async def cometnet_websocket(websocket: WebSocket):
         await service.handle_websocket_connection(websocket)
     except WebSocketDisconnect:
         pass
-    except Exception as error:
-        logger.debug(f"CometNet WebSocket error ({type(error).__name__})")
+    except Exception:
+        pass
 
 
 @router.get("/health")

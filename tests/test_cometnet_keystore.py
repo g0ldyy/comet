@@ -43,7 +43,7 @@ class CometNetPublicKeyStoreTests(unittest.TestCase):
 
         self.assertEqual(store.get_stats()["total_keys"], 0)
 
-    def test_persisted_schema_is_strict_atomic_and_lru_ordered(self):
+    def test_persisted_schema_is_extensible_atomic_and_lru_ordered(self):
         first_id, first_key = key_identity()
         second_id, second_key = key_identity()
         store = PublicKeyStore()
@@ -66,10 +66,19 @@ class CometNetPublicKeyStoreTests(unittest.TestCase):
         store.from_dict(valid)
 
         self.assertEqual(list(store._keys), [second_id, first_id])
+        store.from_dict(
+            {
+                **valid,
+                "extension": True,
+                "keys": {
+                    node_id: value | {"extension": True}
+                    for node_id, value in valid["keys"].items()
+                },
+            }
+        )
+        self.assertEqual(list(store._keys), [second_id, first_id])
         original = store.to_dict()
         malformed = [
-            valid | {"legacy": True},
-            {"keys": {first_id: valid["keys"][first_id] | {"legacy": True}}},
             {"keys": {first_id: valid["keys"][first_id] | {"last_seen": float("nan")}}},
             {"keys": {first_id: valid["keys"][first_id] | {"first_seen": 4}}},
         ]

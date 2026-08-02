@@ -353,3 +353,29 @@ class CometNetStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(service.keystore.calls), 1)
         self.assertEqual(len(service.discovery.calls), 1)
         self.assertEqual(len(service.gossip.calls), 1)
+
+    async def test_state_extensions_do_not_block_restore(self):
+        state = current_state()
+        state["extension"] = True
+        state["reputation"]["extension"] = True
+        state["reputation"]["peers"]["peer"]["extension"] = True
+        state["keystore"]["extension"] = True
+        state["discovery"]["extension"] = True
+        state["discovery"]["known_peers"][0]["extension"] = True
+        state["gossip"]["extension"] = True
+        state["gossip"]["stats"]["extension"] = True
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, CometNetService.STATE_FILE).write_text(json.dumps(state))
+            service = CometNetService(keys_dir=directory)
+            service.reputation = Recorder()
+            service.keystore = Recorder()
+            service.discovery = AsyncRecorder()
+            service.gossip = Recorder()
+
+            await service._load_state()
+
+        self.assertEqual(len(service.reputation.calls), 1)
+        self.assertEqual(len(service.keystore.calls), 1)
+        self.assertEqual(len(service.discovery.calls), 1)
+        self.assertEqual(len(service.gossip.calls), 1)

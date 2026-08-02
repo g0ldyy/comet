@@ -2,10 +2,11 @@ import gzip
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
 
+import comet.core.db_manager as db_manager_module
 from comet.core.db_manager import DatabaseManager
 
 
@@ -34,6 +35,32 @@ class DatabaseManagerExportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(records[0]["table_name"], "items")
                 self.assertEqual(records[1:], rows)
                 self.assertEqual(stats.exported_rows, 2)
+                self.assertEqual(output_file.stat().st_mode & 0o777, 0o600)
+
+    async def test_failed_export_preserves_previous_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_file = Path(tmp) / "items.json"
+            output_file.write_bytes(b"previous-backup")
+            database = AsyncMock()
+            database.fetch_all.side_effect = [[{"id": 1, "value": "x" * 64}], []]
+            manager = DatabaseManager(database=database)
+            manager.get_table_info = AsyncMock(
+                return_value=manager_table_info(name="items", primary_key=["id"])
+            )
+
+            with (
+                patch.object(db_manager_module, "_MAX_IMPORT_ROW_BYTES", 32),
+                self.assertRaisesRegex(ValueError, "export record limit"),
+            ):
+                await manager.export_table(
+                    "items",
+                    output_file,
+                    compress=False,
+                    batch_size=2,
+                )
+
+            self.assertEqual(output_file.read_bytes(), b"previous-backup")
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
 
     async def test_primary_key_export_uses_keyset_pagination(self):
         database = AsyncMock()
@@ -95,12 +122,96 @@ class DatabaseManagerImportTests(unittest.IsolatedAsyncioTestCase):
                 stats = await manager.import_table(input_file, batch_size=10)
 
         self.assertEqual(stats.total_rows, 4)
-        self.assertEqual(stats.inserted_rows, 2)
+        self.assertEqual(stats.processed_rows, 2)
         self.assertEqual(stats.error_rows, 2)
-        query, rows, table_name = process_batch.await_args.args
+        query, rows = process_batch.await_args.args
         self.assertIn("INSERT INTO items (b, a)", query)
         self.assertEqual(rows, [{"b": 2, "a": 1}, {"b": None, "a": 3}])
-        self.assertEqual(table_name, "items")
+
+    async def test_import_rejects_noncanonical_table_before_sql(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            input_file = Path(tmp) / "items.json"
+            input_file.write_bytes(
+                b'{"table_name":"items; DROP TABLE users"}\n{"a":1}\n'
+            )
+            database = AsyncMock()
+            manager = DatabaseManager(database=database)
+
+            with self.assertRaisesRegex(ValueError, "canonical database identifier"):
+                await manager.import_table(input_file)
+
+        database.fetch_all.assert_not_awaited()
+        database.fetch_val.assert_not_awaited()
+
+    async def test_oversized_rows_are_bounded_and_duplicate_keys_use_last_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            input_file = Path(tmp) / "items.json"
+            input_file.write_bytes(
+                b'{"table_name":"items"}\n'
+                b'{"a":"' + b"x" * 64 + b'"}\n'
+                b'{"a":1,"a":2}\n'
+                b'{"a":3}\n'
+            )
+            manager = DatabaseManager(database=AsyncMock())
+            manager.get_table_info = AsyncMock(
+                return_value=manager_table_info(
+                    name="items",
+                    primary_key=["a"],
+                    columns=["a"],
+                )
+            )
+            process_batch = AsyncMock(return_value=2)
+
+            with (
+                patch.object(db_manager_module, "_MAX_IMPORT_ROW_BYTES", 32),
+                patch.object(manager, "_process_batch", new=process_batch),
+            ):
+                stats = await manager.import_table(input_file, batch_size=10)
+
+        self.assertEqual(stats.total_rows, 3)
+        self.assertEqual(stats.error_rows, 1)
+        self.assertEqual(stats.processed_rows, 2)
+        self.assertEqual(process_batch.await_args.args[1], [{"a": 2}, {"a": 3}])
+
+    async def test_batch_failure_log_does_not_include_driver_message(self):
+        secret = "credential=must-not-be-logged"
+        database = AsyncMock()
+        database.transaction = Mock(return_value=AsyncMock())
+        database.execute_many.side_effect = RuntimeError(secret)
+        manager = DatabaseManager(database=database)
+
+        with (
+            self.assertRaisesRegex(RuntimeError, "must-not-be-logged"),
+        ):
+            await manager._process_batch_with_retry(
+                "INSERT INTO items (a) VALUES (:a)",
+                [{"a": 1}],
+                max_retries=0,
+            )
+
+    async def test_individual_database_failures_are_counted_as_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            input_file = Path(tmp) / "items.json"
+            input_file.write_bytes(b'{"table_name":"items"}\n{"a":1}\n{"a":2}\n')
+            manager = DatabaseManager(database=AsyncMock())
+            manager.get_table_info = AsyncMock(
+                return_value=manager_table_info(
+                    name="items",
+                    primary_key=["a"],
+                    columns=["a"],
+                )
+            )
+
+            with patch.object(
+                manager,
+                "_process_batch",
+                new=AsyncMock(return_value=1),
+            ):
+                stats = await manager.import_table(input_file, batch_size=10)
+
+        self.assertEqual(stats.total_rows, 2)
+        self.assertEqual(stats.processed_rows, 1)
+        self.assertEqual(stats.error_rows, 1)
 
 
 def manager_table_info(

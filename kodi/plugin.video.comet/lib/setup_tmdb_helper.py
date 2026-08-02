@@ -1,9 +1,13 @@
 import os
 
-import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcvfs
+
+try:
+    from .diagnostics import emit, run_boundary
+except ImportError:
+    from diagnostics import emit, run_boundary
 
 ADDON_ID = "plugin.video.comet"
 TMDB_HELPER_ADDON_ID = "plugin.video.themoviedb.helper"
@@ -65,7 +69,7 @@ def setup_tmdb_helper_player():
         )
         return
 
-    xbmc.log("Failed to copy TMDB Helper player file", xbmc.LOGERROR)
+    emit("kodi.setup_tmdb.failed", outcome="failed")
     dialog.notification(
         "Comet",
         "Failed to install TMDB Helper player",
@@ -74,4 +78,4 @@ def setup_tmdb_helper_player():
 
 
 if __name__ == "__main__":
-    setup_tmdb_helper_player()
+    run_boundary("kodi.setup_tmdb.failed", setup_tmdb_helper_player)

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Request
 
 from comet.core.config_validation import config_check
-from comet.core.models import settings
+from comet.core.manifest_branding import eligible_usenet_provider_badges
+from comet.core.models import database, settings
 from comet.debrid.manager import build_addon_name
 from comet.utils.cache import CachePolicies, cached_json_response
 
@@ -23,7 +24,7 @@ router = APIRouter()
 async def manifest(request: Request, b64config: str | None = None):
     base_manifest = {
         "id": settings.ADDON_ID,
-        "description": "Stremio's fastest torrent/debrid search add-on.",
+        "description": "Stremio's fastest torrent/debrid/usenet search add-on.",
         "version": "2.0.0",
         "catalogs": [],
         "resources": [
@@ -39,7 +40,7 @@ async def manifest(request: Request, b64config: str | None = None):
         "behaviorHints": {"configurable": True, "configurationRequired": False},
     }
 
-    config = config_check(b64config, strict_b64config=True)
+    config = config_check(b64config)
     if not config:
         base_manifest["name"] = "❌ | Comet"
         base_manifest["description"] = (
@@ -47,7 +48,19 @@ async def manifest(request: Request, b64config: str | None = None):
         )
         return base_manifest
 
-    base_manifest["name"] = build_addon_name(settings.ADDON_NAME, config)
+    usenet_badges = await eligible_usenet_provider_badges(
+        config,
+        database,
+        usenet_offered=settings.USENET_ENABLED,
+        capability_secret=settings.COMET_CAPABILITY_SECRET,
+        native_access_token=settings.USENET_NATIVE_ACCESS_TOKEN,
+        native_servers=settings.USENET_NATIVE_SERVERS,
+    )
+    base_manifest["name"] = build_addon_name(
+        settings.ADDON_NAME,
+        config,
+        usenet_badges,
+    )
 
     return cached_json_response(
         request,

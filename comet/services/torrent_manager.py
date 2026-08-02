@@ -10,91 +10,40 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import chain
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urljoin, urlsplit
 
+import aiohttp
 import anyio
 import bencodepy
-import orjson
+from bencodepy import BencodeDecodeError
 from demagnetize.core import Demagnetizer
+from demagnetize.errors import DemagnetizeError
 from pydantic import ValidationError
 from RTN import parse
-from torf import Magnet
+from torf import Magnet, MagnetError
 
 from comet.cometnet import get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
-from comet.core.constants import TORRENT_TIMEOUT
+from comet.core.constants import torrent_timeout
 from comet.core.database import (
-    IS_SQLITE,
-    NULL_SCOPE_SENTINEL,
-    build_distinct_from_predicate,
-    build_json_list_membership_predicate,
-    build_upsert_assignments,
     encode_json_param,
+    is_retryable_database_error,
     normalize_scope_value,
 )
-from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.core.provider_json import is_success_status
+from comet.discovery.torrent_repository import TorrentReleaseRepository
+from comet.observability.context import create_detached_task
+from comet.usenet.outbound import (
+    OutboundUrlError,
+    PinnedResolver,
+    validate_http_url,
+)
 from comet.utils.formatting import normalize_info_hash
+from comet.utils.http_client import read_bounded_body
 from comet.utils.parsing import default_dump, ensure_multi_language, is_video
 
 TRACKER_PATTERN = re.compile(r"[&?]tr=([^&]+)")
-INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
-TORRENT_DB_COLUMNS = (
-    "media_id",
-    "info_hash",
-    "season",
-    "episode",
-    "season_norm",
-    "episode_norm",
-    "file_index",
-    "title",
-    "seeders",
-    "size",
-    "tracker",
-    "sources_json",
-    "parsed_json",
-    "updated_at",
-)
-TORRENT_UPSERT_PARAM_COLUMNS = (
-    "media_id",
-    "info_hash",
-    "season",
-    "episode",
-    "file_index",
-    "title",
-    "seeders",
-    "size",
-    "tracker",
-    "sources_json",
-    "parsed_json",
-)
-TORRENT_UPSERT_ROW_PARAM_COUNT = len(TORRENT_UPSERT_PARAM_COLUMNS)
-TORRENT_UPSERT_SHARED_PARAM_COUNT = 2
-TORRENT_UPSERT_PARAM_COUNT = (
-    TORRENT_UPSERT_ROW_PARAM_COUNT + TORRENT_UPSERT_SHARED_PARAM_COUNT
-)
-TORRENT_CONFLICT_COLUMNS = ("media_id", "info_hash", "season_norm", "episode_norm")
-TORRENT_CONFLICT_TARGET = f"({', '.join(TORRENT_CONFLICT_COLUMNS)})"
-TORRENT_IMMUTABLE_COLUMNS = frozenset(
-    {
-        "media_id",
-        "info_hash",
-        "season",
-        "episode",
-        "season_norm",
-        "episode_norm",
-    }
-)
-TORRENT_UPDATE_COLUMNS = tuple(
-    column for column in TORRENT_DB_COLUMNS if column not in TORRENT_IMMUTABLE_COLUMNS
-)
-TORRENT_CHANGE_DETECTION_COLUMNS = tuple(
-    column for column in TORRENT_UPDATE_COLUMNS if column != "updated_at"
-)
-TORRENT_STABLE_REFRESH_INTERVAL = 31536000
-if settings.LIVE_TORRENT_CACHE_TTL is not None and settings.LIVE_TORRENT_CACHE_TTL >= 0:
-    TORRENT_STABLE_REFRESH_INTERVAL = settings.LIVE_TORRENT_CACHE_TTL // 2
-
 DEFAULT_ADD_TORRENT_QUEUE_MAXSIZE = 256
 DEFAULT_ADD_TORRENT_METADATA_CACHE_MAX_ENTRIES = 512
 DEFAULT_TORRENT_UPDATE_BATCH_SIZE = 1000
@@ -103,45 +52,10 @@ DEFAULT_TORRENT_UPDATE_MAX_RETRIES = None
 DEFAULT_TORRENT_UPDATE_FLUSH_INTERVAL = 0.1
 DEFAULT_TORRENT_BROADCAST_QUEUE_MAXSIZE = 4096
 DEFAULT_TORRENT_BROADCAST_BATCH_QUEUE_MIN_SIZE = 32
-DEFAULT_TORRENT_BROADCAST_MAX_RETRIES = 5
-CHECK_TORRENTS_EXIST_CHUNK_SIZE = 4096
-SQLITE_MAX_VARIABLES = 32766
-POSTGRES_MAX_PARAMETERS = 32767
-DB_MAX_PARAMETERS = SQLITE_MAX_VARIABLES if IS_SQLITE else POSTGRES_MAX_PARAMETERS
-UPSERT_MAX_ROWS_PER_STATEMENT = max(
-    1,
-    (DB_MAX_PARAMETERS - TORRENT_UPSERT_SHARED_PARAM_COUNT)
-    // TORRENT_UPSERT_ROW_PARAM_COUNT,
-)
 DEFAULT_TORRENT_UPDATE_RETRY_BASE_DELAY = 0.05
 DEFAULT_TORRENT_UPDATE_RETRY_MAX_DELAY = 1.0
-RETRYABLE_DB_SQLSTATES = frozenset({"40001", "40P01", "55P03"})
-RETRYABLE_DB_ERROR_MARKERS = (
-    "database is locked",
-    "database is busy",
-    "deadlock detected",
-    "deadlock",
-    "lock wait timeout",
-    "could not serialize access",
-    "serialization failure",
-)
-ROW_SPECIFIC_DB_SQLSTATE_PREFIXES = ("22", "23")
-ROW_SPECIFIC_DB_ERROR_MARKERS = (
-    "check constraint",
-    "constraint failed",
-    "datatype mismatch",
-    "foreign key constraint",
-    "invalid input syntax",
-    "malformed json",
-    "not null constraint",
-    "out of range",
-    "unique constraint",
-    "value too long",
-)
-
-
-def _json_dumps(value) -> str:
-    return orjson.dumps(value).decode("utf-8")
+MAX_TORRENT_DOCUMENT_BYTES = 16 * 1024 * 1024
+MAX_TORRENT_REDIRECTS = 3
 
 
 def _coerce_parsed_payload(parsed) -> dict:
@@ -149,11 +63,8 @@ def _coerce_parsed_payload(parsed) -> dict:
         return parsed
     if parsed is None:
         return {}
-    try:
-        dumped = default_dump(parsed)
-    except Exception:
-        return {}
-    return dumped if isinstance(dumped, dict) else {}
+    dumped = default_dump(parsed)
+    return {} if dumped is None else dumped
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:
@@ -209,10 +120,6 @@ def _prune_ordered_dict(cache: OrderedDict, *, max_entries: int):
         cache.popitem(last=False)
 
 
-def _is_relevant_video_file(title: str) -> bool:
-    return bool(title) and is_video(title) and "sample" not in title.lower()
-
-
 def _normalize_valid_info_hash(info_hash) -> str | None:
     if not isinstance(info_hash, str):
         return None
@@ -225,23 +132,17 @@ def _normalize_valid_info_hash(info_hash) -> str | None:
 
 
 def _parse_video_title(title: str):
-    try:
-        parsed = parse(title)
-        ensure_multi_language(parsed)
-    except Exception:
-        return None
+    parsed = parse(title)
+    ensure_multi_language(parsed)
     return parsed
 
 
 @lru_cache(maxsize=4096)
 def _parse_video_title_payload(title: str):
     parsed = _parse_video_title(title)
-    if parsed is None:
-        return None
-
     return (
-        tuple(getattr(parsed, "seasons", None) or ()),
-        tuple(getattr(parsed, "episodes", None) or ()),
+        tuple(parsed.seasons or ()),
+        tuple(parsed.episodes or ()),
         _coerce_parsed_payload(parsed),
     )
 
@@ -253,17 +154,40 @@ def extract_trackers_from_magnet(magnet_uri: str):
 
 
 def _extract_info_hash_from_magnet(magnet_uri: str) -> str | None:
-    match = INFO_HASH_PATTERN.search(magnet_uri)
-    if not match:
+    if (
+        not isinstance(magnet_uri, str)
+        or len(magnet_uri) > 16 * 1024
+        or any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in magnet_uri
+        )
+    ):
         return None
-
-    return _normalize_valid_info_hash(match.group(1))
+    try:
+        parsed = urlsplit(magnet_uri)
+        if parsed.scheme.lower() != "magnet":
+            return None
+        query = parse_qs(
+            parsed.query,
+            keep_blank_values=False,
+            max_num_fields=128,
+        )
+    except ValueError:
+        return None
+    hashes = {
+        normalized
+        for value in query.get("xt", ())
+        if value.lower().startswith("urn:btih:")
+        and (normalized := _normalize_valid_info_hash(value[len("urn:btih:") :]))
+        is not None
+    }
+    return next(iter(hashes)) if len(hashes) == 1 else None
 
 
 def _extract_relevant_file_entries(file_specs) -> list[dict]:
     files = []
     for index, title, size in file_specs:
-        if _is_relevant_video_file(title):
+        if is_video(title):
             files.append(
                 {
                     "index": index,
@@ -341,25 +265,71 @@ def _construct_torrent_metadata(
     )
 
 
-async def download_torrent(session, url: str):
+async def download_torrent(
+    session,
+    url: str,
+    *,
+    allowed_private_origins: frozenset[str] = frozenset(),
+):
+    del session
     try:
-        async with session.get(
-            url, allow_redirects=False, timeout=TORRENT_TIMEOUT
-        ) as response:
-            if response.status == 200:
-                return (await response.read(), None, None)
-
-            location = response.headers.get("Location", "")
-            if location:
-                info_hash = _extract_info_hash_from_magnet(location)
-                if info_hash:
-                    return (None, info_hash, location)
-            return (None, None, None)
-    except Exception as e:
-        logger.debug(
-            f"Failed to download torrent from {url}: {e} (in most cases, you can ignore this error)"
-        )
+        async with asyncio.timeout(settings.GET_TORRENT_TIMEOUT):
+            return await _download_torrent_document(
+                url,
+                allowed_private_origins=allowed_private_origins,
+            )
+    except (TimeoutError, aiohttp.ClientError, OutboundUrlError):
         return (None, None, None)
+
+
+async def _download_torrent_document(
+    url: str,
+    *,
+    allowed_private_origins: frozenset[str],
+):
+    current_url = url
+    for _ in range(MAX_TORRENT_REDIRECTS + 1):
+        target = await validate_http_url(
+            current_url,
+            allowed_private_origins=allowed_private_origins,
+        )
+        connector = aiohttp.TCPConnector(
+            resolver=PinnedResolver(target.addresses),
+            use_dns_cache=False,
+            limit=1,
+        )
+        async with aiohttp.ClientSession(
+            connector=connector,
+            timeout=torrent_timeout(),
+        ) as request_session:
+            async with request_session.get(
+                target.url,
+                headers={
+                    "Accept": "application/x-bittorrent",
+                    "Accept-Encoding": "identity",
+                },
+                allow_redirects=False,
+            ) as response:
+                if response.status in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("Location")
+                    if not isinstance(location, str) or not location:
+                        raise OutboundUrlError("torrent redirect is invalid")
+                    info_hash = _extract_info_hash_from_magnet(location)
+                    if info_hash:
+                        return (None, info_hash, location)
+                    current_url = urljoin(target.url, location)
+                    continue
+                if not is_success_status(response.status):
+                    return (None, None, None)
+                try:
+                    document = await read_bounded_body(
+                        response,
+                        MAX_TORRENT_DOCUMENT_BYTES,
+                    )
+                except ValueError as exc:
+                    raise OutboundUrlError(str(exc)) from exc
+                return (document, None, None)
+    raise OutboundUrlError("torrent redirected too many times")
 
 
 demagnetizer = Demagnetizer()
@@ -369,12 +339,9 @@ async def get_torrent_from_magnet(magnet_uri: str):
     try:
         magnet = Magnet.from_string(magnet_uri)
         with anyio.fail_after(settings.MAGNET_RESOLVE_TIMEOUT):
-            torrent = await demagnetizer.demagnetize(magnet)
-            if torrent:
-                return torrent
-    except Exception as e:
-        logger.debug(f"Failed to get torrent from magnet: {e}")
-    return None
+            return await demagnetizer.demagnetize(magnet)
+    except (TimeoutError, DemagnetizeError, MagnetError):
+        return None
 
 
 def _resolve_torrent_metadata(torrent) -> dict:
@@ -399,38 +366,39 @@ def _resolve_torrent_metadata(torrent) -> dict:
 def extract_torrent_metadata(content: bytes):
     try:
         torrent_data = bencodepy.decode(content)
-        info = torrent_data[b"info"]
-        info_hash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
-
-        announce_list = []
-        for tier in torrent_data.get(b"announce-list", []):
-            if not isinstance(tier, (list, tuple)):
-                continue
-            for tracker in tier:
-                if not isinstance(tracker, bytes):
-                    continue
-                try:
-                    announce_list.append(tracker.decode())
-                except UnicodeDecodeError:
-                    continue
-
-        announce_value = torrent_data.get(b"announce", b"")
-        try:
-            announce = (
-                announce_value.decode() if isinstance(announce_value, bytes) else ""
-            )
-        except UnicodeDecodeError:
-            announce = ""
-        if announce:
-            announce_list.append(announce)
-        return _build_torrent_metadata_payload(
-            info_hash,
-            announce_list,
-            _iter_bencoded_file_specs(info),
-        )
-    except Exception as e:
-        logger.debug(f"Failed to extract torrent metadata: {e}")
+    except BencodeDecodeError:
         return {}
+    if not isinstance(torrent_data, dict):
+        return {}
+    info = torrent_data.get(b"info")
+    if not isinstance(info, dict):
+        return {}
+    info_hash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
+
+    announce_list = []
+    for tier in torrent_data.get(b"announce-list", []):
+        if not isinstance(tier, (list, tuple)):
+            continue
+        for tracker in tier:
+            if not isinstance(tracker, bytes):
+                continue
+            try:
+                announce_list.append(tracker.decode())
+            except UnicodeDecodeError:
+                continue
+
+    announce_value = torrent_data.get(b"announce", b"")
+    try:
+        announce = announce_value.decode() if isinstance(announce_value, bytes) else ""
+    except UnicodeDecodeError:
+        announce = ""
+    if announce:
+        announce_list.append(announce)
+    return _build_torrent_metadata_payload(
+        info_hash,
+        announce_list,
+        _iter_bencoded_file_specs(info),
+    )
 
 
 def _is_empty_merge_value(value) -> bool:
@@ -459,14 +427,6 @@ def _merge_parsed_payloads(existing: dict, incoming: dict) -> dict:
             continue
         if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
             merged[key] = _merge_parsed_payloads(existing_value, incoming_value)
-            continue
-        if isinstance(existing_value, list) and isinstance(incoming_value, list):
-            if len(incoming_value) > len(existing_value):
-                merged[key] = incoming_value
-            continue
-        if isinstance(existing_value, str) and isinstance(incoming_value, str):
-            if len(incoming_value) > len(existing_value):
-                merged[key] = incoming_value
             continue
         merged[key] = incoming_value
     return merged
@@ -572,15 +532,10 @@ def _build_torrent_update_from_source(
 
 def _build_torrent_update_from_metadata(
     metadata: TorrentMetadata,
-) -> "_TorrentUpdate | None":
-    info_hash = _normalize_valid_info_hash(metadata.info_hash)
-    media_id = metadata.imdb_id
-    if info_hash is None or not metadata.title or not media_id:
-        return None
-
+) -> "_TorrentUpdate":
     return _construct_torrent_update(
-        media_id=media_id,
-        info_hash=info_hash,
+        media_id=metadata.imdb_id,
+        info_hash=metadata.info_hash,
         season=metadata.season,
         episode=metadata.episode,
         file_index=metadata.file_index,
@@ -589,7 +544,7 @@ def _build_torrent_update_from_metadata(
         size=metadata.size,
         tracker=metadata.tracker,
         sources=_dedupe_strings(metadata.sources),
-        parsed=metadata.parsed or {},
+        parsed={} if metadata.parsed is None else metadata.parsed,
         from_cometnet=True,
     )
 
@@ -658,24 +613,13 @@ def _iter_resolved_torrent_updates(
     tracker: str,
     search_season: int | None,
 ) -> Iterator[_TorrentUpdate]:
-    normalized_info_hash = _normalize_valid_info_hash(resolved_torrent.get("info_hash"))
-    if normalized_info_hash is None:
-        return
-
-    normalized_sources = _normalize_sources(resolved_torrent.get("sources"))
-    for resolved_file in resolved_torrent.get("files", []):
-        if not isinstance(resolved_file, dict):
-            continue
-
-        title = resolved_file.get("title")
-        if not isinstance(title, str) or not title:
-            continue
-
-        parsed_title = _parse_video_title_payload(title)
-        if parsed_title is None:
-            continue
-
-        parsed_seasons, parsed_episodes, parsed_payload = parsed_title
+    info_hash = resolved_torrent["info_hash"]
+    sources = resolved_torrent["sources"]
+    for resolved_file in resolved_torrent["files"]:
+        title = resolved_file["title"]
+        parsed_seasons, parsed_episodes, parsed_payload = _parse_video_title_payload(
+            title
+        )
         seasons = parsed_seasons or (
             (search_season,) if search_season is not None else (None,)
         )
@@ -684,15 +628,15 @@ def _iter_resolved_torrent_updates(
         for season in seasons:
             yield _construct_torrent_update(
                 media_id=media_id,
-                info_hash=normalized_info_hash,
+                info_hash=info_hash,
                 season=season,
                 episode=episode,
-                file_index=resolved_file.get("index"),
+                file_index=resolved_file["index"],
                 title=title,
                 seeders=seeders,
-                size=resolved_file.get("size"),
+                size=resolved_file["size"],
                 tracker=tracker,
-                sources=normalized_sources,
+                sources=sources,
                 parsed=parsed_payload,
                 from_cometnet=False,
             )
@@ -760,12 +704,19 @@ def _compute_batched_queue_maxsize(
     total_slots: int,
     min_batches: int,
 ) -> int:
-    return max(min_batches, total_slots // max(1, min(batch_size, 128)))
+    return max(min_batches, total_slots // min(batch_size, 128))
 
 
-TORRENT_INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
-    "info_hash", "info_hashes"
-)
+def _begin_queue_wait(waiters: int, event: asyncio.Event) -> int:
+    event.clear()
+    return waiters + 1
+
+
+def _end_queue_wait(waiters: int, event: asyncio.Event) -> int:
+    waiters -= 1
+    if waiters == 0:
+        event.set()
+    return waiters
 
 
 def _normalize_unique_info_hashes(info_hashes: Iterable[str]) -> tuple[str, ...]:
@@ -788,24 +739,7 @@ async def check_torrents_exist(info_hashes: list[str]) -> set[str]:
     if not unique_hashes:
         return set()
 
-    existing_hashes = set()
-
-    try:
-        for start in range(0, len(unique_hashes), CHECK_TORRENTS_EXIST_CHUNK_SIZE):
-            chunk = unique_hashes[start : start + CHECK_TORRENTS_EXIST_CHUNK_SIZE]
-            rows = await database.fetch_all(
-                f"""
-                SELECT info_hash
-                FROM torrents
-                WHERE {TORRENT_INFO_HASH_MEMBERSHIP_SQL}
-                """,
-                {"info_hashes": encode_json_param(chunk)},
-            )
-            existing_hashes.update(row["info_hash"] for row in rows)
-        return existing_hashes
-    except Exception as e:
-        logger.warning(f"Error checking batch torrent persistence: {e}")
-        return set()
+    return await TorrentReleaseRepository(database).existing_hashes(unique_hashes)
 
 
 class AddTorrentQueue:
@@ -813,7 +747,7 @@ class AddTorrentQueue:
 
     def __init__(self, max_concurrent: int = 10):
         self.queue = asyncio.Queue(maxsize=DEFAULT_ADD_TORRENT_QUEUE_MAXSIZE)
-        self.max_concurrent = max(1, max_concurrent)
+        self.max_concurrent = max_concurrent
         self.metadata_cache_max_entries = DEFAULT_ADD_TORRENT_METADATA_CACHE_MAX_ENTRIES
         self._lock = asyncio.Lock()
         self._workers = []
@@ -834,13 +768,14 @@ class AddTorrentQueue:
         self._resolved_torrent_cache.clear()
 
     def _begin_queue_wait(self):
-        self._queue_waiters += 1
-        self._queue_waiters_event.clear()
+        self._queue_waiters = _begin_queue_wait(
+            self._queue_waiters, self._queue_waiters_event
+        )
 
     def _end_queue_wait(self):
-        self._queue_waiters -= 1
-        if self._queue_waiters == 0:
-            self._queue_waiters_event.set()
+        self._queue_waiters = _end_queue_wait(
+            self._queue_waiters, self._queue_waiters_event
+        )
 
     @staticmethod
     def _build_pending_metadata(seeders: int, tracker: str) -> dict[str, int | str]:
@@ -856,7 +791,7 @@ class AddTorrentQueue:
         seeders: int,
         tracker: str,
     ) -> None:
-        current_seeders = current.get("seeders")
+        current_seeders = current["seeders"]
         if seeders is not None and (
             current_seeders is None or seeders > current_seeders
         ):
@@ -914,6 +849,9 @@ class AddTorrentQueue:
 
     async def _ensure_workers(self):
         workers = self._workers
+        for task in workers:
+            if task.done():
+                task.result()
         if (
             workers
             and len(workers) >= self.max_concurrent
@@ -922,13 +860,20 @@ class AddTorrentQueue:
             return
 
         async with self._lock:
+            for task in self._workers:
+                if task.done():
+                    task.result()
             self._workers[:] = [task for task in self._workers if not task.done()]
             missing_workers = self.max_concurrent - len(self._workers)
             if missing_workers <= 0:
                 return
 
             self._workers.extend(
-                asyncio.create_task(self._worker()) for _ in range(missing_workers)
+                create_detached_task(
+                    self._worker(),
+                    name="torrent-resolution-worker",
+                )
+                for _ in range(missing_workers)
             )
 
     async def _worker(self):
@@ -956,15 +901,41 @@ class AddTorrentQueue:
                         tracker=pending_metadata["tracker"],
                         search_season=search_season,
                     )
-            except Exception as e:
-                logger.warning(f"Error while processing magnet torrent: {e}")
             finally:
                 async with self._lock:
                     self._pending_torrents.pop(queue_key, None)
                 self.queue.task_done()
 
+    def _discard_inflight_resolution(
+        self,
+        inflight_key: tuple[str, str],
+        task: asyncio.Task,
+    ) -> None:
+        if self._inflight_resolutions.get(inflight_key) is task:
+            self._inflight_resolutions.pop(inflight_key)
+
+    async def _resolve_and_cache_torrent(
+        self,
+        magnet_key: str,
+        magnet_url: str,
+    ) -> dict:
+        torrent = await get_torrent_from_magnet(magnet_url)
+        resolved_torrent = (
+            await asyncio.to_thread(_resolve_torrent_metadata, torrent)
+            if torrent is not None
+            else {}
+        )
+        if resolved_torrent:
+            async with self._lock:
+                self._resolved_torrent_cache[magnet_key] = resolved_torrent
+                self._resolved_torrent_cache.move_to_end(magnet_key)
+                _prune_ordered_dict(
+                    self._resolved_torrent_cache,
+                    max_entries=self.metadata_cache_max_entries,
+                )
+        return resolved_torrent
+
     async def _get_resolved_torrent(self, magnet_key: str, magnet_url: str) -> dict:
-        loop = asyncio.get_running_loop()
         inflight_key = (magnet_key, magnet_url)
         async with self._lock:
             cached = self._resolved_torrent_cache.get(magnet_key)
@@ -972,61 +943,41 @@ class AddTorrentQueue:
                 self._resolved_torrent_cache.move_to_end(magnet_key)
                 return cached
 
-            future = self._inflight_resolutions.get(inflight_key)
-            if future is None:
-                future = loop.create_future()
-                self._inflight_resolutions[inflight_key] = future
-                owner = True
-            else:
-                owner = False
-
-        if not owner:
-            return await future
-
-        resolved_torrent = {}
-        try:
-            torrent = await get_torrent_from_magnet(magnet_url)
-            if torrent:
-                resolved_torrent = await asyncio.to_thread(
-                    _resolve_torrent_metadata, torrent
+            task = self._inflight_resolutions.get(inflight_key)
+            if task is None:
+                task = create_detached_task(
+                    self._resolve_and_cache_torrent(magnet_key, magnet_url),
+                    name="torrent-metadata-resolution",
                 )
-        finally:
-            async with self._lock:
-                if resolved_torrent:
-                    self._resolved_torrent_cache[magnet_key] = resolved_torrent
-                    self._resolved_torrent_cache.move_to_end(magnet_key)
-                    _prune_ordered_dict(
-                        self._resolved_torrent_cache,
-                        max_entries=self.metadata_cache_max_entries,
+                self._inflight_resolutions[inflight_key] = task
+                task.add_done_callback(
+                    lambda completed: self._discard_inflight_resolution(
+                        inflight_key, completed
                     )
+                )
 
-                inflight = self._inflight_resolutions.pop(inflight_key, None)
-                if inflight is not None and not inflight.done():
-                    inflight.set_result(resolved_torrent)
-
-        return resolved_torrent
+        return await asyncio.shield(task)
 
     async def stop(self):
         async with self._lock:
             self._stopping = True
-
+            workers = list(self._workers)
             active_workers = [task for task in self._workers if not task.done()]
-        if not active_workers:
+
+        try:
+            if active_workers:
+                await _wait_for_tracked_queue_drain(
+                    self.queue,
+                    waiters_count=lambda: self._queue_waiters,
+                    waiters_event=self._queue_waiters_event,
+                )
+                for _ in active_workers:
+                    await self.queue.put(self._STOP)
+            if workers:
+                await asyncio.gather(*workers)
+        finally:
             async with self._lock:
                 self._reset_runtime_state()
-            return
-
-        await _wait_for_tracked_queue_drain(
-            self.queue,
-            waiters_count=lambda: self._queue_waiters,
-            waiters_event=self._queue_waiters_event,
-        )
-        for _ in active_workers:
-            await self.queue.put(self._STOP)
-        await asyncio.gather(*active_workers, return_exceptions=True)
-
-        async with self._lock:
-            self._reset_runtime_state()
 
 
 add_torrent_queue = AddTorrentQueue()
@@ -1040,7 +991,7 @@ class TorrentUpdateQueue:
         batch_size: int = DEFAULT_TORRENT_UPDATE_BATCH_SIZE,
         flush_interval: float = DEFAULT_TORRENT_UPDATE_FLUSH_INTERVAL,
     ):
-        self.batch_size = max(1, batch_size)
+        self.batch_size = batch_size
         self.queue = asyncio.Queue(maxsize=DEFAULT_TORRENT_UPDATE_QUEUE_MAXSIZE)
         self._broadcast_queue = asyncio.Queue(
             maxsize=_compute_batched_queue_maxsize(
@@ -1049,15 +1000,16 @@ class TorrentUpdateQueue:
                 min_batches=DEFAULT_TORRENT_BROADCAST_BATCH_QUEUE_MIN_SIZE,
             )
         )
-        self.flush_interval = max(0.0, flush_interval)
+        self.flush_interval = flush_interval
         self.max_retries = DEFAULT_TORRENT_UPDATE_MAX_RETRIES
-        self.broadcast_max_retries = DEFAULT_TORRENT_BROADCAST_MAX_RETRIES
         self._state_lock = asyncio.Lock()
         self._pending_lock = asyncio.Lock()
         self._retry_lock = asyncio.Lock()
-        self._worker = None
-        self._broadcast_worker = None
-        self._retry_worker = None
+        self._tasks = {
+            "persistence": None,
+            "broadcast": None,
+            "retry": None,
+        }
         self._stopping = False
         self._pending_updates = {}
         self._queue_waiters = 0
@@ -1073,23 +1025,10 @@ class TorrentUpdateQueue:
         self._retry_inflight = 0
         self._retry_sequence = 0
 
-    def _begin_waiting(self, count_attr: str, event_attr: str):
-        setattr(self, count_attr, getattr(self, count_attr) + 1)
-        getattr(self, event_attr).clear()
-
-    def _end_waiting(self, count_attr: str, event_attr: str):
-        waiters = getattr(self, count_attr) - 1
-        setattr(self, count_attr, waiters)
-        if waiters == 0:
-            getattr(self, event_attr).set()
-
-    def _can_accept_media_id(self, media_id: str | None) -> bool:
-        return not self._stopping and isinstance(media_id, str) and bool(media_id)
-
     async def add_torrent_info(
-        self, file_info: dict, media_id: str | None = None, from_cometnet: bool = False
+        self, file_info: dict, media_id: str, from_cometnet: bool = False
     ):
-        if not self._can_accept_media_id(media_id):
+        if self._stopping:
             return
 
         await self._enqueue_prepared_item(
@@ -1103,10 +1042,10 @@ class TorrentUpdateQueue:
     async def add_torrent_infos(
         self,
         file_infos: list[dict],
-        media_id: str | None = None,
+        media_id: str,
         from_cometnet: bool = False,
     ):
-        if not file_infos or not self._can_accept_media_id(media_id):
+        if self._stopping:
             return
 
         await self._enqueue_prepared_items(
@@ -1126,7 +1065,7 @@ class TorrentUpdateQueue:
         tracker: str,
         search_season: int | None,
     ):
-        if not self._can_accept_media_id(media_id):
+        if self._stopping:
             return
 
         await self._enqueue_prepared_items(
@@ -1140,27 +1079,34 @@ class TorrentUpdateQueue:
         )
 
     async def add_network_torrent(self, metadata: TorrentMetadata):
-        if not self._can_accept_media_id(metadata.imdb_id):
-            raise ValueError("Network torrent metadata requires imdb_id")
+        if self._stopping:
+            return
 
         await self._enqueue_prepared_item(_build_torrent_update_from_metadata(metadata))
 
-    async def _ensure_task(self, attr_name: str, worker_factory):
-        worker = getattr(self, attr_name)
-        if worker is not None and not worker.done():
-            return
+    async def _ensure_task(self, kind: str, worker_factory):
+        task = self._tasks[kind]
+        if task is not None:
+            if not task.done():
+                return
+            task.result()
 
         async with self._state_lock:
-            worker = getattr(self, attr_name)
-            if worker is not None and not worker.done():
-                return
-            setattr(self, attr_name, asyncio.create_task(worker_factory()))
+            task = self._tasks[kind]
+            if task is not None:
+                if not task.done():
+                    return
+                task.result()
+            self._tasks[kind] = create_detached_task(
+                worker_factory(),
+                name=f"torrent-{kind}-worker",
+            )
 
     async def _enqueue_prepared_item(self, item: _TorrentUpdate | None):
         if self._stopping or item is None:
             return
 
-        await self._ensure_task("_worker", self._process_queue)
+        await self._ensure_task("persistence", self._process_queue)
         await self._queue_items((item,))
 
     async def _enqueue_prepared_items(self, items: Iterable[_TorrentUpdate]):
@@ -1172,7 +1118,7 @@ class TorrentUpdateQueue:
         if first_item is None:
             return
 
-        await self._ensure_task("_worker", self._process_queue)
+        await self._ensure_task("persistence", self._process_queue)
         await self._queue_items(chain((first_item,), iterator))
 
     async def _stage_pending_items(
@@ -1218,7 +1164,9 @@ class TorrentUpdateQueue:
             return
 
         queued_count = 0
-        self._begin_waiting("_queue_waiters", "_queue_waiters_event")
+        self._queue_waiters = _begin_queue_wait(
+            self._queue_waiters, self._queue_waiters_event
+        )
         try:
             for item in slow_items:
                 await self.queue.put(item)
@@ -1228,7 +1176,9 @@ class TorrentUpdateQueue:
                 await self._discard_pending_item(item)
             raise
         finally:
-            self._end_waiting("_queue_waiters", "_queue_waiters_event")
+            self._queue_waiters = _end_queue_wait(
+                self._queue_waiters, self._queue_waiters_event
+            )
 
     async def _enqueue_broadcast_items(
         self, batch_items: list[_TorrentUpdate], updated_at: float
@@ -1246,21 +1196,25 @@ class TorrentUpdateQueue:
         if not metadata_batch:
             return
 
-        await self._ensure_task("_broadcast_worker", self._process_broadcast_queue)
+        await self._ensure_task("broadcast", self._process_broadcast_queue)
 
         try:
             self._broadcast_queue.put_nowait((backend, metadata_batch))
         except asyncio.QueueFull:
-            self._begin_waiting("_broadcast_waiters", "_broadcast_waiters_event")
+            self._broadcast_waiters = _begin_queue_wait(
+                self._broadcast_waiters, self._broadcast_waiters_event
+            )
             try:
                 await self._broadcast_queue.put((backend, metadata_batch))
             finally:
-                self._end_waiting("_broadcast_waiters", "_broadcast_waiters_event")
+                self._broadcast_waiters = _end_queue_wait(
+                    self._broadcast_waiters, self._broadcast_waiters_event
+                )
 
     def _retry_delay_seconds(self, attempt: int) -> float:
         delay = min(
             DEFAULT_TORRENT_UPDATE_RETRY_MAX_DELAY,
-            DEFAULT_TORRENT_UPDATE_RETRY_BASE_DELAY * (2 ** max(0, attempt - 1)),
+            DEFAULT_TORRENT_UPDATE_RETRY_BASE_DELAY * (2 ** (attempt - 1)),
         )
         return delay + (random.random() * min(0.05, delay))
 
@@ -1277,7 +1231,7 @@ class TorrentUpdateQueue:
             self._retry_idle_event.clear()
             self._retry_event.set()
 
-        await self._ensure_task("_retry_worker", self._process_retry_queue)
+        await self._ensure_task("retry", self._process_retry_queue)
 
     async def _requeue_batch_items(self, batch_items: list[_TorrentUpdate]):
         if self._stopping:
@@ -1291,9 +1245,6 @@ class TorrentUpdateQueue:
             requeue_candidates.append(item)
 
         if not requeue_candidates:
-            return
-
-        if self._stopping:
             return
 
         await self._schedule_requeue_batch(
@@ -1317,49 +1268,42 @@ class TorrentUpdateQueue:
             await retry_idle_event.wait()
 
     async def _process_retry_queue(self):
-        try:
-            while True:
-                batch_items = None
-                wait_timeout = None
-                async with self._retry_lock:
-                    if self._retry_heap:
-                        ready_at, _, _ = self._retry_heap[0]
-                        wait_timeout = ready_at - time.monotonic()
-                        if wait_timeout <= 0:
-                            _, _, batch_items = heapq.heappop(self._retry_heap)
-                            self._retry_inflight += 1
-                        else:
-                            self._retry_event.clear()
-                            self._retry_idle_event.clear()
+        while True:
+            batch_items = None
+            wait_timeout = None
+            async with self._retry_lock:
+                if self._retry_heap:
+                    ready_at, _, _ = self._retry_heap[0]
+                    wait_timeout = ready_at - time.monotonic()
+                    if wait_timeout <= 0:
+                        _, _, batch_items = heapq.heappop(self._retry_heap)
+                        self._retry_inflight += 1
                     else:
                         self._retry_event.clear()
-                        if self._retry_inflight == 0:
-                            self._retry_idle_event.set()
+                        self._retry_idle_event.clear()
+                else:
+                    self._retry_event.clear()
+                    if self._retry_inflight == 0:
+                        self._retry_idle_event.set()
 
-                if batch_items is not None:
-                    try:
-                        await self._queue_items(batch_items, force=True)
-                    finally:
-                        async with self._retry_lock:
-                            self._retry_inflight -= 1
-                            if not self._retry_heap and self._retry_inflight == 0:
-                                self._retry_idle_event.set()
-                    continue
-
-                if wait_timeout is None:
-                    await self._retry_event.wait()
-                    continue
-
+            if batch_items is not None:
                 try:
-                    await asyncio.wait_for(
-                        self._retry_event.wait(), timeout=wait_timeout
-                    )
-                except TimeoutError:
-                    pass
-        finally:
-            async with self._state_lock:
-                if self._retry_worker is asyncio.current_task():
-                    self._retry_worker = None
+                    await self._queue_items(batch_items, force=True)
+                finally:
+                    async with self._retry_lock:
+                        self._retry_inflight -= 1
+                        if not self._retry_heap and self._retry_inflight == 0:
+                            self._retry_idle_event.set()
+                continue
+
+            if wait_timeout is None:
+                await self._retry_event.wait()
+                continue
+
+            try:
+                await asyncio.wait_for(self._retry_event.wait(), timeout=wait_timeout)
+            except TimeoutError:
+                pass
 
     async def _finalize_batch_items(self, batch_items: list[_TorrentUpdate]):
         async with self._pending_lock:
@@ -1372,128 +1316,93 @@ class TorrentUpdateQueue:
             return ready_items
 
     async def _process_queue(self):
-        try:
-            while True:
-                first_item = await self.queue.get()
-                if first_item is self._STOP:
-                    self.queue.task_done()
-                    return
+        while True:
+            first_item = await self.queue.get()
+            if first_item is self._STOP:
+                self.queue.task_done()
+                return
 
-                batch_keys = await _collect_queue_batch(
-                    self.queue,
-                    first_item,
-                    max_items=self.batch_size,
-                    flush_interval=0.0 if self._stopping else self.flush_interval,
-                )
-                batch_items = await self._finalize_batch_items(batch_keys)
+            batch_keys = await _collect_queue_batch(
+                self.queue,
+                first_item,
+                max_items=self.batch_size,
+                flush_interval=0.0 if self._stopping else self.flush_interval,
+            )
+            batch_items = await self._finalize_batch_items(batch_keys)
 
-                updated_at = 0.0
-                persisted_items = []
-                try:
-                    if batch_items:
-                        updated_at = time.time()
-                        persisted_items = await _execute_isolated_batched_upsert(
-                            batch_items, updated_at=updated_at
-                        )
-                except Exception as e:
-                    logger.warning(f"Error in torrent update batch: {e}")
-                    if _is_retryable_db_error(e):
-                        await self._requeue_batch_items(batch_items)
+            updated_at = 0.0
+            persisted_items = []
+            try:
+                if batch_items:
+                    updated_at = time.time()
+                    persisted_items = await _execute_batched_upsert(
+                        batch_items, updated_at=updated_at
+                    )
+            except Exception as error:
+                if is_retryable_database_error(error):
+                    await self._requeue_batch_items(batch_items)
                 else:
-                    if persisted_items:
-                        await self._enqueue_broadcast_items(persisted_items, updated_at)
-                finally:
-                    for _ in batch_keys:
-                        self.queue.task_done()
-        finally:
-            async with self._state_lock:
-                if self._worker is asyncio.current_task():
-                    self._worker = None
+                    raise
+            else:
+                if persisted_items:
+                    await self._enqueue_broadcast_items(persisted_items, updated_at)
+            finally:
+                for _ in batch_keys:
+                    self.queue.task_done()
 
     async def _process_broadcast_queue(self):
-        try:
-            while True:
-                payload = await self._broadcast_queue.get()
-                if payload is self._STOP:
-                    self._broadcast_queue.task_done()
-                    return
+        while True:
+            payload = await self._broadcast_queue.get()
+            if payload is self._STOP:
+                self._broadcast_queue.task_done()
+                return
 
+            try:
                 backend, metadata_batch = payload
-                max_attempts = max(1, self.broadcast_max_retries)
-                try:
-                    for attempt in range(1, max_attempts + 1):
-                        try:
-                            await backend.broadcast_torrents(metadata_batch)
-                            break
-                        except Exception as e:
-                            stopping = self._stopping
-                            final_attempt = stopping or attempt >= max_attempts
-                            if attempt == 1 or final_attempt or (attempt % 10) == 0:
-                                logger.warning(
-                                    "Error while broadcasting torrents "
-                                    f"(attempt {attempt}/{max_attempts}, "
-                                    f"batch={len(metadata_batch)}): {e}"
-                                )
-                            if final_attempt:
-                                logger.warning(
-                                    "Dropping torrent broadcast batch "
-                                    f"(attempts={attempt}, batch={len(metadata_batch)}, "
-                                    f"stopping={stopping})"
-                                )
-                                break
-                            await asyncio.sleep(self._retry_delay_seconds(attempt))
-                finally:
-                    self._broadcast_queue.task_done()
-        finally:
-            async with self._state_lock:
-                if self._broadcast_worker is asyncio.current_task():
-                    self._broadcast_worker = None
+                await backend.broadcast_torrents(metadata_batch)
+            finally:
+                self._broadcast_queue.task_done()
 
     async def stop(self):
         async with self._state_lock:
             self._stopping = True
-            worker = (
-                self._worker
-                if self._worker is not None and not self._worker.done()
-                else None
-            )
+            worker = self._tasks["persistence"]
 
         if worker is not None:
-            await _wait_for_tracked_queue_drain(
-                self.queue,
-                waiters_count=lambda: self._queue_waiters,
-                waiters_event=self._queue_waiters_event,
-                extra_idle_check=self._retry_is_idle,
-                extra_idle_wait=self._wait_for_retry_drain,
-            )
-            await self.queue.put(self._STOP)
-            await asyncio.gather(worker, return_exceptions=True)
+            if not worker.done():
+                await _wait_for_tracked_queue_drain(
+                    self.queue,
+                    waiters_count=lambda: self._queue_waiters,
+                    waiters_event=self._queue_waiters_event,
+                    extra_idle_check=self._retry_is_idle,
+                    extra_idle_wait=self._wait_for_retry_drain,
+                )
+                await self.queue.put(self._STOP)
+            await worker
 
         async with self._state_lock:
-            broadcast_worker = (
-                self._broadcast_worker
-                if self._broadcast_worker is not None
-                and not self._broadcast_worker.done()
-                else None
-            )
+            broadcast_worker = self._tasks["broadcast"]
         if broadcast_worker is not None:
-            await _wait_for_tracked_queue_drain(
-                self._broadcast_queue,
-                waiters_count=lambda: self._broadcast_waiters,
-                waiters_event=self._broadcast_waiters_event,
-            )
-            await self._broadcast_queue.put(self._STOP)
-            await asyncio.gather(broadcast_worker, return_exceptions=True)
+            if not broadcast_worker.done():
+                await _wait_for_tracked_queue_drain(
+                    self._broadcast_queue,
+                    waiters_count=lambda: self._broadcast_waiters,
+                    waiters_event=self._broadcast_waiters_event,
+                )
+                await self._broadcast_queue.put(self._STOP)
+            await broadcast_worker
 
         async with self._state_lock:
-            retry_worker = (
-                self._retry_worker
-                if self._retry_worker is not None and not self._retry_worker.done()
-                else None
-            )
+            retry_worker = self._tasks["retry"]
         if retry_worker is not None:
-            retry_worker.cancel()
-            await asyncio.gather(retry_worker, return_exceptions=True)
+            if retry_worker.done():
+                await retry_worker
+            else:
+                retry_worker.cancel()
+                try:
+                    await retry_worker
+                except asyncio.CancelledError:
+                    pass
 
         async with self._retry_lock:
             self._retry_heap.clear()
@@ -1511,206 +1420,31 @@ class TorrentUpdateQueue:
             self._retry_sequence = 0
 
 
-TORRENT_COLUMNS_SQL = ",\n    ".join(TORRENT_DB_COLUMNS)
-TORRENT_UPDATE_SET_SQL = build_upsert_assignments(TORRENT_UPDATE_COLUMNS)
-TORRENT_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
-    "torrents",
-    "EXCLUDED",
-    TORRENT_CHANGE_DETECTION_COLUMNS,
-)
-TORRENT_REFRESH_UPDATE_WHERE_SQL = "COALESCE(torrents.updated_at, 0) < :refresh_before"
-
-
-def _build_batched_upsert_query(
-    row_count: int,
-) -> str:
-    values_sql = ",\n".join(
-        "(\n    "
-        + ",\n    ".join(
-            (
-                f":media_id_{index}",
-                f":info_hash_{index}",
-                f":season_{index}",
-                f":episode_{index}",
-                f"COALESCE(:season_{index}, {NULL_SCOPE_SENTINEL})",
-                f"COALESCE(:episode_{index}, {NULL_SCOPE_SENTINEL})",
-                f":file_index_{index}",
-                f":title_{index}",
-                f":seeders_{index}",
-                f":size_{index}",
-                f":tracker_{index}",
-                f":sources_json_{index}",
-                f":parsed_json_{index}",
-                ":updated_at",
-            )
-        )
-        + "\n)"
-        for index in range(row_count)
-    )
-    return f"""
-INSERT INTO torrents (
-    {TORRENT_COLUMNS_SQL}
-) VALUES
-{values_sql}
-ON CONFLICT {TORRENT_CONFLICT_TARGET}
-DO UPDATE SET
-        {TORRENT_UPDATE_SET_SQL}
-WHERE
-    ({TORRENT_DISTINCT_UPDATE_WHERE_SQL})
-    OR ({TORRENT_REFRESH_UPDATE_WHERE_SQL})
-"""
-
-
-@lru_cache(maxsize=64)
-def _build_batched_upsert_statement(row_count: int) -> str:
-    return _build_batched_upsert_query(row_count)
-
-
-@lru_cache(maxsize=8192)
-def _build_batched_param_keys(index: int) -> tuple[str, ...]:
-    return tuple(f"{column}_{index}" for column in TORRENT_UPSERT_PARAM_COLUMNS)
-
-
-def _get_cached_json_dump(value, cache: dict[int, str]) -> str:
-    value_id = id(value)
-    cached = cache.get(value_id)
-    if cached is None:
-        cached = _json_dumps(value)
-        cache[value_id] = cached
-    return cached
-
-
-def _build_batched_params(
-    rows: list[_TorrentUpdate],
-    *,
-    updated_at: float,
-    sources_json_cache: dict[int, str] | None = None,
-    parsed_json_cache: dict[int, str] | None = None,
-) -> dict:
-    params = {
+def _release_torrent_row(item: _TorrentUpdate, updated_at: float) -> dict:
+    return {
+        "media_id": item.media_id,
+        "info_hash": item.info_hash,
+        "season_norm": item.season_norm,
+        "episode_norm": item.episode_norm,
+        "file_index": item.file_index,
+        "title": item.title,
+        "seeders": item.seeders,
+        "size": item.size,
+        "tracker": item.tracker,
+        "sources_json": encode_json_param(item.sources),
+        "parsed_json": encode_json_param(item.parsed),
         "updated_at": updated_at,
-        "refresh_before": updated_at - TORRENT_STABLE_REFRESH_INTERVAL,
     }
-    if sources_json_cache is None:
-        sources_json_cache = {}
-    if parsed_json_cache is None:
-        parsed_json_cache = {}
-    for index, item in enumerate(rows):
-        param_keys = _build_batched_param_keys(index)
-        (
-            media_id_key,
-            info_hash_key,
-            season_key,
-            episode_key,
-            file_index_key,
-            title_key,
-            seeders_key,
-            size_key,
-            tracker_key,
-            sources_json_key,
-            parsed_json_key,
-        ) = param_keys
-        params[media_id_key] = item.media_id
-        params[info_hash_key] = item.info_hash
-        params[season_key] = item.season
-        params[episode_key] = item.episode
-        params[file_index_key] = item.file_index
-        params[title_key] = item.title
-        params[seeders_key] = item.seeders
-        params[size_key] = item.size
-        params[tracker_key] = item.tracker
-        params[sources_json_key] = _get_cached_json_dump(
-            item.sources, sources_json_cache
-        )
-        params[parsed_json_key] = _get_cached_json_dump(item.parsed, parsed_json_cache)
-    return params
-
-
-def _iter_exception_chain(exc: Exception) -> Iterator[Exception]:
-    seen = set()
-    current = exc
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        yield current
-        current = getattr(current, "__cause__", None) or getattr(
-            current, "__context__", None
-        )
-
-
-def _is_retryable_db_error(exc: Exception) -> bool:
-    for current in _iter_exception_chain(exc):
-        sqlstate = getattr(current, "sqlstate", None) or getattr(
-            current, "pgcode", None
-        )
-        if sqlstate in RETRYABLE_DB_SQLSTATES:
-            return True
-
-        error_message = str(current).lower()
-        if any(marker in error_message for marker in RETRYABLE_DB_ERROR_MARKERS):
-            return True
-    return False
-
-
-def _is_row_specific_db_error(exc: Exception) -> bool:
-    for current in _iter_exception_chain(exc):
-        sqlstate = getattr(current, "sqlstate", None) or getattr(
-            current, "pgcode", None
-        )
-        if isinstance(sqlstate, str) and sqlstate.startswith(
-            ROW_SPECIFIC_DB_SQLSTATE_PREFIXES
-        ):
-            return True
-
-        error_message = str(current).lower()
-        if any(marker in error_message for marker in ROW_SPECIFIC_DB_ERROR_MARKERS):
-            return True
-    return False
 
 
 async def _execute_batched_upsert(rows: list[_TorrentUpdate], *, updated_at: float):
-    if not rows:
-        return
-
-    sources_json_cache = {}
-    parsed_json_cache = {}
-
     async with database.transaction():
-        for start in range(0, len(rows), UPSERT_MAX_ROWS_PER_STATEMENT):
-            chunk = rows[start : start + UPSERT_MAX_ROWS_PER_STATEMENT]
-            await database.execute(
-                _build_batched_upsert_statement(len(chunk)),
-                _build_batched_params(
-                    chunk,
-                    updated_at=updated_at,
-                    sources_json_cache=sources_json_cache,
-                    parsed_json_cache=parsed_json_cache,
-                ),
-            )
-
-
-async def _execute_isolated_batched_upsert(
-    rows: list[_TorrentUpdate], *, updated_at: float
-) -> list[_TorrentUpdate]:
-    try:
-        await _execute_batched_upsert(rows, updated_at=updated_at)
-        return rows
-    except Exception as exc:
-        if not _is_row_specific_db_error(exc):
-            raise
-        if len(rows) == 1:
-            logger.warning(
-                f"Dropping invalid torrent update row (key={rows[0].row_key}): {exc}"
-            )
-            return []
-
-    midpoint = len(rows) // 2
-    left = await _execute_isolated_batched_upsert(
-        rows[:midpoint], updated_at=updated_at
-    )
-    right = await _execute_isolated_batched_upsert(
-        rows[midpoint:], updated_at=updated_at
-    )
-    return [*left, *right]
+        persisted = await TorrentReleaseRepository(database).persist_rows(
+            [_release_torrent_row(item, updated_at) for item in rows]
+        )
+        if persisted != len(rows):
+            raise RuntimeError("torrent release persistence lost an update")
+    return rows
 
 
 torrent_update_queue = TorrentUpdateQueue()

@@ -46,9 +46,9 @@ def _integer(value: Any, name: str) -> int:
     return value
 
 
-def _exact_object(value: Any, name: str, fields: set[str]) -> dict:
+def _required_object(value: Any, name: str, fields: set[str]) -> dict:
     obj = _object(value, name)
-    if set(obj) != fields:
+    if not fields <= obj.keys():
         raise ValueError(f"{name} does not match the current schema")
     return obj
 
@@ -64,10 +64,7 @@ def validate_state(value: Any) -> dict:
         "discovery",
         "gossip",
     }
-    if set(state) not in (
-        required_state_fields,
-        required_state_fields | {"integrity_signature"},
-    ):
+    if not required_state_fields <= state.keys():
         raise ValueError("state does not match the current schema")
     if _number(state["saved_at"], "saved_at") < 0:
         raise ValueError("saved_at must be non-negative")
@@ -76,13 +73,13 @@ def validate_state(value: Any) -> dict:
     if "integrity_signature" in state:
         _string(state["integrity_signature"], "integrity_signature")
 
-    reputation = _exact_object(
+    reputation = _required_object(
         state["reputation"], "reputation", {"peers", "blacklist"}
     )
     peers = _object(reputation["peers"], "reputation.peers")
     for node_id, peer_value in peers.items():
         _string(node_id, "reputation peer ID")
-        peer = _exact_object(
+        peer = _required_object(
             peer_value,
             f"reputation.peers.{node_id}",
             {
@@ -120,11 +117,11 @@ def validate_state(value: Any) -> dict:
     for node_id in _list(reputation["blacklist"], "reputation.blacklist"):
         _string(node_id, "blacklisted peer ID")
 
-    keystore = _exact_object(state["keystore"], "keystore", {"keys"})
+    keystore = _required_object(state["keystore"], "keystore", {"keys"})
     keys = _object(keystore["keys"], "keystore.keys")
     for node_id, key_value in keys.items():
         _string(node_id, "keystore peer ID")
-        key = _exact_object(
+        key = _required_object(
             key_value,
             f"keystore.keys.{node_id}",
             {"public_key_hex", "first_seen", "last_seen", "verified"},
@@ -135,11 +132,11 @@ def validate_state(value: Any) -> dict:
         if type(key["verified"]) is not bool:
             raise ValueError(f"keystore.keys.{node_id}.verified must be a boolean")
 
-    discovery = _exact_object(state["discovery"], "discovery", {"known_peers"})
+    discovery = _required_object(state["discovery"], "discovery", {"known_peers"})
     for index, peer_value in enumerate(
         _list(discovery["known_peers"], "discovery.known_peers")
     ):
-        peer = _exact_object(
+        peer = _required_object(
             peer_value,
             f"discovery.known_peers[{index}]",
             {"address", "node_id", "source", "last_seen"},
@@ -155,11 +152,12 @@ def validate_state(value: Any) -> dict:
             raise ValueError("persisted discovery source is invalid")
         _number(peer["last_seen"], f"discovery.known_peers[{index}].last_seen")
 
-    gossip = _exact_object(state["gossip"], "gossip", {"stats"})
+    gossip = _required_object(state["gossip"], "gossip", {"stats"})
     stats = _object(gossip["stats"], "gossip.stats")
-    if stats.keys() != GOSSIP_STAT_KEYS:
+    if not GOSSIP_STAT_KEYS <= stats.keys():
         raise ValueError("gossip.stats does not match the current schema")
-    for key, stat_value in stats.items():
+    for key in GOSSIP_STAT_KEYS:
+        stat_value = stats[key]
         if _integer(stat_value, f"gossip.stats.{key}") < 0:
             raise ValueError(f"gossip.stats.{key} must be non-negative")
 

@@ -1,26 +1,91 @@
 import re
+import unicodedata
 from collections import OrderedDict, defaultdict
 from collections.abc import Collection
+from dataclasses import replace
 from threading import Event, Lock
 
 from pydantic import ValidationError
 from RTN import normalize_title, parse, title_match
 
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.core.sources import ReleaseCandidate, TransportKind
+from comet.observability import log
 from comet.utils.languages import alias_language
 from comet.utils.parsing import ensure_multi_language
 
 _TITLE_MATCH_CACHE_MAX_ENTRIES = 65_536
+_FILTER_MESSAGES = {
+    "adult_content": "Rejected adult release",
+    "alias_language": "Added release language from alias",
+    "empty_release": "Rejected empty release",
+    "missing_title": "Rejected release without a parsed title",
+    "parse_error": "Rejected release that RTN could not parse",
+    "title_mismatch": "Rejected release with a title mismatch",
+    "year_mismatch": "Rejected release with a year mismatch",
+}
 
-if settings.RTN_FILTER_DEBUG:
 
-    def _log_exclusion(msg):
-        logger.log("FILTER", msg)
-else:
+def _filter_debug_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    sanitized = "".join(
+        " " if unicodedata.category(character) in {"Cc", "Cf"} else character
+        for character in value
+    ).strip()
+    if not sanitized:
+        return None
+    return sanitized.encode("utf-8")[:512].decode("utf-8", "ignore")
 
-    def _log_exclusion(msg):
-        pass
+
+def _debug_filter_decision(
+    reason: str,
+    release_title: str,
+    *,
+    content_id: str | None,
+    matcher,
+    parsed=None,
+    detected_language: str | None = None,
+    accepted: bool = False,
+) -> None:
+    fields = {
+        "filter_reason": reason,
+        "release_title": _filter_debug_text(release_title) or "unknown",
+    }
+    if content_id:
+        fields["content_id"] = content_id
+    if reason == "title_mismatch":
+        expected_title = _filter_debug_text(matcher.title)
+        parsed_title = _filter_debug_text(parsed.parsed_title)
+        if parsed_title:
+            fields["parsed_title"] = parsed_title
+        if expected_title:
+            fields["expected_title"] = expected_title
+    elif reason == "year_mismatch":
+        parsed_year = parsed.year
+        if parsed_year is not None:
+            fields["parsed_year"] = parsed_year
+        if matcher.year:
+            fields["expected_year_min"] = int(matcher.min_year)
+            if matcher.max_year != float("inf"):
+                fields["expected_year_max"] = int(matcher.max_year)
+    elif reason == "alias_language":
+        if parsed_title := _filter_debug_text(parsed.parsed_title):
+            fields["parsed_title"] = parsed_title
+        if detected_language := _filter_debug_text(detected_language):
+            fields["detected_language"] = detected_language
+    log.info(
+        "filter.release.enriched" if accepted else "filter.release.rejected",
+        _FILTER_MESSAGES[reason],
+        **fields,
+    )
+
+
+def _ignore_filter_decision(*_args, **_kwargs) -> None:
+    return
+
+
+_log_filter_decision = _ignore_filter_decision
 
 
 def exact_alias_match(
@@ -28,26 +93,6 @@ def exact_alias_match(
 ) -> bool:
     # Exact membership prevents short aliases from matching unrelated release text.
     return bool(text_normalized) and text_normalized in ez_aliases_normalized
-
-
-def _normalize_aliases(aliases: object) -> dict[str, list[str]]:
-    if type(aliases) is not dict:
-        return {}
-
-    normalized = {}
-    for country, titles in aliases.items():
-        if type(country) is not str or not country or type(titles) is not list:
-            continue
-        current_titles = list(
-            dict.fromkeys(
-                normalized_title
-                for title in titles
-                if type(title) is str and (normalized_title := title.strip())
-            )
-        )
-        if current_titles:
-            normalized[country] = current_titles
-    return normalized
 
 
 # Bracketed metadata (e.g. "[1999, BDRip]", "(S2)", "{HEVC}") that pollutes a
@@ -108,7 +153,7 @@ class TitleMatcher:
         self.title = title
         self.year = year
         self.year_end = year_end
-        self.aliases = _normalize_aliases(aliases)
+        self.aliases = aliases
         self.aliases_normalized = frozenset(
             normalized
             for titles in self.aliases.values()
@@ -174,26 +219,37 @@ class _ParseCacheShard:
         self.inflight = {}
 
 
-_PARSE_CACHE_SIZE = settings.FILTER_PARSE_CACHE_SIZE
-_PARSE_CACHE_SHARDS = max(settings.FILTER_PARSE_CACHE_SHARDS, 1)
-_PARSE_CACHE_DEDUP_INFLIGHT = settings.FILTER_PARSE_CACHE_DEDUP_INFLIGHT
 _PARSE_CACHE_DEDUP_TIMEOUT = 5.0
+_PARSE_CACHE_SIZE = 0
+_PARSE_CACHE_EFFECTIVE_SHARDS = 0
+_PARSE_CACHE_DEDUP_INFLIGHT = False
+_PARSE_CACHE_SHARD_SIZES = []
+_parse_cache = []
 
-if _PARSE_CACHE_SIZE > 0:
-    _PARSE_CACHE_EFFECTIVE_SHARDS = min(_PARSE_CACHE_SHARDS, _PARSE_CACHE_SIZE)
-else:
-    _PARSE_CACHE_EFFECTIVE_SHARDS = 0
 
-if _PARSE_CACHE_EFFECTIVE_SHARDS > 0:
-    _PARSE_CACHE_SHARD_SIZES = [
-        (_PARSE_CACHE_SIZE // _PARSE_CACHE_EFFECTIVE_SHARDS)
-        + (1 if i < (_PARSE_CACHE_SIZE % _PARSE_CACHE_EFFECTIVE_SHARDS) else 0)
-        for i in range(_PARSE_CACHE_EFFECTIVE_SHARDS)
+def configure_filtering(config) -> None:
+    global _PARSE_CACHE_DEDUP_INFLIGHT, _PARSE_CACHE_EFFECTIVE_SHARDS
+    global _PARSE_CACHE_SHARD_SIZES, _PARSE_CACHE_SIZE, _log_filter_decision
+    global _parse_cache
+
+    size = config.FILTER_PARSE_CACHE_SIZE
+    configured_shards = max(config.FILTER_PARSE_CACHE_SHARDS, 1)
+    effective_shards = min(configured_shards, size) if size > 0 else 0
+    shard_sizes = [
+        (size // effective_shards) + (1 if i < size % effective_shards else 0)
+        for i in range(effective_shards)
     ]
-else:
-    _PARSE_CACHE_SHARD_SIZES = []
+    _PARSE_CACHE_SIZE = size
+    _PARSE_CACHE_EFFECTIVE_SHARDS = effective_shards
+    _PARSE_CACHE_DEDUP_INFLIGHT = config.FILTER_PARSE_CACHE_DEDUP_INFLIGHT
+    _PARSE_CACHE_SHARD_SIZES = shard_sizes
+    _parse_cache = [_ParseCacheShard() for _ in range(effective_shards)]
+    _log_filter_decision = (
+        _debug_filter_decision if config.RTN_FILTER_DEBUG else _ignore_filter_decision
+    )
 
-_parse_cache = [_ParseCacheShard() for _ in range(_PARSE_CACHE_EFFECTIVE_SHARDS)]
+
+configure_filtering(settings)
 
 
 def _parse_cache_shard_for(title: str):
@@ -294,8 +350,15 @@ def _do_parse_and_cache(
         inflight_event.set()
 
 
-def filter_worker(
-    torrents, title, year, year_end, media_type, aliases, remove_adult_content
+def filter_release_records(
+    records,
+    title,
+    year,
+    year_end,
+    media_type,
+    aliases,
+    remove_adult_content,
+    content_id=None,
 ):
     results = []
     matcher = TitleMatcher(title, year, year_end, media_type, aliases)
@@ -332,58 +395,117 @@ def filter_worker(
                 lang = next(iter(langs))
                 if lang not in ("neutral", "en"):
                     country_aliases[scrubbed_t] = lang
-    for torrent in torrents:
-        torrent_title = torrent["title"]
-        torrent_title_lower = torrent_title.lower()
+    for record in records:
+        release_title = record["title"]
 
-        if "sample" in torrent_title_lower or torrent_title == "":
-            _log_exclusion(f"🚫 Rejected (Sample/Empty) | {torrent_title}")
+        if release_title == "":
+            _log_filter_decision(
+                "empty_release",
+                release_title,
+                content_id=content_id,
+                matcher=matcher,
+            )
             continue
 
         # temp fix while waiting for RTN to fix their parsing
         try:
-            parsed = _parse_with_cache(torrent_title)
+            parsed = _parse_with_cache(release_title)
         except ValidationError:
-            _log_exclusion(f"❌ Rejected (Parse Error) | {torrent_title}")
+            _log_filter_decision(
+                "parse_error",
+                release_title,
+                content_id=content_id,
+                matcher=matcher,
+            )
             continue
 
         if parsed.parsed_title and country_aliases:
             language = country_aliases.get(scrub(parsed.parsed_title))
             if language and language not in parsed.languages:
-                _log_exclusion(
-                    f"🏷️ Added Language (Alias) | {torrent_title} | {language}"
+                _log_filter_decision(
+                    "alias_language",
+                    release_title,
+                    content_id=content_id,
+                    matcher=matcher,
+                    parsed=parsed,
+                    detected_language=language,
+                    accepted=True,
                 )
                 parsed.languages.append(language)
 
         ensure_multi_language(parsed)
 
         if remove_adult_content and parsed.adult:
-            _log_exclusion(f"🔞 Rejected (Adult) | {torrent_title}")
+            _log_filter_decision(
+                "adult_content",
+                release_title,
+                content_id=content_id,
+                matcher=matcher,
+                parsed=parsed,
+            )
             continue
 
         if not parsed.parsed_title:
-            _log_exclusion(f"❌ Rejected (No Parsed Title) | {torrent_title}")
+            _log_filter_decision(
+                "missing_title",
+                release_title,
+                content_id=content_id,
+                matcher=matcher,
+                parsed=parsed,
+            )
             continue
 
-        if not matcher.matches_title(torrent_title, parsed.parsed_title):
-            _log_exclusion(
-                f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
+        if not matcher.matches_title(release_title, parsed.parsed_title):
+            _log_filter_decision(
+                "title_mismatch",
+                release_title,
+                content_id=content_id,
+                matcher=matcher,
+                parsed=parsed,
             )
             continue
 
         if not matcher.matches_year(parsed.year):
-            if year_end:
-                expected = f"{year}-{year_end}"
-            elif media_type == "series":
-                expected = f">{year}"
-            else:
-                expected = f"~{year}"
-
-            _log_exclusion(
-                f"📅 Rejected (Year Mismatch) | {torrent_title} | Year: {parsed.year} | Expected: {expected}"
+            _log_filter_decision(
+                "year_mismatch",
+                release_title,
+                content_id=content_id,
+                matcher=matcher,
+                parsed=parsed,
             )
             continue
 
-        torrent["parsed"] = parsed
-        results.append(torrent)
+        record["parsed"] = parsed
+        results.append(record)
     return results
+
+
+def filter_release_candidates(
+    candidates: tuple[ReleaseCandidate, ...],
+    title: str,
+    year: int,
+    year_end: int | None,
+    media_type: str,
+    aliases: dict,
+    remove_adult_content: bool,
+    content_id: str | None = None,
+) -> tuple[ReleaseCandidate, ...]:
+    """Apply the shared title filter to non-torrent discovery candidates."""
+    records = [
+        {"title": candidate.title, "candidate": candidate}
+        for candidate in candidates
+        if candidate.transport is not TransportKind.BITTORRENT
+    ]
+    filtered = filter_release_records(
+        records,
+        title,
+        year,
+        year_end,
+        media_type,
+        aliases,
+        remove_adult_content,
+        content_id,
+    )
+    return tuple(
+        replace(record["candidate"], parsed=record["parsed"]) for record in filtered
+    )

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "regressionThresholdPercent": 15,
+  "warmupSamples": 5,
+  "measuredSamples": 20,
+  "architectures": {
+    "x86_64": {
+      "search_fan_out": { "unit": "request", "baselineNsPerUnit": 200000 },
+      "nzb_parse": { "unit": "document", "baselineNsPerUnit": 250000 },
+      "yenc_decode": { "unit": "byte", "baselineNsPerUnit": 2 },
+      "cache_hit": { "unit": "lookup", "baselineNsPerUnit": 150 },
+      "cache_miss": { "unit": "lookup", "baselineNsPerUnit": 80 },
+      "random_seek": { "unit": "seek", "baselineNsPerUnit": 400 },
+      "raw_composite_seek": { "unit": "seek", "baselineNsPerUnit": 80 },
+      "stored_archive_mapping": { "unit": "archive", "baselineNsPerUnit": 1200 },
+      "compressed_materialization": { "unit": "entry", "baselineNsPerUnit": 2500000 },
+      "par2_parse": { "unit": "catalog", "baselineNsPerUnit": 700000 },
+      "par2_repair": { "unit": "repair", "baselineNsPerUnit": 60000000 }
+    },
+    "aarch64": {
+      "search_fan_out": { "unit": "request", "baselineNsPerUnit": 350000 },
+      "nzb_parse": { "unit": "document", "baselineNsPerUnit": 450000 },
+      "yenc_decode": { "unit": "byte", "baselineNsPerUnit": 4 },
+      "cache_hit": { "unit": "lookup", "baselineNsPerUnit": 250 },
+      "cache_miss": { "unit": "lookup", "baselineNsPerUnit": 140 },
+      "random_seek": { "unit": "seek", "baselineNsPerUnit": 700 },
+      "raw_composite_seek": { "unit": "seek", "baselineNsPerUnit": 140 },
+      "stored_archive_mapping": { "unit": "archive", "baselineNsPerUnit": 2000 },
+      "compressed_materialization": { "unit": "entry", "baselineNsPerUnit": 4500000 },
+      "par2_parse": { "unit": "catalog", "baselineNsPerUnit": 1200000 },
+      "par2_repair": { "unit": "repair", "baselineNsPerUnit": 90000000 }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+[package]
+name = "comet-usenet-engine-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+comet-usenet-engine = { path = ".." }
+md-5 = "0.10"
+
+[[bin]]
+name = "nzb_parse"
+path = "fuzz_targets/nzb_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "yenc_decode"
+path = "fuzz_targets/yenc_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nntp_protocol"
+path = "fuzz_targets/nntp_protocol.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "archive_detect"
+path = "fuzz_targets/archive_detect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "par2_parse"
+path = "fuzz_targets/par2_parse.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

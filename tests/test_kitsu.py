@@ -37,3 +37,18 @@ class KitsuMetadataTests(unittest.TestCase):
             ("English", 2025, None),
         )
         self.assertEqual(_extract_kitsu_metadata({"data": []}), (None, None, None))
+
+    def test_kitsu_title_fallback_does_not_require_a_known_language_key(self):
+        self.assertEqual(
+            _extract_kitsu_metadata(
+                {
+                    "data": {
+                        "attributes": {
+                            "canonicalTitle": None,
+                            "titles": {"fr_fr": "Titre français"},
+                        }
+                    }
+                }
+            ),
+            ("Titre français", None, None),
+        )

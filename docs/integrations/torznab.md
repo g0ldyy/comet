@@ -41,9 +41,7 @@ and should be preferred over a custom YAML definition.
 | API Key | Empty |
 | Minimum Seeders | `0` |
 
-Test and save the indexer, then let Prowlarr sync it to Sonarr and Radarr. Do
-not also add Comet directly to those applications, otherwise the same releases
-can be queried twice.
+Test and save the indexer, then let Prowlarr sync it to Sonarr and Radarr.
 
 ## Sonarr and Radarr
 
@@ -55,9 +53,7 @@ Configure Comet directly only when Prowlarr is not managing indexers. Add a
 | Sonarr | `5000 - TV` | `0` |
 | Radarr | `2000 - Movies` | `0` |
 
-Keep RSS, automatic search, and interactive search enabled. Each application
-will limit itself to the search modes and identifiers declared by Comet's
-capabilities response.
+Keep RSS, automatic search, and interactive search enabled.
 
 ## Jackett
 

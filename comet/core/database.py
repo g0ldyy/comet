@@ -1,10 +1,12 @@
 import asyncio
 import errno
 import os
+import sqlite3
+import stat
 import time
-import traceback
 from contextlib import asynccontextmanager
-from pathlib import Path
+
+import asyncpg
 
 try:
     import fcntl
@@ -14,9 +16,13 @@ except ImportError:
 import orjson
 
 import comet.core.models as _models_mod
-from comet.core.logger import logger
 from comet.core.models import IS_POSTGRES, IS_SQLITE, JSON_FUNC, database, settings
-from comet.core.schema_migrations import NULL_SCOPE_SENTINEL, run_schema_migrations
+from comet.core.schema_migrations import (
+    NULL_SCOPE_SENTINEL,
+    has_pending_schema_migrations,
+    run_schema_migrations,
+)
+from comet.observability import log
 
 __all__ = [
     "DOWNLOAD_LINK_CACHE_TTL",
@@ -33,7 +39,9 @@ __all__ = [
     "database",
     "encode_json_param",
     "fetch_flag",
+    "is_retryable_database_error",
     "normalize_scope_value",
+    "run_retention_cleanup",
     "settings",
 ]
 
@@ -47,10 +55,39 @@ _SQLITE_DEFAULT_JOURNAL_MODE = "WAL"
 _SQLITE_MIGRATION_JOURNAL_MODE = "DELETE"
 _SQLITE_JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
 _SQLITE_CLEANUP_BATCH_SIZE = 50000
+_USENET_LIFECYCLE_CLEANUP_INTERVAL_SECONDS = 5 * 60
+_MAX_SQLITE_LOCKFILE_PID_BYTES = 32
+_RETRYABLE_DB_SQLSTATES = frozenset({"40001", "40P01", "55P03"})
+_RETRYABLE_SQLITE_ERROR_CODES = frozenset(
+    {
+        sqlite3.SQLITE_BUSY,
+        sqlite3.SQLITE_LOCKED,
+    }
+)
 
 
 def normalize_scope_value(value: int | None) -> int:
     return NULL_SCOPE_SENTINEL if value is None else value
+
+
+def is_retryable_database_error(exc: Exception) -> bool:
+    seen = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        sqlstate = getattr(current, "sqlstate", None) or getattr(
+            current, "pgcode", None
+        )
+        if (
+            sqlstate in _RETRYABLE_DB_SQLSTATES
+            or getattr(current, "sqlite_errorcode", None)
+            in _RETRYABLE_SQLITE_ERROR_CODES
+        ):
+            return True
+        current = getattr(current, "__cause__", None) or getattr(
+            current, "__context__", None
+        )
+    return False
 
 
 def build_scope_params(
@@ -159,13 +196,13 @@ def _is_process_running(pid: int) -> bool:
 def _read_sqlite_lockfile_pid(lock_path: str) -> int | None:
     try:
         with open(lock_path, "r", encoding="ascii") as lock_file:
-            raw_pid = lock_file.readline().strip()
+            raw_pid = lock_file.readline(_MAX_SQLITE_LOCKFILE_PID_BYTES + 1).strip()
     except FileNotFoundError:
         return None
-    except OSError:
+    except (OSError, UnicodeError):
         return None
 
-    if not raw_pid:
+    if not raw_pid or len(raw_pid) > _MAX_SQLITE_LOCKFILE_PID_BYTES:
         return None
 
     try:
@@ -197,8 +234,6 @@ def _try_remove_stale_sqlite_lockfile(lock_path: str) -> bool:
         return True
     except OSError:
         return False
-
-    logger.log("DATABASE", f"Removed stale SQLite lock file: {lock_path}")
     return True
 
 
@@ -207,8 +242,11 @@ def _create_sqlite_lockfile(lock_path: str) -> int | None:
     if hasattr(os, "O_CLOEXEC"):
         flags |= os.O_CLOEXEC
 
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
     try:
-        lock_fd = os.open(lock_path, flags, 0o644)
+        lock_fd = os.open(lock_path, flags, 0o600)
     except FileExistsError:
         return None
     except OSError as exc:
@@ -255,7 +293,7 @@ async def _acquire_backend_lock_with_delayed_log(
             not wait_logged
             and (now - wait_started) >= _BACKEND_LOCK_WAIT_LOG_DELAY_SECONDS
         ):
-            logger.log("DATABASE", wait_message)
+            log.info("database.lock.waiting", wait_message)
             wait_logged = True
 
         await asyncio.sleep(_BACKEND_LOCK_RETRY_INTERVAL_SECONDS)
@@ -437,7 +475,7 @@ async def backend_lock(
                 await _unlink_if_exists(fallback_lock_path)
         return
 
-    yield
+    raise RuntimeError("database backend is unsupported")
 
 
 @asynccontextmanager
@@ -490,7 +528,7 @@ async def _apply_sqlite_pragmas(
         foreign_keys_enabled=foreign_keys,
     )
     await database.execute(f"PRAGMA journal_mode={journal_mode}")
-    await database.execute("PRAGMA synchronous=OFF")
+    await database.execute("PRAGMA synchronous=NORMAL")
     await database.execute("PRAGMA temp_store=MEMORY")
     await database.execute("PRAGMA mmap_size=30000000000")
     await database.execute("PRAGMA page_size=4096")
@@ -499,64 +537,161 @@ async def _apply_sqlite_pragmas(
         f"PRAGMA journal_size_limit={_SQLITE_JOURNAL_SIZE_LIMIT_BYTES}"
     )
     await database.execute("PRAGMA count_changes=OFF")
-    await database.execute("PRAGMA secure_delete=OFF")
+    await database.execute("PRAGMA secure_delete=FAST")
     await database.execute("PRAGMA auto_vacuum=OFF")
+
+
+def _fsync_directory(path: str) -> None:
+    directory = os.path.dirname(path) or "."
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(directory, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _prepare_sqlite_database_file(path: str) -> None:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, mode=0o700, exist_ok=True)
+
+    flags = os.O_RDWR
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    created = False
+    try:
+        file_fd = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o600)
+        created = True
+    except FileExistsError:
+        file_fd = os.open(path, flags)
+
+    try:
+        file_stat = os.fstat(file_fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ValueError("DATABASE_PATH must reference a regular file")
+        os.fchmod(file_fd, 0o600)
+        if created:
+            os.fsync(file_fd)
+    finally:
+        os.close(file_fd)
+
+    if created:
+        _fsync_directory(path)
 
 
 async def setup_database():
     connected = False
+    started_at = time.monotonic()
+    backend = "sqlite" if IS_SQLITE else "postgresql"
     try:
         if IS_SQLITE:
-            db_dir = os.path.dirname(settings.DATABASE_PATH)
-            if db_dir:
-                os.makedirs(db_dir, exist_ok=True)
-            if not os.path.exists(settings.DATABASE_PATH):
-                Path(settings.DATABASE_PATH).touch(exist_ok=True)
+            _prepare_sqlite_database_file(settings.DATABASE_PATH)
             _models_mod.set_comet_foreign_keys_enabled(False)
 
         await database.connect()
         connected = True
 
         async with _schema_migration_lock():
-            if IS_SQLITE:
-                await _apply_sqlite_pragmas(
-                    foreign_keys=False,
-                    journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
+            migration_started = False
+
+            def _report_migration_started():
+                nonlocal migration_started
+                migration_started = True
+                log.info(
+                    "database.migration.started",
+                    "Database migration started",
+                    database_backend=backend,
                 )
 
-            await run_schema_migrations(
-                database,
-                is_sqlite=IS_SQLITE,
-                is_postgres=IS_POSTGRES,
-            )
-
             if IS_SQLITE:
+                migrations_pending = await has_pending_schema_migrations(
+                    database,
+                    is_sqlite=True,
+                    is_postgres=False,
+                )
+                if migrations_pending:
+                    _report_migration_started()
+                    await _apply_sqlite_pragmas(
+                        foreign_keys=False,
+                        journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
+                    )
+                    migration_count = await run_schema_migrations(
+                        database,
+                        is_sqlite=True,
+                        is_postgres=False,
+                    )
+                    await _apply_sqlite_pragmas(
+                        foreign_keys=True,
+                        journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
+                    )
                 _models_mod.set_comet_foreign_keys_enabled(True)
-                await _apply_sqlite_pragmas(
-                    foreign_keys=True,
-                    journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
+            else:
+                migration_count = await run_schema_migrations(
+                    database,
+                    is_sqlite=False,
+                    is_postgres=IS_POSTGRES,
+                    on_pending=_report_migration_started,
+                )
+            if migration_started:
+                log.info(
+                    "database.migration.completed",
+                    "Database migration completed",
+                    migration_count=migration_count,
+                    duration_ms=(time.monotonic() - started_at) * 1000,
                 )
 
-        await database.execute("DELETE FROM active_connections")
+        await database.execute(
+            """
+            DELETE FROM active_connections
+            WHERE instance_id = ''
+               OR updated_at < :cutoff
+            """,
+            {
+                "cutoff": time.time()
+                - max(settings.PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD, 15)
+            },
+        )
         await database.execute("DELETE FROM metrics_cache")
 
         await _run_startup_cleanup()
-    except Exception as e:
-        logger.error(f"Error setting up the database: {e}")
-        logger.exception(traceback.format_exc())
+        log.verbose(
+            "database.ready",
+            "Database is ready",
+            database_backend=backend,
+            duration_ms=(time.monotonic() - started_at) * 1000,
+        )
+    except Exception as exc:
+        log.error(
+            "database.setup.failed",
+            "Database setup failed",
+            database_backend=backend,
+            error_code="database_setup_failed",
+            exc=exc,
+        )
         if connected:
             try:
                 await database.disconnect()
-            except Exception as disconnect_error:
-                logger.error(
-                    f"Error disconnecting after failed database setup: {disconnect_error}"
+            except Exception as disconnect_exc:
+                log.error(
+                    "database.disconnect.failed",
+                    "Database disconnect after setup failure failed",
+                    error_code="database_setup_failed",
+                    exc=disconnect_exc,
                 )
         raise
 
 
 async def _run_startup_cleanup():
     interval = settings.DATABASE_STARTUP_CLEANUP_INTERVAL
-    if interval is None or interval < 0:
+    if interval < 0:
         return
 
     current_time = time.time()
@@ -567,27 +702,37 @@ async def _run_startup_cleanup():
         else await _should_run_startup_cleanup(current_time, interval)
     )
     if not should_run:
-        logger.log("DATABASE", "Startup cleanup skipped (recent run)")
         return
 
     try:
         async with _startup_cleanup_lock() as acquired:
             if not acquired:
-                logger.log(
-                    "DATABASE",
-                    "Startup cleanup already running elsewhere; skipping",
-                )
                 return
-
-            logger.log("DATABASE", "Running startup cleanup sweep")
             await _perform_startup_cleanup(current_time)
             await _record_startup_cleanup(current_time)
             cleanup_performed = True
-    except Exception as e:
-        logger.error(f"Error executing startup cleanup: {e}")
+    except (OSError, sqlite3.Error, asyncpg.PostgresError) as exc:
+        log.error(
+            "database.cleanup.failed",
+            "Database startup cleanup failed",
+            error_code="cleanup_failure",
+            exc=exc,
+        )
 
     if IS_SQLITE and cleanup_performed:
         await database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+
+async def run_retention_cleanup() -> bool:
+    current_time = time.time()
+    async with _startup_cleanup_lock() as acquired:
+        if not acquired:
+            return False
+        await _perform_startup_cleanup(current_time)
+        await _record_startup_cleanup(current_time)
+    if IS_SQLITE:
+        await database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return True
 
 
 async def _sqlite_batched_delete(
@@ -619,7 +764,9 @@ async def _sqlite_batched_delete(
             force_primary=True,
         )
 
-        if not batch_row or not batch_row["row_count"]:
+        if batch_row is None:
+            raise RuntimeError("SQLite cleanup batch query returned no row")
+        if not batch_row["row_count"]:
             break
 
         await database.execute(
@@ -672,6 +819,8 @@ async def _record_startup_cleanup(current_time: float):
 
 
 async def _perform_startup_cleanup(current_time: float):
+    await _perform_usenet_lifecycle_cleanup(current_time)
+
     demand_ttl = _media_demand_ttl()
     if demand_ttl > 0:
         await _delete_where(
@@ -714,7 +863,9 @@ async def _perform_startup_cleanup(current_time: float):
     )
     await _delete_where(
         "media_metadata_cache",
-        "metadata_updated_at IS NULL AND release_updated_at IS NULL",
+        "metadata_updated_at IS NULL "
+        "AND aliases_updated_at IS NULL "
+        "AND release_updated_at IS NULL",
         {},
     )
     await _delete_where(
@@ -734,10 +885,13 @@ async def _perform_startup_cleanup(current_time: float):
     )
 
     if settings.TORRENT_CACHE_TTL >= 0:
-        await _delete_where(
-            "torrents",
-            "updated_at < :min_timestamp",
-            {"min_timestamp": current_time - settings.TORRENT_CACHE_TTL},
+        from comet.discovery.torrent_repository import TorrentReleaseRepository
+
+        await TorrentReleaseRepository(database).delete_stale_public(
+            before_ms=max(
+                0,
+                int((current_time - settings.TORRENT_CACHE_TTL) * 1_000),
+            ),
         )
 
     await _delete_where(
@@ -783,6 +937,64 @@ async def _perform_startup_cleanup(current_time: float):
         )
 
 
+async def _perform_usenet_lifecycle_cleanup(current_time: float):
+    from comet.core.capability_states import CapabilityStateRepository
+    from comet.core.provider_governor import ProviderGovernor
+    from comet.playback.preparations import PlaybackPreparationRepository
+    from comet.playback.provider_preparations import ProviderPreparationRepository
+    from comet.playback.repository import RenderedReleaseRepository
+    from comet.playback.resolution_cache import ProviderResolutionCacheRepository
+    from comet.usenet.artifact_gc import SharedArtifactGarbageCollector
+    from comet.usenet.provider_exports import NzbProviderExportRepository
+
+    await CapabilityStateRepository(database).cleanup_expired(now=current_time)
+    await ProviderGovernor(database).collect_expired(
+        now=current_time,
+        batch_size=10_000,
+    )
+    await PlaybackPreparationRepository(database).garbage_collect(
+        now=current_time,
+    )
+    await ProviderPreparationRepository(database).garbage_collect(
+        now=current_time,
+    )
+    await RenderedReleaseRepository(database).garbage_collect(
+        now=current_time,
+    )
+    await NzbProviderExportRepository(database).garbage_collect(
+        now=current_time,
+    )
+    await ProviderResolutionCacheRepository(database).cleanup_expired(
+        now=current_time,
+    )
+    await SharedArtifactGarbageCollector(
+        settings.USENET_ARTIFACT_DIR,
+        database,
+    ).collect(now=current_time)
+
+
+async def _run_usenet_lifecycle_cleanup(current_time: float) -> bool:
+    async with _startup_cleanup_lock() as acquired:
+        if not acquired:
+            return False
+        await _perform_usenet_lifecycle_cleanup(current_time)
+        return True
+
+
+async def cleanup_expired_usenet_state():
+    while True:
+        await asyncio.sleep(_USENET_LIFECYCLE_CLEANUP_INTERVAL_SECONDS)
+        try:
+            await _run_usenet_lifecycle_cleanup(time.time())
+        except (OSError, sqlite3.Error, asyncpg.PostgresError) as exc:
+            log.error(
+                "database.lifecycle.failed",
+                "Usenet lifecycle cleanup failed",
+                error_code="cleanup_failure",
+                exc=exc,
+            )
+
+
 async def _should_run_startup_cleanup(current_time: float, interval: int):
     row = await database.fetch_one(
         "SELECT last_startup_cleanup_at FROM db_maintenance WHERE id = 1",
@@ -803,8 +1015,13 @@ async def cleanup_expired_locks():
                 "DELETE FROM scrape_locks WHERE expires_at < :current_time",
                 {"current_time": current_time},
             )
-        except Exception as e:
-            logger.log("LOCK", f"Error during periodic lock cleanup: {e}")
+        except (OSError, sqlite3.Error, asyncpg.PostgresError) as exc:
+            log.error(
+                "database.lock_cleanup.failed",
+                "Expired lock cleanup failed",
+                error_code="cleanup_failure",
+                exc=exc,
+            )
 
         await asyncio.sleep(60)
 
@@ -820,8 +1037,13 @@ async def cleanup_expired_kodi_setup_codes():
                 """,
                 {"current_time": current_time},
             )
-        except Exception as e:
-            logger.log("KODI", f"Error during Kodi setup cleanup: {e}")
+        except (OSError, sqlite3.Error, asyncpg.PostgresError) as exc:
+            log.error(
+                "database.kodi_cleanup.failed",
+                "Kodi setup cleanup failed",
+                error_code="cleanup_failure",
+                exc=exc,
+            )
 
         await asyncio.sleep(30)
 
@@ -829,6 +1051,11 @@ async def cleanup_expired_kodi_setup_codes():
 async def teardown_database():
     try:
         await database.disconnect()
-    except Exception as e:
-        logger.error(f"Error tearing down the database: {e}")
-        logger.exception(traceback.format_exc())
+    except Exception as exc:
+        log.error(
+            "database.teardown.failed",
+            "Database teardown failed",
+            error_code="cleanup_failure",
+            exc=exc,
+        )
+        raise

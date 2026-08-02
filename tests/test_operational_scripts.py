@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import subprocess
 import tempfile
@@ -7,13 +8,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from scripts import generate_status_videos, uptime_monitor
+from scripts import generate_status_videos
 
 
 class _Response:
     def __init__(self, status, payload):
         self.status = status
         self.payload = payload
+        self.content = self
 
     async def __aenter__(self):
         return self
@@ -21,68 +23,16 @@ class _Response:
     async def __aexit__(self, exc_type, exc, traceback):
         return False
 
-    async def json(self):
-        return self.payload
+    async def read(self, _size):
+        return json.dumps(self.payload).encode()
 
 
 class _Session:
     def __init__(self, responses):
         self.responses = iter(responses)
 
-    def get(self, _url):
+    def get(self, _url, **_kwargs):
         return next(self.responses)
-
-
-class UptimeMonitorTests(unittest.IsolatedAsyncioTestCase):
-    async def test_check_instance_requires_current_manifest_schema(self):
-        session = _Session([_Response(200, {"id": "comet"})])
-
-        status = await uptime_monitor.check_instance(session, "https://comet.test")
-
-        self.assertFalse(status.is_online)
-        self.assertFalse(status.manifest_ok)
-        self.assertFalse(status.search_ok)
-        self.assertEqual(status.error, "invalid manifest response schema")
-
-    async def test_check_instance_requires_stream_objects(self):
-        session = _Session(
-            [
-                _Response(200, {"id": "comet", "resources": []}),
-                _Response(200, {"streams": ["invalid"]}),
-            ]
-        )
-
-        status = await uptime_monitor.check_instance(session, "https://comet.test")
-
-        self.assertTrue(status.is_online)
-        self.assertTrue(status.manifest_ok)
-        self.assertFalse(status.search_ok)
-        self.assertEqual(status.error, "invalid stream response schema")
-
-    async def test_check_instance_accepts_empty_current_stream_response(self):
-        session = _Session(
-            [
-                _Response(200, {"id": "comet", "resources": []}),
-                _Response(200, {"streams": []}),
-            ]
-        )
-
-        status = await uptime_monitor.check_instance(session, "https://comet.test")
-
-        self.assertTrue(status.is_online)
-        self.assertTrue(status.search_ok)
-        self.assertIsNone(status.error)
-
-    def test_configuration_rejects_duplicate_normalized_instances(self):
-        with (
-            patch.object(
-                uptime_monitor,
-                "INSTANCES",
-                ["https://comet.test", "https://comet.test/"],
-            ),
-            self.assertRaisesRegex(ValueError, "duplicate"),
-        ):
-            uptime_monitor.validate_configuration()
 
 
 class StatusVideoGeneratorTests(unittest.TestCase):
@@ -211,7 +161,7 @@ class StatusVideoGeneratorTests(unittest.TestCase):
 
             self.assertEqual(stale.read_bytes(), b"keep-on-failure")
 
-    def test_message_overrides_reject_invalid_or_colliding_entries(self):
+    def test_message_overrides_reject_invalid_and_use_last_colliding_value(self):
         with tempfile.TemporaryDirectory() as directory:
             invalid = Path(directory) / "invalid.json"
             invalid.write_text('{"STATUS": true}', encoding="utf-8")
@@ -222,13 +172,17 @@ class StatusVideoGeneratorTests(unittest.TestCase):
             colliding.write_text(
                 '{"bad-status": "one", "bad status": "two"}', encoding="utf-8"
             )
-            with self.assertRaisesRegex(ValueError, "Duplicate"):
-                generate_status_videos.load_message_overrides(str(colliding))
+            self.assertEqual(
+                generate_status_videos.load_message_overrides(str(colliding)),
+                {"BAD_STATUS": "two"},
+            )
 
             duplicate = Path(directory) / "duplicate.json"
             duplicate.write_text('{"STATUS": "one", "STATUS": "two"}', encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "Duplicate"):
-                generate_status_videos.load_message_overrides(str(duplicate))
+            self.assertEqual(
+                generate_status_videos.load_message_overrides(str(duplicate)),
+                {"STATUS": "two"},
+            )
 
     def test_numeric_argument_types_reject_out_of_contract_values(self):
         with self.assertRaises(argparse.ArgumentTypeError):

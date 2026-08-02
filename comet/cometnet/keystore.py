@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 
 from comet.cometnet.crypto import NodeIdentity
-from comet.core.logger import logger
 
 
 @dataclass
@@ -68,12 +67,13 @@ class PublicKeyStore:
     def _peer_from_persisted(
         cls, node_id: object, value: object
     ) -> tuple[str, PeerKey]:
-        if type(value) is not dict or set(value) != {
+        required_fields = {
             "public_key_hex",
             "first_seen",
             "last_seen",
             "verified",
-        }:
+        }
+        if type(value) is not dict or not required_fields <= value.keys():
             raise ValueError("persisted peer key does not match the current schema")
 
         public_key_hex = cls._validate_key_identity(node_id, value["public_key_hex"])
@@ -177,8 +177,6 @@ class PublicKeyStore:
         for _ in range(to_remove):
             self._keys.popitem(last=False)
 
-        logger.debug(f"Evicted {to_remove} old keys from PublicKeyStore")
-
     def cleanup_old_keys(self, max_age_days: float = 30.0) -> int:
         """Remove keys that haven't been seen in a while."""
         if (
@@ -223,7 +221,7 @@ class PublicKeyStore:
         """Validate a complete persisted candidate without publishing it."""
         if type(max_keys) is not int or max_keys <= 0:
             raise ValueError("max_keys must be a positive integer")
-        if type(data) is not dict or set(data) != {"keys"}:
+        if type(data) is not dict or "keys" not in data:
             raise ValueError("keystore does not match the current schema")
         if type(data["keys"]) is not dict:
             raise ValueError("keystore keys must be an object")
@@ -246,5 +244,3 @@ class PublicKeyStore:
             key=lambda item: item[1].last_seen,
         )
         self._keys = OrderedDict(sorted_items)
-
-        logger.log("COMETNET", f"Loaded {len(self._keys)} public keys from storage")

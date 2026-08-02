@@ -17,14 +17,28 @@ from typing import Any
 
 from comet.cometnet.protocol import PeerInfo, PeerRequest, PeerResponse
 from comet.cometnet.utils import is_valid_peer_address
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.observability.context import create_detached_task
 
 
 def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
     """Keep the most recently seen address for each identified node."""
+    address_indices: dict[str, int] = {}
     canonical_indices: dict[str, int] = {}
     for index, peer in enumerate(peers):
+        address = peer["address"]
+        previous_address_index = address_indices.get(address)
+        if previous_address_index is None or (
+            peer["last_seen"],
+            peer["node_id"],
+            peer["source"],
+        ) > (
+            peers[previous_address_index]["last_seen"],
+            peers[previous_address_index]["node_id"],
+            peers[previous_address_index]["source"],
+        ):
+            address_indices[address] = index
+
         node_id = peer["node_id"]
         if not node_id:
             continue
@@ -42,7 +56,8 @@ def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
     canonical = [
         peer
         for index, peer in enumerate(peers)
-        if not peer["node_id"] or canonical_indices[peer["node_id"]] == index
+        if address_indices[peer["address"]] == index
+        and (not peer["node_id"] or canonical_indices[peer["node_id"]] == index)
     ]
     return canonical, len(canonical) != len(peers)
 
@@ -66,9 +81,7 @@ def validate_discovery_configuration(
             for address in value
         ):
             raise ValueError(f"{name} must be a list of canonical WebSocket URLs")
-        if len(value) != len(set(value)):
-            raise ValueError(f"{name} addresses must be unique")
-        return value.copy()
+        return list(dict.fromkeys(value))
 
     resolved_min = settings.COMETNET_MIN_PEERS if min_peers is None else min_peers
     resolved_max = settings.COMETNET_MAX_PEERS if max_peers is None else max_peers
@@ -199,11 +212,9 @@ class DiscoveryService:
             self._add_known_peer(address, source="bootstrap")
 
         # Start discovery loop
-        self._discovery_task = asyncio.create_task(self._discovery_loop())
-
-        logger.log(
-            "COMETNET",
-            f"Discovery service started with {len(self._known_peers)} known peers",
+        self._discovery_task = create_detached_task(
+            self._discovery_loop(),
+            name="cometnet-discovery",
         )
 
     async def stop(self) -> None:
@@ -217,8 +228,6 @@ class DiscoveryService:
             except asyncio.CancelledError:
                 pass
             self._discovery_task = None
-
-        logger.log("COMETNET", "Discovery service stopped")
 
     def _add_known_peer(
         self, address: str, node_id: str | None = None, source: str = "unknown"
@@ -496,20 +505,20 @@ class DiscoveryService:
 
     async def from_dict(self, data: dict) -> None:
         """Load known peers from persisted data."""
-        if type(data) is not dict or set(data) != {"known_peers"}:
+        if type(data) is not dict or "known_peers" not in data:
             raise ValueError("discovery state does not match the current schema")
         if type(data["known_peers"]) is not list:
             raise ValueError("known_peers must be a list")
 
-        known_peers = {}
-        node_id_to_address = {}
+        validated_peers = []
         for index, peer_info in enumerate(data["known_peers"]):
-            if type(peer_info) is not dict or set(peer_info) != {
+            required_fields = {
                 "address",
                 "node_id",
                 "source",
                 "last_seen",
-            }:
+            }
+            if type(peer_info) is not dict or not required_fields <= peer_info.keys():
                 raise ValueError(f"known_peers[{index}] has an invalid schema")
             address = peer_info["address"]
             node_id = peer_info["node_id"]
@@ -529,27 +538,27 @@ class DiscoveryService:
                 raise ValueError(
                     "persisted peer last_seen must be finite and non-negative"
                 )
-            if address in known_peers:
-                raise ValueError("persisted peer addresses must be unique")
-            if node_id and node_id in node_id_to_address:
-                raise ValueError("persisted non-empty peer node IDs must be unique")
-
             # Validate before loading to prevent loading invalid data
             allow_private = source in ("manual", "bootstrap")
             if not await is_valid_peer_address(address, allow_private=allow_private):
                 raise ValueError(f"persisted peer address is invalid: {address}")
 
-            known_peers[address] = KnownPeer(
-                node_id=node_id,
-                address=address,
-                source=source,
-                last_seen=last_seen,
+            validated_peers.append(
+                {
+                    "address": address,
+                    "node_id": node_id,
+                    "source": source,
+                    "last_seen": last_seen,
+                }
             )
-            if node_id:
-                node_id_to_address[node_id] = address
+
+        canonical_peers, _ = canonicalize_persisted_peers(validated_peers)
+        known_peers = {peer["address"]: KnownPeer(**peer) for peer in canonical_peers}
+        node_id_to_address = {
+            peer["node_id"]: peer["address"]
+            for peer in canonical_peers
+            if peer["node_id"]
+        }
 
         self._known_peers = known_peers
         self._node_id_to_address = node_id_to_address
-
-        if known_peers:
-            logger.log("COMETNET", f"Loaded {len(known_peers)} persisted peers")

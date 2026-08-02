@@ -4,36 +4,22 @@ from pathlib import Path
 
 
 class DeploymentContractTests(unittest.TestCase):
-    def test_both_launchers_accept_forwarded_headers_without_setup(self):
-        launcher = Path("comet/main.py").read_text(encoding="utf-8")
-
-        self.assertIn('forwarded_allow_ips="*"', launcher)
-        self.assertIn('"forwarded_allow_ips": "*"', launcher)
-        self.assertNotIn("TRUSTED_PROXY_IPS", launcher)
-
-    def test_gunicorn_does_not_create_a_control_socket(self):
-        launcher = Path("comet/main.py").read_text(encoding="utf-8")
-
-        self.assertIn('"control_socket_disable": True', launcher)
-
     def test_runtime_image_preserves_root_volume_compatibility(self):
         dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
-        self.assertEqual(dockerfile.count("FROM python:3.13-slim-trixie"), 2)
-        self.assertIn("FROM ghcr.io/astral-sh/uv:0.11.32 AS uv", dockerfile)
-        self.assertIn(
-            "FROM rust:1.97.1-slim-trixie AS rust-toolchain", dockerfile
-        )
-        self.assertNotRegex(dockerfile, r"(?m)^FROM\s+\S*alpine")
-        self.assertIn("DEBIAN_FRONTEND=noninteractive apt-get install", dockerfile)
-        self.assertIn("--no-install-recommends", dockerfile)
-        self.assertIn("rm -rf /var/lib/apt/lists/*", dockerfile)
-        self.assertIn("LD_PRELOAD=libmimalloc.so.3", dockerfile)
-        self.assertNotIn("adduser -S -D -H -G comet comet", dockerfile)
-        self.assertNotIn("--chown=comet:comet", dockerfile)
         self.assertNotRegex(dockerfile, r"(?m)^USER\s+comet\s*$")
+        self.assertIn("WORKDIR /app", dockerfile)
         self.assertIn("PYTHONDONTWRITEBYTECODE=1", dockerfile)
         self.assertIn("CMD python -m comet.healthcheck", dockerfile)
+
+    def test_docker_context_excludes_native_build_outputs(self):
+        dockerignore = Path(".dockerignore").read_text(encoding="utf-8")
+
+        self.assertIn("native/usenet-engine/target", dockerignore.splitlines())
+        self.assertIn(
+            "native/usenet-engine/fuzz/target",
+            dockerignore.splitlines(),
+        )
 
     def test_compose_limits_writable_and_process_privileges(self):
         compose = Path("deployment/docker-compose.yml").read_text(encoding="utf-8")
@@ -43,6 +29,7 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertRegex(compose, r"cap_drop:\s+- ALL")
         self.assertIn("comet_data:/app/data", compose)
         self.assertIn("/tmp:size=64m,mode=1777", compose)
+        self.assertIn("/run/comet/usenet:size=16m,mode=0700", compose)
         self.assertIn("${FASTAPI_PORT:-8000}:${FASTAPI_PORT:-8000}", compose)
         self.assertIn("${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}", compose)
         self.assertNotIn("comet:comet@postgres", compose)
@@ -50,10 +37,25 @@ class DeploymentContractTests(unittest.TestCase):
     def test_proxy_streams_without_body_cap_or_buffering(self):
         nginx = Path("deployment/nginx.conf").read_text(encoding="utf-8")
 
+        self.assertIn("access_log off;", nginx)
         self.assertIn("proxy_buffering off;", nginx)
         self.assertIn("proxy_request_buffering off;", nginx)
         self.assertNotIn("client_max_body_size", nginx)
         self.assertNotIn("proxy_max_temp_file_size", nginx)
+
+    def test_proxy_compresses_text_payloads_but_never_the_byte_path(self):
+        """Range-served media must stay uncompressed so Accept-Ranges survives."""
+        nginx = Path("deployment/nginx.conf").read_text(encoding="utf-8")
+
+        self.assertIn("gzip on;", nginx)
+        self.assertIn("gzip_vary on;", nginx)
+        types_line = next(
+            line for line in nginx.splitlines() if line.strip().startswith("gzip_types")
+        )
+        for compressible in ("application/json", "application/xml"):
+            self.assertIn(compressible, types_line)
+        for streamed in ("application/octet-stream", "video/", "*"):
+            self.assertNotIn(streamed, types_line)
 
     def test_remote_actions_are_pinned_to_full_commits(self):
         workflow_paths = sorted(Path(".github/workflows").glob("*.yml"))

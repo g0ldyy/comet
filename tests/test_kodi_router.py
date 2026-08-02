@@ -56,10 +56,11 @@ def _load_router():
 
 router = _load_router()
 settings_window = importlib.import_module("lib.custom_settings_window")
+utils = importlib.import_module("lib.utils")
 
 
 class KodiRouterTests(unittest.TestCase):
-    def test_setup_code_response_requires_current_bounded_shape(self):
+    def test_setup_code_response_requires_current_shape(self):
         valid = {
             "code": "1234abcd",
             "configure_url": "https://comet.test/configure?kodi_code=1234abcd",
@@ -68,17 +69,24 @@ class KodiRouterTests(unittest.TestCase):
         }
         self.assertEqual(
             settings_window._parse_setup_code_response(valid),
-            ("1234abcd", valid["configure_url"], 300, "api/"),
+            ("1234abcd", valid["configure_url"], 300, "api"),
         )
         for response in (
             None,
             [],
             {**valid, "code": None},
+            {**valid, "code": "1234ABCd"},
+            {**valid, "code": "1234abc"},
             {**valid, "configure_url": "javascript:alert(1)"},
+            {
+                **valid,
+                "configure_url": "https://member:secret@comet.test/configure",
+            },
             {**valid, "expires_in": True},
             {**valid, "expires_in": 0},
             {**valid, "expires_in": settings_window.MAX_SETUP_POLL_SECONDS + 1},
             {**valid, "stremio_api_prefix": []},
+            {**valid, "stremio_api_prefix": "https://attacker.test"},
         ):
             with self.subTest(response=response):
                 with self.assertRaisesRegex(ValueError, "Invalid response"):
@@ -89,7 +97,7 @@ class KodiRouterTests(unittest.TestCase):
             settings_window._parse_manifest_response(
                 {"secret_string": "config", "stremio_api_prefix": "api/"}
             ),
-            ("config", "api/"),
+            ("config", "api"),
         )
         for response in (
             None,
@@ -97,6 +105,7 @@ class KodiRouterTests(unittest.TestCase):
             {},
             {"secret_string": []},
             {"secret_string": "x", "stremio_api_prefix": None},
+            {"secret_string": "x", "stremio_api_prefix": "../escape"},
         ):
             with self.subTest(response=response):
                 with self.assertRaisesRegex(ValueError, "Invalid response"):
@@ -135,9 +144,94 @@ class KodiRouterTests(unittest.TestCase):
                 "infoHash": "b" * 40,
                 "sources": [None],
             },
+            {
+                "name": "Bad scheme",
+                "description": "x",
+                "url": "file:///tmp/video",
+            },
         ):
             with self.subTest(stream=stream):
                 self.assertIsNone(router._parse_current_stream(stream))
+
+    def test_fetch_failure_logs_only_category_not_configuration_url(self):
+        sensitive = "private-configuration-value"
+
+        class Session:
+            def get(self, _url, **_kwargs):
+                raise RuntimeError(f"https://comet.test/{sensitive}/stream")
+
+        notifications = []
+        logs = []
+
+        class Dialog:
+            def notification(self, *args):
+                notifications.append(args)
+
+        original_session = utils.HTTP_SESSION
+        missing = object()
+        original_log = getattr(utils.xbmc, "log", missing)
+        original_dialog = getattr(utils.xbmcgui, "Dialog", missing)
+        try:
+            utils.HTTP_SESSION = Session()
+            utils.xbmc.log = lambda message, level: logs.append((message, level))
+            utils.xbmcgui.Dialog = Dialog
+            self.assertIsNone(
+                utils.fetch_data(
+                    f"https://comet.test/{sensitive}/stream/movie/tt1234567.json"
+                )
+            )
+        finally:
+            utils.HTTP_SESSION = original_session
+            if original_log is missing:
+                del utils.xbmc.log
+            else:
+                utils.xbmc.log = original_log
+            if original_dialog is missing:
+                del utils.xbmcgui.Dialog
+            else:
+                utils.xbmcgui.Dialog = original_dialog
+
+        rendered = repr((logs, notifications))
+        self.assertNotIn(sensitive, rendered)
+        self.assertIn("comet.test", rendered)
+
+    def test_browser_open_failure_does_not_log_configuration_url(self):
+        sensitive = "private-configuration-value"
+        logs = []
+        missing = object()
+        original_visibility = getattr(
+            settings_window.xbmc,
+            "getCondVisibility",
+            missing,
+        )
+        original_log = getattr(settings_window.xbmc, "log", missing)
+        original_run = settings_window.subprocess.run
+        try:
+            settings_window.xbmc.getCondVisibility = lambda condition: (
+                condition == "system.platform.linux"
+            )
+            settings_window.xbmc.log = lambda message, level: logs.append(
+                (message, level)
+            )
+            settings_window.subprocess.run = lambda args, **kwargs: (
+                _ for _ in ()
+            ).throw(RuntimeError(repr((args, kwargs))))
+            settings_window.open_configuration_page(
+                f"https://comet.test/{sensitive}/configure"
+            )
+        finally:
+            if original_visibility is missing:
+                del settings_window.xbmc.getCondVisibility
+            else:
+                settings_window.xbmc.getCondVisibility = original_visibility
+            if original_log is missing:
+                del settings_window.xbmc.log
+            else:
+                settings_window.xbmc.log = original_log
+            settings_window.subprocess.run = original_run
+
+        self.assertNotIn(sensitive, repr(logs))
+        self.assertIn("RuntimeError", repr(logs))
 
     def test_catalog_specs_isolate_malformed_current_records(self):
         manifest = {

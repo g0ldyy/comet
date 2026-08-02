@@ -1,13 +1,11 @@
-import base64
-import binascii
 from urllib.parse import quote, unquote, urlparse
 
-import orjson
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
-from comet.core.models import ConfigModel, settings
+from comet.core.config_validation import config_check
+from comet.core.models import settings
 from comet.services.kodi_pairing import (
     associate_setup_code_with_b64config,
     consume_b64config_for_setup_code,
@@ -19,7 +17,7 @@ router = APIRouter()
 
 
 class StrictKodiRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(strict=True)
 
 
 class GenerateSetupCodeRequest(StrictKodiRequest):
@@ -80,23 +78,8 @@ def _extract_b64config_from_manifest_url(manifest_url: str, expected_base_url: s
 
 
 def _validate_b64config(b64config: str):
-    try:
-        try:
-            decoded = base64.b64decode(b64config, validate=True)
-        except binascii.Error:
-            decoded = base64.urlsafe_b64decode(
-                b64config + ("=" * (-len(b64config) % 4))
-            )
-        parsed = orjson.loads(decoded)
-        ConfigModel(**parsed)
-    except (
-        ValidationError,
-        binascii.Error,
-        orjson.JSONDecodeError,
-        TypeError,
-        ValueError,
-    ) as exc:
-        raise ValueError("Invalid Comet configuration payload") from exc
+    if config_check(b64config) is None:
+        raise ValueError("Invalid Comet configuration payload")
 
 
 def _base_url_from_request(request: Request):
@@ -110,6 +93,14 @@ def _base_url_from_request(request: Request):
     description="Generates a short-lived setup code used by Kodi to complete pairing.",
 )
 async def generate_setup_code(request: Request, payload: GenerateSetupCodeRequest):
+    if payload.secret_string:
+        try:
+            _validate_b64config(payload.secret_string)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Comet configuration payload",
+            ) from exc
     code, expires_in = await create_setup_code()
     base_url = _base_url_from_request(request)
 

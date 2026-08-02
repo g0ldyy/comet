@@ -1,12 +1,17 @@
+import re
 from datetime import date
 
 import aiohttp
 
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.metadata.http import MetadataHttpError, get_metadata_json
+from comet.metadata.validation import metadata_text, normalize_aliases
 from comet.utils.languages import merge_aliases
 
 DEFAULT_TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Zjk3ZTE1NWY1YmQ3ZjY1MSIsInN1YiI6IjY1M2NjNWUyZTg5NGE2MDBmZjE2N2FmYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.xrIXsMFJpI1o1j5g2QpQcFP1X3AfRjFA5FlBFO5Naw8"
+_IMDB_ID = re.compile(r"tt[0-9]{7,10}")
+_TMDB_ID = re.compile(r"[1-9][0-9]{0,18}")
+_MAX_SIGNED_64 = 9_223_372_036_854_775_807
 
 _MEDIA_CONFIG = {
     "movie": {
@@ -24,6 +29,14 @@ _MEDIA_CONFIG = {
         "original_title": "original_name",
     },
 }
+
+
+def _valid_tmdb_id(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and _TMDB_ID.fullmatch(value) is not None
+        and int(value) <= _MAX_SIGNED_64
+    )
 
 
 def _extract_upcoming_release_date(payload) -> str | None:
@@ -78,7 +91,7 @@ def _extract_tmdb_id(payload, media_type: str | None = None) -> str | None:
             result_id = result.get("id")
             if isinstance(result_id, bool) or not isinstance(result_id, int):
                 continue
-            if result_id > 0:
+            if 0 < result_id <= _MAX_SIGNED_64:
                 return str(result_id)
     return None
 
@@ -92,13 +105,12 @@ def _extract_title_aliases(payload, result_key: str) -> dict[str, list[str]]:
         return {}
 
     aliases: dict[str, list[str]] = {}
-    seen: dict[str, set[str]] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
 
-        raw_title = entry.get("title")
-        if not isinstance(raw_title, str) or not (title := raw_title.strip()):
+        title = metadata_text(entry.get("title"))
+        if title is None:
             continue
 
         raw_country = entry.get("iso_3166_1")
@@ -110,21 +122,14 @@ def _extract_title_aliases(payload, result_key: str) -> dict[str, list[str]]:
             and raw_country.isalpha()
             else "ez"
         )
-        country_seen = seen.setdefault(country, set())
-        if title in country_seen:
-            continue
-        country_seen.add(title)
         aliases.setdefault(country, []).append(title)
 
     return aliases
 
 
-def _extract_original_title(payload: object, title_key: str) -> dict[str, list[str]]:
-    if not isinstance(payload, dict):
-        return {}
-
-    raw_title = payload.get(title_key)
-    if not isinstance(raw_title, str) or not (title := raw_title.strip()):
+def _extract_original_title(payload: dict, title_key: str) -> dict[str, list[str]]:
+    title = metadata_text(payload.get(title_key))
+    if title is None:
         return {}
 
     language = payload.get("original_language")
@@ -146,38 +151,34 @@ def _extract_translated_titles(payload: object, title_key: str) -> dict[str, lis
         return {}
 
     aliases: dict[str, list[str]] = {}
-    seen: dict[str, set[str]] = {}
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("data"), dict):
             continue
         language = entry.get("iso_639_1")
-        raw_title = entry["data"].get(title_key)
-        if (
-            not isinstance(language, str)
-            or len(language := language.lower()) != 2
-            or not language.isascii()
-            or not language.isalpha()
-            or not isinstance(raw_title, str)
-            or not (title := raw_title.strip())
-        ):
+        title = metadata_text(entry["data"].get(title_key))
+        if title is None:
             continue
-        language_seen = seen.setdefault(language, set())
-        if title not in language_seen:
-            language_seen.add(title)
-            aliases.setdefault(f"lang:{language}", []).append(title)
+        scope = (
+            f"lang:{normalized_language}"
+            if isinstance(language, str)
+            and len(normalized_language := language.lower()) == 2
+            and normalized_language.isascii()
+            and normalized_language.isalpha()
+            else "ez"
+        )
+        aliases.setdefault(scope, []).append(title)
     return aliases
 
 
-def _extract_all_title_aliases(payload: object, config: dict) -> dict[str, list[str]]:
-    if not isinstance(payload, dict):
-        return {}
-
-    return merge_aliases(
-        _extract_original_title(payload, config["original_title"]),
-        _extract_translated_titles(payload.get("translations"), config["title"]),
-        _extract_title_aliases(
-            payload.get("alternative_titles"), config["alias_results"]
-        ),
+def _extract_all_title_aliases(payload: dict, config: dict) -> dict[str, list[str]]:
+    return normalize_aliases(
+        merge_aliases(
+            _extract_original_title(payload, config["original_title"]),
+            _extract_translated_titles(payload.get("translations"), config["title"]),
+            _extract_title_aliases(
+                payload.get("alternative_titles"), config["alias_results"]
+            ),
+        )
     )
 
 
@@ -190,43 +191,46 @@ class TMDBApi:
             "Accept": "application/json",
         }
 
-    async def _get_json(self, path: str, context: str):
+    async def _get_json(self, path: str):
         try:
-            async with self.session.get(
-                f"{self.base_url}/{path}", headers=self.headers
-            ) as response:
-                if response.status != 200:
-                    logger.warning(
-                        f"TMDB: {context} failed with HTTP {response.status}"
-                    )
-                    return None
-                return await response.json()
-        except Exception as exc:
-            logger.error(f"TMDB: {context} failed: {exc}")
+            response = await get_metadata_json(
+                self.session,
+                f"{self.base_url}/{path}",
+                headers=self.headers,
+            )
+        except MetadataHttpError:
             return None
+        if not response.successful:
+            return None
+        return response.payload
 
     async def get_upcoming_movie_release_date(self, tmdb_id: str):
-        data = await self._get_json(
-            f"movie/{tmdb_id}/release_dates",
-            f"movie release dates lookup for {tmdb_id}",
-        )
+        if not _valid_tmdb_id(tmdb_id):
+            return None
+        data = await self._get_json(f"movie/{tmdb_id}/release_dates")
         return _extract_upcoming_release_date(data)
 
     async def get_episode_air_date(self, tmdb_id: str, season: int, episode: int):
-        data = await self._get_json(
-            f"tv/{tmdb_id}/season/{season}/episode/{episode}",
-            f"episode lookup for {tmdb_id} S{season}E{episode}",
-        )
-        if not isinstance(data, dict):
+        if (
+            not _valid_tmdb_id(tmdb_id)
+            or isinstance(season, bool)
+            or not isinstance(season, int)
+            or not 0 <= season <= _MAX_SIGNED_64
+            or isinstance(episode, bool)
+            or not isinstance(episode, int)
+            or not 0 <= episode <= _MAX_SIGNED_64
+        ):
+            return None
+        data = await self._get_json(f"tv/{tmdb_id}/season/{season}/episode/{episode}")
+        if data is None:
             return None
         air_date = data.get("air_date")
         return air_date if isinstance(air_date, str) else None
 
     async def _find_from_imdb(self, imdb_id: str):
-        return await self._get_json(
-            f"find/{imdb_id}?external_source=imdb_id",
-            f"IMDb ID lookup for {imdb_id}",
-        )
+        if not isinstance(imdb_id, str) or _IMDB_ID.fullmatch(imdb_id) is None:
+            return None
+        return await self._get_json(f"find/{imdb_id}?external_source=imdb_id")
 
     async def get_tmdb_id_from_imdb(self, imdb_id: str, media_type: str | None = None):
         data = await self._find_from_imdb(imdb_id)
@@ -234,7 +238,7 @@ class TMDBApi:
 
     async def get_media_type_from_imdb(self, imdb_id: str) -> str | None:
         data = await self._find_from_imdb(imdb_id)
-        if not isinstance(data, dict):
+        if data is None:
             return None
         if _extract_tmdb_id(data, "movie") is not None:
             return "movie"
@@ -244,7 +248,11 @@ class TMDBApi:
 
     async def get_title_aliases(self, media_type: str, imdb_id: str):
         config = _MEDIA_CONFIG.get(media_type)
-        if config is None:
+        if (
+            config is None
+            or not isinstance(imdb_id, str)
+            or _IMDB_ID.fullmatch(imdb_id) is None
+        ):
             return None
 
         tmdb_id = await self.get_tmdb_id_from_imdb(imdb_id, media_type)
@@ -253,21 +261,17 @@ class TMDBApi:
 
         data = await self._get_json(
             f"{config['path']}/{tmdb_id}"
-            "?append_to_response=alternative_titles,translations",
-            f"title aliases lookup for {imdb_id}",
+            "?append_to_response=alternative_titles,translations"
         )
         if data is None:
-            return None
-        if not isinstance(data, dict):
-            logger.warning(f"TMDB: invalid title aliases response for {imdb_id}")
             return None
         return _extract_all_title_aliases(data, config)
 
     async def has_watch_providers(self, tmdb_id: str):
-        data = await self._get_json(
-            f"movie/{tmdb_id}/watch/providers",
-            f"watch providers lookup for {tmdb_id}",
-        )
-        if not isinstance(data, dict):
+        if not _valid_tmdb_id(tmdb_id):
             return None
-        return bool(data.get("results"))
+        data = await self._get_json(f"movie/{tmdb_id}/watch/providers")
+        if data is None:
+            return None
+        results = data.get("results")
+        return bool(results) if isinstance(results, dict) else None

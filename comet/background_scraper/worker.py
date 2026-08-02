@@ -5,18 +5,17 @@ import uuid
 from dataclasses import dataclass
 
 from comet.core.database import database
-from comet.core.logger import logger
 from comet.core.models import settings
 from comet.core.scrape import ScrapeContext
 from comet.metadata.manager import MetadataScraper
-from comet.observability import metrics
+from comet.observability import log, metrics, run_context
 from comet.services.cache_state import mark_scope_scraped
 from comet.services.lock import DistributedLock
-from comet.services.orchestration import TorrentManager
+from comet.services.orchestration import TorrentResultAccumulator
 from comet.utils.http_client import http_client_manager
 from comet.utils.year import parse_year_range
 
-from .cinemata_client import CinemataClient
+from .cinemeta_client import CinemetaClient
 
 LOCK_KEY = "background_scraper_lock"
 LOCK_TTL = 60
@@ -91,7 +90,7 @@ def _queue_ready_at_sql(table_alias: str) -> str:
 
 def _serialize_run_row(row) -> dict:
     candidate = _database_record_dict(row, "background scraper run")
-    if set(candidate) != BACKGROUND_SCRAPER_RUN_FIELDS:
+    if not BACKGROUND_SCRAPER_RUN_FIELDS <= candidate.keys():
         raise ValueError("background scraper run has an invalid field set")
 
     run_id = candidate["run_id"]
@@ -174,25 +173,25 @@ class BackgroundScraperWorker:
         self.task: asyncio.Task | None = None
         self._active_scrape_task = None
         self._drain_requested = False
-        self._last_discovery_limit_normalization = None
+        self._configuration_changed = asyncio.Event()
+        self._last_run_status = "failed"
         self._reset_discovery_hysteresis()
 
     def _reset_discovery_hysteresis(self):
         self._discovery_paused_for_backlog = False
+
+    @property
+    def drain_requested(self) -> bool:
+        return self._drain_requested
 
     def clear_finished_task(self):
         if not self.task or not self.task.done():
             return
 
         if not self.task.cancelled():
-            try:
-                error = self.task.exception()
-                if error:
-                    self.last_error = str(error)
-                    logger.error(f"Background scraper task failed: {error}")
-            except Exception as e:
-                self.last_error = str(e)
-                logger.error(f"Background scraper task failed: {e}")
+            error = self.task.exception()
+            if error:
+                self.last_error = str(error)
         self.task = None
 
     async def _cancel_task(self, task: asyncio.Task | None):
@@ -279,13 +278,16 @@ class BackgroundScraperWorker:
         queue_snapshot = _database_record_dict(
             queue_snapshot, "background scraper queue snapshot"
         )
-        if set(queue_snapshot) != {
-            "movie_count",
-            "series_count",
-            "oldest_item_ts",
-            "episode_count",
-            "oldest_episode_ts",
-        }:
+        if (
+            not {
+                "movie_count",
+                "series_count",
+                "oldest_item_ts",
+                "episode_count",
+                "oldest_episode_ts",
+            }
+            <= queue_snapshot.keys()
+        ):
             raise ValueError("background scraper queue snapshot has an invalid schema")
 
         oldest_item_value = queue_snapshot["oldest_item_ts"]
@@ -330,45 +332,15 @@ class BackgroundScraperWorker:
         return snapshot
 
     def _discovery_queue_limits(self):
-        low = max(0, settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK)
-        high = max(0, settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK)
-        hard = max(0, settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP)
-        configured_low, configured_high, configured_hard = low, high, hard
-        corrections = []
-
-        if high <= 0 and hard > 0:
-            high = hard
-            corrections.append("high<=0 with hard>0, set high=hard")
-        if high > 0 and (low <= 0 or low > high):
-            low = max(1, high // 2)
-            corrections.append("low invalid for high, auto-derived low")
-        if hard > 0 and high > 0 and hard < high:
-            hard = high
-            corrections.append("hard<high, promoted hard to high")
-
-        if corrections:
-            normalization_signature = (
-                configured_low,
-                configured_high,
-                configured_hard,
-                low,
-                high,
-                hard,
-            )
-            if self._last_discovery_limit_normalization != normalization_signature:
-                logger.warning(
-                    "BACKGROUND_SCRAPER: Normalized queue limits "
-                    f"low/high/hard={configured_low}/{configured_high}/{configured_hard} "
-                    f"-> {low}/{high}/{hard} ({'; '.join(corrections)})"
-                )
-                self._last_discovery_limit_normalization = normalization_signature
-        else:
-            self._last_discovery_limit_normalization = None
-
-        return low, high, hard
+        return (
+            settings.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK,
+            settings.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK,
+            settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP,
+        )
 
     def _evaluate_discovery_policy(self, total_queue: int, update_state: bool = True):
         low, high, hard = self._discovery_queue_limits()
+        limits = {"low": low, "high": high, "hard": hard}
         paused_for_backlog = self._discovery_paused_for_backlog
 
         def set_paused(value: bool):
@@ -382,7 +354,7 @@ class BackgroundScraperWorker:
             return (
                 True,
                 None,
-                {"low": low, "high": high, "hard": hard},
+                limits,
                 paused_for_backlog,
             )
 
@@ -391,7 +363,7 @@ class BackgroundScraperWorker:
             return (
                 False,
                 "hard_cap_reached",
-                {"low": low, "high": high, "hard": hard},
+                limits,
                 paused_for_backlog,
             )
 
@@ -402,7 +374,7 @@ class BackgroundScraperWorker:
                 return (
                     False,
                     "above_low_watermark",
-                    {"low": low, "high": high, "hard": hard},
+                    limits,
                     paused_for_backlog,
                 )
 
@@ -411,14 +383,14 @@ class BackgroundScraperWorker:
             return (
                 False,
                 "above_high_watermark",
-                {"low": low, "high": high, "hard": hard},
+                limits,
                 paused_for_backlog,
             )
 
         return (
             True,
             None,
-            {"low": low, "high": high, "hard": hard},
+            limits,
             paused_for_backlog,
         )
 
@@ -433,9 +405,9 @@ class BackgroundScraperWorker:
         if target_total <= 0:
             return 0, 0
 
-        queue_cap = int(discovery_limits.get("high") or 0)
+        queue_cap = discovery_limits["high"]
         if queue_cap <= 0:
-            queue_cap = int(discovery_limits.get("hard") or 0)
+            queue_cap = discovery_limits["hard"]
         if queue_cap <= 0:
             return max(0, movies_target), max(0, series_target)
 
@@ -530,15 +502,7 @@ class BackgroundScraperWorker:
                 in_flight = set(pending)
 
                 for task in done:
-                    try:
-                        task.result()
-                    except asyncio.CancelledError:
-                        continue
-                    except Exception as result:
-                        self.last_error = str(result)
-                        logger.error(
-                            f"Unhandled error while processing planned items: {result}"
-                        )
+                    task.result()
 
                 if scheduling_stopped:
                     continue
@@ -558,15 +522,12 @@ class BackgroundScraperWorker:
 
     async def start(self):
         if self.is_running:
-            logger.log("BACKGROUND_SCRAPER", "Background scraper is already running")
             return
 
         self._drain_requested = False
-        logger.log("BACKGROUND_SCRAPER", "Starting background scraper orchestrator")
         await self._run_continuous()
 
     async def stop(self):
-        logger.log("BACKGROUND_SCRAPER", "Stopping background scraper orchestrator")
         self.is_running = False
         self.is_paused = False
         self._drain_requested = False
@@ -586,7 +547,6 @@ class BackgroundScraperWorker:
                 pass
             except Exception as e:
                 self.last_error = str(e)
-                logger.error(f"Background scraper task stopped with error: {e}")
         self.task = None
         self._reset_discovery_hysteresis()
 
@@ -601,10 +561,6 @@ class BackgroundScraperWorker:
 
         if not self._drain_requested:
             self._drain_requested = True
-            logger.log(
-                "BACKGROUND_SCRAPER",
-                f"Run {self.current_run_id}: stop scheduled after completion",
-            )
         return True
 
     def cancel_drain(self) -> bool:
@@ -612,7 +568,6 @@ class BackgroundScraperWorker:
             return False
 
         self._drain_requested = False
-        logger.log("BACKGROUND_SCRAPER", "Scheduled stop cancelled")
         return True
 
     async def pause(self):
@@ -621,7 +576,6 @@ class BackgroundScraperWorker:
 
         self.is_paused = True
         self.pause_event.clear()
-        logger.log("BACKGROUND_SCRAPER", "Background scraper paused")
         return True
 
     async def resume(self):
@@ -630,7 +584,6 @@ class BackgroundScraperWorker:
 
         self.is_paused = False
         self.pause_event.set()
-        logger.log("BACKGROUND_SCRAPER", "Background scraper resumed")
         return True
 
     async def get_status(self):
@@ -658,7 +611,7 @@ class BackgroundScraperWorker:
         dead_item_counts = {"movie": 0, "series": 0}
         for row in dead_items_rows:
             dead_item_row = _database_record_dict(row, "dead item count")
-            if set(dead_item_row) != {"media_type", "count"}:
+            if not {"media_type", "count"} <= dead_item_row.keys():
                 raise ValueError("dead item count has an invalid schema")
             media_type = dead_item_row["media_type"]
             if type(media_type) is not str or media_type not in dead_item_counts:
@@ -688,13 +641,16 @@ class BackgroundScraperWorker:
             {"lookback_24h": lookback_24h},
         )
         run_agg = _database_record_dict(run_agg, "background scraper run aggregate")
-        if set(run_agg) != {
-            "processed",
-            "success",
-            "failed",
-            "torrents_found",
-            "run_count",
-        }:
+        if (
+            not {
+                "processed",
+                "success",
+                "failed",
+                "torrents_found",
+                "run_count",
+            }
+            <= run_agg.keys()
+        ):
             raise ValueError("background scraper run aggregate has an invalid schema")
         processed_24h = _require_nonnegative_int(run_agg["processed"], "processed_24h")
         failed_24h = _require_nonnegative_int(run_agg["failed"], "failed_24h")
@@ -796,11 +752,11 @@ class BackgroundScraperWorker:
 
     async def _run_continuous(self):
         self.is_running = True
-        interval_seconds = settings.BACKGROUND_SCRAPER_INTERVAL
 
         try:
             while self.is_running:
-                next_cycle_delay = interval_seconds
+                self._configuration_changed.clear()
+                next_cycle_delay = settings.BACKGROUND_SCRAPER_INTERVAL
                 try:
                     lock = DistributedLock(LOCK_KEY, timeout=LOCK_TTL)
                     if await lock.acquire(wait_timeout=None):
@@ -813,28 +769,24 @@ class BackgroundScraperWorker:
                         finally:
                             await lock.release()
                             self._active_scrape_task = None
-                    else:
-                        logger.log(
-                            "BACKGROUND_SCRAPER",
-                            "Another instance is running background scraping. Skipping.",
-                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
                     self.last_error = str(e)
                     next_cycle_delay = 300
-                    logger.error(f"Error in background scraper loop: {e}")
 
                 if self._drain_requested:
-                    logger.log(
-                        "BACKGROUND_SCRAPER",
-                        "Scheduled stop completed; no new cycle will be started",
-                    )
                     self._drain_requested = False
                     break
 
                 if self.is_running:
-                    await asyncio.sleep(next_cycle_delay)
+                    try:
+                        await asyncio.wait_for(
+                            self._configuration_changed.wait(),
+                            timeout=next_cycle_delay,
+                        )
+                    except TimeoutError:
+                        pass
         finally:
             self.is_running = False
             self.is_paused = False
@@ -842,7 +794,56 @@ class BackgroundScraperWorker:
             self.pause_event.set()
             self._reset_discovery_hysteresis()
 
+    def reconfigure(self) -> None:
+        self._configuration_changed.set()
+
     async def _run_scraping_cycle(self):
+        async with http_client_manager.bind():
+            await self._run_scraping_cycle_bound()
+
+    async def _run_scraping_cycle_bound(self):
+        with run_context():
+            self._last_run_status = "failed"
+            log.info(
+                "background.run.started",
+                "Background scraper run started",
+                worker_count=max(1, settings.BACKGROUND_SCRAPER_CONCURRENT_WORKERS),
+            )
+            try:
+                await self._run_scraping_cycle_body()
+            except asyncio.CancelledError:
+                self._emit_run_terminal("cancelled")
+                raise
+            except Exception as exc:
+                self._emit_run_terminal("failed", exc=exc)
+                raise
+            else:
+                self._emit_run_terminal(self._last_run_status)
+
+    def _emit_run_terminal(
+        self,
+        status: str,
+        *,
+        exc: BaseException | None = None,
+    ) -> None:
+        outcome = {
+            "completed": "ok",
+            "cancelled": "cancelled",
+            "failed": "failed",
+        }[status]
+        log.terminal(
+            "background.run.completed",
+            "Background scraper run completed",
+            outcome=outcome,
+            success_count=self.stats.total_success,
+            failure_count=self.stats.total_failed,
+            torrent_count=self.stats.total_torrents_found,
+            duration_ms=self.stats.duration * 1000,
+            error_code="background_failure" if outcome == "failed" else None,
+            exc=exc,
+        )
+
+    async def _run_scraping_cycle_body(self):
         run_id = str(uuid.uuid4())
         self.current_run_id = run_id
         self.stats = ScrapingStats(run_id=run_id, start_time=time.time())
@@ -866,15 +867,13 @@ class BackgroundScraperWorker:
             session = await http_client_manager.get_session()
             self.metadata_scraper = MetadataScraper(session)
 
-            max_movies = max(0, settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN)
-            max_series = max(0, settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN)
-            discovery_multiplier = max(
-                1, settings.BACKGROUND_SCRAPER_DISCOVERY_MULTIPLIER
-            )
+            max_movies = settings.BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN
+            max_series = settings.BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN
+            discovery_multiplier = settings.BACKGROUND_SCRAPER_DISCOVERY_MULTIPLIER
             queue_snapshot = await self._fetch_queue_snapshot()
             (
                 discovery_allowed,
-                discovery_reason,
+                _discovery_reason,
                 discovery_limits,
                 _,
             ) = self._evaluate_discovery_policy(queue_snapshot["total"])
@@ -891,10 +890,6 @@ class BackgroundScraperWorker:
                     queue_snapshot["total"],
                     discovery_limits,
                 )
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    f"Run {run_id}: queue={queue_snapshot['total']} discovery targets movie={discovery_target_movies}, series={discovery_target_series}",
-                )
 
                 if discovery_target_movies > 0:
                     self.stats.discovered_items += await self._discover_media_type(
@@ -910,12 +905,6 @@ class BackgroundScraperWorker:
                     if not self.is_running:
                         run_status = "cancelled"
                         return
-            else:
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    f"Run {run_id}: discovery paused ({discovery_reason}) queue={queue_snapshot['total']} watermarks={discovery_limits['low']}/{discovery_limits['high']} hard_cap={discovery_limits['hard']}",
-                )
-
             runtime_budget = settings.BACKGROUND_SCRAPER_RUN_TIME_BUDGET
             deadline = (
                 self.stats.start_time + runtime_budget
@@ -961,12 +950,6 @@ class BackgroundScraperWorker:
 
                 await self._run_items_in_bounded_chunks(planned_items, deadline)
 
-            logger.log(
-                "BACKGROUND_SCRAPER",
-                f"Run {run_id}: planned {planned_movies_total + planned_series_total} items "
-                f"({planned_movies_total} movies, {planned_series_total} series)",
-            )
-
         except asyncio.CancelledError:
             run_status = "cancelled"
             raise
@@ -974,7 +957,6 @@ class BackgroundScraperWorker:
             run_status = "failed"
             run_error = str(e)
             self.last_error = str(e)
-            logger.error(f"Run {run_id} failed: {e}")
         finally:
             try:
                 try:
@@ -982,14 +964,8 @@ class BackgroundScraperWorker:
                 finally:
                     await self._finalize_run_row(run_id, run_status, run_error)
             finally:
-                logger.log(
-                    "BACKGROUND_SCRAPER",
-                    f"Run {run_id} finished with status={run_status} "
-                    f"processed={self.stats.total_processed} success={self.stats.total_success} "
-                    f"failed={self.stats.total_failed} torrents={self.stats.total_torrents_found} "
-                    f"discovered={self.stats.discovered_items} duration={self.stats.duration:.2f}s",
-                )
                 metrics.observe_background_run(run_status, self.stats)
+                self._last_run_status = run_status
                 self.current_run_id = None
                 self.metadata_scraper = None
 
@@ -1000,7 +976,9 @@ class BackgroundScraperWorker:
             UPDATE background_scraper_runs
             SET status = 'cancelled',
                 finished_at = :finished_at,
-                duration_ms = CAST((:finished_at - started_at) * 1000 AS INTEGER),
+                duration_ms = CAST(
+                    FLOOR((:finished_at - started_at) * 1000) AS INTEGER
+                ),
                 last_error = COALESCE(last_error, 'Recovered stale running row')
             WHERE status = 'running'
             """,
@@ -1067,10 +1045,10 @@ class BackgroundScraperWorker:
         now = time.time()
         current_year = time.gmtime().tm_year
         success_cutoff = now - settings.BACKGROUND_SCRAPER_SUCCESS_TTL
-        blocked_cache: dict[str, bool] = {}
+        seen_ids = set()
 
-        async with CinemataClient(session=session) as cinemata_client:
-            async for media_item in cinemata_client.fetch_all_of_type(media_type):
+        async with CinemetaClient(session=session) as cinemeta_client:
+            async for media_item in cinemeta_client.fetch_all_of_type(media_type):
                 if not self.is_running:
                     break
                 await self._wait_if_paused()
@@ -1084,17 +1062,15 @@ class BackgroundScraperWorker:
                     continue
 
                 media_id = normalized["media_id"]
-                if media_id in blocked_cache:
-                    blocked = blocked_cache[media_id]
-                else:
-                    blocked = await self._is_discovery_candidate_blocked(
-                        media_id=media_id,
-                        media_type=media_type,
-                        now=now,
-                        success_cutoff=success_cutoff,
-                    )
-                    blocked_cache[media_id] = blocked
-                if blocked:
+                if media_id in seen_ids:
+                    continue
+                seen_ids.add(media_id)
+                if await self._is_discovery_candidate_blocked(
+                    media_id=media_id,
+                    media_type=media_type,
+                    now=now,
+                    success_cutoff=success_cutoff,
+                ):
                     continue
 
                 batch.append(normalized)
@@ -1134,13 +1110,17 @@ class BackgroundScraperWorker:
                 "success_cutoff": success_cutoff,
             },
         )
-        return bool(blocked)
+        return blocked is not None
 
     def _normalize_media_item(
         self, media_item: dict, media_type: str, now: float, current_year: int
     ):
-        media_id = media_item.get("imdb_id") or media_item.get("id")
-        title = media_item.get("name") or media_item.get("title")
+        media_id = media_item.get("imdb_id")
+        if type(media_id) is not str or not media_id:
+            media_id = media_item.get("id")
+        title = media_item.get("name")
+        if type(title) is not str or not title:
+            title = media_item.get("title")
         if (
             type(media_id) is not str
             or not media_id
@@ -1149,8 +1129,9 @@ class BackgroundScraperWorker:
         ):
             return None
 
-        year_source = media_item.get("year") or media_item.get("releaseInfo")
-        year, year_end = parse_year_range(year_source)
+        year, year_end = parse_year_range(media_item.get("year"))
+        if year is None:
+            year, year_end = parse_year_range(media_item.get("releaseInfo"))
         if year is None:
             return None
 
@@ -1226,7 +1207,7 @@ class BackgroundScraperWorker:
         demand_cutoff = now - settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK
         max_retries = self._max_retries_for_query()
         demand_enabled = 1 if settings.BACKGROUND_SCRAPER_ENABLE_DEMAND_PRIORITY else 0
-        min_priority_score = max(0.0, settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE)
+        min_priority_score = settings.BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE
 
         rows = await database.fetch_all(
             """
@@ -1302,7 +1283,6 @@ class BackgroundScraperWorker:
             await self._defer_item(item["media_id"], item_failures)
             return
 
-        media_id = item["media_id"]
         media_type = item["media_type"]
         torrents_found = 0
         success = False
@@ -1317,9 +1297,6 @@ class BackgroundScraperWorker:
         except Exception as e:
             error_message = str(e)
             self.stats.errors += 1
-            logger.error(
-                f"Background scrape failed for {media_type} {media_id}: {error_message}"
-            )
 
         await self._update_item_state(item, success, torrents_found, error_message)
 
@@ -1341,7 +1318,7 @@ class BackgroundScraperWorker:
         if metadata is None:
             return 0
 
-        manager = TorrentManager(
+        manager = TorrentResultAccumulator(
             media_type="movie",
             media_full_id=media_id,
             media_only_id=media_id,
@@ -1396,7 +1373,7 @@ class BackgroundScraperWorker:
             error_message = None
 
             try:
-                manager = TorrentManager(
+                manager = TorrentResultAccumulator(
                     media_type="series",
                     media_full_id=episode_media_id,
                     media_only_id=media_id,
@@ -1413,9 +1390,6 @@ class BackgroundScraperWorker:
                 success = episode_torrents > 0
             except Exception as e:
                 error_message = str(e)
-                logger.error(
-                    f"Background scrape failed for episode {episode_media_id}: {error_message}"
-                )
 
             await self._update_episode_state(
                 episode, success, episode_torrents, error_message
@@ -1443,7 +1417,7 @@ class BackgroundScraperWorker:
         episode_refresh_ttl = settings.BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL
         should_refresh_episodes = has_existing_episodes is None
 
-        if has_existing_episodes and episode_refresh_ttl > 0:
+        if has_existing_episodes is not None and episode_refresh_ttl > 0:
             last_episode_refresh = await database.fetch_val(
                 """
                 SELECT MAX(updated_at)
@@ -1456,14 +1430,19 @@ class BackgroundScraperWorker:
             )
             if (
                 last_episode_refresh is None
-                or (now - float(last_episode_refresh)) >= episode_refresh_ttl
+                or now
+                - _require_finite_timestamp(
+                    last_episode_refresh,
+                    "last_episode_refresh",
+                )
+                >= episode_refresh_ttl
             ):
                 should_refresh_episodes = True
 
         if should_refresh_episodes:
             session = await http_client_manager.get_session()
-            async with CinemataClient(session=session) as cinemata_client:
-                discovered = await cinemata_client.fetch_series_episodes(series_id)
+            async with CinemetaClient(session=session) as cinemeta_client:
+                discovered = await cinemeta_client.fetch_series_episodes(series_id)
 
             if discovered:
                 rows = []
@@ -1640,7 +1619,7 @@ class BackgroundScraperWorker:
             return
 
         now = time.time()
-        defer_cooldown = max(0, settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN)
+        defer_cooldown = settings.BACKGROUND_SCRAPER_DEFER_COOLDOWN
         next_retry_at = now + defer_cooldown
         await database.execute_many(
             """
@@ -1693,42 +1672,46 @@ class BackgroundScraperWorker:
             {"media_id": media_id, "decay": decay},
         )
 
-    async def requeue_dead_items(self):
+    async def requeue_dead_items(self, store=database):
         now = time.time()
-        async with database.transaction():
-            dead_items = int(
-                await database.fetch_val(
+        async with store.transaction():
+            dead_items = _require_nonnegative_int(
+                await store.fetch_val(
                     """
                     SELECT COUNT(*) FROM background_scraper_items
                     WHERE status = 'dead'
                     """
-                )
+                ),
+                "dead_item_count",
             )
-            dead_episodes = int(
-                await database.fetch_val(
+            dead_episodes = _require_nonnegative_int(
+                await store.fetch_val(
                     """
                     SELECT COUNT(*) FROM background_scraper_episodes
                     WHERE status = 'dead'
                     """
-                )
+                ),
+                "dead_episode_count",
             )
 
-            await database.execute(
+            await store.execute(
                 """
                 UPDATE background_scraper_items
                 SET status = 'discovered',
                     consecutive_failures = 0,
+                    last_success_at = NULL,
                     next_retry_at = :next_retry_at,
                     updated_at = :updated_at
                 WHERE status = 'dead'
                 """,
                 {"next_retry_at": now, "updated_at": now},
             )
-            await database.execute(
+            await store.execute(
                 """
                 UPDATE background_scraper_episodes
                 SET status = 'discovered',
                     consecutive_failures = 0,
+                    last_success_at = NULL,
                     next_retry_at = :next_retry_at,
                     updated_at = :updated_at
                 WHERE status = 'dead'
@@ -1768,20 +1751,20 @@ class BackgroundScraperWorker:
         }
 
     def _compute_backoff(self, failures: int) -> float:
-        base = max(1, settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF)
-        max_backoff = max(base, settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF)
+        base = settings.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF
+        max_backoff = settings.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF
         exponent = max(0, failures - 1)
         return min(max_backoff, base * math.pow(2, exponent))
 
     def _max_retries_for_query(self) -> int:
         configured = settings.BACKGROUND_SCRAPER_MAX_RETRIES
-        if configured is None or configured < 0:
+        if configured < 0:
             return 1000000
         return configured
 
     def _is_retry_limit_reached(self, failures: int) -> bool:
         configured = settings.BACKGROUND_SCRAPER_MAX_RETRIES
-        if configured is None or configured < 0:
+        if configured < 0:
             return False
         return failures >= configured
 

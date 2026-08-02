@@ -18,7 +18,7 @@ Examples:
 
 - `GET /configure`
 - `GET /{b64config}/configure`
-- `POST /configure/login`
+- `POST /api/v1/auth/configure/login`
 
 ## Stremio
 
@@ -47,21 +47,22 @@ official Prowlarr, Sonarr, Radarr, and Jackett configurations.
 
 ## Admin
 
-- `GET /admin` (login page)
-- `POST /admin/login`
-- `POST /admin/logout`
-- `GET /admin/dashboard`
+- `GET /admin` and `GET /admin/*` serve the local admin SPA.
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
 
 Admin API examples:
 
-- `/admin/api/connections`
-- `/admin/api/logs`
-- `/admin/api/metrics`
-- `/admin/api/update-check`
-- `/admin/api/background-scraper/*`
-- `/admin/api/cometnet/*`
+- `/api/v1/admin/logs`
+- `/api/v1/admin/metrics/*`
+- `/api/v1/admin/proxy/*`
+- `/api/v1/admin/scraping/*`
+- `/api/v1/admin/usenet/*`
+- `/api/v1/admin/cometnet/*`
+- `/api/v1/admin/system/*`
 
-Most admin APIs require valid `admin_session` cookie, except metrics when `PUBLIC_METRICS_API=True`.
+All admin APIs require a valid `admin_session`; mutations additionally require
+the same-origin CSRF token returned by the session API.
 
 ## Kodi
 
@@ -74,7 +75,8 @@ Most admin APIs require valid `admin_session` cookie, except metrics when `PUBLI
 - `WS /cometnet/ws`
 - `GET /cometnet/health`
 
-CometNet admin operations are exposed through `/admin/api/cometnet/*` via either local integrated backend or relay backend.
+CometNet admin operations are exposed through `/api/v1/admin/cometnet/*` via
+either the local integrated backend or relay backend.
 
 ## Next
 

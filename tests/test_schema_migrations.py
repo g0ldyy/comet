@@ -16,11 +16,80 @@ from comet.core.schema_migrations import (
     _migration_original_indexer_titles,
     _migration_tmdb_title_aliases,
     _rename_column_if_missing,
+    _upgrade_download_link_cache,
 )
 from comet.core.schema_specs import ManagedTableSpec
 
 
 class SchemaMigrationMetadataCacheTests(unittest.IsolatedAsyncioTestCase):
+    def test_migration_context_requires_one_backend(self):
+        with self.assertRaisesRegex(ValueError, "exactly one database backend"):
+            MigrationContext(AsyncMock(), is_sqlite=False, is_postgres=False)
+        with self.assertRaisesRegex(ValueError, "exactly one database backend"):
+            MigrationContext(AsyncMock(), is_sqlite=True, is_postgres=True)
+
+    async def test_download_link_cache_scope_separates_file_and_client(self):
+        with TemporaryDirectory() as temp_dir:
+            database = ReplicaAwareDatabase(
+                Database(f"sqlite+aiosqlite:///{temp_dir}/migration.db")
+            )
+            await database.connect()
+            try:
+                await database.execute(
+                    """
+                    CREATE TABLE download_links_cache (
+                        debrid_service TEXT NOT NULL,
+                        account_key_hash TEXT NOT NULL,
+                        info_hash TEXT NOT NULL,
+                        season INTEGER,
+                        episode INTEGER,
+                        season_norm INTEGER NOT NULL,
+                        episode_norm INTEGER NOT NULL,
+                        download_url TEXT NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+                await database.execute(
+                    """
+                    CREATE UNIQUE INDEX unq_download_links_scope_v3
+                    ON download_links_cache (
+                        debrid_service, account_key_hash, info_hash,
+                        season_norm, episode_norm
+                    )
+                    """
+                )
+                await database.execute(
+                    """
+                    INSERT INTO download_links_cache VALUES (
+                        'realdebrid', 'account', 'hash', NULL, NULL,
+                        -1, -1, 'https://download.example/video', 1
+                    )
+                    """
+                )
+                context = MigrationContext(database, is_sqlite=True, is_postgres=False)
+
+                await _upgrade_download_link_cache(context)
+
+                row = await database.fetch_one(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'index'
+                      AND name = 'unq_download_links_scope_v4'
+                    """
+                )
+                self.assertIn("selection_key", row["sql"])
+                self.assertIn("client_scope", row["sql"])
+                preserved = await database.fetch_one(
+                    "SELECT selection_key, client_scope FROM download_links_cache"
+                )
+                self.assertEqual(
+                    dict(preserved), {"selection_key": "", "client_scope": ""}
+                )
+            finally:
+                await database.disconnect()
+
     async def test_scope_coverage_migration_preserves_existing_demand(self):
         with TemporaryDirectory() as temp_dir:
             database = ReplicaAwareDatabase(

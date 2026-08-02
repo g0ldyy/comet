@@ -1,7 +1,6 @@
 import time
 from dataclasses import dataclass, field
 
-from comet.core.logger import logger
 from comet.core.schema_specs import (
     ACTIVE_CONNECTIONS_TABLE_SPEC,
     ANIME_ENTRIES_TABLE_SPEC,
@@ -9,12 +8,20 @@ from comet.core.schema_specs import (
     ANIME_IDS_TABLE_SPEC,
     ANIME_MAPPING_STATE_TABLE_SPEC,
     ANIME_PROVIDER_OVERRIDES_TABLE_SPEC,
+    ARTIFACT_PUBLICATION_LEASES_TABLE_SPEC,
+    ARTIFACT_READER_LEASES_TABLE_SPEC,
+    ASSET_PREPARATION_ARTIFACTS_TABLE_SPEC,
+    ASSET_PREPARATIONS_TABLE_SPEC,
     BACKGROUND_SCRAPER_EPISODES_COPY_SQL,
     BACKGROUND_SCRAPER_EPISODES_TABLE_SPEC,
     BACKGROUND_SCRAPER_ITEMS_TABLE_SPEC,
     BACKGROUND_SCRAPER_RUNS_COPY_SQL,
     BACKGROUND_SCRAPER_RUNS_TABLE_SPEC,
+    BACKGROUND_SCRAPER_RUNTIMES_TABLE_SPEC,
     BANDWIDTH_STATS_TABLE_SPEC,
+    CANDIDATE_IDENTITIES_TABLE_SPEC,
+    CANDIDATE_REDIRECTS_TABLE_SPEC,
+    CAPABILITY_VALIDATION_STATES_TABLE_SPEC,
     CURRENT_NON_UNIQUE_INDEX_SPECS,
     DB_MAINTENANCE_TABLE_SPEC,
     DEBRID_ACCOUNT_MAGNETS_TABLE_SPEC,
@@ -32,11 +39,42 @@ from comet.core.schema_specs import (
     MEDIA_METADATA_CACHE_TABLE_SPEC,
     METRICS_CACHE_TABLE_SPEC,
     NULL_SCOPE_SENTINEL,
+    NZB_ARTIFACT_GRANTS_TABLE_SPEC,
+    NZB_ARTIFACTS_TABLE_SPEC,
+    NZB_CONTENTS_TABLE_SPEC,
+    NZB_PROVIDER_EXPORTS_TABLE_SPEC,
+    OPERATIONAL_EVENT_STATE_TABLE_SPEC,
+    OPERATIONAL_EVENTS_TABLE_SPEC,
+    OPERATOR_COMMANDS_TABLE_SPEC,
+    OPERATOR_GENERATED_SECRETS_TABLE_SPEC,
+    OPERATOR_SESSION_REVOCATIONS_TABLE_SPEC,
+    OPERATOR_SETTINGS_AUDIT_TABLE_SPEC,
+    OPERATOR_SETTINGS_REVISIONS_TABLE_SPEC,
+    OPERATOR_SETTINGS_STATE_TABLE_SPEC,
+    OPERATOR_SETTINGS_TABLE_SPEC,
+    PROVIDER_GOVERNOR_LEASES_TABLE_SPEC,
+    PROVIDER_GOVERNOR_WINDOWS_TABLE_SPEC,
+    PROVIDER_PREPARATIONS_TABLE_SPEC,
+    PROVIDER_RESOLUTION_CACHE_TABLE_SPEC,
+    PROXY_ACTIVE_CONNECTIONS_TABLE_SPEC,
+    PROXY_CONNECTION_HISTORY_TABLE_SPEC,
+    PROXY_TRAFFIC_SAMPLES_TABLE_SPEC,
+    RELEASE_CANDIDATES_TABLE_SPEC,
+    RELEASE_LOCATOR_COVERAGE_TABLE_SPEC,
+    RELEASE_LOCATORS_TABLE_SPEC,
+    RENDERED_RELEASE_CANDIDATES_TABLE_SPEC,
+    RENDERED_RELEASE_LOCATORS_TABLE_SPEC,
+    RUNTIME_INSTANCES_TABLE_SPEC,
+    RUNTIME_PROCESSES_TABLE_SPEC,
     SCRAPE_LOCKS_TABLE_SPEC,
+    SEARCH_COVERAGE_TABLE_SPEC,
     SERIES_EPISODE_INDEX_REFRESH_TABLE_SPEC,
     SERIES_EPISODE_INDEX_TABLE_SPEC,
     TORRENTS_TABLE_SPEC,
     UNIQUE_INDEX_SPECS,
+    USENET_ACTIVE_OPERATIONS_TABLE_SPEC,
+    USENET_ENGINE_RUNTIMES_TABLE_SPEC,
+    USENET_OPERATION_HISTORY_TABLE_SPEC,
     LegacyColumnMigration,
     ManagedTableSpec,
 )
@@ -51,8 +89,18 @@ class MigrationContext:
     table_exists_cache: dict[str, bool] = field(default_factory=dict)
     table_columns_cache: dict[str, set[str]] = field(default_factory=dict)
 
+    def __post_init__(self):
+        if self.is_sqlite == self.is_postgres:
+            raise ValueError("migration context requires exactly one database backend")
 
-async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool):
+
+async def run_schema_migrations(
+    database,
+    *,
+    is_sqlite: bool,
+    is_postgres: bool,
+    on_pending=None,
+):
     ctx = MigrationContext(
         database=database,
         is_sqlite=is_sqlite,
@@ -61,25 +109,37 @@ async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool)
 
     await _ensure_schema_migrations_table(ctx)
     applied = await _get_applied_migrations(ctx)
+    applied_count = 0
+    if on_pending is not None and any(
+        version not in applied for version, _migration in MIGRATIONS
+    ):
+        on_pending()
 
     for version, migration in MIGRATIONS:
         if version in applied:
             continue
-
-        logger.log("DATABASE", f"Applying schema migration {version}")
         applied_migration = await migration(ctx)
         await _checkpoint_sqlite(ctx)
         if applied_migration is False:
-            logger.log(
-                "DATABASE",
-                (
-                    f"Deferred schema migration {version}; "
-                    "a later startup is still required to finish it."
-                ),
-            )
             break
         await _record_schema_migration(ctx, version)
-        logger.log("DATABASE", f"Applied schema migration {version}")
+        applied_count += 1
+    return applied_count
+
+
+async def has_pending_schema_migrations(
+    database, *, is_sqlite: bool, is_postgres: bool
+) -> bool:
+    """Check the migration ledger without mutating the database."""
+    ctx = MigrationContext(
+        database=database,
+        is_sqlite=is_sqlite,
+        is_postgres=is_postgres,
+    )
+    if not await _table_exists(ctx, "schema_migrations"):
+        return True
+    applied = await _get_applied_migrations(ctx)
+    return any(version not in applied for version, _migration in MIGRATIONS)
 
 
 async def _ensure_schema_migrations_table(ctx: MigrationContext):
@@ -87,7 +147,7 @@ async def _ensure_schema_migrations_table(ctx: MigrationContext):
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version TEXT PRIMARY KEY,
-            applied_at REAL NOT NULL
+            applied_at DOUBLE PRECISION NOT NULL
         )
         """
     )
@@ -363,12 +423,9 @@ async def _get_sqlite_journal_mode(ctx: MigrationContext) -> str | None:
         return ctx.sqlite_journal_mode
 
     row = await ctx.database.fetch_one("PRAGMA journal_mode", force_primary=True)
-    if not row:
-        return None
-
-    row_mapping = dict(row)
-    value = row_mapping.get("journal_mode")
-    ctx.sqlite_journal_mode = None if value is None else str(value).lower()
+    if row is None or row["journal_mode"] is None:
+        raise RuntimeError("SQLite journal mode is unavailable")
+    ctx.sqlite_journal_mode = str(row["journal_mode"]).lower()
     return ctx.sqlite_journal_mode
 
 
@@ -433,7 +490,9 @@ async def _execute_large_table_update(
             force_primary=True,
         )
 
-        if not batch_row or not batch_row["row_count"]:
+        if batch_row is None:
+            raise RuntimeError("SQLite migration batch query returned no row")
+        if not batch_row["row_count"]:
             break
 
         await ctx.database.execute(
@@ -478,11 +537,6 @@ async def _ensure_unique_index_with_dedupe(
     except Exception as exc:
         if not _is_duplicate_data_error(exc):
             raise
-
-    logger.log(
-        "DATABASE",
-        f"Detected duplicate rows while building {index_name}; deduplicating {table_name}",
-    )
     await _dedupe_scope_rows(ctx, table_name, partition_columns, order_by_sql)
     await _checkpoint_sqlite(ctx)
     await _ensure_index(ctx, index_sql)
@@ -907,10 +961,7 @@ async def _cleanup_legacy_storage_columns(ctx: MigrationContext):
             )
 
     if dropped_any and ctx.is_sqlite:
-        logger.log(
-            "DATABASE",
-            "Legacy schema storage cleanup completed. Run VACUUM once to reclaim SQLite file space.",
-        )
+        await _checkpoint_sqlite(ctx)
 
 
 async def _migration_cleanup_legacy_storage(ctx: MigrationContext):
@@ -994,6 +1045,123 @@ async def _migration_media_demand_scrape_coverage(ctx: MigrationContext):
     return True
 
 
+async def _migration_remove_legacy_torrent_storage(ctx: MigrationContext):
+    """Finish the homogeneous cutover to transport-neutral release storage."""
+    await _ensure_managed_table(ctx, RELEASE_CANDIDATES_TABLE_SPEC)
+    await _ensure_managed_table(ctx, CANDIDATE_IDENTITIES_TABLE_SPEC)
+    await _ensure_managed_table(ctx, CANDIDATE_REDIRECTS_TABLE_SPEC)
+    await _ensure_managed_table(ctx, RELEASE_LOCATORS_TABLE_SPEC)
+    if not await _table_exists(ctx, "torrents"):
+        return True
+
+    from comet.discovery.torrent_backfill import backfill_legacy_torrents
+
+    async with ctx.database.transaction():
+        await backfill_legacy_torrents(ctx.database)
+        await _drop_table_if_exists(ctx, "torrents")
+
+    if await _table_exists(ctx, "torrents"):
+        raise RuntimeError("legacy torrent storage still exists after cutover")
+    return True
+
+
+USENET_RELEASE_SCHEMA_MIGRATION = "2026080201_usenet_release_schema"
+
+USENET_TABLE_SPECS = (
+    NZB_ARTIFACTS_TABLE_SPEC,
+    NZB_CONTENTS_TABLE_SPEC,
+    NZB_ARTIFACT_GRANTS_TABLE_SPEC,
+    ARTIFACT_READER_LEASES_TABLE_SPEC,
+    ARTIFACT_PUBLICATION_LEASES_TABLE_SPEC,
+    NZB_PROVIDER_EXPORTS_TABLE_SPEC,
+    RENDERED_RELEASE_CANDIDATES_TABLE_SPEC,
+    RENDERED_RELEASE_LOCATORS_TABLE_SPEC,
+    PROVIDER_PREPARATIONS_TABLE_SPEC,
+    ASSET_PREPARATIONS_TABLE_SPEC,
+    ASSET_PREPARATION_ARTIFACTS_TABLE_SPEC,
+    CAPABILITY_VALIDATION_STATES_TABLE_SPEC,
+    SEARCH_COVERAGE_TABLE_SPEC,
+    RELEASE_CANDIDATES_TABLE_SPEC,
+    CANDIDATE_IDENTITIES_TABLE_SPEC,
+    CANDIDATE_REDIRECTS_TABLE_SPEC,
+    RELEASE_LOCATORS_TABLE_SPEC,
+    RELEASE_LOCATOR_COVERAGE_TABLE_SPEC,
+    PROVIDER_GOVERNOR_WINDOWS_TABLE_SPEC,
+    PROVIDER_GOVERNOR_LEASES_TABLE_SPEC,
+    PROVIDER_RESOLUTION_CACHE_TABLE_SPEC,
+)
+
+
+async def _ensure_usenet_schema(ctx: MigrationContext):
+    """Create the tables shared by Usenet discovery and playback."""
+    for spec in USENET_TABLE_SPECS:
+        await _ensure_managed_table(ctx, spec)
+
+
+async def _ensure_operator_schema(ctx: MigrationContext):
+    for spec in (
+        OPERATOR_SETTINGS_TABLE_SPEC,
+        OPERATOR_SETTINGS_STATE_TABLE_SPEC,
+        OPERATOR_SETTINGS_REVISIONS_TABLE_SPEC,
+        OPERATOR_SETTINGS_AUDIT_TABLE_SPEC,
+        OPERATOR_GENERATED_SECRETS_TABLE_SPEC,
+        OPERATOR_SESSION_REVOCATIONS_TABLE_SPEC,
+        RUNTIME_INSTANCES_TABLE_SPEC,
+        RUNTIME_PROCESSES_TABLE_SPEC,
+    ):
+        await _ensure_managed_table(ctx, spec)
+    await ctx.database.execute(
+        """
+        INSERT INTO operator_settings_state (id, current_revision)
+        VALUES (1, 0)
+        ON CONFLICT (id) DO NOTHING
+        """
+    )
+
+
+async def _ensure_operations_schema(ctx: MigrationContext):
+    await _ensure_managed_table(ctx, OPERATIONAL_EVENT_STATE_TABLE_SPEC)
+    await _ensure_managed_table(ctx, OPERATIONAL_EVENTS_TABLE_SPEC)
+    await ctx.database.execute(
+        """
+        INSERT INTO operational_event_state (
+            id, current_event_id, dropped_events
+        ) VALUES (1, 0, 0)
+        ON CONFLICT (id) DO NOTHING
+        """
+    )
+    await _ensure_managed_table(ctx, PROXY_ACTIVE_CONNECTIONS_TABLE_SPEC)
+    await _ensure_managed_table(ctx, PROXY_CONNECTION_HISTORY_TABLE_SPEC)
+    await _ensure_managed_table(ctx, PROXY_TRAFFIC_SAMPLES_TABLE_SPEC)
+    await _ensure_managed_table(ctx, OPERATOR_COMMANDS_TABLE_SPEC)
+    await _ensure_managed_table(ctx, BACKGROUND_SCRAPER_RUNTIMES_TABLE_SPEC)
+    for spec in (
+        USENET_ENGINE_RUNTIMES_TABLE_SPEC,
+        USENET_ACTIVE_OPERATIONS_TABLE_SPEC,
+        USENET_OPERATION_HISTORY_TABLE_SPEC,
+    ):
+        await _ensure_managed_table(ctx, spec)
+
+
+async def _upgrade_download_link_cache(ctx: MigrationContext):
+    await _ensure_managed_table(
+        ctx, DOWNLOAD_LINKS_CACHE_TABLE_SPEC, ensure_indexes=False
+    )
+    await _drop_index_if_exists(ctx, "unq_download_links_scope_v3")
+    for index_sql in _render_index_sql(DOWNLOAD_LINKS_CACHE_TABLE_SPEC):
+        await _ensure_index(ctx, index_sql)
+
+
+async def _migration_usenet_release_schema(ctx: MigrationContext):
+    """Upgrade the last public schema directly to the Usenet release schema."""
+    await _ensure_usenet_schema(ctx)
+    await _ensure_operator_schema(ctx)
+    await _ensure_operations_schema(ctx)
+    await _upgrade_download_link_cache(ctx)
+    await _migration_remove_legacy_torrent_storage(ctx)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1018,4 +1186,5 @@ MIGRATIONS = [
         _migration_media_demand_scrape_coverage,
     ),
     ("2026072701_imdb_title_lookup", _migration_imdb_title_lookup),
+    (USENET_RELEASE_SCHEMA_MIGRATION, _migration_usenet_release_schema),
 ]

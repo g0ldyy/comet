@@ -1,0 +1,4 @@
+222 body follows
+..dot-stuffed
+payload
+.

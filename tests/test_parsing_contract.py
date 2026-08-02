@@ -7,7 +7,6 @@ from comet.utils.parsing import (
     parse_optional_int,
     resolve_media_scope,
 )
-from comet.utils.torrent_cache import build_torrent_cache_where
 
 
 class MediaIdContractTests(unittest.TestCase):
@@ -77,43 +76,66 @@ class MediaIdContractTests(unittest.TestCase):
             MediaScope.SEASON.granularity_priority(episode),
         )
 
-    def test_torrent_cache_scope_queries_follow_the_media_hierarchy(self):
-        series_where, series_params = build_torrent_cache_where(
-            "tt1234567", MediaScope.SERIES, None, None
-        )
-        season_where, season_params = build_torrent_cache_where(
-            "tt1234567", MediaScope.SEASON, 2, None
-        )
-        episode_where, episode_params = build_torrent_cache_where(
-            "tt1234567", MediaScope.EPISODE, 2, 3
-        )
-
-        self.assertNotIn("season =", series_where)
-        self.assertNotIn("episode =", series_where)
-        self.assertEqual(series_params, {"media_id": "tt1234567"})
-        self.assertIn("season =", season_where)
-        self.assertNotIn("episode =", season_where)
-        self.assertEqual(
-            season_params,
-            {"media_id": "tt1234567", "season": 2},
-        )
-        self.assertIn("season =", episode_where)
-        self.assertIn("episode =", episode_where)
-        self.assertEqual(
-            episode_params,
-            {"media_id": "tt1234567", "season": 2, "episode": 3},
-        )
-
     def test_optional_integer_accepts_only_current_path_form(self):
         self.assertIsNone(parse_optional_int("n"))
         self.assertIsNone(parse_optional_int(None))
         self.assertEqual(parse_optional_int("0"), 0)
         self.assertEqual(parse_optional_int("12"), 12)
+        self.assertEqual(parse_optional_int("65535"), 65_535)
 
-        for value in ("-1", "+1", "01", " 1", "1.0", True, 1):
+        for value in (
+            "-1",
+            "+1",
+            "01",
+            " 1",
+            "1.0",
+            "65536",
+            "9" * 10_000,
+            True,
+            1,
+        ):
             with self.subTest(value=value):
                 self.assertIsNone(parse_optional_int(value))
+
+    def test_media_ids_reject_values_outside_shared_storage_domains(self):
+        for media_type, media_id in (
+            ("series", "tt1234567:65536"),
+            ("series", "tt1234567:1:65536"),
+            ("movie", f"kitsu:{2**63}"),
+            ("movie", f"kitsu:{'9' * 10_000}"),
+        ):
+            with self.subTest(media_id=media_id), self.assertRaises(ValueError):
+                parse_media_id(media_type, media_id)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AirDateYearGuardTests(unittest.TestCase):
+    """str.isdigit() accepts digits int() then rejects; the year guard must screen ASCII."""
+
+    @staticmethod
+    def _parsed():
+        return SimpleNamespace(
+            seasons=(), episodes=(), date=None, year=2026, complete=True
+        )
+
+    def _match(self, air_date):
+        from comet.utils.parsing import match_parsed_episode_target
+
+        return match_parsed_episode_target(
+            self._parsed(),
+            1,
+            2,
+            target_air_date=air_date,
+            reject_unknown_episode_files=True,
+        )
+
+    def test_non_ascii_air_date_year_is_rejected_not_raised(self):
+        for air_date in ("\u00b2026-01-02", "\u0662026-01-02", "\uff12026-01-02"):
+            self.assertFalse(self._match(air_date))
+
+    def test_ascii_air_date_year_still_matches_and_mismatches(self):
+        self.assertTrue(self._match("2026-01-02"))
+        self.assertFalse(self._match("2019-01-02"))

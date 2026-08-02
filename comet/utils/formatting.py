@@ -4,9 +4,10 @@ from decimal import Decimal
 
 from RTN import ParsedData
 
-from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.languages import LANGUAGE_EMOJIS
+
+_MAX_SIGNED_64 = 2**63 - 1
 
 
 def normalize_info_hash(info_hash: str) -> str:
@@ -15,10 +16,8 @@ def normalize_info_hash(info_hash: str) -> str:
             info_hash = base64.b16encode(base64.b32decode(info_hash.upper())).decode(
                 "utf-8"
             )
-        except Exception:
-            logger.opt(exception=True).debug(
-                f"Failed to normalize base32 info_hash {info_hash!r} to hex"
-            )
+        except (ValueError, UnicodeError):
+            pass
 
     if len(info_hash) == 80:
         try:
@@ -27,10 +26,8 @@ def normalize_info_hash(info_hash: str) -> str:
             if len(decoded_str) == 40:
                 int(decoded_str, 16)  # Validate it's hex
                 info_hash = decoded_str
-        except Exception:
-            logger.opt(exception=True).debug(
-                f"Failed to validate hex/ascii info_hash {info_hash!r}"
-            )
+        except (ValueError, UnicodeError):
+            pass
 
     return info_hash.lower()
 
@@ -73,7 +70,10 @@ def size_to_bytes(size_str: str):
         return None
 
     multiplier = 1024 ** sizes.index(unit)
-    return int(value * multiplier)
+    size_bytes = value * multiplier
+    if not math.isfinite(size_bytes) or size_bytes > _MAX_SIGNED_64:
+        return None
+    return int(size_bytes)
 
 
 def get_language_emoji(language: str):
@@ -83,49 +83,17 @@ def get_language_emoji(language: str):
 def format_video_info(data: ParsedData):
     video_parts = []
 
-    if hasattr(data, "codec") and data.codec:
-        if isinstance(data.codec, list):
-            video_parts.extend(data.codec)
-        else:
-            video_parts.append(data.codec)
-    if hasattr(data, "hdr") and data.hdr:
-        video_parts.append(data.hdr) if isinstance(
-            data.hdr, str
-        ) else video_parts.extend(data.hdr)
-
-    if hasattr(data, "bitDepth") and data.bitDepth:
-        if isinstance(data.bitDepth, list):
-            video_parts.extend([f"{bd}bit" for bd in data.bitDepth])
-        else:
-            if data.bitDepth.endswith("bit"):
-                video_parts.append(data.bitDepth)
-            else:
-                video_parts.append(f"{data.bitDepth}bit")
-    elif hasattr(data, "bit_depth") and data.bit_depth:
-        if isinstance(data.bit_depth, list):
-            video_parts.extend([f"{bd}bit" for bd in data.bit_depth])
-        else:
-            if data.bit_depth.endswith("bit"):
-                video_parts.append(data.bit_depth)
-            else:
-                video_parts.append(f"{data.bit_depth}bit")
+    if data.codec:
+        video_parts.append(data.codec)
+    video_parts.extend(data.hdr)
+    if data.bit_depth:
+        video_parts.append(data.bit_depth)
 
     return " • ".join(video_parts) if video_parts else ""
 
 
 def format_audio_info(data: ParsedData):
-    audio_parts = []
-
-    if hasattr(data, "audio") and data.audio:
-        if isinstance(data.audio, list):
-            audio_parts.extend(data.audio)
-        else:
-            audio_parts.append(data.audio)
-    if hasattr(data, "channels") and data.channels:
-        if isinstance(data.channels, list):
-            audio_parts.extend(data.channels)
-        else:
-            audio_parts.append(data.channels)
+    audio_parts = [*data.audio, *data.channels]
 
     return " • ".join(audio_parts) if audio_parts else ""
 
@@ -133,44 +101,26 @@ def format_audio_info(data: ParsedData):
 def format_quality_info(data: ParsedData):
     quality_parts = []
 
-    if hasattr(data, "quality") and data.quality:
-        if isinstance(data.quality, list):
-            quality_parts.extend(data.quality)
-        else:
-            quality_parts.append(data.quality)
-    if hasattr(data, "remux") and data.remux:
-        quality_parts.append("REMUX")
-    if hasattr(data, "proper") and data.proper:
+    if data.quality:
+        quality_parts.append(data.quality)
+    if data.edition:
+        quality_parts.append(data.edition)
+    if data.proper:
         quality_parts.append("PROPER")
-    if hasattr(data, "repack") and data.repack:
+    if data.repack:
         quality_parts.append("REPACK")
-    if hasattr(data, "upscaled") and data.upscaled:
+    if data.upscaled:
         quality_parts.append("UPSCALED")
-    if hasattr(data, "remastered") and data.remastered:
+    if data.remastered:
         quality_parts.append("REMASTERED")
-    if (hasattr(data, "directorsCut") and data.directorsCut) or (
-        hasattr(data, "directors_cut") and data.directors_cut
-    ):
-        quality_parts.append("DIRECTOR'S CUT")
-    if hasattr(data, "extended") and data.extended:
+    if data.extended:
         quality_parts.append("EXTENDED")
 
     return " • ".join(quality_parts) if quality_parts else ""
 
 
 def format_group_info(data: ParsedData):
-    group_parts = []
-
-    if hasattr(data, "group") and data.group:
-        if isinstance(data.group, list):
-            group_parts.extend(data.group)
-        else:
-            group_parts.append(data.group)
-
-    return " • ".join(group_parts) if group_parts else ""
-
-
-comet_clean_tracker = settings.COMET_CLEAN_TRACKER
+    return data.group or ""
 
 
 _STYLE_EMOJI = {
@@ -242,18 +192,14 @@ def _get_formatted_components(
         components["size"] = style["size"].format(format_bytes(size))
 
     if (has_all or "tracker" in result_format) and tracker:
-        if comet_clean_tracker and tracker[:6] == "Comet|":
+        if settings.COMET_CLEAN_TRACKER and tracker[:6] == "Comet|":
             components["tracker"] = style["tracker_clean"].format(
                 tracker.rsplit("|", 1)[-1]
             )
         else:
             components["tracker"] = style["tracker"].format(tracker)
 
-    if (
-        (has_all or "languages" in result_format)
-        and hasattr(data, "languages")
-        and data.languages
-    ):
+    if (has_all or "languages" in result_format) and data.languages:
         lang_fmt = style["languages"]
         if lang_fmt is None:
             components["languages"] = "/".join(

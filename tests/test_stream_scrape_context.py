@@ -71,3 +71,31 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
         manager.scrape_torrents.assert_awaited_once_with(ScrapeContext.BACKGROUND)
         mark_scraped.assert_awaited_once_with("tt123")
         lock.release.assert_awaited_once()
+
+    async def test_background_scrape_failure_surfaces_after_lock_release(self):
+        manager = AsyncMock()
+        manager.scrape_torrents.side_effect = RuntimeError("scrape failed")
+        lock = AsyncMock()
+        lock.acquire.return_value = True
+
+        async def run(operation):
+            return await operation
+
+        lock.run.side_effect = run
+
+        with (
+            patch(
+                "comet.services.media_search.DistributedLock",
+                return_value=lock,
+            ),
+            self.assertRaisesRegex(RuntimeError, "scrape failed"),
+        ):
+            await background_scrape(
+                manager,
+                media_id="tt123",
+                debrid_entries=[],
+                ip="127.0.0.1",
+                session=None,
+            )
+
+        lock.release.assert_awaited_once()

@@ -55,7 +55,7 @@ Or with Docker:
 docker compose up -d
 ```
 
-**You're done!** Check the logs for "CometNet started".
+**You're done!** Check for the stable `cometnet.ready` event.
 
 ---
 
@@ -105,6 +105,9 @@ sudo ufw allow 8765/tcp
 Add to your Nginx config:
 
 ```nginx
+access_log off;
+error_log /dev/stderr crit;
+
 location /cometnet/ws {
     proxy_pass http://127.0.0.1:8765;
     proxy_http_version 1.1;
@@ -131,6 +134,10 @@ You're running multiple Comet workers or replicas. Use Relay Mode.
 ### Step 1: Add standalone service to Docker Compose
 
 ```yaml
+x-logging: &default-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   # ... your existing comet service ...
   
@@ -138,6 +145,7 @@ services:
     image: g0ldyy/comet
     container_name: cometnet
     restart: unless-stopped
+    logging: *default-logging
     entrypoint: ["python", "-m", "comet.cometnet.standalone"]
     ports:
       - "8765:8765"
@@ -146,7 +154,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       COMETNET_BOOTSTRAP_NODES: '["wss://bootstrap.example.com:8765"]'
       COMETNET_ADVERTISE_URL: wss://comet.yourdomain.com:8765
-      COMETNET_API_KEY: "your-secret-key"
+      COMETNET_API_KEY: ${COMETNET_API_KEY:?COMETNET_API_KEY must be set}
     volumes:
       - cometnet_data:/app/data
     env_file:
@@ -162,9 +170,10 @@ Add to your `.env`:
 
 ```env
 COMETNET_RELAY_URL=http://cometnet:8766
-COMETNET_API_KEY="your-secret-key"
+COMETNET_API_KEY=replace-with-the-same-strong-random-key
 ```
 
+Relay and clients must use the same explicit key.
 Remove any `COMETNET_ENABLED` setting - it's ignored when using relay.
 
 ### Step 3: Deploy
@@ -209,12 +218,17 @@ Your node will only communicate with other nodes in the same private network.
 
 ### Check the logs
 
-Look for:
+Look for stable lifecycle events:
 ```
-CometNet started - Node ID: abc123...
-Discovery service started with 2 known peers
-Connected to peer def456...
+cometnet.ready
+cometnet.start.failed
+cometnet.degraded
+cometnet.recovered
+cometnet.stopped
 ```
+
+Node identities, peer addresses and pool identifiers are intentionally absent.
+Use the admin metrics for current peer counts.
 
 ### Check the Admin Dashboard
 

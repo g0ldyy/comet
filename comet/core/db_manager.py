@@ -1,19 +1,135 @@
 import asyncio
 import gzip
+import json
+import os
 import random
+import re
+import secrets
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
-import aiofiles
 import orjson
 from databases import Database
 
 from comet.core.database import IS_SQLITE
-from comet.core.logger import logger
 from comet.core.models import settings
+
+_DATABASE_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}")
+_MAX_IMPORT_METADATA_BYTES = 64 * 1024
+_MAX_IMPORT_ROW_BYTES = 8 * 1024 * 1024
+_MAX_IMPORT_OBJECT_KEYS = 1_024
+_MAX_EXPORT_CHUNK_BYTES = 8 * 1024 * 1024
+_MAX_DATABASE_BATCH_SIZE = 100_000
+_OVERSIZED_RECORD = object()
+
+
+def _validate_identifier(value: str, *, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or _DATABASE_IDENTIFIER_PATTERN.fullmatch(value) is None
+    ):
+        raise ValueError(f"{field} is not a canonical database identifier")
+    return value
+
+
+def _json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key not in result and len(result) >= _MAX_IMPORT_OBJECT_KEYS:
+            raise ValueError("too many JSON keys")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value):
+    raise ValueError("invalid JSON constant")
+
+
+def _decode_json_object(document: bytes) -> dict:
+    try:
+        payload = json.loads(
+            document.decode("utf-8"),
+            object_pairs_hook=_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise ValueError("invalid import JSON object") from None
+    if not isinstance(payload, dict):
+        raise ValueError("invalid import JSON object")
+    return payload
+
+
+def _read_bounded_record(stream: BinaryIO, maximum: int):
+    document = stream.readline(maximum + 1)
+    if not document:
+        return None
+    if len(document) <= maximum:
+        return document.strip()
+
+    while document and not document.endswith(b"\n"):
+        document = stream.readline(maximum + 1)
+    return _OVERSIZED_RECORD
+
+
+def _iter_bounded_records(stream: BinaryIO, maximum: int) -> Iterator[bytes | None]:
+    while True:
+        document = _read_bounded_record(stream, maximum)
+        if document is None:
+            return
+        if document is _OVERSIZED_RECORD:
+            yield None
+        else:
+            yield document
+
+
+def _normalize_batch_size(value: int) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= _MAX_DATABASE_BATCH_SIZE
+    ):
+        raise ValueError(
+            f"database batch size must be between 1 and {_MAX_DATABASE_BATCH_SIZE}"
+        )
+    return value
+
+
+def _open_private_output(path: Path):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return os.fdopen(os.open(path, flags, 0o600), "wb")
+
+
+def _fsync_directory(directory: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(directory, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+async def _run_file_io(function, *args, **kwargs):
+    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        try:
+            await task
+        except Exception:
+            pass
+        raise
 
 
 @dataclass
@@ -29,11 +145,9 @@ class TableInfo:
 class ImportStats:
     table: str
     total_rows: int
-    inserted_rows: int
-    skipped_rows: int
+    processed_rows: int
     error_rows: int
     duration_seconds: float
-    conflicts_resolved: int = 0
 
 
 @dataclass
@@ -47,14 +161,18 @@ class ExportStats:
 class DatabaseManager:
     def __init__(self, database: Database):
         self.database = database
-        self.batch_size = settings.DATABASE_BATCH_SIZE
+        self.batch_size = _normalize_batch_size(settings.DATABASE_BATCH_SIZE)
         self._lock_retry_count = 0
 
     async def _get_sqlite_table_info(self, table_name: str) -> TableInfo:
+        table_name = _validate_identifier(table_name, field="table name")
         columns_result = await self.database.fetch_all(
             f"PRAGMA table_info({table_name})"
         )
-        columns = [row["name"] for row in columns_result]
+        columns = [
+            _validate_identifier(row["name"], field="column name")
+            for row in columns_result
+        ]
         primary_key = [row["name"] for row in columns_result if row["pk"]]
 
         indexes_result = await self.database.fetch_all(
@@ -65,7 +183,7 @@ class DatabaseManager:
             if not index["unique"]:
                 continue
 
-            index_name = index["name"]
+            index_name = _validate_identifier(index["name"], field="index name")
             index_info = await self.database.fetch_all(
                 f"PRAGMA index_info({index_name})"
             )
@@ -93,6 +211,7 @@ class DatabaseManager:
         )
 
     async def _get_postgres_table_info(self, table_name: str) -> TableInfo:
+        table_name = _validate_identifier(table_name, field="table name")
         columns_result = await self.database.fetch_all(
             """
             SELECT column_name
@@ -171,6 +290,7 @@ class DatabaseManager:
         )
 
     async def get_table_info(self, table_name: str):
+        table_name = _validate_identifier(table_name, field="table name")
         table_info = (
             await self._get_sqlite_table_info(table_name)
             if IS_SQLITE
@@ -193,6 +313,12 @@ class DatabaseManager:
         offset: int,
         last_primary_key: tuple | None = None,
     ) -> tuple[str, dict]:
+        table_name = _validate_identifier(table_name, field="table name")
+        primary_key = [
+            _validate_identifier(column, field="primary-key column")
+            for column in primary_key
+        ]
+        batch_size = _normalize_batch_size(batch_size)
         params = {"batch_size": batch_size}
         if primary_key:
             where_clause = ""
@@ -244,8 +370,18 @@ class DatabaseManager:
                 offset += len(rows)
 
     @staticmethod
-    def _serialize_export_rows(rows) -> bytes:
-        return b"\n".join(orjson.dumps(dict(row)) for row in rows) + b"\n"
+    def _serialize_export_chunks(rows) -> Iterator[bytes]:
+        chunk = bytearray()
+        for row in rows:
+            document = orjson.dumps(dict(row)) + b"\n"
+            if len(document) > _MAX_IMPORT_ROW_BYTES:
+                raise ValueError("database row exceeds the export record limit")
+            if chunk and len(chunk) + len(document) > _MAX_EXPORT_CHUNK_BYTES:
+                yield bytes(chunk)
+                chunk.clear()
+            chunk.extend(document)
+        if chunk:
+            yield bytes(chunk)
 
     async def list_tables(self):
         if IS_SQLITE:
@@ -272,10 +408,9 @@ class DatabaseManager:
         batch_size: int | None = None,
     ):
         start_time = time.time()
-        batch_size = batch_size or self.batch_size
-
-        logger.log(
-            "DB_EXPORT", f"Starting export of table '{table_name}' to {output_file}"
+        table_name = _validate_identifier(table_name, field="table name")
+        batch_size = _normalize_batch_size(
+            self.batch_size if batch_size is None else batch_size
         )
 
         table_info = await self.get_table_info(table_name)
@@ -287,21 +422,38 @@ class DatabaseManager:
             "export_timestamp": datetime.now(UTC).isoformat(),
         }
         metadata_payload = orjson.dumps(metadata) + b"\n"
-
-        if compress:
-            with gzip.open(output_file, "wb") as output:
-                await asyncio.to_thread(output.write, metadata_payload)
-                async for rows in self._iter_export_batches(table_info, batch_size):
-                    await asyncio.to_thread(
-                        output.write, self._serialize_export_rows(rows)
-                    )
-                    exported_rows += len(rows)
-        else:
-            async with aiofiles.open(output_file, "wb") as output:
-                await output.write(metadata_payload)
-                async for rows in self._iter_export_batches(table_info, batch_size):
-                    await output.write(self._serialize_export_rows(rows))
-                    exported_rows += len(rows)
+        temporary = output_file.with_name(
+            f".{output_file.name}.{secrets.token_hex(8)}.tmp"
+        )
+        raw_output = None
+        output = None
+        try:
+            raw_output = _open_private_output(temporary)
+            output = (
+                gzip.GzipFile(fileobj=raw_output, mode="wb") if compress else raw_output
+            )
+            await _run_file_io(output.write, metadata_payload)
+            async for rows in self._iter_export_batches(table_info, batch_size):
+                for chunk in self._serialize_export_chunks(rows):
+                    await _run_file_io(output.write, chunk)
+                exported_rows += len(rows)
+            if output is not raw_output:
+                await _run_file_io(output.close)
+                output = None
+            await _run_file_io(raw_output.flush)
+            await _run_file_io(os.fsync, raw_output.fileno())
+            if output is raw_output:
+                output = None
+            await _run_file_io(raw_output.close)
+            raw_output = None
+            await _run_file_io(os.replace, temporary, output_file)
+            await _run_file_io(_fsync_directory, output_file.parent)
+        finally:
+            if output is not None and output is not raw_output:
+                await _run_file_io(output.close)
+            if raw_output is not None:
+                await _run_file_io(raw_output.close)
+            await _run_file_io(temporary.unlink, missing_ok=True)
 
         file_size_mb = output_file.stat().st_size / (1024 * 1024)
         duration = time.time() - start_time
@@ -316,7 +468,12 @@ class DatabaseManager:
         return stats
 
     def _build_upsert_query(self, table_info: TableInfo, columns: list[str]):
-        table_name = table_info.name
+        table_name = _validate_identifier(table_info.name, field="table name")
+        columns = [
+            _validate_identifier(column, field="column name") for column in columns
+        ]
+        if not columns:
+            raise ValueError("import contains no known columns")
         placeholders = ", ".join([":" + col for col in columns])
 
         return f"""
@@ -332,46 +489,53 @@ class DatabaseManager:
         batch_size: int | None = None,
     ):
         start_time = time.time()
-        batch_size = batch_size or self.batch_size
-
-        logger.log("DB_IMPORT", f"Starting import from {input_file}")
+        batch_size = _normalize_batch_size(
+            self.batch_size if batch_size is None else batch_size
+        )
 
         is_compressed = input_file.suffix.lower() == ".gz"
         file_opener = gzip.open if is_compressed else open
-        mode = "rt" if is_compressed else "r"
+        mode = "rb"
 
-        with file_opener(input_file, mode, encoding="utf-8") as f:
-            metadata_line = f.readline().strip()
-            metadata = orjson.loads(metadata_line)
+        with file_opener(input_file, mode) as f:
+            metadata_line = _read_bounded_record(f, _MAX_IMPORT_METADATA_BYTES)
+            if metadata_line is None or metadata_line is _OVERSIZED_RECORD:
+                raise ValueError("invalid import metadata")
+            metadata = _decode_json_object(metadata_line)
 
-            actual_table_name = table_name or metadata["table_name"]
+            metadata_table_name = metadata.get("table_name")
+            if not isinstance(metadata_table_name, str):
+                raise ValueError("invalid import table name")
+            actual_table_name = _validate_identifier(
+                table_name or metadata_table_name,
+                field="table name",
+            )
 
             table_info = await self.get_table_info(actual_table_name)
 
             total_rows = 0
-            inserted_rows = 0
-            skipped_rows = 0
+            processed_rows = 0
             error_rows = 0
-            conflicts_resolved = 0
 
-            all_columns = {}
+            import_column_map = {}
+            known_columns = set(table_info.columns)
 
             # First pass: collect all unique columns from the data
             current_pos = f.tell()
-            for line in f:
-                line = line.strip()
+            for line in _iter_bounded_records(f, _MAX_IMPORT_ROW_BYTES):
                 if not line:
+                    if line is None:
+                        total_rows += 1
                     continue
 
                 total_rows += 1
                 try:
-                    row_data = orjson.loads(line)
-                    if not isinstance(row_data, dict):
-                        raise ValueError("import row must be a JSON object")
+                    row_data = _decode_json_object(line)
                     for column in row_data:
-                        all_columns.setdefault(column, None)
+                        if column in known_columns:
+                            import_column_map.setdefault(column, None)
 
-                except (orjson.JSONDecodeError, ValueError):
+                except ValueError:
                     # The second pass reports malformed rows exactly once.
                     continue
 
@@ -379,38 +543,26 @@ class DatabaseManager:
             f.seek(current_pos)
 
             # Filter columns to only those that exist in the target table
-            import_columns = [col for col in all_columns if col in table_info.columns]
-            missing_columns = set(all_columns) - set(table_info.columns)
-
-            if missing_columns:
-                logger.log("DB_IMPORT", f"Skipping missing columns: {missing_columns}")
-
-            logger.log(
-                "DB_IMPORT",
-                f"Importing {len(import_columns)} columns: {import_columns}",
-            )
+            import_columns = list(import_column_map)
 
             # Build upsert query
             upsert_query = self._build_upsert_query(table_info, import_columns)
-            logger.log(
-                "DB_IMPORT", f"Using query strategy: {upsert_query.split()[0:6]}"
-            )  # Log first part
 
             # Process data in batches with adaptive batch size
             current_batch = []
             row_count = 0
             adaptive_batch_size = batch_size
 
-            for line in f:
-                line = line.strip()
+            for line in _iter_bounded_records(f, _MAX_IMPORT_ROW_BYTES):
                 if not line:
+                    if line is None:
+                        row_count += 1
+                        error_rows += 1
                     continue
 
                 row_count += 1
                 try:
-                    row_data = orjson.loads(line)
-                    if not isinstance(row_data, dict):
-                        raise ValueError("import row must be a JSON object")
+                    row_data = _decode_json_object(line)
 
                     # Filter to import columns only
                     filtered_row = {col: row_data.get(col) for col in import_columns}
@@ -419,21 +571,18 @@ class DatabaseManager:
 
                     # Process batch when it reaches the adaptive batch size
                     if len(current_batch) >= adaptive_batch_size:
-                        batch_inserted = await self._process_batch(
-                            upsert_query, current_batch, table_info.name
+                        batch_processed = await self._process_batch(
+                            upsert_query,
+                            current_batch,
                         )
-                        inserted_rows += batch_inserted
-                        conflicts_resolved += len(current_batch) - batch_inserted
+                        processed_rows += batch_processed
+                        error_rows += len(current_batch) - batch_processed
                         current_batch = []
 
                         # Adjust batch sizes according to locking issues
                         if self._lock_retry_count > 3:
                             # Reduce batch sizes if there are too many locking issues
                             adaptive_batch_size = max(1000, adaptive_batch_size // 2)
-                            logger.log(
-                                "DB_IMPORT",
-                                f"Reducing batch size to {adaptive_batch_size} due to lock contention",
-                            )
                             self._lock_retry_count = 0
                         elif (
                             self._lock_retry_count == 0
@@ -444,39 +593,28 @@ class DatabaseManager:
                                 batch_size, int(adaptive_batch_size * 1.5)
                             )
 
-                except orjson.JSONDecodeError as e:
+                except ValueError:
                     error_rows += 1
-                    logger.log(
-                        "DB_IMPORT", f"JSON decode error on row {row_count}: {e}"
-                    )
-                except Exception as e:
+                except Exception:
                     error_rows += 1
-                    logger.log("DB_IMPORT", f"Error processing row {row_count}: {e}")
 
             # Process final batch
             if current_batch:
-                batch_inserted = await self._process_batch(
-                    upsert_query, current_batch, table_info.name
+                batch_processed = await self._process_batch(
+                    upsert_query,
+                    current_batch,
                 )
-                inserted_rows += batch_inserted
-                conflicts_resolved += len(current_batch) - batch_inserted
-
-                if adaptive_batch_size != batch_size:
-                    logger.log(
-                        "DB_IMPORT",
-                        f"Final batch size was {adaptive_batch_size} (started with {batch_size}) due to lock contention",
-                    )
+                processed_rows += batch_processed
+                error_rows += len(current_batch) - batch_processed
 
         duration = time.time() - start_time
 
         stats = ImportStats(
             table=actual_table_name,
             total_rows=total_rows,
-            inserted_rows=inserted_rows,
-            skipped_rows=skipped_rows,
+            processed_rows=processed_rows,
             error_rows=error_rows,
             duration_seconds=duration,
-            conflicts_resolved=conflicts_resolved,
         )
 
         return stats
@@ -503,33 +641,23 @@ class DatabaseManager:
 
                     if attempt < max_retries:
                         wait_time = min(16, (2**attempt)) + random.uniform(0.1, 0.5)
-                        logger.log(
-                            "DB_IMPORT",
-                            f"Database locked, retry {attempt + 1}/{max_retries} in {wait_time:.1f}s (lock_count: {self._lock_retry_count})",
-                        )
                         await asyncio.sleep(wait_time)
                         continue
                     else:
-                        logger.log(
-                            "DB_IMPORT",
-                            f"Database still locked after {max_retries} retries, falling back to individual inserts",
-                        )
                         raise
                 else:
-                    logger.log("DB_IMPORT", f"Non-recoverable batch error: {e}")
                     raise
 
         return 0
 
-    async def _process_batch(self, query: str, batch_data: list[dict], table_name: str):
+    async def _process_batch(self, query: str, batch_data: list[dict]):
         if not batch_data:
             return 0
 
         try:
             return await self._process_batch_with_retry(query, batch_data)
 
-        except Exception as e:
-            logger.log("DB_IMPORT", f"Batch processing failed definitively: {e}")
+        except Exception:
             return await self._process_batch_individual(query, batch_data)
 
     async def _process_batch_individual(self, query: str, batch_data: list[dict]):
@@ -550,8 +678,6 @@ class DatabaseManager:
         parallel: bool = True,
     ):
         output_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.log("DB_EXPORT", f"Exporting {len(table_names)} tables to {output_dir}")
 
         async def export_single_table(table_name: str):
             suffix = ".json.gz" if compress else ".json"
@@ -591,16 +717,7 @@ class DatabaseManager:
                     filtered_files.append(file_path)
             export_files = filtered_files
 
-        logger.log(
-            "DB_IMPORT", f"Importing {len(export_files)} tables from {input_dir}"
-        )
-
         if parallel and IS_SQLITE:
-            logger.log(
-                "DB_IMPORT",
-                "SQLite detected, forcing sequential processing to prevent lock contention",
-            )
-
             results = []
             for file_path in export_files:
                 result = await self.import_table(file_path)

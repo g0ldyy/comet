@@ -3,14 +3,30 @@ import time
 
 from RTN import DefaultRanking, ParsedData
 
+from comet.core.capabilities import (
+    CapabilityPlan,
+    EligibleDiscovery,
+    EligibleProvider,
+)
 from comet.core.execution import get_executor
-from comet.core.logger import logger
 from comet.core.models import CometSettingsModel, database, settings
 from comet.core.scrape import ScrapeContext
-from comet.scrapers.manager import scraper_manager
-from comet.scrapers.models import ScrapeRequest
-from comet.services.filtering import filter_worker
-from comet.services.ranking import rank_worker
+from comet.core.sources import (
+    ReleaseCandidate,
+    TorrentLocator,
+    TransportKind,
+)
+from comet.discovery.manager import SearchCoordinator
+from comet.discovery.models import MediaQuery
+from comet.discovery.torrent_models import ScrapeRequest
+from comet.discovery.torrent_registry import torrent_adapter_registry
+from comet.discovery.torrent_repository import (
+    TorrentReleaseRepository,
+)
+from comet.observability import current_request_id
+from comet.observability.logging import log
+from comet.services.filtering import filter_release_records
+from comet.services.ranking import rank_release_records
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.languages import select_indexer_titles
 from comet.utils.media_ids import normalize_cache_media_ids
@@ -21,42 +37,9 @@ from comet.utils.parsing import (
     load_cached_string_list,
     resolve_media_scope,
 )
-from comet.utils.torrent_cache import build_torrent_cache_where, normalize_search_params
 
 
-def _is_optional_int(value: object) -> bool:
-    return value is None or type(value) is int
-
-
-def _is_current_scrape_result(torrent: object) -> bool:
-    if not isinstance(torrent, dict):
-        return False
-
-    required_keys = {
-        "title",
-        "infoHash",
-        "fileIndex",
-        "seeders",
-        "size",
-        "tracker",
-        "sources",
-    }
-    return (
-        required_keys <= torrent.keys()
-        and isinstance(torrent["title"], str)
-        and bool(torrent["title"])
-        and isinstance(torrent["infoHash"], str)
-        and bool(torrent["infoHash"])
-        and _is_optional_int(torrent["fileIndex"])
-        and _is_optional_int(torrent["seeders"])
-        and _is_optional_int(torrent["size"])
-        and isinstance(torrent["tracker"], str)
-        and isinstance(torrent["sources"], list)
-        and all(isinstance(source, str) for source in torrent["sources"])
-    )
-
-
-class TorrentManager:
+class TorrentResultAccumulator:
     def __init__(
         self,
         media_type: str,
@@ -85,9 +68,8 @@ class TorrentManager:
         self.year_end = year_end
         self.season = season
         self.episode = episode
-        search = normalize_search_params(season, episode, search_season, search_episode)
-        self.search_episode = search.episode
-        self.search_season = search.season
+        self.search_episode = search_episode if search_episode is not None else episode
+        self.search_season = search_season if search_season is not None else season
         self.media_scope = (
             resolve_media_scope(media_type, season, episode)
             if media_scope is None
@@ -152,20 +134,64 @@ class TorrentManager:
                 include_original=settings.INDEXER_INCLUDE_ORIGINAL_TITLE,
             ),
         )
-        titles = " · ".join(f"“{title}”" for title in request.query_titles)
-        logger.log(
-            "SCRAPER",
-            f"🔤 Indexer titles ({len(request.query_titles)}): {titles}",
+        adapters = torrent_adapter_registry.build_adapters(request)
+        source_ids = tuple(adapters)
+        discovery = tuple(
+            EligibleDiscovery(
+                configuration_id,
+                frozenset({TransportKind.BITTORRENT}),
+            )
+            for configuration_id in source_ids
         )
-
-        async for scraper_name, results, response_time in scraper_manager.scrape_all(
-            request
-        ):
-            await self.filter_manager(scraper_name, results, response_time)
+        plan = CapabilityPlan(
+            frozenset({TransportKind.BITTORRENT}),
+            source_ids,
+            (EligibleProvider("direct_torrent", "direct_torrent", 0),),
+            (),
+            discovery,
+        )
+        hard_timeout = (
+            8.0
+            if context is ScrapeContext.LIVE
+            else max(
+                (adapter.discovery_timeout for adapter in adapters.values()),
+                default=8.0,
+            )
+        )
+        discovery_result = await SearchCoordinator(
+            adapters,
+            hard_timeout=hard_timeout,
+        ).search(
+            MediaQuery(
+                media_id=self.media_only_id,
+                media_type=self.media_type,
+                season=self.search_season,
+                episode=self.search_episode,
+                title_aliases=request.query_titles,
+                year=self.year,
+                request_media_id=self.media_id,
+                title=self.title,
+                year_end=self.year_end,
+                search_titles=request.query_titles,
+            ),
+            plan,
+            trace_id=current_request_id(),
+            work_class=context,
+        )
+        await self.filter_manager(
+            [
+                self._candidate_scrape_result(candidate)
+                for candidate in discovery_result.candidates
+            ],
+        )
 
         await self.cache_torrents()
 
-        for torrent in self.ready_to_cache:
+        self._publish_ready_torrents(self.ready_to_cache)
+
+    def _publish_ready_torrents(self, torrents: list[dict]) -> None:
+        """Expose already-filtered releases through the legacy torrent view."""
+        for torrent in torrents:
             if not self._matches_requested_scope(torrent["parsed"]):
                 continue
 
@@ -181,18 +207,64 @@ class TorrentManager:
                 "updatedAt": self.live_result_timestamp,
             }
 
+    async def ingest_release_candidates(
+        self, source_id: str, candidates: tuple[ReleaseCandidate, ...]
+    ) -> None:
+        """Send discovered BitTorrent candidates through the existing pipeline."""
+        scrape_results = [
+            self._candidate_scrape_result(candidate, source_id)
+            for candidate in candidates
+            if candidate.transport is TransportKind.BITTORRENT
+        ]
+        if not scrape_results:
+            return
+
+        ready_count = len(self.ready_to_cache)
+        await self.filter_manager(scrape_results)
+        new_ready = self.ready_to_cache[ready_count:]
+        if new_ready:
+            await self.cache_torrents(new_ready)
+        self._publish_ready_torrents(new_ready)
+
+    @staticmethod
+    def _candidate_scrape_result(
+        candidate: ReleaseCandidate,
+        source_id: str = "Discovery",
+    ) -> dict:
+        if candidate.transport is not TransportKind.BITTORRENT:
+            raise ValueError("torrent pipeline received a non-torrent candidate")
+        if len(candidate.locators) != 1 or not isinstance(
+            candidate.locators[0], TorrentLocator
+        ):
+            raise ValueError("torrent candidate requires one torrent locator")
+        locator = candidate.locators[0]
+        seeders = candidate.transport_stats.get("seeders")
+        if seeders is not None and type(seeders) is not int:
+            raise ValueError("torrent candidate seeders are invalid")
+        tracker_sources = candidate.transport_stats.get("tracker_sources")
+        if tracker_sources is None:
+            tracker_sources = ()
+        elif not isinstance(tracker_sources, tuple) or not all(
+            isinstance(value, str) for value in tracker_sources
+        ):
+            raise ValueError("torrent candidate tracker sources are invalid")
+        return {
+            "title": candidate.title,
+            "infoHash": locator.info_hash,
+            "fileIndex": locator.file_index,
+            "seeders": seeders,
+            "size": candidate.size,
+            "tracker": candidate.source or source_id,
+            "sources": list(tracker_sources),
+        }
+
     async def _fetch_cached_rows(self, media_id: str):
-        where_clause, params = build_torrent_cache_where(
+        return await TorrentReleaseRepository(database).load_cache_rows(
             media_id,
             self.media_scope,
             self.search_season,
             self.search_episode,
         )
-        query = (
-            "SELECT info_hash, file_index, title, seeders, size, tracker, sources_json, parsed_json, episode, updated_at "
-            + where_clause
-        )
-        return await database.fetch_all(query, params)
 
     async def get_cached_torrents(self):
         rows = []
@@ -221,7 +293,7 @@ class TorrentManager:
                 )
                 has_file_index = row["file_index"] is not None
                 has_specific_title = bool(row["title"])
-                updated_at = row["updated_at"] or 0
+                updated_at = row["updated_at"]
                 return (
                     preferred_scope,
                     has_file_index,
@@ -240,9 +312,6 @@ class TorrentManager:
         for row in rows:
             parsed_data = load_cached_parsed(row["parsed_json"])
             if parsed_data is None:
-                logger.warning(
-                    f"Skipping torrent cache row with invalid parsed data: {row['info_hash']}"
-                )
                 continue
             ensure_multi_language(parsed_data)
 
@@ -317,9 +386,9 @@ class TorrentManager:
                 }
             )
 
-    async def cache_torrents(self):
+    async def cache_torrents(self, torrents: list[dict] | None = None):
         file_infos = []
-        for torrent in self.ready_to_cache:
+        for torrent in self.ready_to_cache if torrents is None else torrents:
             self._append_cache_file_infos(file_infos, torrent)
 
         if file_infos:
@@ -327,44 +396,19 @@ class TorrentManager:
 
     async def filter_manager(
         self,
-        scraper_name: str,
-        torrents: object,
-        response_time: float | None = None,
+        torrents: list[dict],
     ):
-        timing = f" Took {response_time:.2f}s." if response_time is not None else ""
-        if not isinstance(torrents, list):
-            logger.warning(
-                f"Scraper {scraper_name} returned an invalid result container.{timing}"
-            )
-            return
-
         if len(torrents) == 0:
-            logger.log("SCRAPER", f"Scraper {scraper_name} found 0 torrents.{timing}")
             return
-
-        valid_torrents = [
-            torrent for torrent in torrents if _is_current_scrape_result(torrent)
-        ]
-        if len(valid_torrents) != len(torrents):
-            logger.warning(
-                f"Scraper {scraper_name} returned "
-                f"{len(torrents) - len(valid_torrents)} invalid torrents."
-            )
 
         new_torrents = [
             torrent
-            for torrent in valid_torrents
+            for torrent in torrents
             if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
         ]
 
         self.seen_hashes.update(
             (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
-        )
-
-        logger.log(
-            "SCRAPER",
-            f"Scraper {scraper_name} found {len(torrents)} torrents, "
-            f"{len(new_torrents)} new.{timing}",
         )
 
         if not new_torrents:
@@ -375,7 +419,7 @@ class TorrentManager:
         tasks = [
             loop.run_in_executor(
                 get_executor(),
-                filter_worker,
+                filter_release_records,
                 new_torrents[i : i + chunk_size],
                 self.title,
                 self.year,
@@ -383,6 +427,7 @@ class TorrentManager:
                 self.media_type,
                 self.aliases,
                 self.remove_adult_content,
+                self.media_id,
             )
             for i in range(0, len(new_torrents), chunk_size)
         ]
@@ -398,10 +443,12 @@ class TorrentManager:
         max_size: int,
         remove_trash: int,
     ):
+        started_at = time.monotonic_ns()
+        candidate_count = len(self.torrents)
         loop = asyncio.get_running_loop()
         ranked_torrents = await loop.run_in_executor(
             get_executor(),
-            rank_worker,
+            rank_release_records,
             self.torrents,
             rtn_settings,
             rtn_ranking,
@@ -418,3 +465,11 @@ class TorrentManager:
                 reverse=True,
             )
         self.ranked_torrents = ranked_torrents
+        log.info(
+            "filter.ranking.completed",
+            "Release ranking completed",
+            content_id=self.media_id,
+            candidate_count=candidate_count,
+            result_count=len(ranked_torrents),
+            duration_ms=(time.monotonic_ns() - started_at) / 1_000_000,
+        )

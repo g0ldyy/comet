@@ -1,11 +1,11 @@
 import asyncio
+import math
 import time
 import uuid
 from collections.abc import Awaitable
 from typing import TypeVar
 
-from comet.core.database import database, fetch_flag
-from comet.core.logger import logger
+from comet.core.database import database as default_database
 from comet.core.models import settings
 
 _ACQUIRE_OR_REFRESH_LOCK_QUERY = """
@@ -20,6 +20,25 @@ _ACQUIRE_OR_REFRESH_LOCK_QUERY = """
     RETURNING 1
 """
 _T = TypeVar("_T")
+_MAX_LOCK_KEY_BYTES = 512
+_MAX_LOCK_SECONDS = 86_400
+
+
+def _bounded_seconds(
+    value: object,
+    *,
+    label: str,
+    allow_zero: bool,
+) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < (0 if allow_zero else 0.001)
+        or value > _MAX_LOCK_SECONDS
+    ):
+        raise ValueError(f"{label} is invalid")
+    return float(value)
 
 
 class DistributedLock:
@@ -28,6 +47,7 @@ class DistributedLock:
         lock_key: str,
         timeout: float | None = None,
         retry_interval: float = 0.5,
+        database=None,
     ):
         """
         Distributed lock system to prevent concurrent scraping.
@@ -37,80 +57,97 @@ class DistributedLock:
             timeout: Lock lifetime in seconds (None = uses SCRAPE_LOCK_TTL)
             retry_interval: Interval between acquisition attempts in seconds
         """
+        try:
+            lock_key_size = len(lock_key.encode("utf-8"))
+        except (AttributeError, UnicodeEncodeError):
+            lock_key_size = -1
+        if not 1 <= lock_key_size <= _MAX_LOCK_KEY_BYTES or any(
+            ord(character) < 32 or ord(character) == 127 for character in lock_key
+        ):
+            raise ValueError("distributed lock key is invalid")
         self.lock_key = lock_key
-        self.timeout = timeout if timeout else settings.SCRAPE_LOCK_TTL
-        self.retry_interval = retry_interval
+        self.timeout = _bounded_seconds(
+            settings.SCRAPE_LOCK_TTL if timeout is None else timeout,
+            label="distributed lock timeout",
+            allow_zero=False,
+        )
+        self.retry_interval = _bounded_seconds(
+            retry_interval,
+            label="distributed lock retry interval",
+            allow_zero=False,
+        )
+        self.database = default_database if database is None else database
         self.instance_id = str(uuid.uuid4())
         self.acquired = False
 
-    async def acquire(self, wait_timeout: int | None = None):
-        start_time = time.time()
+    async def acquire(self, wait_timeout: float | None = None):
+        if wait_timeout is not None:
+            wait_timeout = _bounded_seconds(
+                wait_timeout,
+                label="distributed lock wait timeout",
+                allow_zero=True,
+            )
+        deadline = None if wait_timeout is None else time.monotonic() + wait_timeout
 
         while True:
-            try:
-                loop_time = time.time()
-                expires_at = int(loop_time + self.timeout)
-                acquired = await fetch_flag(
+            current_time = time.time()
+            expires_at = current_time + self.timeout
+            acquired = (
+                await self.database.fetch_one(
                     _ACQUIRE_OR_REFRESH_LOCK_QUERY,
                     {
                         "lock_key": self.lock_key,
                         "instance_id": self.instance_id,
-                        "updated_at": loop_time,
+                        "updated_at": current_time,
                         "expires_at": expires_at,
                     },
                     force_primary=True,
                 )
+                is not None
+            )
 
-                if acquired:
-                    self.acquired = True
-                    return True
+            if acquired:
+                self.acquired = True
+                return True
 
-                self.acquired = False
+            self.acquired = False
 
-                # If we don't want to wait
-                if wait_timeout is None:
-                    return False
-
-                # Check if wait timeout is exceeded
-                if wait_timeout > 0 and (loop_time - start_time) >= wait_timeout:
-                    logger.log(
-                        "LOCK", f"⏰ Lock acquisition timeout for {self.lock_key}"
-                    )
-                    return False
-
-                # Wait before retrying
-                await asyncio.sleep(self.retry_interval)
-
-            except Exception as e:
-                logger.log("LOCK", f"❌ Error acquiring lock for {self.lock_key}: {e}")
+            if wait_timeout is None:
                 return False
+
+            if time.monotonic() >= deadline:
+                return False
+
+            await asyncio.sleep(self.retry_interval)
 
     async def _renew_until_lost(self) -> None:
         while self.acquired:
             await asyncio.sleep(self.timeout / 2)
             if not await self.acquire():
+                self.acquired = False
                 return
 
     async def run(self, operation: Awaitable[_T]) -> _T:
         if not self.acquired:
-            raise RuntimeError(f"Lock is not acquired for {self.lock_key}")
+            raise RuntimeError("distributed lock is not acquired")
 
         operation_task = asyncio.ensure_future(operation)
         renewal_task = asyncio.create_task(
             self._renew_until_lost(),
-            name=f"distributed-lock-renewal:{self.lock_key}",
+            name="distributed-lock-renewal",
         )
         try:
             done, _ = await asyncio.wait(
                 (operation_task, renewal_task),
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if operation_task in done:
-                return await operation_task
-
-            operation_task.cancel()
-            await asyncio.gather(operation_task, return_exceptions=True)
-            raise RuntimeError(f"Lost distributed lock for {self.lock_key}")
+            if renewal_task in done:
+                await renewal_task
+                if not self.acquired:
+                    operation_task.cancel()
+                    await asyncio.gather(operation_task, return_exceptions=True)
+                    raise RuntimeError("Lost distributed lock")
+            return await operation_task
         finally:
             for task in (renewal_task, operation_task):
                 if not task.done():
@@ -126,19 +163,18 @@ class DistributedLock:
             return
 
         try:
-            await database.execute(
+            await self.database.execute(
                 "DELETE FROM scrape_locks WHERE lock_key = :lock_key AND instance_id = :instance_id",
                 {"lock_key": self.lock_key, "instance_id": self.instance_id},
             )
+        finally:
             self.acquired = False
-        except Exception as e:
-            logger.log("LOCK", f"❌ Error releasing lock for {self.lock_key}: {e}")
 
     async def __aenter__(self):
         success = await self.acquire()
         if not success:
-            raise RuntimeError(f"Failed to acquire lock for {self.lock_key}")
+            raise RuntimeError("failed to acquire distributed lock")
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, *_args):
         await self.release()

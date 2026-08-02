@@ -1,7 +1,7 @@
 import unittest
 
-from comet.scrapers.models import ScrapeRequest
-from comet.scrapers.zilean import ZileanScraper
+from comet.discovery.adapters.torrent.zilean import ZileanScraper
+from comet.discovery.torrent_models import ScrapeRequest
 
 
 class _Response:
@@ -32,7 +32,7 @@ class _Session:
 
 
 class ZileanScraperTests(unittest.IsolatedAsyncioTestCase):
-    async def test_response_closes_and_malformed_result_is_isolated(self):
+    async def test_response_closes_and_missing_optional_size_is_preserved(self):
         response = _Response(
             [
                 {
@@ -61,9 +61,25 @@ class ZileanScraperTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response.exited)
         self.assertEqual(
             [torrent["infoHash"] for torrent in torrents],
-            ["a" * 40, "c" * 40],
+            ["a" * 40, "b" * 40, "c" * 40],
         )
-        self.assertEqual([torrent["size"] for torrent in torrents], [100, 200])
+        self.assertEqual([torrent["size"] for torrent in torrents], [100, None, 200])
+
+    async def test_malformed_result_fails_the_source_batch(self):
+        scraper = ZileanScraper(
+            None,
+            _Session(_Response([{"raw_title": "Movie", "size": 100}])),
+            "https://zilean.test",
+        )
+        request = ScrapeRequest(
+            media_type="movie",
+            media_id="tt123",
+            media_only_id="tt123",
+            title="Movie",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Zilean result"):
+            await scraper.scrape(request)
 
     async def test_series_request_omits_only_missing_filters(self):
         cases = (

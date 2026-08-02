@@ -13,12 +13,21 @@ class ImdbMetadataTests(unittest.TestCase):
                 None,
                 {"id": 42, "l": "wrong ID"},
                 {"id": "tt-episode/one", "l": "episode"},
-                {"id": "tt123", "l": ["wrong title"]},
-                {"id": "tt456", "l": "Valid", "y": 2026, "yr": "2026-2028"},
+                {"id": "tt1234567", "l": ["wrong title"]},
+                {
+                    "id": "tt7654321",
+                    "l": "Valid",
+                    "y": 2026,
+                    "yr": "2026-2028",
+                },
             ]
         }
 
         self.assertEqual(_extract_imdb_metadata(payload), ("Valid", 2026, 2028))
+        self.assertEqual(
+            _extract_imdb_metadata(payload, "tt1234567"),
+            (None, None, None),
+        )
         self.assertEqual(
             _extract_imdb_metadata({"d": {"id": "tt123"}}), (None, None, None)
         )

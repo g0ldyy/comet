@@ -23,17 +23,14 @@ class DebridService:
     def _coerce_file_index(value):
         if value is None:
             return None
-        if isinstance(value, int):
+        if type(value) is int:
             return value
-        try:
+        if isinstance(value, str) and value.isascii() and value.isdecimal():
             return int(value)
-        except (TypeError, ValueError):
-            return None
+        raise ValueError("cached debrid file index is invalid")
 
     @staticmethod
     def _backfill_attr(merged: ParsedData, original: ParsedData, attr: str):
-        if not hasattr(merged, attr) or not hasattr(original, attr):
-            return
         merged_value = getattr(merged, attr)
         original_value = getattr(original, attr)
         if not merged_value and original_value:
@@ -51,8 +48,8 @@ class DebridService:
 
         merged = incoming
 
-        incoming_resolution = getattr(incoming, "resolution", None)
-        original_resolution = getattr(original, "resolution", None)
+        incoming_resolution = incoming.resolution
+        original_resolution = original.resolution
         if incoming_resolution in (None, "unknown") and original_resolution not in (
             None,
             "unknown",
@@ -66,7 +63,6 @@ class DebridService:
             "channels",
             "codec",
             "hdr",
-            "bitDepth",
             "bit_depth",
             "group",
         ):

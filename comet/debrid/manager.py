@@ -23,7 +23,11 @@ def get_debrid_extension(debrid_service: str):
     return debrid_services[debrid_service]["extension"]
 
 
-def build_addon_name(base_name: str, config: dict) -> str:
+def build_addon_name(
+    base_name: str,
+    config: dict,
+    additional_extensions: tuple[str, ...] = (),
+) -> str:
     extensions = []
     debrid_entries = config.get("_debridEntries", [])
     enable_torrent = config.get("_enableTorrent", False)
@@ -36,6 +40,10 @@ def build_addon_name(base_name: str, config: dict) -> str:
     if enable_torrent and debrid_entries:
         extensions.append("TORRENT")
 
+    for extension in additional_extensions:
+        if extension and extension not in extensions:
+            extensions.append(extension)
+
     extension_str = "+".join(extensions) if extensions else ""
     return f"{base_name}{(' | ' + extension_str) if extension_str else ''}"
 
@@ -46,6 +54,30 @@ def build_stremthru_token(debrid_service: str, debrid_api_key: str):
 
 def build_account_key_hash(debrid_api_key: str) -> str:
     return hashlib.sha256((debrid_api_key or "").encode("utf-8")).hexdigest()
+
+
+def build_playback_media_id(
+    media_only_id: str,
+    media_type: str,
+    season: int | None,
+    episode: int | None,
+) -> str:
+    if media_type not in {"movie", "series"}:
+        raise ValueError("media type must be movie or series")
+    is_imdb = media_only_id.startswith("tt")
+    if media_type == "movie":
+        return media_only_id if is_imdb else f"kitsu:{media_only_id}"
+    if not is_imdb:
+        return (
+            f"kitsu:{media_only_id}:{episode}"
+            if episode is not None
+            else f"kitsu:{media_only_id}"
+        )
+    if season is None:
+        return media_only_id
+    if episode is None:
+        return f"{media_only_id}:{season}"
+    return f"{media_only_id}:{season}:{episode}"
 
 
 def get_debrid_credentials(config: dict, service_index: int | None = None):

@@ -1,54 +1,88 @@
-from RTN import Torrent, check_fetch_and_rank_many, sort_torrents
-from RTN.exceptions import GarbageTorrent
+"""Transport-neutral RTN ranking for every release family."""
+
+from collections.abc import Iterable, Mapping
+
+from RTN import ParsedData, check_fetch_and_rank_many
+from RTN.extras import RESOLUTION_MAP, Resolution
+
+from comet.core.sources import ReleaseCandidate
 
 
-def rank_worker(
-    torrents,
+def _resolution_key(parsed: ParsedData) -> Resolution:
+    return RESOLUTION_MAP.get(parsed.resolution.lower(), Resolution.UNKNOWN)
+
+
+def rank_release_records(
+    records: Mapping[str, Mapping[str, object]],
     rtn_settings,
     rtn_ranking,
-    max_results_per_resolution,
-    max_size,
-    remove_trash,
-):
-    ranked_torrents = set()
-    eligible_torrents = []
-    for info_hash, torrent in torrents.items():
-        if max_size != 0:
-            torrent_size = torrent["size"]
-            if torrent_size is not None and torrent_size > max_size:
-                continue
-
-        eligible_torrents.append((info_hash, torrent))
+    max_results_per_resolution: int,
+    max_size: int,
+    remove_trash: int,
+) -> list[str]:
+    """Apply RTN rank/filter rules without constructing torrent identifiers."""
+    eligible = []
+    for record_id, record in records.items():
+        size = record["size"]
+        if max_size and size is not None and size > max_size:
+            continue
+        parsed = record["parsed"]
+        if parsed is not None:
+            eligible.append((record_id, parsed))
 
     rank_results = check_fetch_and_rank_many(
-        (torrent["parsed"] for _, torrent in eligible_torrents),
+        (parsed for _record_id, parsed in eligible),
         rtn_settings,
         rtn_ranking,
     )
-
-    for (info_hash, torrent), (is_fetchable, _, rank) in zip(
-        eligible_torrents, rank_results, strict=True
+    ranked = []
+    for (record_id, parsed), (is_fetchable, _reasons, rank) in zip(
+        eligible, rank_results, strict=True
     ):
-        parsed = torrent["parsed"]
-        raw_title = torrent["title"]
-
-        if remove_trash and (
-            not is_fetchable or rank < rtn_settings.options["remove_ranks_under"]
-        ):
+        if remove_trash and not is_fetchable:
             continue
+        ranked.append((_resolution_key(parsed), rank, record_id))
 
-        try:
-            ranked_torrents.add(
-                Torrent(
-                    infohash=info_hash,
-                    raw_title=raw_title,
-                    data=parsed,
-                    fetch=is_fetchable,
-                    rank=rank,
-                    lev_ratio=0.0,
-                )
-            )
-        except GarbageTorrent:
-            pass
+    ranked.sort(key=lambda item: (item[0].value, item[1], item[2]), reverse=True)
+    if max_results_per_resolution <= 0:
+        return [record_id for _resolution, _rank, record_id in ranked]
 
-    return sort_torrents(ranked_torrents, max_results_per_resolution)
+    selected = []
+    per_resolution = {}
+    for resolution, _rank, record_id in ranked:
+        count = per_resolution.get(resolution, 0)
+        if count >= max_results_per_resolution:
+            continue
+        per_resolution[resolution] = count + 1
+        selected.append(record_id)
+    return selected
+
+
+def sort_candidates(
+    candidates: Iterable[ReleaseCandidate],
+    rtn_settings,
+    rtn_ranking,
+    max_results_per_resolution: int,
+    max_size: int,
+    remove_trash: int,
+) -> tuple[ReleaseCandidate, ...]:
+    """Rank one mixed transport-neutral batch with deterministic candidate ties."""
+    ordered = tuple(candidates)
+    by_id = {candidate.candidate_id: candidate for candidate in ordered}
+    if len(by_id) != len(ordered):
+        raise ValueError("ranking candidates must be unique")
+    ranked_ids = rank_release_records(
+        {
+            candidate.candidate_id: {
+                "parsed": candidate.parsed,
+                "size": candidate.size,
+            }
+            for candidate in ordered
+        },
+        rtn_settings,
+        rtn_ranking,
+        max_results_per_resolution,
+        max_size,
+        remove_trash,
+    )
+    return tuple(by_id[candidate_id] for candidate_id in ranked_ids)

@@ -24,7 +24,7 @@ class HealthcheckTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         http_connection.assert_called_once_with("127.0.0.1", 7020, timeout=5)
-        connection.request.assert_called_once_with("GET", "/health")
+        connection.request.assert_called_once_with("GET", "/ready")
         connection.close.assert_called_once_with()
 
     def test_fails_silently_when_server_is_unreachable(self):

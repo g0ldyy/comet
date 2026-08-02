@@ -75,9 +75,7 @@ def _result(count: int, *, media_type: str = "movie") -> MediaSearchResult:
     return MediaSearchResult(
         MediaSearchStatus.OK,
         metadata={"title": "Movie", "year": 2024},
-        torrents={
-            info_hash: _torrent(index) for index, info_hash in enumerate(hashes)
-        },
+        torrents={info_hash: _torrent(index) for index, info_hash in enumerate(hashes)},
         ranked_info_hashes=hashes,
         media_only_id="tt1234567",
         search_season=0 if media_type == "series" else None,
@@ -85,19 +83,33 @@ def _result(count: int, *, media_type: str = "movie") -> MediaSearchResult:
     )
 
 
+class _Content:
+    def __init__(self, payload):
+        self.body = orjson.dumps(payload)
+        self.consumed = False
+
+    async def read(self, _size):
+        if self.consumed:
+            return b""
+        self.consumed = True
+        return self.body
+
+
 class _Response:
     def __init__(self, payload, status=200):
-        self.payload = payload
         self.status = status
+        body = orjson.dumps(payload)
+        self.headers = {
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        }
+        self.content = _Content(payload)
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, traceback):
         return False
-
-    async def json(self):
-        return self.payload
 
 
 @contextmanager
@@ -120,8 +132,8 @@ class _Session:
         self.response = response
         self.requests = []
 
-    def get(self, url):
-        self.requests.append(url)
+    def get(self, url, **kwargs):
+        self.requests.append((url, kwargs))
         return self.response
 
 
@@ -187,20 +199,38 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
             "t=search&o=json",
         )
         for query in invalid_queries:
-            with self.subTest(query=query), self.assertRaises(
-                TorznabProtocolError
-            ) as context:
+            with (
+                self.subTest(query=query),
+                self.assertRaises(TorznabProtocolError) as context,
+            ):
                 parse_torznab_query(_request(query))
             self.assertEqual(context.exception.code, 201)
+
+    def test_parser_bounds_query_fanout_and_text_before_resolution(self):
+        invalid_queries = (
+            "&".join(f"p{index}=x" for index in range(33)),
+            f"t=search&q={'x' * 513}",
+            "t=search&" + "&".join("cat=5000" for _ in range(65)),
+            f"t=search&unused={'x' * 8_193}",
+        )
+        for query in invalid_queries:
+            with (
+                self.subTest(length=len(query)),
+                self.assertRaises(TorznabProtocolError) as context,
+            ):
+                parse_torznab_query(_request(query))
+            self.assertEqual(context.exception.code, 201)
+
+    def test_parser_ignores_bounded_unconsumed_parameters(self):
+        parsed = parse_torznab_query(_request(f"t=caps&future={'x' * 7_000}"))
+        self.assertEqual(parsed.function, "caps")
 
     async def test_title_scope_and_daily_episode_resolve_canonical_ids(self):
         session = object()
         title_match = SimpleNamespace(
             imdb_id="tt7654321", media_type="series", year=2024
         )
-        parsed = parse_torznab_query(
-            _request("t=search&q=Show.Name.S01E002&cat=5000")
-        )
+        parsed = parse_torznab_query(_request("t=search&q=Show.Name.S01E002&cat=5000"))
         with patch(
             "comet.api.endpoints.torznab.resolve_imdb_title",
             new=AsyncMock(return_value=title_match),
@@ -228,9 +258,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         episode_lookup.assert_awaited_once_with("tt7654321", "2026-07-25")
 
         prioritized = parse_torznab_query(
-            _request(
-                "t=search&imdbid=1234567&q=Different.Show.S01E02&cat=5000"
-            )
+            _request("t=search&imdbid=1234567&q=Different.Show.S01E02&cat=5000")
         )
         target = await resolve_search_target(
             prioritized, category_constraint(prioritized.categories), session
@@ -272,9 +300,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         upsert.assert_not_awaited()
 
         nearby_session = _Session(
-            _Response(
-                {"d": [{"id": "tt2222222", "qid": "tvSeries", "y": 2025}]}
-            )
+            _Response({"d": [{"id": "tt2222222", "qid": "tvSeries", "y": 2025}]})
         )
         with _uncached_title_lookups():
             nearby_match = await resolve_imdb_title(
@@ -319,6 +345,26 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(session.requests), 1)
         rewrite.assert_not_awaited()
 
+    async def test_invalid_persisted_title_match_surfaces(self):
+        session = _Session(_Response({}))
+        with patch.object(
+            imdb_metadata.database,
+            "fetch_one",
+            new=AsyncMock(
+                return_value={
+                    "imdb_id": "invalid",
+                    "media_type": "movie",
+                    "year": 2024,
+                }
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "cached IMDb title match is invalid",
+            ):
+                await resolve_imdb_title(session, "Cached Title", year=2024)
+        self.assertEqual(session.requests, [])
+
     def test_lookup_keys_separate_every_filter_scope(self):
         keys = {
             imdb_metadata._title_lookup_key(query, media_type, year)
@@ -328,7 +374,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(len(keys), 12)
 
-    async def test_recent_selection_requires_real_rows_and_bounds_type_lookup(self):
+    async def test_recent_selection_tries_each_unscoped_candidate(self):
         rows = [
             {"media_id": "kitsu:123"},
             {"media_id": "tt1111111"},
@@ -350,28 +396,40 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "comet.api.endpoints.torznab.TMDBApi.get_media_type_from_imdb",
-                new=AsyncMock(return_value=None),
+                new=AsyncMock(side_effect=[None, "movie"]),
             ) as media_type_lookup,
         ):
-            target = await find_recent_target(
-                CategoryConstraint(None, False), object()
-            )
+            target = await find_recent_target(CategoryConstraint(None, False), object())
 
-        self.assertIsNone(target)
-        media_type_lookup.assert_awaited_once_with("tt1111111")
+        self.assertEqual(target, SearchTarget("movie", "tt2222222"))
+        self.assertEqual(
+            [call.args for call in media_type_lookup.await_args_list],
+            [("tt1111111",), ("tt2222222",)],
+        )
+
+    async def test_invalid_persisted_recent_media_id_surfaces(self):
+        with (
+            patch(
+                "comet.api.endpoints.torznab.database.fetch_all",
+                new=AsyncMock(return_value=[{"media_id": "invalid"}]),
+            ),
+            patch(
+                "comet.api.endpoints.torznab._candidate_torrent_row",
+                new=AsyncMock(),
+            ) as candidate,
+            self.assertRaisesRegex(ValueError, "IMDb media ID"),
+        ):
+            await find_recent_target(CategoryConstraint(None, False), object())
+        candidate.assert_not_awaited()
 
     def test_xml_serialization_sanitizes_and_emits_required_fields(self):
         result = _result(1)
         info_hash = result.ranked_info_hashes[0]
-        result.torrents[info_hash] = _torrent(
-            0, title="A & B < C\x00 😀", seeders=0
-        )
+        result.torrents[info_hash] = _torrent(0, title="A & B < C\x00 😀", seeders=0)
 
         content, total = serialize_feed(
-            result,
-            "movie",
+            (result, "movie"),
             "https://example.test/torznab/api?a=1&b=2",
-            request_timestamp=1_700_000_001,
         )
         root = ET.fromstring(content)
         item = root.find("channel/item")
@@ -406,7 +464,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
     def test_feed_serializes_every_ranked_result_in_one_page(self):
         result = _result(205)
         content, total = serialize_feed(
-            result, "movie", "https://example.test/torznab/api"
+            (result, "movie"), "https://example.test/torznab/api"
         )
         root = ET.fromstring(content)
         response = root.find(f"channel/{{{NEWZNAB_NAMESPACE}}}response")
@@ -493,7 +551,7 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
             response = await torznab_api(request, BackgroundTasks())
 
         self.assertEqual(response.status_code, 200)
-        check.assert_called_once_with(None, strict_b64config=True)
+        check.assert_called_once_with(None)
         self.assertIs(search.await_args.args[2], config)
         self.assertEqual(search.await_args.args[:2], ("movie", "tt1234567"))
 
@@ -549,7 +607,7 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         search.assert_not_awaited()
 
-    async def test_errors_are_xml_http_200_and_do_not_leak_exceptions(self):
+    async def test_protocol_errors_are_xml_and_backend_failures_surface(self):
         invalid = await torznab_api(
             _request("t=tvsearch&q=Show&ep=2"), BackgroundTasks()
         )
@@ -572,12 +630,8 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(side_effect=RuntimeError("private detail")),
             ),
         ):
-            backend = await torznab_api(request, BackgroundTasks())
-
-        root = ET.fromstring(backend.body)
-        self.assertEqual(root.attrib["code"], "900")
-        self.assertNotIn(b"private detail", backend.body)
-        self.assertIn("no-store", backend.headers.get("cache-control", ""))
+            with self.assertRaisesRegex(RuntimeError, "private detail"):
+                await torznab_api(request, BackgroundTasks())
 
     async def test_global_disable_returns_unavailable_xml(self):
         with patch.object(settings, "DISABLE_TORRENT_STREAMS", True):
@@ -588,10 +642,10 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ET.fromstring(response.body).attrib["code"], "203")
 
     def test_route_is_mounted_only_under_the_configured_prefix(self):
-        from comet.api.app import app
+        from comet.api.app import fastapi_app
 
         expected = f"{settings.STREMIO_API_PREFIX}/torznab/api"
-        self.assertEqual(str(app.url_path_for("torznab_api")), expected)
+        self.assertEqual(str(fastapi_app.url_path_for("torznab_api")), expected)
 
     async def test_stream_adapter_preserves_shared_ranked_order(self):
         from comet.api.endpoints import stream as stream_endpoint
@@ -599,9 +653,8 @@ class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
         from comet.core.config_validation import config_check
 
         self.assertIs(stream_endpoint.search_media, torznab_endpoint.search_media)
-        config = config_check(None, strict_b64config=True)
+        config = config_check(None)
         result = _result(3)
-        result.sort_mixed = True
         with (
             patch.object(settings, "HTTP_CACHE_ENABLED", False),
             patch.object(stream_endpoint, "config_check", return_value=config),

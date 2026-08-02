@@ -55,13 +55,13 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(store._subscriptions, {"configured"})
             self.assertEqual(store._pool_peers, {})
 
-    async def test_load_accepts_only_exact_auxiliary_file_schema(self):
+    async def test_load_normalizes_duplicate_auxiliary_entries(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "memberships.json").write_text('["pool-a","pool-b"]')
-            (root / "subscriptions.json").write_text('["pool-a"]')
+            (root / "memberships.json").write_text('["pool-a","pool-a","pool-b"]')
+            (root / "subscriptions.json").write_text('["pool-a","pool-a"]')
             (root / "pool_peers.json").write_text(
-                '{"pool-a":["wss://one","wss://two"],"pool-b":[]}'
+                '{"pool-a":["wss://one","wss://one","wss://two"],"pool-b":[]}'
             )
 
             store = PoolStore(directory)

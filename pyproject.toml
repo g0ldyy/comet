@@ -1,13 +1,14 @@
 [project]
 name = "comet"
 version = "0.1.0"
-description = "Stremio's fastest torrent/debrid search add-on."
+description = "Stremio's fastest torrent/debrid/usenet search add-on."
 authors = [
     { name = "Goldy", email = "153996346+g0ldyy@users.noreply.github.com" }
 ]
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp",
+    "aiohttp-socks",
     "aiosqlite",
     "asyncpg",
     "bencode-py",
@@ -16,7 +17,7 @@ dependencies = [
     "demagnetize",
     "fastapi",
     "gunicorn",
-    "jinja2",
+    "idna",
     "loguru",
     "mediaflow-proxy==2.4.1",
     "orjson",
@@ -24,7 +25,7 @@ dependencies = [
     "prometheus-client",
     "python-multipart",
     "uvicorn",
-    "xxhash",
+    "uvicorn-worker",
     "cryptography",
     "websockets",
     "msgpack",
@@ -43,6 +44,18 @@ ignore = ["BLE001", "S110", "S112", "SIM117", "TRY004"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.ruff.lint.per-file-ignores]
+# These entrypoints must configure or validate process state before importing
+# modules that construct application singletons.
+"comet/api/app.py" = ["E402"]
+"comet/cometnet/standalone.py" = ["E402"]
+"comet/db_cli.py" = ["E402"]
+"comet/main.py" = ["E402"]
+"comet/web.py" = ["E402"]
+# Standalone benchmarks add the repository root before importing Comet.
+"scripts/run_usenet_provider_benchmark.py" = ["E402"]
+"scripts/run_usenet_search_benchmark.py" = ["E402"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

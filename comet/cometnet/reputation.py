@@ -8,7 +8,6 @@ import math
 import time
 from dataclasses import dataclass, field
 
-from comet.core.logger import logger
 from comet.core.models import settings
 
 
@@ -107,14 +106,10 @@ class PeerReputation:
     def blacklist(self) -> None:
         """Blacklist this peer."""
         self.is_blacklisted = True
-        logger.log("COMETNET", f"Peer {self.node_id[:8]} has been blacklisted")
 
     def unblacklist(self) -> None:
         """Remove this peer from the blacklist."""
         self.is_blacklisted = False
-        logger.log(
-            "COMETNET", f"Peer {self.node_id[:8]} has been removed from blacklist"
-        )
 
     def _adjust_reputation(self, delta: float) -> None:
         """Adjust reputation by delta, clamping to valid range."""
@@ -146,14 +141,15 @@ class ReputationStore:
         cls, node_id: object, value: object, blacklist: set[str]
     ) -> tuple[str, PeerReputation]:
         node_id = cls._validate_node_id(node_id)
-        if type(value) is not dict or set(value) != {
+        required_fields = {
             "reputation",
             "first_seen",
             "last_seen",
             "valid_contributions",
             "invalid_contributions",
             "is_blacklisted",
-        }:
+        }
+        if type(value) is not dict or not required_fields <= value.keys():
             raise ValueError("persisted reputation peer does not match current schema")
 
         reputation = value["reputation"]
@@ -296,7 +292,7 @@ class ReputationStore:
     def _decode_persisted(
         cls, data: object
     ) -> tuple[set[str], dict[str, PeerReputation]]:
-        if type(data) is not dict or set(data) != {"peers", "blacklist"}:
+        if type(data) is not dict or not {"peers", "blacklist"} <= data.keys():
             raise ValueError("reputation store does not match the current schema")
         if type(data["peers"]) is not dict or type(data["blacklist"]) is not list:
             raise ValueError("reputation peers/blacklist containers are invalid")
@@ -304,8 +300,6 @@ class ReputationStore:
         blacklist_values = [
             cls._validate_node_id(node_id) for node_id in data["blacklist"]
         ]
-        if len(blacklist_values) != len(set(blacklist_values)):
-            raise ValueError("blacklisted node IDs must be unique")
         blacklist = set(blacklist_values)
         peers = dict(
             cls._peer_from_persisted(node_id, value, blacklist)

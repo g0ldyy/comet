@@ -1,6 +1,11 @@
 import xbmcaddon
 import xbmcgui
 
+try:
+    from .diagnostics import run_boundary
+except ImportError:
+    from diagnostics import run_boundary
+
 ELEMENTUM_ADDON_ID = "plugin.video.elementum"
 
 
@@ -23,4 +28,4 @@ def check_elementum():
 
 
 if __name__ == "__main__":
-    check_elementum()
+    run_boundary("kodi.setup_elementum.failed", check_elementum)

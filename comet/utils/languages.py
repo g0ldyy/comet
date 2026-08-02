@@ -1,5 +1,8 @@
 import unicodedata
 
+MAX_INDEXER_TITLES = 8
+MAX_INDEXER_TITLE_BYTES = 512
+
 LANGUAGE_EMOJIS = {
     "multi": "🌎",  # Dubbed
     "en": "🇬🇧",  # English
@@ -277,20 +280,13 @@ def alias_language(scope: str) -> str | None:
     return COUNTRY_TO_LANGUAGE.get(scope)
 
 
-def merge_aliases(*collections: object) -> dict[str, list[str]]:
+def merge_aliases(
+    *collections: dict[str, list[str]],
+) -> dict[str, list[str]]:
     merged: dict[str, list[str]] = {}
-    seen: dict[str, set[str]] = {}
     for aliases in collections:
-        if not isinstance(aliases, dict):
-            continue
         for scope, titles in aliases.items():
-            if not isinstance(scope, str) or not isinstance(titles, list):
-                continue
-            scope_seen = seen.setdefault(scope, set())
-            for title in titles:
-                if isinstance(title, str) and title and title not in scope_seen:
-                    scope_seen.add(title)
-                    merged.setdefault(scope, []).append(title)
+            merged.setdefault(scope, []).extend(titles)
     return merged
 
 
@@ -321,11 +317,19 @@ def select_indexer_titles(
     seen = set()
 
     def append(candidate: object):
-        if not isinstance(candidate, str) or not (
-            candidate := " ".join(candidate.split())
-        ):
+        if len(selected) >= MAX_INDEXER_TITLES or not isinstance(candidate, str):
+            return
+        if any(ord(character) < 32 or ord(character) == 127 for character in candidate):
+            return
+        if not (candidate := " ".join(candidate.split())):
             return
         candidate = _strip_latin_diacritics(candidate)
+        try:
+            size = len(candidate.encode("utf-8"))
+        except UnicodeEncodeError:
+            return
+        if size > MAX_INDEXER_TITLE_BYTES:
+            return
         identity = unicodedata.normalize("NFKC", candidate).casefold()
         if identity in seen:
             return

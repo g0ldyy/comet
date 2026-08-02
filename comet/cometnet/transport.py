@@ -39,8 +39,8 @@ from comet.cometnet.utils import (
     replace_websocket_url_port,
 )
 from comet.cometnet.validation import validate_message_security
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.observability.context import create_detached_task
 from comet.utils.network import extract_ip_from_headers
 
 
@@ -86,10 +86,6 @@ async def resolve_effective_peer_address(
         ):
             return normalized_public_url
 
-        logger.warning(
-            "Ignoring invalid peer public_url during handshake: {!r}", public_url
-        )
-
     return connectable_address or ""
 
 
@@ -111,6 +107,10 @@ class PeerConnection:
     latency_samples: deque = field(
         default_factory=lambda: deque(maxlen=10)
     )  # Rolling window of latency samples
+    bytes_sent: int = 0
+    bytes_received: int = 0
+    messages_sent: int = 0
+    messages_received: int = 0
 
     # Rate limiting
     rate_limit_history: deque = field(default_factory=deque)
@@ -148,14 +148,13 @@ class PeerConnection:
                 data = message.to_bytes()
 
             await self.websocket.send(data)
+            self.bytes_sent += len(data)
+            self.messages_sent += 1
             self.update_activity()
             return True
         except ConnectionClosed:
             return False
-        except Exception as e:
-            logger.warning(
-                f"Error sending message to {self.node_id[:8]} ({self.alias or 'no alias'}): {e}"
-            )
+        except Exception:
             return False
 
     async def close(self) -> None:
@@ -239,6 +238,10 @@ class ConnectionManager:
 
         # Active connections by node_id
         self._connections: dict[str, PeerConnection] = {}
+        self._closed_bytes_sent = 0
+        self._closed_bytes_received = 0
+        self._closed_messages_sent = 0
+        self._closed_messages_received = 0
 
         # Track connections per IP to prevent abuse
         self._connections_per_ip: dict[str, int] = {}
@@ -312,11 +315,6 @@ class ConnectionManager:
             path_lower = path.lower().rstrip("/")
 
             if ws_key:
-                logger.warning(
-                    "Received WebSocket handshake without required upgrade headers "
-                    f"(path={path}). If using a reverse proxy, ensure the origin "
-                    "receives 'Upgrade: websocket' and 'Connection: Upgrade'."
-                )
                 return self._upgrade_required_response(
                     (
                         b"WebSocket handshake reached CometNet without required "
@@ -329,13 +327,6 @@ class ConnectionManager:
             is_health_check = path_lower in self._HEALTH_PATHS or path_lower.endswith(
                 ("/health", "/healthz")
             )
-
-            if not is_health_check:
-                logger.warning(
-                    f"Received HTTP request on WebSocket port (path={path}). "
-                    "If using a reverse proxy, ensure it forwards WebSocket headers: "
-                    "'Upgrade: websocket' and 'Connection: Upgrade'"
-                )
 
             if is_health_check:
                 return Response(
@@ -399,27 +390,19 @@ class ConnectionManager:
                 process_request=self._process_request,
                 compression=self.websocket_compression,
             )
-            logger.log(
-                "COMETNET",
-                f"WebSocket server listening on port {self.listen_port}",
-            )
-        except OSError as e:
-            logger.warning(
-                f"Failed to start WebSocket server on port {self.listen_port}: {e}"
-            )
+        except OSError:
+            pass
             # Continue anyway - we can still make outbound connections
         except BaseException:
             self._running = False
             raise
 
         # Start ping task
-        ping_task = asyncio.create_task(self._ping_loop())
-        self._tasks.add(ping_task)
-
-        logger.log(
-            "COMETNET",
-            "Transport layer started",
+        ping_task = create_detached_task(
+            self._ping_loop(),
+            name="cometnet-transport-ping",
         )
+        self._tasks.add(ping_task)
 
     async def _handle_ws_connection(self, websocket, path: str = "") -> None:
         """
@@ -480,8 +463,6 @@ class ConnectionManager:
         self._connections.clear()
         self._connections_per_ip.clear()
 
-        logger.log("COMETNET", "Transport layer stopped")
-
     async def connect_to_peer(self, address: str) -> str | None:
         """
         Connect to a peer at the given address.
@@ -507,8 +488,6 @@ class ConnectionManager:
         websocket = None
         node_id = None
         try:
-            # Connect with timeout
-            logger.debug(f"Attempting WebSocket connection to {address}...")
             websocket = await asyncio.wait_for(
                 websockets.connect(
                     address,
@@ -519,7 +498,6 @@ class ConnectionManager:
                 ),
                 timeout=5.0,
             )
-            logger.debug(f"WebSocket connection established to {address}")
 
             # Perform handshake
             # For outbound connections, address is both the client_ip (for logging) and connectable_address
@@ -528,29 +506,18 @@ class ConnectionManager:
             )
 
             if node_id:
-                conn = self._connections.get(node_id)
-                alias_str = f" ({conn.alias})" if conn and conn.alias else ""
-                logger.log(
-                    "COMETNET",
-                    f"Connected to peer {node_id[:8]}{alias_str} at {address}",
-                )
                 return node_id
             else:
-                logger.debug(f"Handshake failed with {address}")
                 return None
         except TimeoutError:
-            logger.debug(f"Connection timeout to {address}")
             return None
-        except InvalidStatus as e:
-            logger.debug(f"Invalid status from {address}: {e}")
+        except InvalidStatus:
             return None
-        except (WebSocketException, ConnectionClosed) as e:
-            logger.debug(f"WebSocket error connecting to {address}: {type(e).__name__}")
+        except (WebSocketException, ConnectionClosed):
             return None
         except asyncio.CancelledError:
             raise
-        except OSError as e:
-            logger.debug(f"Connection error to {address}: {type(e).__name__}")
+        except OSError:
             return None
         finally:
             async with self._connection_lock:
@@ -600,9 +567,6 @@ class ConnectionManager:
 
             current_ip_connections = self._connections_per_ip.get(ip, 0)
             if current_ip_connections >= limit:
-                logger.debug(
-                    f"Rejecting connection from {ip}: too many connections (limit: {limit})"
-                )
                 await websocket.close()
                 return None
 
@@ -630,11 +594,6 @@ class ConnectionManager:
                 await websocket.close()
 
         if node_id:
-            conn = self._connections.get(node_id)
-            alias_str = f" ({conn.alias})" if conn and conn.alias else ""
-            logger.log(
-                "COMETNET", f"Accepted connection from peer {node_id[:8]}{alias_str}"
-            )
             return node_id
         else:
             return None
@@ -682,16 +641,10 @@ class ConnectionManager:
                 handshake.signature = await self.identity.sign_hex_async(
                     handshake.to_signable_bytes()
                 )
-
-                logger.debug(f"Sending handshake to {client_ip}...")
                 await websocket.send(handshake.to_bytes())
-                logger.debug(
-                    f"Handshake sent, waiting for response from {client_ip}..."
-                )
 
                 # Wait for their handshake
                 response = await asyncio.wait_for(websocket.recv(), timeout=10.0)
-                logger.debug(f"Received handshake response from {client_ip}")
                 peer_handshake = parse_message(response)
             else:
                 # They initiated, so we wait for their handshake first
@@ -737,7 +690,6 @@ class ConnectionManager:
                 peer_handshake.signature,
                 peer_handshake.public_key,
             ):
-                logger.warning(f"Invalid signature in handshake from {client_ip}")
                 return None
 
             # Verify node ID matches public key
@@ -745,16 +697,11 @@ class ConnectionManager:
                 peer_handshake.public_key
             )
             if peer_handshake.sender_id != expected_node_id:
-                logger.warning(f"Node ID mismatch in handshake from {client_ip}")
                 return None
 
             # Verify timestamp (anti-replay)
             now = time.time()
             if abs(now - peer_handshake.timestamp) > 300:  # 5 minutes tolerance
-                logger.warning(
-                    f"Rejecting handshake from {client_ip}: timestamp skew too large "
-                    f"(diff: {now - peer_handshake.timestamp:.1f}s)"
-                )
                 return None
 
             # Don't connect to ourselves
@@ -764,9 +711,6 @@ class ConnectionManager:
             # Validate private network token
             if self._private_network and self._network_id and self._network_password:
                 if not peer_handshake.network_token:
-                    logger.warning(
-                        f"Rejecting {client_ip}: missing network token (private mode)"
-                    )
                     return None
 
                 # Validate token for current AND previous window (clock tolerance)
@@ -786,9 +730,6 @@ class ConnectionManager:
                     hmac.compare_digest(peer_handshake.network_token, token_current)
                     or hmac.compare_digest(peer_handshake.network_token, token_prev)
                 ):
-                    logger.warning(
-                        f"Rejecting {client_ip}: invalid network token (wrong password or network_id)"
-                    )
                     return None
 
             fallback_address = connectable_address
@@ -829,18 +770,18 @@ class ConnectionManager:
                 self._connections[peer_handshake.sender_id] = conn
 
             # Start message receiver task
-            task = asyncio.create_task(self._receive_loop(conn))
+            task = create_detached_task(
+                self._receive_loop(conn),
+                name="cometnet-peer-receive",
+                keep_connection=True,
+            )
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
 
             return peer_handshake.sender_id
         except TimeoutError:
-            logger.debug(f"Handshake timeout with {client_ip}")
             return None
-        except (ConnectionClosed, WebSocketException, OSError) as error:
-            logger.debug(
-                f"Handshake transport error with {client_ip}: {type(error).__name__}"
-            )
+        except (ConnectionClosed, WebSocketException, OSError):
             return None
 
     async def _receive_loop(self, conn: PeerConnection) -> None:
@@ -849,6 +790,8 @@ class ConnectionManager:
             while self._running:
                 try:
                     raw_message = await conn.websocket.recv()
+                    conn.bytes_received += len(raw_message)
+                    conn.messages_received += 1
                     conn.update_activity()
 
                     # Rate limiting check
@@ -880,21 +823,14 @@ class ConnectionManager:
                         if handler:
                             try:
                                 await handler(conn.node_id, message)
-                            except Exception as e:
-                                logger.warning(f"Handler error for {message.type}: {e}")
+                            except Exception:
+                                pass
                 except ConnectionClosed:
                     break
-        except Exception as error:
-            logger.warning(
-                f"Receive loop failed for {conn.node_id[:8]}: "
-                f"{type(error).__name__}: {error}"
-            )
+        except Exception:
+            pass
         finally:
             self._release_connection(conn.node_id, conn)
-            logger.log(
-                "COMETNET",
-                f"Disconnected from peer {conn.node_id[:8]} ({conn.alias or 'no alias'})",
-            )
 
     def _release_ip_slot(self, ip: str) -> None:
         """Release one inbound per-IP reservation, dropping the key at zero."""
@@ -916,8 +852,20 @@ class ConnectionManager:
         if self._connections.get(node_id) is not conn:
             return False
         del self._connections[node_id]
+        self._closed_bytes_sent += conn.bytes_sent
+        self._closed_bytes_received += conn.bytes_received
+        self._closed_messages_sent += conn.messages_sent
+        self._closed_messages_received += conn.messages_received
         if not conn.is_outbound and conn.client_ip:
             self._release_ip_slot(conn.client_ip)
+        from comet.observability import log
+
+        log.info(
+            "cometnet.peer.disconnected",
+            "CometNet peer disconnected",
+            peer_id=node_id,
+            transferred_bytes=conn.bytes_sent + conn.bytes_received,
+        )
         return True
 
     async def _handle_ping(self, conn: PeerConnection, ping: PingMessage) -> None:
@@ -1034,10 +982,6 @@ class ConnectionManager:
 
                 # Disconnect high-latency connections
                 if high_latency_nodes:
-                    logger.log(
-                        "COMETNET",
-                        f"Disconnecting {len(high_latency_nodes)} peers with high latency (>{max_latency:.0f}ms)",
-                    )
                     await asyncio.gather(
                         *(self.disconnect_peer(nid) for nid in high_latency_nodes),
                         return_exceptions=True,
@@ -1109,10 +1053,6 @@ class ConnectionManager:
                 peers_to_disconnect.extend(sorted_peers[max_allowed:])
 
         if peers_to_disconnect:
-            logger.warning(
-                f"Eclipse attack remediation: Disconnecting {len(peers_to_disconnect)} peers "
-                f"from overrepresented IPs (diversity was {diversity:.2f})"
-            )
             for node_id in peers_to_disconnect:
                 await self.disconnect_peer(node_id)
 
@@ -1179,6 +1119,7 @@ class ConnectionManager:
         ip_diversity = (
             len(unique_ips) / len(self._connections) if self._connections else 1.0
         )
+        active = tuple(self._connections.values())
 
         return {
             "connected_peers": len(self._connections),
@@ -1189,9 +1130,16 @@ class ConnectionManager:
                 ip_diversity, 2
             ),  # 1.0 = all unique, lower = potential eclipse
             "avg_latency_ms": (
-                sum(c.latency_ms for c in self._connections.values())
-                / len(self._connections)
+                sum(c.latency_ms for c in active) / len(self._connections)
                 if self._connections
                 else 0
             ),
+            "bytes_sent": self._closed_bytes_sent
+            + sum(connection.bytes_sent for connection in active),
+            "bytes_received": self._closed_bytes_received
+            + sum(connection.bytes_received for connection in active),
+            "messages_sent": self._closed_messages_sent
+            + sum(connection.messages_sent for connection in active),
+            "messages_received": self._closed_messages_received
+            + sum(connection.messages_received for connection in active),
         }

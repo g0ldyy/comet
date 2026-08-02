@@ -11,7 +11,6 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         malformed = [
             {"manual_peers": False},
             {"manual_peers": ["peer.example"]},
-            {"bootstrap_nodes": ["wss://peer", "wss://peer"]},
             {"min_peers": True},
             {"max_peers": 0},
             {"min_peers": 3, "max_peers": 2},
@@ -20,6 +19,15 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(arguments=arguments):
                 with self.assertRaises(ValueError):
                     DiscoveryService(**arguments)
+
+    def test_constructor_collapses_duplicate_addresses(self):
+        service = DiscoveryService(
+            manual_peers=["wss://manual", "wss://manual"],
+            bootstrap_nodes=["wss://bootstrap", "wss://bootstrap"],
+        )
+
+        self.assertEqual(service.manual_peers, ["wss://manual"])
+        self.assertEqual(service.bootstrap_nodes, ["wss://bootstrap"])
 
     async def test_persisted_discovery_rejects_invalid_peer_atomically(self):
         service = DiscoveryService()
@@ -52,6 +60,29 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             await service.from_dict(candidate)
 
         self.assertEqual(service.to_dict(), original)
+
+    async def test_persisted_discovery_ignores_extensions(self):
+        service = DiscoveryService()
+        candidate = {
+            "known_peers": [
+                {
+                    "address": "wss://valid.example",
+                    "node_id": "valid",
+                    "source": "pex",
+                    "last_seen": 1,
+                    "extension": True,
+                }
+            ],
+            "extension": True,
+        }
+
+        with patch(
+            "comet.cometnet.discovery.is_valid_peer_address",
+            new=AsyncMock(return_value=True),
+        ):
+            await service.from_dict(candidate)
+
+        self.assertEqual(set(service._known_peers), {"wss://valid.example"})
 
     async def test_peer_response_counts_only_new_valid_peers(self):
         service = DiscoveryService()
@@ -91,6 +122,40 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         )
+
+    async def test_persistence_collapses_duplicate_addresses_and_node_ids(self):
+        service = DiscoveryService()
+        candidate = {
+            "known_peers": [
+                {
+                    "address": "wss://old.example",
+                    "node_id": "peer",
+                    "source": "pex",
+                    "last_seen": 1,
+                },
+                {
+                    "address": "wss://new.example",
+                    "node_id": "peer",
+                    "source": "pex",
+                    "last_seen": 3,
+                },
+                {
+                    "address": "wss://new.example",
+                    "node_id": "peer",
+                    "source": "pex",
+                    "last_seen": 2,
+                },
+            ]
+        }
+
+        with patch(
+            "comet.cometnet.discovery.is_valid_peer_address",
+            new=AsyncMock(return_value=True),
+        ):
+            await service.from_dict(candidate)
+
+        self.assertEqual(set(service._known_peers), {"wss://new.example"})
+        self.assertEqual(service._known_peers["wss://new.example"].last_seen, 3)
 
     async def test_pex_limit_requires_a_positive_exact_integer(self):
         service = DiscoveryService()

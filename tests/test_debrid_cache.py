@@ -3,7 +3,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from databases import Database
 
@@ -40,19 +40,14 @@ class DebridCacheTaskTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(debrid_cache._cache_write_tasks)
 
     async def test_scheduled_failure_is_observed_and_removed(self):
-        write_cache = AsyncMock(side_effect=RuntimeError("database unavailable"))
-        fake_logger = MagicMock()
+        write_cache = AsyncMock(side_effect=RuntimeError("database failure"))
 
-        with (
-            patch.object(debrid_cache, "cache_availability", new=write_cache),
-            patch.object(debrid_cache, "logger", new=fake_logger),
-        ):
+        with patch.object(debrid_cache, "cache_availability", new=write_cache):
             task = debrid_cache.schedule_cache_availability("alldebrid", [])
             await asyncio.gather(task, return_exceptions=True)
             await asyncio.sleep(0)
 
         self.assertFalse(debrid_cache._cache_write_tasks)
-        fake_logger.warning.assert_called_once()
 
 
 class DebridCachePersistenceTests(unittest.IsolatedAsyncioTestCase):

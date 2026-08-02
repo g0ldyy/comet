@@ -1,5 +1,12 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   comet:
+    logging: *default-logging
     environment:
       PROMETHEUS_ENABLED: "true"
       PROMETHEUS_AUTH_TOKEN_FILE: /run/secrets/comet_metrics_token
@@ -10,6 +17,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.12.0
     restart: unless-stopped
+    logging: *default-logging
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -34,6 +42,7 @@ services:
   grafana:
     image: grafana/grafana:13.1.1
     restart: unless-stopped
+    logging: *default-logging
     read_only: true
     security_opt:
       - no-new-privileges:true

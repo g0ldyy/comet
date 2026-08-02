@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, HTTPException, Response, status
 
 from comet.core.models import settings
 from comet.observability import CONTENT_TYPE_LATEST, metrics, render_metrics
+from comet.observability.metric_snapshot import refresh_usenet_metrics
 
 router = APIRouter()
 
@@ -26,10 +27,17 @@ async def prometheus_metrics(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid metrics credentials",
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={
+                    "WWW-Authenticate": "Bearer",
+                    "Cache-Control": "no-store",
+                },
             )
 
+    await refresh_usenet_metrics()
     return Response(
         content=render_metrics(),
-        headers={"Content-Type": CONTENT_TYPE_LATEST},
+        headers={
+            "Content-Type": CONTENT_TYPE_LATEST,
+            "Cache-Control": "no-store",
+        },
     )

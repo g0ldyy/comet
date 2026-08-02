@@ -1,8 +1,7 @@
 import unittest
-from unittest.mock import patch
 
-from comet.scrapers.nekobt import NekoBTScraper
-from comet.scrapers.nyaa import extract_torrent_data
+from comet.discovery.adapters.torrent.nekobt import NekoBTScraper
+from comet.discovery.adapters.torrent.nyaa import extract_torrent_data
 
 
 class _Response:
@@ -48,27 +47,21 @@ def _nyaa_row(title, info_hash, *, size="1.5 GiB", seeders="12"):
 
 
 class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
-    def test_nyaa_keeps_row_metadata_aligned_after_malformed_row(self):
+    def test_nyaa_rejects_a_malformed_candidate_row(self):
         malformed = f"""
             <tr>
                 <td><a href="/view/2" title="Broken.Movie">Broken.Movie</a></td>
                 <td><a href="magnet:?xt=urn:btih:{"b" * 40}">magnet</a></td>
             </tr>
         """
-        torrents = extract_torrent_data(
-            _nyaa_row("First &amp; Movie", "a" * 40)
-            + malformed
-            + _nyaa_row("Second.Movie", "c" * 40, size="2 GiB", seeders="3")
-        )
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            extract_torrent_data(
+                _nyaa_row("First &amp; Movie", "a" * 40)
+                + malformed
+                + _nyaa_row("Second.Movie", "c" * 40, size="2 GiB", seeders="3")
+            )
 
-        self.assertEqual(
-            [torrent["title"] for torrent in torrents],
-            ["First & Movie", "Second.Movie"],
-        )
-        self.assertEqual([torrent["seeders"] for torrent in torrents], [12, 3])
-        self.assertEqual(torrents[0]["sources"], ["udp://tracker.test"])
-
-    async def test_nekobt_isolates_malformed_results_and_nested_media(self):
+    async def test_nekobt_rejects_a_malformed_result(self):
         payload = {
             "error": False,
             "data": {
@@ -97,22 +90,11 @@ class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
         }
         scraper = NekoBTScraper(None, _Session(payload))
 
-        torrents, more, media_id = await scraper._fetch_page({})
+        with self.assertRaisesRegex(ValueError, "not an object"):
+            await scraper._fetch_page({})
 
-        self.assertEqual(
-            [torrent["title"] for torrent in torrents],
-            ["First.Movie", "Second.Movie"],
-        )
-        self.assertFalse(more)
-        self.assertIsNone(media_id)
-
-    async def test_nekobt_logs_transport_failures(self):
+    async def test_nekobt_propagates_transport_failures(self):
         scraper = NekoBTScraper(None, _FailingSession())
 
-        with patch("comet.scrapers.nekobt.logger.warning") as warning:
-            result = await scraper._fetch_page({"query": "Movie"})
-
-        self.assertEqual(result, ([], False, None))
-        warning.assert_called_once_with(
-            "NekoBT request {'query': 'Movie'} failed: RuntimeError: transport failed"
-        )
+        with self.assertRaisesRegex(RuntimeError, "transport failed"):
+            await scraper._fetch_page({"query": "Movie"})

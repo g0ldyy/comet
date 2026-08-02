@@ -1,4 +1,6 @@
-<h1 align="center" id="title">☄️ Comet</h1>
+<p align="center">
+  <img src="docs/assets/comet-banner.svg" alt="Comet — Built to find it first." width="100%" />
+</p>
 
 <p align="center">
   <a href="https://discord.com/invite/UJEqpT42nb"><img src="https://img.shields.io/badge/Discord-Join%20Us-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
@@ -6,17 +8,19 @@
   <a href="kodi/README.md"><img src="https://img.shields.io/badge/Kodi-Addon-17B2E7?style=flat-square&logo=kodi&logoColor=white" /></a>
 </p>
 
-<p align="center"><img src="https://socialify.git.ci/g0ldyy/comet/image?description=1&font=Inter&forks=1&language=1&name=1&owner=1&pattern=Solid&stargazers=1&theme=Dark" /></p>
-
 # Features
 - **CometNet**: Decentralized P2P network for automatic torrent metadata sharing ([documentation](docs/cometnet/README.md))
 - **Kodi Support**: Dedicated official add-on with automatic updates ([documentation](kodi/README.md))
 - **Torznab Support**: Official Prowlarr, Sonarr, Radarr, and Jackett integration ([documentation](docs/integrations/torznab.md))
+- **Usenet Support**: Search and stream Usenet releases directly in Stremio
+  with Newznab/NZBHydra2/Prowlarr, Easynews, AnimeTosho, TorBox Usenet,
+  NzbDAV, AltMount, StremThru Newz, compatible add-ons, or a personal NNTP server
+  ([configuration guide](docs/beginner/02-configure-and-install-stremio.md#optional-configure-usenet))
 - Proxy Debrid Streams to allow simultaneous use on multiple IPs!
 - IP-Based Max Connection Limit
 - Administration Dashboard with Bandwidth Manager, Metrics and more...
 - Production-ready [Prometheus and Grafana observability](docs/advanced/07-observability.md)
-- Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, TorBox, Nyaa, BitMagnet, TorrentsDB, Peerflix, DMM and SeaDex
+- Supported Scrapers: Jackett, Prowlarr, Torrentio, Zilean, MediaFusion, Debridio, StremThru, AIOStreams, Comet, Jackettio, Nyaa, AnimeTosho, NekoBT, BitMagnet, TorrentsDB, Peerflix, DMM and SeaDex
 - Caching system ft. SQLite / PostgreSQL
 - Blazing Fast Background Scraper
 - Debrid Account Scraper: Scrape torrents directly from your debrid account library
@@ -48,6 +52,13 @@ To customize your Comet experience to suit your needs, please first take a look 
     ```sh
     uv run python -m comet.main
     ````
+- Develop the backend and Vite frontend together
+    ```sh
+    cd frontend && npm ci && cd ..
+    uv run python scripts/dev_frontend.py
+    ```
+    Open `http://127.0.0.1:5173`; Vite forwards API requests to Comet on port
+    `8000`.
 
 ### Docker / production-style setup
 
@@ -73,3 +84,8 @@ Comet is a community-driven project, and your support helps it grow! 🚀
 - ⭐ **Star the repository** here on GitHub
 - ⭐ **Star the add-on** on [stremio-addons.net](https://stremio-addons.net/addons/comet)
 - 🐛 **Contribute** by reporting issues, suggesting features, or submitting PRs
+
+## License
+
+Comet is licensed under the GNU Affero General Public License v3.0 only.
+See [LICENSE](LICENSE).

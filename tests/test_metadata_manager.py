@@ -4,14 +4,18 @@ import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
+import orjson
 from databases import Database
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.models import settings
 from comet.metadata.manager import (
+    MetadataFetchResult,
+    MetadataFetchStatus,
     MetadataScraper,
     _alias_cache_timestamp,
     _CacheEntry,
+    _settle_metadata_tasks,
 )
 from comet.services.anime import anime_mapper
 
@@ -92,6 +96,72 @@ class _MetadataScraper(MetadataScraper):
 
 
 class MetadataRefreshTests(unittest.IsolatedAsyncioTestCase):
+    async def test_metadata_result_distinguishes_expected_absence_and_failures(self):
+        scraper = MetadataScraper(session=None)
+        cases = (
+            (None, MetadataFetchStatus.NOT_FOUND),
+            (TimeoutError(), MetadataFetchStatus.TIMEOUT),
+        )
+        for value, expected in cases:
+            with self.subTest(expected=expected):
+                if isinstance(value, BaseException):
+                    get_metadata = AsyncMock(side_effect=value)
+                else:
+                    get_metadata = AsyncMock(return_value=value)
+                with patch.object(scraper, "get_metadata", get_metadata):
+                    result = await scraper._get_metadata_value(
+                        "tt1234567",
+                        None,
+                        None,
+                        False,
+                        "movie",
+                    )
+                self.assertEqual(result.status, expected)
+                self.assertIsNone(result.metadata)
+
+    async def test_unexpected_metadata_failure_is_not_reclassified(self):
+        scraper = MetadataScraper(session=None)
+        with patch.object(
+            scraper,
+            "get_metadata",
+            new=AsyncMock(side_effect=RuntimeError("implementation failure")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "implementation failure"):
+                await scraper._get_metadata_value(
+                    "tt1234567",
+                    None,
+                    None,
+                    False,
+                    "movie",
+                )
+
+    async def test_fetch_result_is_typed(self):
+        state = _SharedMetadataState()
+        state.both_checked.set()
+        scraper = _MetadataScraper(state)
+
+        result = await scraper.fetch_metadata_and_aliases(
+            "movie", "tt1234567", "tt1234567"
+        )
+
+        self.assertIsInstance(result, MetadataFetchResult)
+        self.assertEqual(result.status, MetadataFetchStatus.OK)
+        self.assertEqual(result.metadata["title"], "Shared Movie")
+        self.assertEqual(result.aliases, {"us": ["Shared Movie"]})
+
+    async def test_kitsu_movie_is_typed_as_unsupported_without_provider_call(self):
+        scraper = MetadataScraper(session=None)
+        with patch.object(scraper, "get_metadata", new=AsyncMock()) as get_metadata:
+            result = await scraper._get_metadata_value(
+                "123",
+                None,
+                None,
+                True,
+                "movie",
+            )
+        self.assertEqual(result.status, MetadataFetchStatus.UNSUPPORTED)
+        get_metadata.assert_not_awaited()
+
     async def test_imdb_anime_aliases_are_merged_with_tmdb_languages(self):
         scraper = MetadataScraper(session=None)
         with (
@@ -239,8 +309,8 @@ class MetadataRefreshTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.metadata_calls, 1)
         self.assertEqual(state.alias_calls, 1)
         self.assertEqual(state.cache_calls, 1)
-        self.assertEqual(first_result[0]["episode"], 1)
-        self.assertEqual(second_result[0]["episode"], 2)
+        self.assertEqual(first_result.metadata["episode"], 1)
+        self.assertEqual(second_result.metadata["episode"], 2)
 
     async def test_missing_aliases_do_not_refresh_fresh_metadata(self):
         state = _SharedMetadataState()
@@ -251,12 +321,63 @@ class MetadataRefreshTests(unittest.IsolatedAsyncioTestCase):
         )
         scraper = _MetadataScraper(state)
 
-        metadata, aliases = await scraper.fetch_metadata_and_aliases(
-            "movie", "tt123", "tt123"
-        )
+        result = await scraper.fetch_metadata_and_aliases("movie", "tt123", "tt123")
 
-        self.assertEqual(metadata["title"], "Cached")
-        self.assertEqual(aliases, {"us": ["Shared Movie"]})
+        self.assertEqual(result.metadata["title"], "Cached")
+        self.assertEqual(result.aliases, {"us": ["Shared Movie"]})
         self.assertEqual(state.metadata_calls, 0)
         self.assertEqual(state.alias_calls, 1)
         self.assertEqual(state.cache_calls, 1)
+
+    async def test_provider_alias_failure_remains_retryable(self):
+        scraper = MetadataScraper(session=None)
+        with (
+            patch.object(anime_mapper, "is_loaded", return_value=False),
+            patch(
+                "comet.metadata.manager.TMDBApi.get_title_aliases",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            aliases = await scraper.get_aliases("movie", "tt1234567", "imdb")
+
+        self.assertIsNone(aliases)
+
+    def test_cached_aliases_keep_only_bounded_usable_titles(self):
+        normalized = MetadataScraper._load_cached_aliases(
+            orjson.dumps({"US": [" First ", "First"]})
+        )
+        self.assertEqual(normalized["us"], ["First"])
+        self.assertEqual(
+            MetadataScraper._load_cached_aliases(
+                orjson.dumps({"US": ["First", "bad\nvalue"]})
+            ),
+            {"us": ["First"]},
+        )
+        bounded = MetadataScraper._load_cached_aliases(
+            orjson.dumps({"ez": [f"Alias {index}" for index in range(513)]})
+        )
+        self.assertEqual(len(bounded["ez"]), 512)
+        with self.assertRaisesRegex(ValueError, "storage limit"):
+            MetadataScraper._load_cached_aliases(("é" * (1024 * 1024)).encode("utf-8"))
+        with self.assertRaises(orjson.JSONDecodeError):
+            MetadataScraper._load_cached_aliases(b"not-json")
+
+    def test_nonfinite_cache_timestamps_are_never_fresh(self):
+        for value in (True, float("inf"), float("-inf"), float("nan")):
+            with self.subTest(value=value):
+                self.assertFalse(MetadataScraper._is_fresh(value, time.time()))
+
+    async def test_parallel_provider_failure_is_not_masked(self):
+        async def fail():
+            raise RuntimeError("token=do-not-log")
+
+        async def succeed():
+            return {"us": ["Movie"]}
+
+        with self.assertRaisesRegex(RuntimeError, "token=do-not-log"):
+            await _settle_metadata_tasks(
+                {
+                    "metadata": asyncio.create_task(fail()),
+                    "aliases": asyncio.create_task(succeed()),
+                }
+            )

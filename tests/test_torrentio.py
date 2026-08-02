@@ -1,10 +1,12 @@
 import unittest
 
-from comet.scrapers.models import ScrapeRequest
-from comet.scrapers.torrentio import TorrentioScraper
+from comet.discovery.adapters.torrent.torrentio import TorrentioScraper
+from comet.discovery.torrent_models import ScrapeRequest
 
 
 class _Response:
+    status = 200
+
     def __init__(self, payload):
         self.payload = payload
 
@@ -27,7 +29,7 @@ class _Session:
 
 
 class TorrentioScraperTests(unittest.IsolatedAsyncioTestCase):
-    async def test_malformed_stream_does_not_discard_valid_peers(self):
+    async def test_valid_streams_preserve_metadata(self):
         payload = {
             "streams": [
                 {
@@ -35,7 +37,6 @@ class TorrentioScraperTests(unittest.IsolatedAsyncioTestCase):
                     "infoHash": "A" * 40,
                     "sources": ["tracker:first"],
                 },
-                {"infoHash": "B" * 40},
                 {
                     "title": "Second.Movie\n💾 700 MB",
                     "infoHash": "C" * 40,
@@ -59,3 +60,19 @@ class TorrentioScraperTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [torrent["infoHash"] for torrent in torrents], ["a" * 40, "c" * 40]
         )
+
+    async def test_malformed_stream_fails_the_source_batch(self):
+        scraper = TorrentioScraper(
+            None,
+            _Session({"streams": [{"infoHash": "B" * 40}]}),
+            "https://torrentio.test",
+        )
+        request = ScrapeRequest(
+            media_type="movie",
+            media_id="tt123",
+            media_only_id="tt123",
+            title="Movie",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Torrentio result"):
+            await scraper.scrape(request)

@@ -1,0 +1,233 @@
+"""Explicit ownership policy for operator settings application."""
+
+from __future__ import annotations
+
+from functools import cache
+from typing import Literal
+
+from comet.core.operator_settings import BOOTSTRAP_SETTING_KEYS, LOGGING_SETTING_KEYS
+
+ApplyMode = Literal["live", "component", "process", "deployment"]
+
+PROCESS_RESTART_SETTING_KEYS = frozenset(
+    {
+        "FASTAPI_HOST",
+        "FASTAPI_PORT",
+        "FASTAPI_WORKERS",
+        "USE_GUNICORN",
+        "GUNICORN_PRELOAD_APP",
+        "USENET_ENABLED",
+        "PROMETHEUS_ENABLED",
+        "PROMETHEUS_PATH",
+        "PROMETHEUS_MULTIPROC_DIR",
+        "CONFIGURE_PAGE_PASSWORD",
+        "PUBLIC_API_TOKEN",
+        "PUBLIC_API_TOKEN_FILE",
+    }
+)
+
+SECURITY_SETTING_KEYS = frozenset(
+    {
+        "ADMIN_DASHBOARD_PASSWORD",
+        "ADMIN_DASHBOARD_SESSION_TTL",
+        "CONFIGURE_PAGE_SESSION_TTL",
+    }
+)
+HTTP_CLIENT_SETTING_KEYS = frozenset(
+    {
+        "HTTP_CLIENT_LIMIT",
+        "HTTP_CLIENT_LIMIT_PER_HOST",
+        "HTTP_CLIENT_TTL_DNS_CACHE",
+        "HTTP_CLIENT_KEEPALIVE_TIMEOUT",
+        "HTTP_CLIENT_TIMEOUT_TOTAL",
+        "USER_PROVIDED_PROXY_URL",
+    }
+)
+NETWORK_CLIENT_SETTING_KEYS = frozenset(
+    {
+        "GLOBAL_PROXY_URL",
+        "USER_PROVIDED_PROXY_URL",
+        "PROXY_ETHOS",
+        "AIOSTREAMS_PROXY_URL",
+        "ANIMETOSHO_PROXY_URL",
+        "BITMAGNET_PROXY_URL",
+        "COMET_PROXY_URL",
+        "DEBRIDIO_PROXY_URL",
+        "DMM_PROXY_URL",
+        "JACKETT_PROXY_URL",
+        "JACKETTIO_PROXY_URL",
+        "MEDIAFUSION_PROXY_URL",
+        "NEKOBT_PROXY_URL",
+        "NYAA_PROXY_URL",
+        "PEERFLIX_PROXY_URL",
+        "PROWLARR_PROXY_URL",
+        "SEADEX_PROXY_URL",
+        "STREMTHRU_PROXY_URL",
+        "TORRENTIO_PROXY_URL",
+        "TORRENTSDB_PROXY_URL",
+        "ZILEAN_PROXY_URL",
+    }
+)
+FILTER_SETTING_KEYS = frozenset(
+    {
+        "RTN_FILTER_DEBUG",
+        "FILTER_PARSE_CACHE_SIZE",
+        "FILTER_PARSE_CACHE_SHARDS",
+        "FILTER_PARSE_CACHE_DEDUP_INFLIGHT",
+    }
+)
+INDEXER_MANAGER_SETTING_KEYS = frozenset(
+    {
+        "INDEXER_MANAGER_UPDATE_INTERVAL",
+        "JACKETT_INDEXERS",
+        "PROWLARR_INDEXERS",
+    }
+)
+COMETNET_SETTING_KEYS = frozenset(
+    {
+        "COMETNET_ENABLED",
+        "COMETNET_LISTEN_PORT",
+        "COMETNET_HTTP_PORT",
+        "COMETNET_BOOTSTRAP_NODES",
+        "COMETNET_MANUAL_PEERS",
+        "COMETNET_MAX_PEERS",
+        "COMETNET_MIN_PEERS",
+        "COMETNET_KEYS_DIR",
+        "COMETNET_ADVERTISE_URL",
+        "COMETNET_KEY_PASSWORD",
+        "COMETNET_ALLOW_PRIVATE_PEX",
+        "COMETNET_SKIP_REACHABILITY_CHECK",
+        "COMETNET_SKIP_TIME_CHECK",
+        "COMETNET_TIME_CHECK_TOLERANCE",
+        "COMETNET_TIME_CHECK_TIMEOUT",
+        "COMETNET_REACHABILITY_RETRIES",
+        "COMETNET_REACHABILITY_RETRY_DELAY",
+        "COMETNET_REACHABILITY_TIMEOUT",
+        "COMETNET_UPNP_ENABLED",
+        "COMETNET_UPNP_LEASE_DURATION",
+        "COMETNET_RELAY_URL",
+        "COMETNET_API_KEY",
+        "COMETNET_STATE_SAVE_INTERVAL",
+        "COMETNET_GOSSIP_FANOUT",
+        "COMETNET_GOSSIP_INTERVAL",
+        "COMETNET_GOSSIP_MESSAGE_TTL",
+        "COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE",
+        "COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE",
+        "COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE",
+        "COMETNET_GOSSIP_TORRENT_MAX_AGE",
+        "COMETNET_PEX_BATCH_SIZE",
+        "COMETNET_PEER_CONNECT_BACKOFF_MAX",
+        "COMETNET_PEER_MAX_FAILURES",
+        "COMETNET_PEER_CLEANUP_AGE",
+        "COMETNET_TRANSPORT_MAX_MESSAGE_SIZE",
+        "COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP",
+        "COMETNET_TRANSPORT_PING_INTERVAL",
+        "COMETNET_TRANSPORT_CONNECTION_TIMEOUT",
+        "COMETNET_TRANSPORT_MAX_LATENCY_MS",
+        "COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED",
+        "COMETNET_TRANSPORT_RATE_LIMIT_ENABLED",
+        "COMETNET_TRANSPORT_RATE_LIMIT_COUNT",
+        "COMETNET_TRANSPORT_RATE_LIMIT_WINDOW",
+        "COMETNET_REPUTATION_INITIAL",
+        "COMETNET_REPUTATION_MIN",
+        "COMETNET_REPUTATION_MAX",
+        "COMETNET_REPUTATION_THRESHOLD_UNTRUSTED",
+        "COMETNET_REPUTATION_THRESHOLD_TRUSTED",
+        "COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION",
+        "COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY",
+        "COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY",
+        "COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION",
+        "COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE",
+        "COMETNET_CONTRIBUTION_MODE",
+        "COMETNET_TRUSTED_POOLS",
+        "COMETNET_POOLS_DIR",
+        "COMETNET_PRIVATE_NETWORK",
+        "COMETNET_NETWORK_ID",
+        "COMETNET_NETWORK_PASSWORD",
+        "COMETNET_NODE_ALIAS",
+    }
+)
+USENET_ENGINE_SETTING_KEYS = frozenset(
+    {
+        "USENET_ENGINE_ENABLED",
+        "COMET_USENET_ENGINE_BINARY",
+        "USENET_RUNTIME_DIR",
+        "USENET_LOCAL_DATA_DIR",
+        "USENET_ARTIFACT_DIR",
+        "USENET_REPLICA_COUNT",
+        "USENET_NATIVE_MAX_STREAMS",
+        "USENET_MEMORY_CACHE_BYTES",
+        "USENET_DISK_CACHE_BYTES",
+        "USENET_SPOOL_MAX_BYTES",
+        "USENET_MIN_FREE_DISK_BYTES",
+        "USENET_ARCHIVE_JOBS",
+        "USENET_REPAIR_JOBS",
+        "USENET_START_TIMEOUT_SECONDS",
+        "USENET_DRAIN_TIMEOUT_SECONDS",
+    }
+)
+USENET_ENABLEMENT_DEPENDENT_SETTING_KEYS = USENET_ENGINE_SETTING_KEYS | frozenset(
+    {
+        "SCRAPE_ANIMETOSHO_USENET",
+        "USENET_ENGINE_REQUIRED",
+        "USENET_NATIVE_ACCESS_TOKEN",
+        "COMET_CAPABILITY_SECRET",
+        "COMET_CAPABILITY_SECRET_FILE",
+    }
+)
+COMPONENT_SETTING_KEYS = (
+    SECURITY_SETTING_KEYS
+    | HTTP_CLIENT_SETTING_KEYS
+    | NETWORK_CLIENT_SETTING_KEYS
+    | FILTER_SETTING_KEYS
+    | INDEXER_MANAGER_SETTING_KEYS
+    | COMETNET_SETTING_KEYS
+    | USENET_ENGINE_SETTING_KEYS
+    | LOGGING_SETTING_KEYS
+    | frozenset(
+        {
+            "EXECUTOR_MAX_WORKERS",
+            "BACKGROUND_SCRAPER_ENABLED",
+            "BACKGROUND_SCRAPER_INTERVAL",
+            "DMM_INGEST_ENABLED",
+            "DMM_INGEST_CONCURRENT_WORKERS",
+            "DMM_INGEST_INTERVAL",
+            "DATABASE_READ_REPLICA_URLS",
+            "MEMORY_TRIM_INTERVAL",
+        }
+    )
+)
+
+
+def apply_mode(key: str) -> ApplyMode:
+    if key in BOOTSTRAP_SETTING_KEYS:
+        return "deployment"
+    if key in PROCESS_RESTART_SETTING_KEYS:
+        return "process"
+    if key in COMPONENT_SETTING_KEYS:
+        return "component"
+    if key in _known_setting_keys():
+        return "live"
+    raise KeyError(key)
+
+
+@cache
+def _known_setting_keys() -> frozenset[str]:
+    from comet.core.models import AppSettings
+    from comet.observability.logging import LoggingSettings
+
+    return frozenset(
+        key for key in AppSettings.model_fields if key.isupper()
+    ) | frozenset(LoggingSettings.model_fields)
+
+
+def restart_required(keys) -> bool:
+    return bool(settings_requiring_restart(keys))
+
+
+def settings_requiring_restart(keys) -> frozenset[str]:
+    changed = frozenset(keys)
+    restart = changed & PROCESS_RESTART_SETTING_KEYS
+    if "USENET_ENABLED" in restart:
+        restart |= changed & USENET_ENABLEMENT_DEPENDENT_SETTING_KEYS
+    return restart

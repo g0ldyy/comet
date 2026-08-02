@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title description">
+  <title id="title">Comet background</title>
+  <desc id="description">A carbon background crossed by Comet's coral wake.</desc>
+  <defs>
+    <filter id="aura" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="30"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="#090909"/>
+  <path d="M970 1080C1194 722 1507 414 1920 154" fill="none" stroke="#ff5a36" stroke-opacity=".38" stroke-width="52" stroke-linecap="round" filter="url(#aura)"/>
+  <path d="M970 1080C1194 722 1507 414 1920 154" fill="none" stroke="#ff5a36" stroke-width="4" stroke-linecap="round"/>
+  <path d="M1096 1080C1290 777 1564 515 1920 292" fill="none" stroke="#f4f1ec" stroke-opacity=".12" stroke-width="2" stroke-linecap="round"/>
+  <path d="M1226 1080C1383 835 1615 620 1920 426" fill="none" stroke="#f4f1ec" stroke-opacity=".06" stroke-width="2" stroke-linecap="round"/>
+</svg>

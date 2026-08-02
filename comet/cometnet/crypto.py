@@ -21,7 +21,6 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 
 from comet.cometnet.utils import run_in_executor
-from comet.core.logger import logger
 from comet.core.models import settings
 
 
@@ -85,12 +84,8 @@ class NodeIdentity:
 
         if key_path.exists():
             await self._load_keys(key_path)
-            logger.log(
-                "COMETNET", f"Loaded existing node identity: {self._node_id[:8]}"
-            )
         else:
             await self._generate_keys(key_path)
-            logger.log("COMETNET", f"Generated new node identity: {self._node_id[:8]}")
 
     async def _generate_keys(self, key_path: Path) -> None:
         """Generate a new ECDSA key pair and save to disk."""
@@ -112,7 +107,6 @@ class NodeIdentity:
             encryption = serialization.BestAvailableEncryption(
                 key_password.encode("utf-8")
             )
-            logger.log("COMETNET", "Private key will be encrypted with password")
         else:
             encryption = serialization.NoEncryption()
 
@@ -148,10 +142,6 @@ class NodeIdentity:
                 try:
                     self._private_key = serialization.load_pem_private_key(
                         key_data, password=None
-                    )
-                    logger.warning(
-                        "COMETNET_KEY_PASSWORD is set but key is unencrypted. "
-                        "Consider regenerating the key for better security."
                     )
                 except Exception:
                     raise ValueError(

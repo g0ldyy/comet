@@ -165,6 +165,27 @@ class CometNetTransportTests(unittest.IsolatedAsyncioTestCase):
             "wss://[2001:db8::1]/cometnet/ws",
         )
 
+    async def test_connection_traffic_totals_survive_peer_disconnect(self):
+        manager = ConnectionManager(_Identity())
+        websocket = AsyncMock()
+        connection = PeerConnection(
+            node_id="peer",
+            address="wss://peer",
+            websocket=websocket,
+        )
+        manager._connections["peer"] = connection
+
+        self.assertTrue(await connection.send(b"four"))
+        connection.bytes_received = 6
+        connection.messages_received = 2
+        self.assertTrue(manager._release_connection("peer", connection))
+
+        stats = manager.get_connection_stats()
+        self.assertEqual(stats["bytes_sent"], 4)
+        self.assertEqual(stats["bytes_received"], 6)
+        self.assertEqual(stats["messages_sent"], 1)
+        self.assertEqual(stats["messages_received"], 2)
+
     async def test_outbound_handshake_reserves_global_capacity(self):
         manager = ConnectionManager(_Identity(), max_peers=1)
         manager._running = True

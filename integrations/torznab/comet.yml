@@ -1,7 +1,7 @@
 ---
 id: comet
 name: Comet
-description: "Stremio's fastest torrent/debrid search add-on."
+description: "Comet's Torznab-compatible torrent search endpoint."
 language: en-US
 type: public
 encoding: UTF-8

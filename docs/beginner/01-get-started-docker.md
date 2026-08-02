@@ -10,6 +10,14 @@ By the end, you will have Comet running and reachable from your browser.
 - A terminal.
 - A text editor.
 
+If you enable the built-in Usenet engine (`USENET_ENGINE_ENABLED=True`), the
+Docker host must expose Landlock ABI 3 or newer with Landlock enabled. This is
+normally available on Linux 6.2 and newer, though vendors may backport it. The
+engine intentionally refuses to start when the kernel cannot confine archive
+and PAR2 worker writes and truncation. Containers use the host kernel; changing
+the image cannot add this capability. See the
+[Linux Landlock documentation](https://docs.kernel.org/userspace-api/landlock.html).
+
 ## Step 1: Create a Working Directory
 
 ```bash
@@ -55,7 +63,7 @@ docker compose up -d
 
 ```bash
 docker compose ps
-docker compose logs -f comet
+docker compose logs -f --tail=200 comet
 ```
 
 In logs, confirm startup information appears.
@@ -71,7 +79,10 @@ Open:
 - `http://<your-host>:8000/configure` for configuration
 - `http://<your-host>:8000/admin` for admin dashboard login
 
-If `ADMIN_DASHBOARD_PASSWORD` is not set, Comet generates one at startup and logs it.
+Setting `ADMIN_DASHBOARD_PASSWORD` explicitly is recommended. If it is omitted
+or empty, copy the generated value from the startup
+`config.generated_secret` event. Comet stores that value in its shared database
+so it remains stable across restarts and replicas.
 
 ## Step 7 (Recommended): Add a Reverse Proxy
 
@@ -82,6 +93,8 @@ Comet includes a minimal nginx example in `deployment/nginx.conf`:
 ```nginx
 server {
     server_name example.com;
+    access_log off;
+    error_log /dev/stderr crit;
 
     location / {
         proxy_pass http://localhost:8000;
@@ -103,6 +116,8 @@ Beginner checklist:
 1. Replace `example.com` with your domain.
 2. Ensure `proxy_pass` points to your Comet service.
 3. Add HTTPS/TLS on the proxy before using Stremio from another device/network.
+4. Keep access logging disabled, or configure equivalent path redaction. Comet
+   addon URLs contain the user configuration and may contain credentials.
 
 ## Next
 

@@ -7,7 +7,6 @@ Orchestrates all components: Identity, Transport, Discovery, Gossip, Reputation,
 
 import asyncio
 import json
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -57,10 +56,14 @@ from comet.cometnet.utils import (
     shutdown_crypto_executor,
 )
 from comet.cometnet.validation import validate_message_security
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.observability import create_detached_task, log
 from comet.utils.atomic_file import write_text_atomic
 from comet.utils.network import get_client_ip_any
+
+
+class CometNetStartupError(RuntimeError):
+    """Category-only startup rejection owned by the service boundary."""
 
 
 class CometNetService(CometNetBackend):
@@ -124,7 +127,7 @@ class CometNetService(CometNetBackend):
             coroutine.close()
             return None
 
-        task = asyncio.create_task(coroutine)
+        task = create_detached_task(coroutine, name="cometnet.background")
         self._background_tasks.add(task)
         task.add_done_callback(self._on_background_task_done)
         return task
@@ -133,9 +136,7 @@ class CometNetService(CometNetBackend):
         self._background_tasks.discard(task)
         if task.cancelled():
             return
-        error = task.exception()
-        if error is not None:
-            logger.warning(f"CometNet background task failed: {error}")
+        task.exception()
 
     async def _stop_background_tasks(self) -> None:
         tasks = tuple(self._background_tasks)
@@ -170,21 +171,39 @@ class CometNetService(CometNetBackend):
 
     async def start(self) -> None:
         """Start CometNet and clean any partially initialized resources on failure."""
+        if not self.enabled or self._running:
+            return
+        started_at = time.monotonic_ns()
         try:
             await self._start()
-        except BaseException:
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             try:
                 await self._shutdown(save_state=False, force=True)
-            except BaseException as cleanup_error:
-                logger.warning(
-                    f"Failed to clean partial CometNet startup: {cleanup_error}"
-                )
+            except BaseException:
+                pass
             raise
+        except Exception as exc:
+            log.error(
+                "cometnet.start.failed",
+                "CometNet failed to start",
+                error_code="startup_failure",
+                duration_ms=(time.monotonic_ns() - started_at) / 1_000_000,
+                exc=exc,
+            )
+            try:
+                await self._shutdown(save_state=False, force=True)
+            except BaseException:
+                pass
+            raise
+        log.info(
+            "cometnet.ready",
+            "CometNet is ready",
+            duration_ms=(time.monotonic_ns() - started_at) / 1_000_000,
+        )
 
     async def _start(self) -> None:
         """Start the CometNet service."""
         if not self.enabled:
-            logger.log("COMETNET", "CometNet is disabled")
             return
 
         if self._running:
@@ -192,106 +211,6 @@ class CometNetService(CometNetBackend):
 
         # Initialize components
         await self._init_components()
-
-        logger.log("COMETNET", "=" * 60)
-        logger.log(
-            "COMETNET", f"Starting CometNet P2P Node - {self.identity.node_id[:8]}"
-        )
-        logger.log("COMETNET", "=" * 60)
-
-        key_encrypted = "Yes" if settings.COMETNET_KEY_PASSWORD else "No"
-        private_mode = (
-            f" - Private Network: {settings.COMETNET_NETWORK_ID}"
-            if settings.COMETNET_PRIVATE_NETWORK
-            else " - Private Network: False"
-        )
-
-        if settings.COMETNET_TRUSTED_POOLS:
-            trusted_pools = f" - Trusted Pools={len(settings.COMETNET_TRUSTED_POOLS)}"
-        else:
-            trusted_pools = " - Trusted Pools=All (Open Mode)"
-
-        ingest_pools = (
-            f" - Ingest Pools={len(settings.COMETNET_INGEST_POOLS)}"
-            if settings.COMETNET_INGEST_POOLS
-            else ""
-        )
-
-        logger.log(
-            "COMETNET",
-            f"Configuration: Port={self.listen_port}"
-            f" - Max Peers={self.max_peers}"
-            f" - Min Peers={self.min_peers}"
-            f" - Keys: {self.keys_dir}"
-            f" - Key Encrypted: {key_encrypted}"
-            f" - Allow Private PEX: {settings.COMETNET_ALLOW_PRIVATE_PEX}"
-            f" - Skip Reachability Check: {settings.COMETNET_SKIP_REACHABILITY_CHECK}"
-            f" - Skip Time Check: {settings.COMETNET_SKIP_TIME_CHECK} (Tolerance: {settings.COMETNET_TIME_CHECK_TOLERANCE}s)"
-            f" - State Save Interval: {settings.COMETNET_STATE_SAVE_INTERVAL}s"
-            f"{private_mode}",
-        )
-        logger.log(
-            "COMETNET",
-            f"Reachability Check Config: Retries={settings.COMETNET_REACHABILITY_RETRIES}"
-            f" - Retry Delay={settings.COMETNET_REACHABILITY_RETRY_DELAY}s"
-            f" - Timeout={settings.COMETNET_REACHABILITY_TIMEOUT}s",
-        )
-        logger.log(
-            "COMETNET",
-            f"Pools Config: Dir={settings.COMETNET_POOLS_DIR}"
-            f"{trusted_pools}{ingest_pools}",
-        )
-
-        if self.advertise_url:
-            logger.log("COMETNET", f"Advertise URL: {self.advertise_url}")
-
-        logger.log(
-            "COMETNET",
-            f"Peers: Bootstrap={len(self.bootstrap_nodes)}"
-            f" - Manual={len(self.manual_peers)}"
-            f" - UPnP: {settings.COMETNET_UPNP_ENABLED} (Lease: {settings.COMETNET_UPNP_LEASE_DURATION}s)",
-        )
-
-        logger.log(
-            "COMETNET",
-            f"Gossip: Fanout={settings.COMETNET_GOSSIP_FANOUT}"
-            f" - Interval={settings.COMETNET_GOSSIP_INTERVAL}s"
-            f" - TTL={settings.COMETNET_GOSSIP_MESSAGE_TTL}"
-            f" - Max Torrents/Msg={settings.COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE}"
-            f" - Clock Drift={settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE}s/{settings.COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE}s"
-            f" - Max Torrent Age={settings.COMETNET_GOSSIP_TORRENT_MAX_AGE}s",
-        )
-
-        logger.log(
-            "COMETNET",
-            f"Transport: Max Msg Size={settings.COMETNET_TRANSPORT_MAX_MESSAGE_SIZE}"
-            f" - Max Conn/IP={settings.COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP}"
-            f" - Ping={settings.COMETNET_TRANSPORT_PING_INTERVAL}s"
-            f" - Timeout={settings.COMETNET_TRANSPORT_CONNECTION_TIMEOUT}s"
-            f" - Max Latency={settings.COMETNET_TRANSPORT_MAX_LATENCY_MS}ms"
-            f" - WebSocket Compression={settings.COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED}"
-            f" - RateLimit: {settings.COMETNET_TRANSPORT_RATE_LIMIT_ENABLED} "
-            f"({settings.COMETNET_TRANSPORT_RATE_LIMIT_COUNT}/{settings.COMETNET_TRANSPORT_RATE_LIMIT_WINDOW}s)",
-        )
-
-        logger.log(
-            "COMETNET",
-            f"Discovery: PEX Batch={settings.COMETNET_PEX_BATCH_SIZE}"
-            f" - Backoff={settings.COMETNET_PEER_CONNECT_BACKOFF_MAX}s"
-            f" - Max Failures={settings.COMETNET_PEER_MAX_FAILURES}"
-            f" - Cleanup Age={settings.COMETNET_PEER_CLEANUP_AGE}s",
-        )
-
-        logger.log(
-            "COMETNET",
-            f"Reputation: Init={settings.COMETNET_REPUTATION_INITIAL}"
-            f" - Range=[{settings.COMETNET_REPUTATION_MIN}, {settings.COMETNET_REPUTATION_MAX}]"
-            f" - Trust={settings.COMETNET_REPUTATION_THRESHOLD_TRUSTED}/{settings.COMETNET_REPUTATION_THRESHOLD_UNTRUSTED}"
-            f" - Valid Bonus=+{settings.COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION}"
-            f" - Anciennety Bonus=+{settings.COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY}/day (Max {settings.COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY})"
-            f" - Invalid Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION}"
-            f" - Sig Penalty=-{settings.COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE}",
-        )
 
         # Validate advertise_url format and security
         if self.advertise_url:
@@ -316,10 +235,6 @@ class CometNetService(CometNetBackend):
                         and pool_id not in self.pool_store._memberships
                     ):
                         restored_memberships.add(pool_id)
-                        logger.log(
-                            "COMETNET",
-                            f"Restored missing membership for pool {pool_id}",
-                        )
 
                 if restored_memberships:
                     await self.pool_store._replace_memberships(
@@ -328,103 +243,40 @@ class CometNetService(CometNetBackend):
 
         # System Clock Sync Check
         if not settings.COMETNET_SKIP_TIME_CHECK:
-            logger.log("COMETNET", "Verifying system clock synchronization...")
-            is_synced, msg, offset = await check_system_clock_sync(
+            is_synced, _message, _offset = await check_system_clock_sync(
                 tolerance=settings.COMETNET_TIME_CHECK_TOLERANCE,
                 timeout=settings.COMETNET_TIME_CHECK_TIMEOUT,
             )
 
-            if is_synced:
-                logger.log("COMETNET", f"✓ System clock is synchronized ({msg})")
-            else:
-                drift_info = (
-                    f"Drift: {offset:.2f}s (Tolerance: {settings.COMETNET_TIME_CHECK_TOLERANCE}s)\n"
-                    if abs(offset) > 0.001
-                    else ""
-                )
-                logger.critical(
-                    f"\nCometNet failed to start: System clock check failed.\n"
-                    f"Status: {msg}\n"
-                    f"{drift_info}\n"
-                    "Accurate system time is critical for:\n"
-                    "1. Validating message signatures\n"
-                    "2. SSL/TLS connections\n"
-                    "3. Distributed consensus\n\n"
-                    "Please synchronize your clock (e.g. sudo ntpdate pool.ntp.org)\n"
-                    "To skip this check: COMETNET_SKIP_TIME_CHECK=true"
-                )
-                await logger.complete()
-                sys.exit(1)
+            if not is_synced:
+                raise CometNetStartupError("clock_check_failed")
 
         # Start transport layer
         await self.transport.start()
 
         # Handle UPnP if enabled
         if settings.COMETNET_UPNP_ENABLED:
-            logger.log("COMETNET", "Initializing UPnP...")
             self.upnp = UPnPManager(
                 port=self.listen_port,
                 lease_duration=settings.COMETNET_UPNP_LEASE_DURATION,
             )
             external_ip = await self.upnp.start()
-            if external_ip:
+            if external_ip and not self.advertise_url:
                 # If we successfully mapped a port and don't have an advertise URL, use the IP
-                if not self.advertise_url:
-                    self.advertise_url = format_websocket_url(
-                        external_ip, self.listen_port
-                    )
-                    # Update transport with new URL
-                    self.transport.advertise_url = self.advertise_url
-                    logger.log(
-                        "COMETNET",
-                        f"Public Address auto-configured via UPnP: {self.advertise_url}",
-                    )
-                else:
-                    logger.warning(
-                        f"UPnP mapped to {external_ip} but COMETNET_ADVERTISE_URL is already set. Using configured URL.",
-                    )
-
-        # Custom check for unencrypted transport
-        if self.advertise_url and self.advertise_url.startswith("ws://"):
-            try:
-                parsed = urlparse(self.advertise_url)
-                host = (parsed.hostname or "").lower()
-                local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
-                is_local = host in local_hosts
-            except Exception:
-                is_local = False
-
-            if not is_local:
-                logger.warning(
-                    "SECURITY WARNING: CometNet is configured with unencrypted 'ws://' URL. "
-                    "Your P2P traffic (including metadata) is visible to interceptors. "
-                    "It is STRONGLY recommended to use 'wss://' (SSL) for public instances."
-                )
+                self.advertise_url = format_websocket_url(external_ip, self.listen_port)
+                # Update transport with new URL
+                self.transport.advertise_url = self.advertise_url
 
         # validation for private IP in advertise URL
-        if self.advertise_url and not await is_valid_peer_address(
-            self.advertise_url, allow_private=False
+        if (
+            self.advertise_url
+            and not await is_valid_peer_address(self.advertise_url, allow_private=False)
+            and not (
+                settings.COMETNET_PRIVATE_NETWORK or settings.COMETNET_ALLOW_PRIVATE_PEX
+            )
         ):
-            # If we are in a private network or explicitly allow private PEX, we allow it (with warning)
-            if settings.COMETNET_PRIVATE_NETWORK or settings.COMETNET_ALLOW_PRIVATE_PEX:
-                logger.warning(
-                    "Your COMETNET_ADVERTISE_URL contains a private/internal IP address. "
-                    "This is allowed because COMETNET_PRIVATE_NETWORK or COMETNET_ALLOW_PRIVATE_PEX is enabled. "
-                    "Public peers may not be able to connect."
-                )
-            else:
-                # Do not allow starting with private IP on public network
-                logger.critical(
-                    f"\nCometNet failed to start because COMETNET_ADVERTISE_URL ('{self.advertise_url}') "
-                    "is a private address.\n"
-                    "Public nodes MUST be reachable via a public URL.\n"
-                    "Please:\n"
-                    "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
-                    "2. Or enable UPnP with COMETNET_UPNP_ENABLED=true\n"
-                    "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
-                )
-                await logger.complete()
-                sys.exit(1)
+            # If we are in a private network or explicitly allow private PEX, we allow it
+            raise CometNetStartupError("advertise_address_rejected")
 
         # Require advertise_url on public networks
         if (
@@ -432,22 +284,7 @@ class CometNetService(CometNetBackend):
             and not settings.COMETNET_PRIVATE_NETWORK
             and not settings.COMETNET_ALLOW_PRIVATE_PEX
         ):
-            upnp_hint = (
-                "   (UPnP is enabled but failed to configure - check your router)\n"
-                if settings.COMETNET_UPNP_ENABLED
-                else "2. Or enable UPnP with COMETNET_UPNP_ENABLED=true (will auto-configure)\n"
-            )
-            logger.critical(
-                "\nCometNet failed to start because COMETNET_ADVERTISE_URL is not configured.\n"
-                "Without a public URL, your node's local address will be shared with peers,\n"
-                "polluting the network with unreachable addresses.\n\n"
-                "Please:\n"
-                "1. Set COMETNET_ADVERTISE_URL to your public URL (wss://your-domain.com/cometnet/ws)\n"
-                f"{upnp_hint}"
-                "3. Or if you are testing locally, set COMETNET_ALLOW_PRIVATE_PEX=true"
-            )
-            await logger.complete()
-            sys.exit(1)
+            raise CometNetStartupError("advertise_address_missing")
 
         # WebSocket reachability check
         # Verify we can connect to our own advertise URL (like a peer would)
@@ -456,59 +293,20 @@ class CometNetService(CometNetBackend):
             retry_delay = settings.COMETNET_REACHABILITY_RETRY_DELAY
             timeout = settings.COMETNET_REACHABILITY_TIMEOUT
 
-            logger.log(
-                "COMETNET",
-                f"Verifying WebSocket reachability of {self.advertise_url}...",
-            )
-
             is_reachable = False
-            result_msg = None
-
             for attempt in range(1, max_retries + 1):
                 if attempt > 1:
-                    logger.log(
-                        "COMETNET",
-                        f"Retry {attempt}/{max_retries} after {retry_delay}s delay...",
-                    )
                     await asyncio.sleep(retry_delay)
 
-                is_reachable, result_msg = await check_advertise_url_reachability(
+                is_reachable, _result_message = await check_advertise_url_reachability(
                     self.advertise_url, timeout=timeout
                 )
 
                 if is_reachable:
-                    if attempt > 1:
-                        logger.log(
-                            "COMETNET",
-                            f"✓ Reachability check passed on attempt {attempt}/{max_retries} ({result_msg})",
-                        )
-                    else:
-                        logger.log(
-                            "COMETNET", f"✓ Reachability check passed ({result_msg})"
-                        )
                     break
-                else:
-                    logger.log(
-                        "COMETNET",
-                        f"✗ Attempt {attempt}/{max_retries} failed: {result_msg}",
-                    )
 
             if not is_reachable:
-                logger.critical(
-                    f"\nCometNet failed to start: Cannot connect to COMETNET_ADVERTISE_URL\n"
-                    f"URL: {self.advertise_url}\n"
-                    f"Error: {result_msg}\n"
-                    f"Failed after {max_retries} attempts\n\n"
-                    "Other peers won't be able to connect to you either.\n\n"
-                    "Troubleshooting:\n"
-                    f"1. Ensure port {self.listen_port} is open and forwarded correctly\n"
-                    "2. If using reverse proxy (e.g., Traefik), ensure WebSocket upgrade headers are forwarded\n"
-                    "3. If using Traefik, the reverse proxy may take time to open - increase COMETNET_REACHABILITY_RETRIES/DELAY\n"
-                    "4. Test manually: wscat -c " + self.advertise_url + "\n"
-                    "5. To skip this check: COMETNET_SKIP_REACHABILITY_CHECK=true"
-                )
-                await logger.complete()
-                sys.exit(1)
+                raise CometNetStartupError("reachability_check_failed")
 
         # Start discovery and gossip services
         await self.discovery.start(self.identity.node_id, self.listen_port)
@@ -521,32 +319,27 @@ class CometNetService(CometNetBackend):
         await self._reconnect_pool_peers()
 
         # Start periodic state save task
-        self._state_save_task = asyncio.create_task(self._periodic_state_save())
-
-        # Log contribution mode and pool info
-        pool_count = len(self.pool_store.get_subscriptions()) if self.pool_store else 0
-        pool_info = (
-            f", subscribed to {pool_count} pools" if pool_count > 0 else ", open mode"
-        )
-
-        alias_info = (
-            f" ({settings.COMETNET_NODE_ALIAS})" if settings.COMETNET_NODE_ALIAS else ""
-        )
-
-        logger.log(
-            "COMETNET",
-            f"CometNet started - Node ID: {self.identity.node_id[:8]}{alias_info} (mode: {settings.COMETNET_CONTRIBUTION_MODE}{pool_info})",
+        self._state_save_task = create_detached_task(
+            self._periodic_state_save(),
+            name="cometnet-state-save",
         )
 
     async def stop(self) -> None:
         """Stop the CometNet service."""
+        was_running = self._running
+        started_at = time.monotonic_ns()
         await self._shutdown(save_state=True)
+        if was_running:
+            log.terminal(
+                "cometnet.stopped",
+                "CometNet stopped",
+                outcome="ok",
+                duration_ms=(time.monotonic_ns() - started_at) / 1_000_000,
+            )
 
     async def _shutdown(self, *, save_state: bool, force: bool = False) -> None:
         if not self._running and not force:
             return
-
-        logger.log("COMETNET", "Stopping CometNet...")
 
         self._running = False
         cleanup_errors = []
@@ -556,14 +349,12 @@ class CometNetService(CometNetBackend):
                 await awaitable
             except BaseException as error:
                 cleanup_errors.append(error)
-                logger.warning(f"CometNet {name} cleanup failed: {error}")
 
         def run_sync_cleanup(name: str, callback) -> None:
             try:
                 callback()
             except BaseException as error:
                 cleanup_errors.append(error)
-                logger.warning(f"CometNet {name} cleanup failed: {error}")
 
         # Stop periodic state save task
         if self._state_save_task:
@@ -608,8 +399,6 @@ class CometNetService(CometNetBackend):
 
         # Shutdown the dedicated crypto thread pool
         run_sync_cleanup("crypto executor", shutdown_crypto_executor)
-
-        logger.log("COMETNET", "CometNet stopped")
         if cleanup_errors:
             raise cleanup_errors[0]
 
@@ -618,6 +407,9 @@ class CometNetService(CometNetBackend):
         Periodically save CometNet state to disk.
         """
         interval = settings.COMETNET_STATE_SAVE_INTERVAL
+        degraded = False
+        suppressed_count = 0
+        degraded_at = 0
 
         while self._running:
             try:
@@ -632,12 +424,30 @@ class CometNetService(CometNetBackend):
                 # Save pools data
                 if self.pool_store:
                     await self.pool_store.save()
-
-                logger.log("COMETNET", "Periodic state save completed")
+                if degraded:
+                    log.info(
+                        "cometnet.recovered",
+                        "CometNet persistence recovered",
+                        duration_ms=(time.monotonic_ns() - degraded_at) / 1_000_000,
+                        suppressed_count=suppressed_count,
+                    )
+                    degraded = False
+                    suppressed_count = 0
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.warning(f"Error during periodic state save: {e}")
+            except Exception as exc:
+                if degraded:
+                    suppressed_count += 1
+                else:
+                    degraded = True
+                    degraded_at = time.monotonic_ns()
+                    log.warning(
+                        "cometnet.degraded",
+                        "CometNet persistence is degraded",
+                        error_code="dependency_failure",
+                        suppressed_count=0,
+                        exc=exc,
+                    )
 
     async def _reconnect_pool_peers(self) -> None:
         """
@@ -690,8 +500,6 @@ class CometNetService(CometNetBackend):
                     pass
 
         if connected > 0:
-            logger.log("COMETNET", f"Reconnected to {connected} pool peers")
-
             # Send our manifests to newly connected peers to trigger sync
             # This ensures we receive their updated manifests if they have newer versions
             await self._sync_manifests_with_peers(connected_peers)
@@ -712,51 +520,21 @@ class CometNetService(CometNetBackend):
 
         try:
             parsed = urlparse(url)
-        except Exception as e:
-            logger.critical(
-                f"\nCometNet failed to start: Invalid COMETNET_ADVERTISE_URL format.\n"
-                f"URL: {url}\n"
-                f"Error: {e}\n\n"
-                "Please provide a valid WebSocket URL like:\n"
-                "  wss://your-domain.com/cometnet/ws\n"
-                "  ws://123.45.67.89:8765"
-            )
-            await logger.complete()
-            sys.exit(1)
+        except Exception as exc:
+            raise CometNetStartupError("advertise_url_invalid") from exc
 
         # Validate scheme
         if parsed.scheme not in ("ws", "wss"):
-            logger.critical(
-                f"\nCometNet failed to start: Invalid URL scheme '{parsed.scheme}'.\n"
-                f"URL: {url}\n\n"
-                "COMETNET_ADVERTISE_URL must use 'ws://' or 'wss://' scheme.\n"
-                "Examples:\n"
-                "  wss://your-domain.com/cometnet/ws (recommended)\n"
-                "  ws://123.45.67.89:8765 (unencrypted)"
-            )
-            await logger.complete()
-            sys.exit(1)
+            raise CometNetStartupError("advertise_url_invalid")
 
         # Validate hostname exists
         hostname = parsed.hostname
         if not hostname:
-            logger.critical(
-                f"\nCometNet failed to start: No hostname in COMETNET_ADVERTISE_URL.\n"
-                f"URL: {url}\n\n"
-                "Please specify a hostname or IP address."
-            )
-            await logger.complete()
-            sys.exit(1)
+            raise CometNetStartupError("advertise_url_invalid")
 
         # Validate port range
         if parsed.port is not None and not (1 <= parsed.port <= 65535):
-            logger.critical(
-                f"\nCometNet failed to start: Invalid port {parsed.port}.\n"
-                f"URL: {url}\n\n"
-                "Port must be between 1 and 65535."
-            )
-            await logger.complete()
-            sys.exit(1)
+            raise CometNetStartupError("advertise_url_invalid")
 
         # Check for internal domains (unless private network is allowed)
         if (
@@ -767,34 +545,11 @@ class CometNetService(CometNetBackend):
 
             # Check for suspicious internal domain patterns
             if is_internal_domain(hostname_lower):
-                logger.critical(
-                    f"\nCometNet failed to start: COMETNET_ADVERTISE_URL uses an internal domain.\n"
-                    f"URL: {url}\n"
-                    f"Hostname: {hostname}\n\n"
-                    "Internal domains (.local, .internal, .lan, etc.) are not routable on the public internet.\n"
-                    "Public nodes MUST use a publicly resolvable domain or IP address.\n\n"
-                    "If this is intentional:\n"
-                    "1. For private networks: set COMETNET_PRIVATE_NETWORK=true\n"
-                    "2. For testing: set COMETNET_ALLOW_PRIVATE_PEX=true"
-                )
-                await logger.complete()
-                sys.exit(1)
+                raise CometNetStartupError("advertise_url_rejected")
 
             # Check if domain resolves to a private IP (DNS rebinding protection)
             if await is_private_or_internal_ip(hostname_lower):
-                logger.critical(
-                    f"\nCometNet failed to start: COMETNET_ADVERTISE_URL resolves to a private IP.\n"
-                    f"URL: {url}\n"
-                    f"Hostname: {hostname}\n\n"
-                    "This domain resolves to a private/internal IP address.\n"
-                    "This could be a DNS rebinding attack or a misconfiguration.\n"
-                    "Public nodes MUST resolve to a public IP address.\n\n"
-                    "If this is intentional:\n"
-                    "1. For private networks: set COMETNET_PRIVATE_NETWORK=true\n"
-                    "2. For testing: set COMETNET_ALLOW_PRIVATE_PEX=true"
-                )
-                await logger.complete()
-                sys.exit(1)
+                raise CometNetStartupError("advertise_url_rejected")
 
     async def _init_components(self) -> None:
         """Initialize all CometNet components."""
@@ -923,7 +678,15 @@ class CometNetService(CometNetBackend):
         """Handle incoming torrent announce messages."""
         if isinstance(message, TorrentAnnounce):
             sender_ip = self.transport.get_peer_address(sender_id)
+            received_before = self.gossip.stats["torrents_received"]
             await self.gossip.handle_announce(sender_id, message, sender_ip)
+            received = self.gossip.stats["torrents_received"] - received_before
+            log.info(
+                "cometnet.contribution.received",
+                "CometNet contribution received",
+                peer_id=sender_id,
+                candidate_count=received,
+            )
 
     async def _handle_peer_request(self, sender_id: str, message: AnyMessage) -> None:
         """Handle incoming peer request messages."""
@@ -1006,40 +769,17 @@ class CometNetService(CometNetBackend):
                 if was_member and not is_now_member:
                     # We were removed from this pool - clean up completely
                     await self.pool_store.delete_pool(message.pool_id)
-
-                    logger.log(
-                        "COMETNET",
-                        f"Removed from pool {message.pool_id} (kicked by admin) - pool data cleaned up",
-                    )
                     return  # Don't store anything else for this pool
                 elif not was_member and is_now_member:
                     # We were added to this pool (e.g., via invite on another node)
                     await self.pool_store.add_membership(message.pool_id)
-                    logger.log(
-                        "COMETNET",
-                        f"Added to pool {message.pool_id}",
-                    )
-                elif was_member and is_now_member:
-                    # Check for role changes
-                    old_member = existing.get_member(my_key) if existing else None
-                    new_member = manifest.get_member(my_key)
-                    if old_member and new_member and old_member.role != new_member.role:
-                        logger.log(
-                            "COMETNET",
-                            f"Role updated in pool {message.pool_id}: {old_member.role} -> {new_member.role}",
-                        )
 
             # Store the sender's address so we can reconnect later
             sender_addr = self.transport.get_peer_address(sender_id)
             if sender_addr:
                 await self.pool_store.add_pool_peer(message.pool_id, sender_addr)
-
-            logger.log(
-                "COMETNET",
-                f"Received pool manifest: {message.display_name} ({message.pool_id}) v{message.manifest_version}",
-            )
-        except ValueError as e:
-            logger.debug(f"Failed to process pool manifest: {e}")
+        except ValueError:
+            pass
 
     async def _handle_pool_join_request(
         self, sender_id: str, message: AnyMessage
@@ -1075,13 +815,6 @@ class CometNetService(CometNetBackend):
         if accepted is None:
             return
         manifest, invite, added = accepted
-
-        if added:
-            requester_node_id = NodeIdentity.node_id_from_public_key(requester_key)
-            logger.log(
-                "COMETNET",
-                f"Added {requester_node_id[:8]} to pool {pool_id} via join request",
-            )
 
         # Send the manifest back to the requester
         await self._send_pool_manifest(sender_id, manifest)
@@ -1204,10 +937,6 @@ class CometNetService(CometNetBackend):
         # invalid signatures to the changed member list.
         if is_self_leave:
             await self.pool_store.store_manifest(manifest, self.identity)
-            logger.log(
-                "COMETNET",
-                f"Member {NodeIdentity.node_id_from_public_key(message.member_key)[:8]} left pool {message.pool_id}",
-            )
             await self._broadcast_pool_member_update(
                 pool_id=message.pool_id,
                 action="remove",
@@ -1237,10 +966,6 @@ class CometNetService(CometNetBackend):
 
         if manifest_valid:
             await self.pool_store.store_manifest(manifest)
-            logger.log(
-                "COMETNET",
-                f"Applied pool update: {message.action} {message.member_key[:8]}",
-            )
 
             # Re-broadcast to others who might not have received it
             await self.transport.broadcast(message, exclude={sender_id})
@@ -1273,10 +998,6 @@ class CometNetService(CometNetBackend):
 
         # Delete the pool locally
         await self.pool_store.delete_pool(message.pool_id)
-        logger.log(
-            "COMETNET",
-            f"Pool {message.pool_id} deleted by creator {message.deleted_by[:8]}",
-        )
 
     async def _send_pool_manifest(self, peer_id: str, manifest) -> None:
         """Send a pool manifest to a specific peer."""
@@ -1375,6 +1096,11 @@ class CometNetService(CometNetBackend):
 
         if valid_torrents:
             await self.gossip.queue_torrents(valid_torrents)
+            log.info(
+                "cometnet.contribution.queued",
+                "CometNet contribution queued",
+                candidate_count=len(valid_torrents),
+            )
 
     async def broadcast_torrent(self, metadata) -> None:
         """
@@ -1409,6 +1135,11 @@ class CometNetService(CometNetBackend):
 
     async def _on_peer_connected(self, node_id: str, address: str | None) -> None:
         """Callback when a peer connects via the native WebSocket server."""
+        log.info(
+            "cometnet.peer.connected",
+            "CometNet peer connected",
+            peer_id=node_id,
+        )
         if address:
             self.discovery.record_incoming_connection(node_id, address)
 
@@ -1549,6 +1280,10 @@ class CometNetService(CometNetBackend):
                     "is_outbound": conn.is_outbound,
                     "latency_ms": round(conn.latency_ms, 2),
                     "alias": conn.alias,
+                    "bytes_sent": conn.bytes_sent,
+                    "bytes_received": conn.bytes_received,
+                    "messages_sent": conn.messages_sent,
+                    "messages_received": conn.messages_received,
                     **rep_data,
                 }
             )
@@ -1618,9 +1353,6 @@ class CometNetService(CometNetBackend):
             )
 
             await self.transport.broadcast(delete_msg)
-            logger.log(
-                "COMETNET", f"Deleted and broadcasted deletion of pool {pool_id}"
-            )
 
         return result
 
@@ -1679,8 +1411,7 @@ class CometNetService(CometNetBackend):
                 node_url=node_url,
             )
             return invite.to_link()
-        except (PermissionError, ValueError) as e:
-            logger.warning(f"Failed to create invite: {e}")
+        except (PermissionError, ValueError):
             return None
 
     async def get_pool_invites(self, pool_id: str) -> dict[str, Any]:
@@ -1737,12 +1468,8 @@ class CometNetService(CometNetBackend):
 
             # If not connected, establish a connection
             if not peer_id:
-                logger.log(
-                    "COMETNET", f"Connecting to {node_url} to join pool {pool_id}..."
-                )
                 peer_id = await self.transport.connect_to_peer(node_url)
                 if not peer_id:
-                    logger.warning(f"Failed to connect to {node_url} for pool join")
                     return False
 
             # Send a join request
@@ -1761,10 +1488,6 @@ class CometNetService(CometNetBackend):
             if not success:
                 return False
 
-            logger.log(
-                "COMETNET", f"Sent join request for pool {pool_id} to {peer_id[:8]}"
-            )
-
             # The manifest will be received asynchronously via _handle_pool_manifest
             # Wait a bit for the response
             await asyncio.sleep(2.0)
@@ -1776,8 +1499,6 @@ class CometNetService(CometNetBackend):
 
                 # Store the node_url so we can reconnect later
                 await self.pool_store.add_pool_peer(pool_id, node_url)
-
-                logger.log("COMETNET", f"Successfully joined pool {pool_id}")
                 return True
 
             return False
@@ -1809,8 +1530,7 @@ class CometNetService(CometNetBackend):
                 if manifest:
                     await self._broadcast_pool_manifest(manifest)
             return result
-        except (PermissionError, ValueError) as e:
-            logger.warning(f"Failed to add member: {e}")
+        except (PermissionError, ValueError):
             return False
 
     async def remove_pool_member(self, pool_id: str, member_key: str) -> bool:
@@ -1830,8 +1550,7 @@ class CometNetService(CometNetBackend):
                 if manifest:
                     await self._broadcast_pool_manifest(manifest)
             return result
-        except (PermissionError, ValueError) as e:
-            logger.warning(f"Failed to remove member: {e}")
+        except (PermissionError, ValueError):
             return False
 
     async def get_pool_details(self, pool_id: str) -> dict | None:
@@ -1904,11 +1623,6 @@ class CometNetService(CometNetBackend):
         # Broadcast updated manifest to all peers
         manifest = self.pool_store.get_manifest(pool_id)
         await self._broadcast_pool_manifest(manifest)
-
-        logger.log(
-            "COMETNET",
-            f"Changed role of {NodeIdentity.node_id_from_public_key(member_key)[:8]} to {new_role} in pool {pool_id}",
-        )
         return True
 
     async def leave_pool(self, pool_id: str) -> bool:
@@ -1916,51 +1630,41 @@ class CometNetService(CometNetBackend):
         if not self._running or not self.pool_store:
             return False
 
-        try:
-            # Get the manifest before we leave (to verify we're a member)
-            manifest = self.pool_store.get_manifest(pool_id)
-            if not manifest:
-                raise ValueError(f"Pool {pool_id} not found")
+        # Get the manifest before we leave (to verify we're a member)
+        manifest = self.pool_store.get_manifest(pool_id)
+        if not manifest:
+            raise ValueError(f"Pool {pool_id} not found")
 
-            my_key = self.identity.public_key_hex
-            member = manifest.get_member(my_key)
-            if not member:
-                return False  # Not a member
+        my_key = self.identity.public_key_hex
+        member = manifest.get_member(my_key)
+        if not member:
+            return False  # Not a member
 
-            # Creator cannot leave
-            if member.role == MemberRole.CREATOR:
-                raise ValueError(
-                    "Creator cannot leave the pool. Delete the pool instead."
-                )
+        # Creator cannot leave
+        if member.role == MemberRole.CREATOR:
+            raise ValueError("Creator cannot leave the pool. Delete the pool instead.")
 
-            # Broadcast our departure to other pool members BEFORE cleaning up locally
-            leave_message = PoolMemberUpdate(
-                sender_id=self.identity.node_id,
-                pool_id=pool_id,
-                action="leave",
-                member_key=my_key,
-                updated_by=my_key,  # We're removing ourselves
-                timestamp=time.time(),
-            )
-            leave_message.signature = await self.identity.sign_hex_async(
-                leave_message.to_signable_bytes()
-            )
+        # Broadcast our departure to other pool members BEFORE cleaning up locally
+        leave_message = PoolMemberUpdate(
+            sender_id=self.identity.node_id,
+            pool_id=pool_id,
+            action="leave",
+            member_key=my_key,
+            updated_by=my_key,  # We're removing ourselves
+            timestamp=time.time(),
+        )
+        leave_message.signature = await self.identity.sign_hex_async(
+            leave_message.to_signable_bytes()
+        )
 
-            # Broadcast to all connected peers
-            await self.transport.broadcast(leave_message)
-            logger.log("COMETNET", f"Broadcasted leave from pool {pool_id}")
+        # Broadcast to all connected peers
+        await self.transport.broadcast(leave_message)
 
-            # Now do local cleanup
-            result = await self.pool_store.leave_pool(
-                pool_id=pool_id,
-                identity=self.identity,
-            )
-            if result:
-                logger.log("COMETNET", f"Successfully left pool {pool_id}")
-            return result
-        except (PermissionError, ValueError) as e:
-            logger.warning(f"Failed to leave pool: {e}")
-            raise
+        # Now do local cleanup
+        return await self.pool_store.leave_pool(
+            pool_id=pool_id,
+            identity=self.identity,
+        )
 
     async def _load_state(self) -> None:
         """Load saved state from disk."""
@@ -2012,10 +1716,6 @@ class CometNetService(CometNetBackend):
 
             if self.reputation:
                 self.reputation.from_dict(state["reputation"])
-                logger.log(
-                    "COMETNET",
-                    f"Loaded reputation data for {len(state['reputation']['peers'])} peers",
-                )
 
             if self.keystore:
                 self.keystore.from_dict(state["keystore"])
@@ -2026,12 +1726,10 @@ class CometNetService(CometNetBackend):
             if state_migrated:
                 try:
                     await self._write_state(state)
-                except Exception as error:
-                    logger.warning(
-                        f"Failed to persist migrated CometNet state: {error}"
-                    )
-        except Exception as e:
-            logger.warning(f"Failed to load CometNet state: {e}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     async def _save_state(self) -> None:
         """Save state to disk."""
@@ -2070,6 +1768,14 @@ def get_cometnet_service() -> CometNetService | None:
     return cometnet_service
 
 
+async def stop_cometnet_service() -> None:
+    global cometnet_service
+
+    if cometnet_service is not None:
+        await cometnet_service.stop()
+        cometnet_service = None
+
+
 def init_cometnet_service(
     enabled: bool = False,
     listen_port: int = 8765,
@@ -2082,14 +1788,7 @@ def init_cometnet_service(
     global cometnet_service
 
     if settings.FASTAPI_WORKERS > 1:
-        logger.critical(
-            f"\nCometNet failed to start because FASTAPI_WORKERS is set to {settings.FASTAPI_WORKERS}.\n"
-            "You cannot run CometNet in basic mode (non-relay) with multiple workers.\n"
-            "Please:\n"
-            "1. Use CometNet Relay Mode (COMETNET_RELAY_URL=...)\n"
-            "2. Or set FASTAPI_WORKERS=1"
-        )
-        sys.exit(1)
+        raise CometNetStartupError("worker_count_invalid")
 
     cometnet_service = CometNetService(
         enabled=enabled,

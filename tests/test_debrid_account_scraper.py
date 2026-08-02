@@ -11,6 +11,50 @@ import comet.services.debrid_account_scraper as account_scraper
 
 
 class DebridAccountSnapshotTests(unittest.IsolatedAsyncioTestCase):
+    async def test_inconsistent_short_page_fails_the_snapshot_scan(self):
+        client = type(
+            "Client",
+            (),
+            {
+                "list_magnets": AsyncMock(
+                    return_value=(
+                        [
+                            {
+                                "id": "one",
+                                "hash": "a" * 40,
+                            }
+                        ],
+                        500,
+                    )
+                )
+            },
+        )()
+
+        with self.assertRaisesRegex(ValueError, "page is incomplete"):
+            await account_scraper._fetch_all_magnets(client, 500)
+        client.list_magnets.assert_awaited_once_with(limit=500, offset=0)
+
+    async def test_snapshot_scan_stops_at_the_operator_item_ceiling(self):
+        rows = [
+            {
+                "id": str(index),
+                "hash": f"{index:040x}",
+            }
+            for index in range(3)
+        ]
+        client = type(
+            "Client",
+            (),
+            {
+                "list_magnets": AsyncMock(return_value=(rows, 100)),
+            },
+        )()
+
+        result = await account_scraper._fetch_all_magnets(client, 3)
+
+        self.assertEqual(result, rows)
+        client.list_magnets.assert_awaited_once_with(limit=3, offset=0)
+
     async def test_failed_snapshot_replacement_rolls_back_all_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "snapshot.db"

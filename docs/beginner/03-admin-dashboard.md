@@ -10,46 +10,38 @@ Open:
 
 Login with `ADMIN_DASHBOARD_PASSWORD`.
 
+If the variable is omitted or empty, Comet generates a password and emits it
+once as `config.generated_secret` in the container startup logs.
+
 Session behavior:
 
 - Cookie name: `admin_session`
 - TTL from `ADMIN_DASHBOARD_SESSION_TTL` (minimum enforced: 60 seconds)
 
-## Main Tabs
+## Main Workspaces
 
-1. **Connections**
-- Shows active proxied stream connections.
-- Includes per-connection traffic metrics and global session/all-time counters.
-
-2. **Logs**
-- Shows captured runtime logs from the in-memory log capture.
-- Supports filtering API logs in the UI.
-
-3. **Metrics**
-- Torrent/search/cache metrics from database queries.
-- Endpoint: `/admin/api/metrics`
-- If `PUBLIC_METRICS_API=True`, this endpoint is public.
-
-4. **Background Scraper**
-- View status, run history, queue and SLO info.
-- Start, pause, resume, or stop immediately.
-- **Stop After Run** finishes the current scrape before stopping; while it is
-  pending, **Keep Running** cancels the scheduled stop.
-- Requeue dead items and episodes.
-
-5. **CometNet**
-- Visible for CometNet operations and pool management APIs.
-- Requires CometNet backend to be active.
+- **Overview and Analytics** combine live telemetry with useful torrent,
+  search, debrid-cache, scraper, proxy, database, and Usenet aggregates.
+- **Logs** stream bounded structured events across all registered
+  Comet processes.
+- **Proxy, Scraping, Usenet, and CometNet** expose live work, useful history,
+  and only targeted actions supported by the owning runtime.
+- **Settings** edits shared typed settings with revisions and audit history.
+- **System** shows build/update information, readiness, replicas/processes,
+  storage, capabilities, and safe retention.
 
 ## Update Check
 
-The dashboard calls `/admin/api/update-check`, which compares your current build with the branch head on GitHub.
+The System workspace performs an explicit update check against the current
+branch head on GitHub. It provides update instructions but never updates or
+restarts Comet automatically.
 
 ## Security Notes
 
 - Keep `ADMIN_DASHBOARD_PASSWORD` strong.
 - If dashboard is exposed to the internet, put it behind HTTPS and network restrictions.
-
+- Dashboard APIs live under `/api/v1/admin/*`, require the signed
+  `admin_session`, and require same-origin CSRF for mutations.
 ## Next
 
 - [Set Up Kodi](../../kodi/README.md)

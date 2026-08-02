@@ -7,9 +7,11 @@ from RTN import ParsedData
 
 SCRAPE_URL_MODE_BOTH = "both"
 SCRAPE_URL_MODES = frozenset((SCRAPE_URL_MODE_BOTH, "live", "background"))
-_CANONICAL_NONNEGATIVE_INTEGER = re.compile(r"0|[1-9][0-9]*")
+_MAX_MEDIA_COORDINATE = 65_535
+_MAX_SIGNED_64 = 2**63 - 1
+_CANONICAL_NONNEGATIVE_INTEGER = re.compile(r"0|[1-9][0-9]{0,4}")
 _IMDB_ID = re.compile(r"tt[0-9]{7,10}")
-_KITSU_ID = re.compile(r"[1-9][0-9]*")
+_KITSU_ID = re.compile(r"[1-9][0-9]{0,18}")
 
 
 class MediaScope(StrEnum):
@@ -87,26 +89,23 @@ def resolve_media_scope(
 
 
 def load_cached_parsed(value) -> ParsedData | None:
-    try:
-        payload = orjson.loads(value)
-    except (TypeError, orjson.JSONDecodeError):
+    if value is None:
         return None
+    payload = orjson.loads(value)
     if not isinstance(payload, dict):
-        return None
-    try:
-        return ParsedData(**payload)
-    except ValueError:
-        return None
+        raise ValueError("cached parsed metadata is invalid")
+    return ParsedData(**payload)
 
 
 def load_cached_string_list(value) -> list[str]:
-    try:
-        payload = orjson.loads(value)
-    except (TypeError, orjson.JSONDecodeError):
+    if value is None:
         return []
-    if not isinstance(payload, list):
-        return []
-    return [item for item in payload if isinstance(item, str) and item]
+    payload = orjson.loads(value)
+    if not isinstance(payload, list) or not all(
+        isinstance(item, str) for item in payload
+    ):
+        raise ValueError("cached string list is invalid")
+    return payload
 
 
 def ensure_multi_language(parsed: ParsedData):
@@ -127,47 +126,52 @@ def ensure_multi_language(parsed: ParsedData):
     parsed.languages = languages
 
 
+VIDEO_EXTENSIONS = (
+    ".3g2",
+    ".3gp",
+    ".amv",
+    ".asf",
+    ".avi",
+    ".drc",
+    ".f4a",
+    ".f4b",
+    ".f4p",
+    ".f4v",
+    ".flv",
+    ".gif",
+    ".gifv",
+    ".m2ts",
+    ".m2v",
+    ".m4p",
+    ".m4v",
+    ".mkv",
+    ".mng",
+    ".mov",
+    ".mp2",
+    ".mp4",
+    ".mpe",
+    ".mpeg",
+    ".mpg",
+    ".mpv",
+    ".mts",
+    ".mxf",
+    ".nsv",
+    ".ogg",
+    ".ogv",
+    ".qt",
+    ".rm",
+    ".rmvb",
+    ".roq",
+    ".svi",
+    ".ts",
+    ".webm",
+    ".wmv",
+    ".yuv",
+)
+
+
 def is_video(title: str):
-    video_extensions = (
-        ".3g2",
-        ".3gp",
-        ".amv",
-        ".asf",
-        ".avi",
-        ".drc",
-        ".f4a",
-        ".f4b",
-        ".f4p",
-        ".f4v",
-        ".flv",
-        ".gif",
-        ".gifv",
-        ".m2v",
-        ".m4p",
-        ".m4v",
-        ".mkv",
-        ".mov",
-        ".mp2",
-        ".mp4",
-        ".mpg",
-        ".mpeg",
-        ".mpv",
-        ".mng",
-        ".mpe",
-        ".mxf",
-        ".nsv",
-        ".ogg",
-        ".ogv",
-        ".qt",
-        ".rm",
-        ".rmvb",
-        ".roq",
-        ".svi",
-        ".webm",
-        ".wmv",
-        ".yuv",
-    )
-    return title.lower().endswith(video_extensions)
+    return title.lower().endswith(VIDEO_EXTENSIONS)
 
 
 def default_dump(obj):
@@ -183,7 +187,8 @@ def parse_optional_int(value: str | None):
         or _CANONICAL_NONNEGATIVE_INTEGER.fullmatch(value) is None
     ):
         return None
-    return int(value)
+    parsed = int(value)
+    return parsed if parsed <= _MAX_MEDIA_COORDINATE else None
 
 
 def parse_media_id(media_type: str, media_id: str):
@@ -197,6 +202,7 @@ def parse_media_id(media_type: str, media_id: str):
         if (
             len(parts) not in {2, 3}
             or _KITSU_ID.fullmatch(parts[1]) is None
+            or int(parts[1]) > _MAX_SIGNED_64
             or (len(parts) == 3 and parse_optional_int(parts[2]) is None)
         ):
             raise ValueError("Kitsu media ID has an invalid current shape")
@@ -263,26 +269,10 @@ def match_parsed_episode_target(
     parsed_year = parsed.year
     if parsed.complete and parsed_year and target_air_date:
         target_year_str = target_air_date[:4]
-        if target_year_str.isdigit():
+        if target_year_str.isascii() and target_year_str.isdigit():
             return parsed_year == int(target_year_str)
 
     return not reject_unknown_episode_files
-
-
-def parsed_matches_target(
-    parsed: ParsedData,
-    season: int | None,
-    episode: int | None,
-    target_air_date: str | None = None,
-    reject_unknown_episode_files: bool = False,
-) -> bool:
-    return match_parsed_episode_target(
-        parsed,
-        season,
-        episode,
-        target_air_date=target_air_date,
-        reject_unknown_episode_files=reject_unknown_episode_files,
-    )
 
 
 @lru_cache(maxsize=1024)
@@ -301,30 +291,13 @@ def url_mode_matches_context(mode: str, context: str):
 
 
 def associate_urls_credentials(urls, credentials):
-    if urls is None or urls == []:
+    if not urls:
         return []
-    if type(urls) is str:
-        if not urls:
-            raise ValueError("scraper URL must be non-empty")
-        url_list = [urls]
-    elif type(urls) is list:
-        if any(type(url) is not str or not url for url in urls):
-            raise ValueError("scraper URLs must be non-empty strings")
-        url_list = urls
-    else:
-        raise TypeError("scraper URLs must be a string, list, or None")
-
+    url_list = [urls] if isinstance(urls, str) else urls
     if credentials is None:
         credentials_list = [None] * len(url_list)
-    elif type(credentials) is str:
+    elif isinstance(credentials, str):
         credentials_list = [credentials or None] * len(url_list)
-    elif type(credentials) is list:
-        if len(credentials) != len(url_list):
-            raise ValueError("credential list must match the scraper URL list length")
-        if any(type(credential) is not str for credential in credentials):
-            raise TypeError("scraper credentials must be strings")
-        credentials_list = [credential or None for credential in credentials]
     else:
-        raise TypeError("scraper credentials must be a string, list, or None")
-
+        credentials_list = [credential or None for credential in credentials]
     return list(zip(url_list, credentials_list))

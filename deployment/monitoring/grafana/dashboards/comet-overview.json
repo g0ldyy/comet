@@ -277,6 +277,36 @@
       "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(comet_proxy_stream_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "p95", "refId": "A"}],
       "title": "Proxy stream duration",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "comet-prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "NOT READY"}, "1": {"color": "green", "text": "READY"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 63},
+      "id": 44,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["min"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"expr": "min(comet_ready)", "legendFormat": "readiness", "refId": "A"}],
+      "title": "Comet readiness",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "comet-prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 63},
+      "id": 45,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["min"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"expr": "min(comet_usenet_engine_up) and on() (max(comet_usenet_engine_configured) == 1)", "legendFormat": "native engine", "refId": "A"}],
+      "title": "Native Usenet engine",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "comet-prometheus"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 30}, {"color": "red", "value": 120}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 63},
+      "id": 46,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["max"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+      "targets": [{"expr": "max(time() - comet_usenet_engine_last_snapshot_timestamp_seconds) and on() (max(comet_usenet_engine_up) == 1)", "legendFormat": "snapshot age", "refId": "A"}],
+      "title": "Native snapshot age",
+      "type": "stat"
     }
   ],
   "refresh": "15s",

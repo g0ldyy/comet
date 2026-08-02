@@ -9,8 +9,6 @@ import threading
 
 import miniupnpc
 
-from comet.core.logger import logger
-
 
 class UPnPManager:
     """Manages UPnP port mappings."""
@@ -62,37 +60,23 @@ class UPnPManager:
         try:
             upnp = miniupnpc.UPnP()
             upnp.discoverdelay = 200
-
-            logger.log("COMETNET", "Discovering UPnP devices...")
             ndevices = upnp.discover()
             if ndevices == 0:
-                logger.warning("No UPnP devices discovered.")
                 return None
 
             upnp.selectigd()
             lan_addr = upnp.lanaddr
             ext_ip = upnp.externalipaddress()
 
-            logger.log(
-                "COMETNET",
-                f"UPnP Device Found. LAN IP: {lan_addr}, External IP: {ext_ip}",
-            )
-
             # Add port mapping
             try:
                 upnp.addportmapping(
                     self.port, "TCP", lan_addr, self.port, "CometNet P2P", ""
                 )
-                logger.log(
-                    "COMETNET",
-                    f"UPnP Port Mapping Successful: {ext_ip}:{self.port} -> {lan_addr}:{self.port}",
-                )
                 return ext_ip
-            except Exception as e:
-                logger.warning(f"Failed to add UPnP port mapping: {e}")
+            except Exception:
                 return None
-        except Exception as e:
-            logger.warning(f"UPnP setup failed: {e}")
+        except Exception:
             return None
 
     def _remove_mapping(self) -> None:
@@ -103,7 +87,6 @@ class UPnPManager:
             upnp.discover()
             upnp.selectigd()
             upnp.deleteportmapping(self.port, "TCP")
-            logger.log("COMETNET", f"UPnP port mapping removed for port {self.port}")
         except Exception:
             pass
 
@@ -118,5 +101,5 @@ class UPnPManager:
 
                 # Renew mapping
                 self._setup_upnp()
-            except Exception as e:
-                logger.debug(f"UPnP keepalive error: {e}")
+            except Exception:
+                pass

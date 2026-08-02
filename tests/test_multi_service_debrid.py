@@ -3,12 +3,12 @@ import unittest
 from typing import ClassVar
 from unittest.mock import patch
 
+from comet.debrid.exceptions import DebridAuthError, DebridLinkGenerationError
 from comet.services.media_search import (
     check_multi_service_availability,
     get_and_cache_multi_service_availability,
     select_debrid_refresh_hashes,
 )
-from comet.debrid.exceptions import DebridAuthError
 from comet.utils.parsing import MediaScope
 
 
@@ -63,6 +63,33 @@ class _SelectiveDebridService:
         del session, args, kwargs
         self.checked_hashes[self.service] = info_hashes
         return set(), {}
+
+
+class _BrokenCachedDebridService:
+    def __init__(self, service, api_key, ip):
+        del service, api_key, ip
+
+    async def check_existing_availability(self, *args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("cache database failed")
+
+
+class _BrokenFreshDebridService:
+    def __init__(self, service, api_key, ip):
+        del service, api_key, ip
+
+    async def get_and_cache_availability(self, *args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("availability implementation failed")
+
+
+class _UnavailableFreshDebridService:
+    def __init__(self, service, api_key, ip):
+        del service, api_key, ip
+
+    async def get_and_cache_availability(self, *args, **kwargs):
+        del args, kwargs
+        raise DebridLinkGenerationError("first", "provider unavailable")
 
 
 class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
@@ -145,6 +172,23 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(status[info_hash]["first"])
         self.assertTrue(status[info_hash]["second"])
 
+    async def test_cached_availability_failure_surfaces(self):
+        info_hash = "a" * 40
+        with (
+            patch(
+                "comet.services.media_search.DebridService",
+                new=_BrokenCachedDebridService,
+            ),
+            self.assertRaisesRegex(RuntimeError, "cache database failed"),
+        ):
+            await check_multi_service_availability(
+                [{"service": "first", "apiKey": "one"}],
+                {info_hash: {"title": "Original.mkv"}},
+                None,
+                None,
+                MediaScope.MOVIE,
+            )
+
     async def test_enrichment_uses_configured_order_not_completion_order(self):
         info_hash = "a" * 40
         torrents = {
@@ -180,6 +224,64 @@ class MultiServiceDebridTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(torrents[info_hash]["title"], "First.mkv")
         self.assertTrue(status[info_hash]["first"])
         self.assertTrue(status[info_hash]["second"])
+
+    async def test_fresh_availability_implementation_failure_surfaces(self):
+        info_hash = "a" * 40
+        torrents = {
+            info_hash: {
+                "title": "Original.mkv",
+                "seeders": 1,
+                "tracker": "tracker",
+                "sources": [],
+            }
+        }
+        with (
+            patch(
+                "comet.services.media_search.DebridService",
+                new=_BrokenFreshDebridService,
+            ),
+            self.assertRaisesRegex(RuntimeError, "implementation failed"),
+        ):
+            await get_and_cache_multi_service_availability(
+                None,
+                [{"service": "first", "apiKey": "one"}],
+                torrents,
+                "tt123",
+                "tt123",
+                None,
+                None,
+                MediaScope.MOVIE,
+                "",
+            )
+
+    async def test_fresh_provider_outage_remains_isolated(self):
+        info_hash = "a" * 40
+        torrents = {
+            info_hash: {
+                "title": "Original.mkv",
+                "seeders": 1,
+                "tracker": "tracker",
+                "sources": [],
+            }
+        }
+        with patch(
+            "comet.services.media_search.DebridService",
+            new=_UnavailableFreshDebridService,
+        ):
+            status, errors = await get_and_cache_multi_service_availability(
+                None,
+                [{"service": "first", "apiKey": "one"}],
+                torrents,
+                "tt123",
+                "tt123",
+                None,
+                None,
+                MediaScope.MOVIE,
+                "",
+            )
+
+        self.assertFalse(status)
+        self.assertFalse(errors)
 
     async def test_duplicate_service_tries_next_account_after_auth_failure(self):
         info_hash = "a" * 40

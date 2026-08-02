@@ -11,8 +11,9 @@ Runtime mode:
 
 Worker behavior:
 
-- `FASTAPI_WORKERS >= 1`: exact worker count.
-- `FASTAPI_WORKERS < 1`: computed as `min((cpu_count * 2 + 1), 12)` in gunicorn mode.
+- `FASTAPI_WORKERS` from 1 through 64: exact worker count.
+- `FASTAPI_WORKERS=0`: computed as `min((cpu_count * 2 + 1), 12)` in
+  either server mode.
 
 CPU-bound filtering/ranking jobs run in a `ProcessPoolExecutor` controlled by `EXECUTOR_MAX_WORKERS`.
 
@@ -35,6 +36,14 @@ At startup (`lifespan`):
 11. Indexer manager background loop start.
 
 At shutdown, the reverse order is applied (tasks cancelled/stopped, network clients closed, DB disconnected, executor shutdown).
+
+## Process Logging
+
+Every process writes bounded structured events to `stderr`. The master,
+web workers, process-pool workers, CometNet standalone process, database CLI,
+and native engine have distinct `process_role` values. Probe traffic is silent;
+readiness transitions and operation owners emit the useful summaries. See
+[Logging and Diagnostics](08-logging-and-diagnostics.md).
 
 ## Routing Model
 

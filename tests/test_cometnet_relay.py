@@ -1,6 +1,5 @@
 import asyncio
 import unittest
-from unittest.mock import patch
 
 import aiohttp
 
@@ -52,16 +51,9 @@ class CometNetRelayTests(unittest.IsolatedAsyncioTestCase):
         relay._session = FakeSession(FailingResponse())
 
         with (
-            patch("comet.cometnet.relay.logger.warning") as warning,
             self.assertRaisesRegex(RuntimeError, "Failed to connect to standalone"),
         ):
             await relay._pool_request("POST", "/pools", {})
-
-        rendered = " ".join(
-            str(value) for call in warning.call_args_list for value in call.args
-        )
-        self.assertNotIn("password", rendered)
-        self.assertNotIn("secret credential", rendered)
 
     async def test_cancelled_flush_restores_batch_in_front(self):
         relay = CometNetRelay("http://relay")
@@ -205,3 +197,19 @@ class CometNetRelayTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(relay._total_relayed, 1)
         self.assertEqual(relay._total_errors, 1)
+
+    async def test_send_batch_ignores_status_extensions(self):
+        relay = CometNetRelay("http://relay")
+        relay._session = FakeSession(
+            FakeResponse(
+                200,
+                {
+                    "status": "accepted",
+                    "queued": 1,
+                    "errors": [],
+                    "total": 1,
+                },
+            )
+        )
+
+        self.assertEqual(await relay._send_batch([{"id": "a"}]), 1)

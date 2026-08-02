@@ -93,6 +93,6 @@ async def consume_b64config_for_setup_code(code: str):
     if row is None:
         return None
     candidate = dict(row)
-    if set(candidate) != {"config_b64"} or type(candidate["config_b64"]) is not str:
+    if type(candidate.get("config_b64")) is not str:
         raise ValueError("consumed Kodi setup code has an invalid schema")
     return candidate["config_b64"]

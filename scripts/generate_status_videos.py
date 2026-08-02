@@ -26,6 +26,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from textwrap import fill
@@ -556,17 +557,7 @@ def load_message_overrides(messages_file: str | None) -> dict[str, str]:
     if not path.is_file():
         raise FileNotFoundError(f"Messages file not found: {messages_file}")
 
-    def build_unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        unique = {}
-        for key, value in pairs:
-            if key in unique:
-                raise ValueError(f"Duplicate message key: {key}")
-            unique[key] = value
-        return unique
-
-    payload = json.loads(
-        path.read_text(encoding="utf-8"), object_pairs_hook=build_unique_object
-    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise TypeError("Messages file must be a JSON object.")
 
@@ -579,8 +570,6 @@ def load_message_overrides(messages_file: str | None) -> dict[str, str]:
         normalized_key = normalize_status_key_runtime(key)
         if normalized_key is None:
             raise ValueError("Message keys must contain letters or digits.")
-        if normalized_key in normalized_map:
-            raise ValueError(f"Duplicate normalized message key: {normalized_key}")
         normalized_map[normalized_key] = value.strip()
     return normalized_map
 
@@ -679,7 +668,8 @@ def main() -> int:
     else:
         print(
             f"warning: StremThru source directory not found at {stremthru_root}; "
-            "generating only explicitly requested --code keys."
+            "generating only explicitly requested --code keys.",
+            file=sys.stderr,
         )
 
     if requested:

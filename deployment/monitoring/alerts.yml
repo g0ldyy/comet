@@ -10,6 +10,27 @@ groups:
           summary: Comet is unavailable
           description: Prometheus has been unable to scrape Comet for two minutes.
 
+      - alert: CometNotReady
+        expr: comet_ready == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Comet is not ready
+          description: A scraped Comet worker has remained unable to receive traffic for two minutes.
+
+      - alert: CometUsenetEngineUnavailable
+        expr: |
+          (comet_usenet_engine_configured == 1)
+          and on(instance, job)
+          (comet_usenet_engine_up == 0)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Comet native Usenet engine is unavailable
+          description: A configured replica has not produced a valid native engine snapshot for two minutes.
+
       - alert: CometHighHttpErrorRate
         expr: |
           (

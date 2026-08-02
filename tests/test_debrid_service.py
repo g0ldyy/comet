@@ -6,6 +6,16 @@ from comet.utils.parsing import MediaScope
 
 
 class DebridServiceCacheTests(unittest.IsolatedAsyncioTestCase):
+    def test_invalid_cached_file_index_is_not_converted_to_absence(self):
+        with self.assertRaisesRegex(ValueError, "file index"):
+            DebridService._build_torrent_update(
+                {},
+                file_index="not-an-index",
+                title=None,
+                size=None,
+                parsed=None,
+            )
+
     async def test_live_season_scope_uses_episode_files_only_as_cache_evidence(self):
         info_hash = "a" * 40
         torrents = {
@@ -141,7 +151,7 @@ class DebridServiceCacheTests(unittest.IsolatedAsyncioTestCase):
             lookup.assert_not_called()
         self.assertEqual(torrents[info_hash]["title"], "Show.S02.COMPLETE.1080p.mkv")
 
-    async def test_corrupt_cached_parse_is_isolated_to_optional_enrichment(self):
+    async def test_corrupt_cached_parse_fails_the_cache_read(self):
         service = DebridService("realdebrid", "token", "")
         torrents = {
             "a" * 40: {"parsed": None},
@@ -164,18 +174,13 @@ class DebridServiceCacheTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
 
-        with patch(
-            "comet.services.debrid.get_cached_availability",
-            return_value=rows,
+        with (
+            patch(
+                "comet.services.debrid.get_cached_availability",
+                return_value=rows,
+            ),
+            self.assertRaises(ValueError),
         ):
-            cached, updates = await service.check_existing_availability(
+            await service.check_existing_availability(
                 list(torrents), None, None, MediaScope.MOVIE, torrents
             )
-
-        self.assertEqual(cached, set(torrents))
-        self.assertNotIn("fileIndex", torrents["a" * 40])
-        self.assertNotIn("fileIndex", torrents["b" * 40])
-        self.assertIsNone(torrents["a" * 40]["parsed"])
-        self.assertEqual(updates["a" * 40]["fileIndex"], 1)
-        self.assertNotIn("parsed", updates["a" * 40])
-        self.assertEqual(updates["b" * 40]["parsed"].raw_title, "Valid.mkv")

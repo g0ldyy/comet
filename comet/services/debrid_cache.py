@@ -1,5 +1,6 @@
 import asyncio
 import time
+from functools import partial
 
 from comet.core.database import (
     build_distinct_from_predicate,
@@ -9,13 +10,10 @@ from comet.core.database import (
     build_upsert_assignments,
     encode_json_param,
 )
-from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.observability import log
+from comet.observability.context import create_detached_task
 from comet.utils.parsing import MediaScope, default_dump
-
-DEBRID_UPDATE_INTERVAL = (
-    settings.DEBRID_CACHE_TTL // 2 if settings.DEBRID_CACHE_TTL > 0 else 31536000
-)
 
 DEBRID_CHANGE_DETECTION_COLUMNS = (
     "title",
@@ -38,22 +36,27 @@ EXACT_SCOPE_FILTER_SQL = f"{SEASON_SCOPE_FILTER_SQL}\nAND episode_norm = :episod
 _cache_write_tasks: set[asyncio.Task] = set()
 
 
-def _handle_cache_write_done(task: asyncio.Task) -> None:
+def _handle_cache_write_done(debrid_service: str, task: asyncio.Task) -> None:
     _cache_write_tasks.discard(task)
     if task.cancelled():
         return
     error = task.exception()
     if error is not None:
-        logger.warning(f"Failed to persist debrid availability: {error}")
+        log.warning(
+            "debrid.cache.persist_failed",
+            "Debrid cache persistence failed",
+            debrid_service=debrid_service,
+            exc=error,
+        )
 
 
 def schedule_cache_availability(debrid_service: str, availability: list):
-    task = asyncio.create_task(
+    task = create_detached_task(
         cache_availability(debrid_service, availability),
-        name=f"debrid-cache:{debrid_service}",
+        name="debrid-cache-write",
     )
     _cache_write_tasks.add(task)
-    task.add_done_callback(_handle_cache_write_done)
+    task.add_done_callback(partial(_handle_cache_write_done, debrid_service))
     return task
 
 
@@ -142,7 +145,11 @@ async def cache_availability(debrid_service: str, availability: list):
                 else None
             ),
             "updated_at": current_time,
-            "update_interval": DEBRID_UPDATE_INTERVAL,
+            "update_interval": (
+                settings.DEBRID_CACHE_TTL // 2
+                if settings.DEBRID_CACHE_TTL > 0
+                else 31_536_000
+            ),
         }
         values_by_scope[
             (file["info_hash"], scope["season_norm"], scope["episode_norm"])
@@ -152,6 +159,12 @@ async def cache_availability(debrid_service: str, availability: list):
         await database.execute_many(
             CACHE_AVAILABILITY_QUERY,
             list(values_by_scope.values()),
+        )
+        log.info(
+            "debrid.cache.persisted",
+            "Debrid cache persisted",
+            debrid_service=debrid_service,
+            candidate_count=len(values_by_scope),
         )
 
 

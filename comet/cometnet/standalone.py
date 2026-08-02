@@ -15,7 +15,8 @@ Environment Variables:
     COMETNET_BOOTSTRAP_NODES: List of bootstrap nodes (JSON array)
     COMETNET_MANUAL_PEERS: List of peers to connect to (JSON array)
     COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED: Enable permessage-deflate (default: False)
-    COMETNET_API_KEY: Mandatory API key for authenticating HTTP requests
+    COMETNET_API_KEY: API key for authenticating HTTP requests. When omitted,
+        a generated in-memory key is printed once in the startup logs.
 
 Security Notes:
     - The standalone service is designed for INTERNAL cluster use only.
@@ -24,27 +25,93 @@ Security Notes:
 """
 
 import asyncio
+import os
 import secrets
+import signal
 import sys
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
+
+from comet.core.operator_settings import (
+    consume_runtime_restart_request,
+    fresh_runtime_environment,
+    prepare_effective_settings_environment,
+    request_runtime_restart,
+)
+from comet.observability.logging import (
+    bootstrap_failure,
+    configuration_invalid,
+    configure_entrypoint,
+    current_settings,
+)
+
+if __name__ == "__main__":
+    try:
+        prepare_effective_settings_environment()
+    except Exception:
+        bootstrap_failure()
+        raise SystemExit(78) from None
+configure_entrypoint(process_role="cometnet")
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+try:
+    from comet.core.models import (
+        database,
+        resolve_standalone_cometnet_api_key,
+        settings,
+    )
+except Exception as exc:
+    configuration_invalid(exception=exc)
+    raise SystemExit(78) from None
+
+from comet.cometnet.admin_contracts import (
+    StandaloneAddMemberRequest as AddMemberRequest,
+)
+from comet.cometnet.admin_contracts import (
+    StandaloneCreateInviteRequest as CreateInviteRequest,
+)
+from comet.cometnet.admin_contracts import (
+    StandaloneCreatePoolRequest as CreatePoolRequest,
+)
+from comet.cometnet.admin_contracts import (
+    StandaloneJoinPoolRequest as JoinPoolRequest,
+)
+from comet.cometnet.admin_contracts import (
+    StandaloneUpdateMemberRoleRequest as UpdateMemberRoleRequest,
+)
 from comet.cometnet.manager import CometNetService
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.database import setup_database, teardown_database
-from comet.core.execution import setup_executor, shutdown_executor
-from comet.core.logger import logger
-from comet.core.models import settings
+from comet.core.execution import (
+    discard_executor,
+    install_executor,
+    prepare_executor,
+    setup_executor,
+    shutdown_executor,
+)
+from comet.core.live_settings import (
+    prepare_settings_application,
+    record_settings_application,
+)
+from comet.core.runtime_registry import RuntimeRegistry
+from comet.core.settings_policy import COMETNET_SETTING_KEYS
+from comet.observability import create_detached_task
+from comet.observability.events import start_event_persistence, stop_event_persistence
+from comet.observability.logging import configure, current_process_role
+from comet.observability.startup import (
+    log_cometnet_standalone_configuration,
+    log_runtime_starting,
+)
+from comet.services.operator_commands import run_settings_command_dispatcher
 from comet.services.torrent_manager import check_torrents_exist, torrent_update_queue
 
 
 class StrictRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(strict=True)
 
 
 class BroadcastRequest(StrictRequest):
@@ -69,43 +136,12 @@ class BroadcastBatchRequest(StrictRequest):
     torrents: list[BroadcastRequest]
 
 
-class CreatePoolRequest(StrictRequest):
-    """Request model for pool creation."""
-
-    pool_id: str
-    display_name: str
-    description: str = ""
-    join_mode: str = "invite"
+_api_key, _ = resolve_standalone_cometnet_api_key()
 
 
-class JoinPoolRequest(StrictRequest):
-    """Request model for joining a pool."""
-
-    invite_code: str
-    node_url: str | None = None
-
-
-class CreateInviteRequest(StrictRequest):
-    """Request model for creating pool invite."""
-
-    expires_in: int | None = None
-    max_uses: int | None = None
-
-
-class AddMemberRequest(StrictRequest):
-    """Request model for adding a pool member."""
-
-    member_key: str
-    role: str = "member"
-
-
-class UpdateMemberRoleRequest(StrictRequest):
-    """Request model for updating a member's role."""
-
-    role: str
-
-
-_api_key: str = settings.COMETNET_API_KEY
+async def _cancel_task(task: asyncio.Task) -> None:
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
 
 
 def _require_broadcast_media_id(imdb_id: str | None) -> None:
@@ -144,8 +180,8 @@ class StandaloneCometNet:
     - Can run as a separate container/pod in cluster deployments
 
     Security:
-    - If COMETNET_API_KEY is set, all endpoints except /health require authentication.
-    - Set X-API-Key header with the configured API key to access protected endpoints.
+    - All endpoints except /health require COMETNET_API_KEY authentication.
+    - Set X-API-Key with the configured or startup-generated key.
     - When running in Docker, keep port 8766 internal to the Docker network.
     """
 
@@ -163,11 +199,11 @@ class StandaloneCometNet:
         self.ws_port = ws_port
         self.http_port = http_port
 
-        self.service = CometNetService(
-            enabled=True,
-            listen_port=ws_port,
-            bootstrap_nodes=bootstrap_nodes or [],
-            manual_peers=manual_peers or [],
+        self.service = self._build_service(
+            settings,
+            ws_port=ws_port,
+            bootstrap_nodes=bootstrap_nodes,
+            manual_peers=manual_peers,
             max_peers=max_peers,
             min_peers=min_peers,
             keys_dir=keys_dir,
@@ -180,6 +216,99 @@ class StandaloneCometNet:
 
         self.app = self._create_app()
 
+    @staticmethod
+    def _build_service(
+        config,
+        *,
+        ws_port=None,
+        bootstrap_nodes=None,
+        manual_peers=None,
+        max_peers=None,
+        min_peers=None,
+        keys_dir=None,
+        advertise_url=None,
+    ) -> CometNetService:
+        return CometNetService(
+            enabled=True,
+            listen_port=config.COMETNET_LISTEN_PORT if ws_port is None else ws_port,
+            bootstrap_nodes=(
+                config.COMETNET_BOOTSTRAP_NODES
+                if bootstrap_nodes is None
+                else bootstrap_nodes
+            ),
+            manual_peers=(
+                config.COMETNET_MANUAL_PEERS if manual_peers is None else manual_peers
+            ),
+            max_peers=config.COMETNET_MAX_PEERS if max_peers is None else max_peers,
+            min_peers=config.COMETNET_MIN_PEERS if min_peers is None else min_peers,
+            keys_dir=config.COMETNET_KEYS_DIR if keys_dir is None else keys_dir,
+            advertise_url=(
+                config.COMETNET_ADVERTISE_URL
+                if advertise_url is None
+                else advertise_url
+            ),
+        )
+
+    @staticmethod
+    def _configure_service(service: CometNetService) -> None:
+        service.set_save_torrent_callback(torrent_update_queue.add_network_torrent)
+        service.set_check_torrents_exist_callback(check_torrents_exist)
+
+    async def apply_settings(self) -> bool:
+        global _api_key
+
+        prepared = await prepare_settings_application(database)
+        candidate = prepared.candidate
+        next_logging = prepared.logging
+        next_executor = (
+            prepare_executor(
+                candidate.EXECUTOR_MAX_WORKERS,
+                next_logging.LOG_PROFILE.value,
+                next_logging.LOG_FORMAT.value,
+                next_logging.no_color,
+            )
+            if "EXECUTOR_MAX_WORKERS" in prepared.changed_keys
+            or prepared.logging_changed
+            else None
+        )
+        cometnet_changed = not (
+            COMETNET_SETTING_KEYS - {"COMETNET_HTTP_PORT"}
+        ).isdisjoint(prepared.changed_keys)
+        if cometnet_changed:
+            replacement = self._build_service(candidate)
+            self._configure_service(replacement)
+            previous = self.service
+            try:
+                await previous.stop()
+                with settings.bind_snapshot(candidate):
+                    await replacement.start()
+            except BaseException:
+                discard_executor(next_executor)
+                with settings.bind_snapshot(prepared.current):
+                    await previous.start()
+                raise
+            self.service = replacement
+
+        if next_executor is not None:
+            install_executor(next_executor)
+        if prepared.logging_changed:
+            configure(next_logging, process_role=current_process_role())
+        settings.publish(candidate)
+        record_settings_application(prepared.application)
+        _api_key = candidate.COMETNET_API_KEY
+        if "COMETNET_HTTP_PORT" in prepared.changed_keys:
+            create_detached_task(
+                self._restart_for_http_port(),
+                name="cometnet.http.restart",
+            )
+        return True
+
+    @staticmethod
+    async def _restart_for_http_port() -> None:
+        await asyncio.sleep(1)
+        request_runtime_restart()
+        os.kill(os.getpid(), signal.SIGTERM)
+
     def _create_app(self) -> FastAPI:
         """Create the FastAPI application with endpoints."""
 
@@ -188,8 +317,16 @@ class StandaloneCometNet:
             async with AsyncExitStack() as cleanup:
                 await setup_database()
                 cleanup.push_async_callback(teardown_database)
+                start_event_persistence(str(database.url))
+                cleanup.callback(stop_event_persistence)
 
-                setup_executor()
+                logging_settings = current_settings()
+                setup_executor(
+                    settings.EXECUTOR_MAX_WORKERS,
+                    logging_settings.LOG_PROFILE.value,
+                    logging_settings.LOG_FORMAT.value,
+                    logging_settings.no_color,
+                )
                 cleanup.callback(shutdown_executor)
                 cleanup.push_async_callback(torrent_update_queue.stop)
 
@@ -198,16 +335,36 @@ class StandaloneCometNet:
                 )
                 self.service.set_check_torrents_exist_callback(check_torrents_exist)
 
-                cleanup.push_async_callback(self.service.stop)
+                async def stop_current_service():
+                    await self.service.stop()
+
+                cleanup.push_async_callback(stop_current_service)
                 await self.service.start()
-                logger.log(
-                    "COMETNET",
-                    f"Standalone server started - WS:{self.ws_port} HTTP:{self.http_port}",
+
+                runtime_registry = RuntimeRegistry(database, settings)
+                cleanup.push_async_callback(runtime_registry.withdraw)
+
+                async def readiness():
+                    return {
+                        "state": "ready" if self.service.running else "starting",
+                        "components": {"cometnet": self.service.running},
+                    }
+
+                heartbeat = create_detached_task(
+                    runtime_registry.run_heartbeat(
+                        role="cometnet",
+                        readiness=readiness,
+                    ),
+                    name="cometnet.heartbeat",
                 )
+                settings_dispatcher = create_detached_task(
+                    run_settings_command_dispatcher(self.apply_settings),
+                    name="cometnet.settings",
+                )
+                cleanup.push_async_callback(_cancel_task, settings_dispatcher)
+                cleanup.push_async_callback(_cancel_task, heartbeat)
 
                 yield
-
-            logger.log("COMETNET", "Standalone server stopped")
 
         app = FastAPI(
             title="CometNet Standalone",
@@ -420,14 +577,9 @@ class StandaloneCometNet:
 
                 await self.service.broadcast_torrent(metadata)
                 self._broadcasts_success += 1
-                logger.log(
-                    "COMETNET",
-                    f"HTTP Broadcast: {request.title} ({request.info_hash})",
-                )
 
                 return {"status": "queued", "info_hash": request.info_hash}
             except Exception as e:
-                logger.warning(f"Failed to broadcast torrent: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @app.post("/broadcast/batch", dependencies=[Depends(verify_api_key)])
@@ -463,11 +615,6 @@ class StandaloneCometNet:
             queued = len(metadata_batch)
             self._broadcasts_success += queued
 
-            if queued > 0:
-                logger.log(
-                    "COMETNET", f"HTTP Batch Broadcast: Queued {queued} torrents"
-                )
-
             return {
                 "status": "completed",
                 "queued": queued,
@@ -477,9 +624,6 @@ class StandaloneCometNet:
 
         @app.exception_handler(Exception)
         async def generic_exception_handler(request: Request, exc: Exception):
-            logger.error(
-                f"Unhandled exception triggering potential instability: {type(exc).__name__}: {exc}"
-            )
             return JSONResponse(
                 status_code=500,
                 content={"detail": "Internal server error"},
@@ -500,23 +644,13 @@ class StandaloneCometNet:
         await server.serve()
 
 
-def main():
+def main() -> int:
     """Main entry point for standalone CometNet."""
-    logger.log("COMETNET", "Initializing CometNet Standalone...")
 
+    log_runtime_starting(settings)
+    log_cometnet_standalone_configuration(settings)
     ws_port = settings.COMETNET_LISTEN_PORT
     http_port = settings.COMETNET_HTTP_PORT
-
-    api_key_str = _api_key
-    if "COMETNET_API_KEY" in settings.model_fields_set:
-        api_key_str = "Set (Hidden)"
-    else:
-        api_key_str = f"{_api_key} (Randomly Generated)"
-
-    logger.log(
-        "COMETNET",
-        f"Standalone Server: HTTP Port={http_port} - API Key: {api_key_str}",
-    )
 
     standalone = StandaloneCometNet(
         ws_port=ws_port,
@@ -532,9 +666,15 @@ def main():
     try:
         asyncio.run(standalone.run())
     except KeyboardInterrupt:
-        logger.log("COMETNET", "Shutdown complete")
-        sys.exit(0)
+        return 0
+    if consume_runtime_restart_request():
+        os.execvpe(
+            sys.executable,
+            [sys.executable, "-m", "comet.cometnet.standalone"],
+            fresh_runtime_environment(),
+        )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

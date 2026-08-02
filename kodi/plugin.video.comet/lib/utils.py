@@ -6,6 +6,15 @@ import xbmc
 import xbmcaddon
 import xbmcgui
 
+from .diagnostics import emit
+from .http_json import (
+    JsonHttpError,
+    normalize_api_prefix,
+    origin_label,
+    request_json,
+    response_status,
+)
+
 ADDON_HANDLE = int(sys.argv[1])
 ADDON = xbmcaddon.Addon()
 ADDON_PATH = sys.argv[0]
@@ -14,10 +23,6 @@ ADDON_ID = ADDON.getAddonInfo("id")
 REQUEST_TIMEOUT = 20
 DEFAULT_CATALOG_PROVIDER_URL = "https://v3-cinemeta.strem.io"
 HTTP_SESSION = requests.Session()
-
-
-def log(message: str, level=xbmc.LOGINFO):
-    xbmc.log(f"[Comet] {message}", level)
 
 
 def build_url(action: str, **params):
@@ -31,14 +36,20 @@ def build_url(action: str, **params):
 
 def fetch_data(url: str):
     try:
-        response = HTTP_SESSION.get(url, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as exc:
-        resp = exc.response
-        status_code = resp.status_code if resp is not None else None
-        target = parse.urlparse(url).netloc or url
-        log(f"Request failed for {url}: {exc}", xbmc.LOGERROR)
+        return request_json(
+            HTTP_SESSION,
+            "GET",
+            url,
+            timeout=REQUEST_TIMEOUT,
+        )
+    except (requests.RequestException, JsonHttpError) as exc:
+        status_code = response_status(exc)
+        target = origin_label(url)
+        emit(
+            "kodi.http.failed",
+            error=exc,
+            status=status_code,
+        )
         xbmcgui.Dialog().notification(
             "Comet",
             f"Request failed ({status_code}) on {target}"
@@ -90,7 +101,10 @@ def get_secret_string():
 
 
 def get_stremio_api_prefix():
-    prefix = ADDON.getSetting("stremio_api_prefix").strip().strip("/")
+    try:
+        prefix = normalize_api_prefix(ADDON.getSetting("stremio_api_prefix"))
+    except JsonHttpError:
+        return ""
     return f"{prefix}/" if prefix else ""
 
 

@@ -212,7 +212,6 @@ Create completely isolated CometNet networks:
 | `COMETNET_PRIVATE_NETWORK` | `False` | Enable private network mode. |
 | `COMETNET_NETWORK_ID` | *(empty)* | Unique identifier for your private network. Required if private mode is enabled. |
 | `COMETNET_NETWORK_PASSWORD` | *(empty)* | Shared secret to join the network. Required if private mode is enabled. |
-| `COMETNET_INGEST_POOLS` | `[]` | Pool IDs to ingest from public network even in private mode. |
 
 Private networks are completely separate from the public CometNet network. All nodes in a private network must share the same `NETWORK_ID` and `NETWORK_PASSWORD`.
 
@@ -396,7 +395,8 @@ Pool creators and admins can:
 2. **Encrypt Keys**: Set `COMETNET_KEY_PASSWORD` to encrypt your private key on disk.
 3. **Trust Pools**: In production, use Trust Pools to limit who can contribute.
 4. **Firewall**: Only expose CometNet ports to trusted networks or the internet if necessary.
-5. **API Key for Standalone**: When running the standalone service, the `COMETNET_API_KEY` is mandatory. If you do not provide one, a random key will be generated and printed in the logs at startup. Use this key to authenticate your Comet instances.
+5. **API Key for Standalone**: Provide `COMETNET_API_KEY` explicitly. Relay
+   clients must use the same explicit secret.
 
 ### What CometNet Does NOT Protect Against
 
@@ -440,7 +440,7 @@ CometNet requires an accurate system clock for cryptographic signature validatio
 1. **Check firewall**: Ensure `COMETNET_LISTEN_PORT` (default 8765) is accessible.
 2. **Behind NAT?** Enable `COMETNET_UPNP_ENABLED=True` or manually forward the port.
 3. **Verify bootstrap nodes**: Ensure they're online and using correct addresses.
-4. **Check logs**: Look for "CometNet started" and connection attempts.
+4. **Check logs**: Look for `cometnet.ready` or `cometnet.degraded`.
 
 ### Not Receiving Torrents
 
@@ -463,17 +463,6 @@ CometNet requires an accurate system clock for cryptographic signature validatio
 1. Reduce `COMETNET_MAX_PEERS` (fewer connections = less overhead).
 2. Keep `COMETNET_TRANSPORT_WEBSOCKET_COMPRESSION_ENABLED=False` to avoid synchronous WebSocket compression work.
 3. Increase `COMETNET_GOSSIP_INTERVAL` (less frequent gossiping).
-
-### Logs and Debugging
-
-CometNet logs under the `COMETNET` tag. Key events to watch for:
-
-```
-CometNet started - Node ID: abc123...
-Discovery service started with 2 known peers
-Connected to peer def456...
-Received 10 torrents from peer abc123...
-```
 
 ---
 

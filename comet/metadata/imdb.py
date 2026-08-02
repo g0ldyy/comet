@@ -5,14 +5,16 @@ from urllib.parse import quote
 
 import aiohttp
 
-from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.metadata.http import MetadataHttpError, get_metadata_json
+from comet.metadata.validation import metadata_text, metadata_year
 from comet.utils.year import parse_year, parse_year_range
 
 _IMDB_SUGGESTION_URL = "https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
 _CINEMETA_META_URL = "https://v3-cinemeta.strem.io/meta/{media_type}/{id}.json"
 _CINEMETA_MEDIA_TYPES = ("movie", "series")
 _IMDB_ID = re.compile(r"tt[0-9]{7,10}")
+_MAX_TITLE_QUERY_BYTES = 512
 _MOVIE_TYPES = frozenset(
     {
         "feature",
@@ -36,7 +38,7 @@ _TITLE_LOOKUP_QUERY = """
     SELECT imdb_id, media_type, year
     FROM imdb_title_lookup
     WHERE query_key = :query_key
-      AND updated_at >= CAST(:min_timestamp AS REAL)
+      AND updated_at >= CAST(:min_timestamp AS DOUBLE PRECISION)
 """
 
 _UPSERT_TITLE_LOOKUP_QUERY = """
@@ -88,12 +90,17 @@ async def _cached_title_match(query_key: str) -> ImdbTitleMatch | None:
     if row is None:
         return None
 
+    imdb_id = row["imdb_id"]
+    media_type = row["media_type"]
     year = row["year"]
-    return ImdbTitleMatch(
-        row["imdb_id"],
-        row["media_type"],
-        int(year) if year is not None else None,
-    )
+    if (
+        not isinstance(imdb_id, str)
+        or _IMDB_ID.fullmatch(imdb_id) is None
+        or media_type not in _CINEMETA_MEDIA_TYPES
+        or (year is not None and metadata_year(year) is None)
+    ):
+        raise ValueError("cached IMDb title match is invalid")
+    return ImdbTitleMatch(imdb_id, media_type, year)
 
 
 async def _store_title_match(query_key: str, match: ImdbTitleMatch) -> None:
@@ -125,11 +132,11 @@ def _suggestion_media_type(element: dict) -> str | None:
 
 
 def _extract_title_match(
-    payload: object,
+    payload: dict,
     media_type: str | None = None,
     year: int | None = None,
 ) -> ImdbTitleMatch | None:
-    if not isinstance(payload, dict) or not isinstance(payload.get("d"), list):
+    if not isinstance(payload.get("d"), list):
         return None
 
     nearest_match = None
@@ -144,7 +151,7 @@ def _extract_title_match(
             media_type is not None and candidate_type != media_type
         ):
             continue
-        candidate_year = parse_year(element.get("y"))
+        candidate_year = metadata_year(parse_year(element.get("y")))
         match = ImdbTitleMatch(imdb_id, candidate_type, candidate_year)
         if year is None or candidate_year == year:
             return match
@@ -162,8 +169,12 @@ async def resolve_imdb_title(
     media_type: str | None = None,
     year: int | None = None,
 ) -> ImdbTitleMatch | None:
-    normalized_query = query.strip()
-    if not normalized_query:
+    normalized_query = metadata_text(query, maximum=_MAX_TITLE_QUERY_BYTES)
+    if (
+        normalized_query is None
+        or media_type not in (None, *_CINEMETA_MEDIA_TYPES)
+        or (year is not None and metadata_year(year) is None)
+    ):
         return None
 
     query_key = _title_lookup_key(normalized_query, media_type, year)
@@ -173,30 +184,22 @@ async def resolve_imdb_title(
 
     url = _IMDB_SUGGESTION_URL.format(id=quote(normalized_query, safe=""))
     try:
-        async with session.get(url) as response:
-            if response.status != 200:
-                logger.warning(
-                    f"IMDb title search failed for {normalized_query!r}: "
-                    f"HTTP {response.status}"
-                )
-                return None
-            payload = await response.json()
-    except Exception as exc:
-        logger.warning(
-            f"IMDb title search failed for {normalized_query!r}: {exc}"
-        )
+        response = await get_metadata_json(session, url)
+    except MetadataHttpError:
+        return None
+    if not response.successful:
         return None
 
-    match = _extract_title_match(payload, media_type, year)
+    match = _extract_title_match(response.payload, media_type, year)
     if match is not None:
         await _store_title_match(query_key, match)
     return match
 
 
-def _extract_imdb_metadata(payload: dict) -> tuple[str | None, int | None, int | None]:
-    if not isinstance(payload, dict):
-        return None, None, None
-
+def _extract_imdb_metadata(
+    payload: dict,
+    expected_id: str | None = None,
+) -> tuple[str | None, int | None, int | None]:
     elements = payload.get("d")
     if not isinstance(elements, list):
         return None, None, None
@@ -205,17 +208,22 @@ def _extract_imdb_metadata(payload: dict) -> tuple[str | None, int | None, int |
         if not isinstance(element, dict):
             continue
         item_id = element.get("id")
-        if not isinstance(item_id, str):
-            continue
-        if "/" in item_id:
-            continue
-
-        title = element.get("l")
-        if not isinstance(title, str) or not title:
+        if (
+            not isinstance(item_id, str)
+            or _IMDB_ID.fullmatch(item_id) is None
+            or (expected_id is not None and item_id != expected_id)
+        ):
             continue
 
-        year = parse_year(element.get("y"))
-        _, year_end = parse_year_range(element.get("yr"))
+        title = metadata_text(element.get("l"))
+        if title is None:
+            continue
+
+        year = metadata_year(parse_year(element.get("y")))
+        _, raw_year_end = parse_year_range(element.get("yr"))
+        year_end = metadata_year(raw_year_end)
+        if year is not None and year_end is not None and year_end < year:
+            year_end = None
         return title, year, year_end
 
     return None, None, None
@@ -224,14 +232,11 @@ def _extract_imdb_metadata(payload: dict) -> tuple[str | None, int | None, int |
 def _extract_cinemeta_metadata(
     payload: dict,
 ) -> tuple[str | None, int | None, int | None]:
-    if not isinstance(payload, dict):
-        return None, None, None
-
     meta = payload.get("meta")
     if not isinstance(meta, dict):
         return None, None, None
-    title = meta.get("name")
-    if not isinstance(title, str) or not title:
+    title = metadata_text(meta.get("name"))
+    if title is None:
         return None, None, None
 
     year, year_end = parse_year_range(meta.get("year"))
@@ -240,6 +245,10 @@ def _extract_cinemeta_metadata(
 
     if year is None:
         year = parse_year(meta.get("released"))
+    year = metadata_year(year)
+    year_end = metadata_year(year_end)
+    if year is not None and year_end is not None and year_end < year:
+        year_end = None
 
     return title, year, year_end
 
@@ -253,67 +262,54 @@ def _iter_cinemeta_media_types(media_type: str | None):
 async def _get_cinemeta_metadata(
     session: aiohttp.ClientSession, id: str, media_type: str | None
 ) -> tuple[str | None, int | None, int | None]:
+    if not isinstance(id, str) or _IMDB_ID.fullmatch(id) is None:
+        return None, None, None
+    last_error = None
     for candidate_type in _iter_cinemeta_media_types(media_type):
         url = _CINEMETA_META_URL.format(media_type=candidate_type, id=id)
 
         try:
-            async with session.get(url) as response:
-                if response.status == 404:
-                    continue
-                if response.status != 200:
-                    logger.warning(
-                        f"Cinemeta metadata request failed for {id} ({candidate_type}): HTTP {response.status}"
-                    )
-                    continue
-
-                payload = await response.json()
-        except Exception as exc:
-            logger.warning(
-                f"Exception while getting Cinemeta metadata for {id} ({candidate_type}): {exc}"
-            )
+            response = await get_metadata_json(session, url)
+        except MetadataHttpError as exc:
+            last_error = exc
+            continue
+        if response.status == 404:
+            continue
+        if not response.successful:
+            last_error = MetadataHttpError("metadata service is unavailable")
             continue
 
-        parsed = _extract_cinemeta_metadata(payload)
+        parsed = _extract_cinemeta_metadata(response.payload)
         if parsed[0] is not None:
             return parsed
 
+    if last_error is not None:
+        raise last_error
     return None, None, None
 
 
 async def get_imdb_metadata(
     session: aiohttp.ClientSession, id: str, media_type: str | None = None
 ):
-    metadata = None
-
+    if not isinstance(id, str) or _IMDB_ID.fullmatch(id) is None:
+        return None, None, None
     try:
-        async with session.get(_IMDB_SUGGESTION_URL.format(id=id)) as response:
-            if response.status == 429:
-                logger.warning(f"IMDB metadata rate-limited for {id}, using Cinemeta")
-                return await _get_cinemeta_metadata(session, id, media_type)
-
-            if response.status != 200:
-                logger.warning(
-                    f"IMDB metadata request failed for {id}: HTTP {response.status}, using Cinemeta"
-                )
-                return await _get_cinemeta_metadata(session, id, media_type)
-
-            metadata = await response.json()
-    except Exception as exc:
-        logger.warning(
-            f"Exception while getting IMDB metadata for {id}: {exc}. Using Cinemeta fallback."
+        response = await get_metadata_json(
+            session,
+            _IMDB_SUGGESTION_URL.format(id=id),
         )
+    except MetadataHttpError:
+        return await _get_cinemeta_metadata(session, id, media_type)
+    if response.status == 429:
+        return await _get_cinemeta_metadata(session, id, media_type)
+    if not response.successful:
         return await _get_cinemeta_metadata(session, id, media_type)
 
-    parsed = _extract_imdb_metadata(metadata)
+    parsed = _extract_imdb_metadata(response.payload, id)
     if parsed[0] is not None:
         return parsed
-
-    logger.warning(f"IMDB metadata empty for {id}, using Cinemeta fallback")
     fallback = await _get_cinemeta_metadata(session, id, media_type)
     if fallback[0] is not None:
         return fallback
-
-    if metadata:
-        logger.warning(f"No metadata found for {id}. IMDB response: {metadata}")
 
     return None, None, None

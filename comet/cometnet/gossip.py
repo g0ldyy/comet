@@ -18,8 +18,8 @@ from comet.cometnet.validation import (
     validate_message_security,
     verify_torrent_signature_sync,
 )
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.observability.context import create_detached_task
 
 # Type for the callback to save a torrent to the database
 SaveTorrentCallback = Callable[[TorrentMetadata], Awaitable[None]]
@@ -68,9 +68,6 @@ class GossipEngine:
     - Pool-based trust filtering
     """
 
-    # Valid contribution modes
-    CONTRIBUTION_MODES = frozenset({"full", "consumer", "source", "leech"})
-
     def __init__(
         self,
         identity: NodeIdentity,
@@ -93,11 +90,6 @@ class GossipEngine:
 
         # Contribution mode determines what we share/receive
         self.contribution_mode = settings.COMETNET_CONTRIBUTION_MODE
-        if self.contribution_mode not in self.CONTRIBUTION_MODES:
-            logger.warning(
-                f"Invalid contribution mode '{self.contribution_mode}', defaulting to 'full'"
-            )
-            self.contribution_mode = "full"
 
         # Queue of torrents waiting to be gossiped
         self._outgoing_queue: deque[TorrentMetadata] = deque(maxlen=10000)
@@ -156,10 +148,14 @@ class GossipEngine:
         self._running = True
 
         # Start background tasks
-        self._gossip_task = asyncio.create_task(self._gossip_loop())
-        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-
-        logger.log("COMETNET", "Gossip engine started")
+        self._gossip_task = create_detached_task(
+            self._gossip_loop(),
+            name="cometnet-gossip",
+        )
+        self._cleanup_task = create_detached_task(
+            self._cleanup_loop(),
+            name="cometnet-gossip-cleanup",
+        )
 
     async def stop(self) -> None:
         """Stop the gossip engine."""
@@ -175,8 +171,6 @@ class GossipEngine:
         self._gossip_task = None
         self._cleanup_task = None
 
-        logger.log("COMETNET", "Gossip engine stopped")
-
     async def queue_torrents(
         self, metadata_list: list[TorrentMetadata], pool_id: str | None = None
     ) -> None:
@@ -190,9 +184,6 @@ class GossipEngine:
         valid_list = []
         for metadata in metadata_list:
             if not metadata.imdb_id:
-                logger.debug(
-                    f"Skipping torrent without imdb_id in gossip queue: {metadata.info_hash}"
-                )
                 continue
 
             # Sign the torrent with our identity
@@ -372,22 +363,12 @@ class GossipEngine:
         # Save valid torrents to database
         # Only save if contribution mode allows receiving (not 'source')
         if self._save_torrent and valid_torrents and self.contribution_mode != "source":
-            saved_count = 0
             for torrent in valid_torrents:
                 try:
                     await self._save_torrent(torrent)
                     self.stats["torrents_received"] += 1
-                    saved_count += 1
-                except Exception as exc:
-                    logger.warning(
-                        f"Failed to save CometNet torrent {torrent.info_hash}: {exc}"
-                    )
-
-            if saved_count > 0:
-                logger.log(
-                    "COMETNET",
-                    f"Received {saved_count} torrents from peer {sender_id[:8]}",
-                )
+                except Exception:
+                    pass
 
         # Re-propagate to other peers (with reduced TTL)
         if torrents_to_repropagate and self._get_random_peers and self._send_message:
@@ -583,4 +564,4 @@ class GossipEngine:
 
     def from_dict(self, data: dict) -> None:
         """Load the gossip engine state from a dictionary."""
-        self.stats = data["stats"].copy()
+        self.stats = {key: data["stats"][key] for key in self.stats}

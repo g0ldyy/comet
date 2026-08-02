@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from enum import Enum
 
 from comet.core.database import database
-from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
 
@@ -14,60 +13,50 @@ async def _upsert_scope_demand(
     scraped: bool,
 ) -> float | None:
     current_time = time.time()
-    try:
-        if not scraped:
-            row = await database.fetch_one(
-                """
-                SELECT last_seen_at, last_scraped_at
-                FROM media_demand
-                WHERE media_id = :media_id
-                """,
-                {"media_id": media_id},
-                force_primary=True,
-            )
-            touch_interval = max(
-                0,
-                settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK / 2,
-            )
-            if row is not None and row["last_seen_at"] >= current_time - touch_interval:
-                return row["last_scraped_at"]
-
+    if not scraped:
         row = await database.fetch_one(
             """
-            INSERT INTO media_demand (
-                media_id,
-                first_seen_at,
-                last_seen_at,
-                last_scraped_at
-            )
-            VALUES (
-                :media_id,
-                :current_time,
-                :current_time,
-                :last_scraped_at
-            )
-            ON CONFLICT (media_id) DO UPDATE SET
-                last_seen_at = EXCLUDED.last_seen_at,
-                last_scraped_at = COALESCE(
-                    EXCLUDED.last_scraped_at,
-                    media_demand.last_scraped_at
-                )
-            RETURNING last_scraped_at
+            SELECT last_seen_at, last_scraped_at
+            FROM media_demand
+            WHERE media_id = :media_id
             """,
-            {
-                "media_id": media_id,
-                "current_time": current_time,
-                "last_scraped_at": current_time if scraped else None,
-            },
+            {"media_id": media_id},
             force_primary=True,
         )
-    except Exception as exc:
-        logger.opt(exception=True).warning(
-            f"Failed to update scope demand for {media_id}: {exc}",
-        )
-        return None
+        touch_interval = settings.BACKGROUND_SCRAPER_DEMAND_LOOKBACK / 2
+        if row is not None and row["last_seen_at"] >= current_time - touch_interval:
+            return row["last_scraped_at"]
 
-    return row["last_scraped_at"] if row is not None else None
+    row = await database.fetch_one(
+        """
+        INSERT INTO media_demand (
+            media_id,
+            first_seen_at,
+            last_seen_at,
+            last_scraped_at
+        )
+        VALUES (
+            :media_id,
+            :current_time,
+            :current_time,
+            :last_scraped_at
+        )
+        ON CONFLICT (media_id) DO UPDATE SET
+            last_seen_at = EXCLUDED.last_seen_at,
+            last_scraped_at = COALESCE(
+                EXCLUDED.last_scraped_at,
+                media_demand.last_scraped_at
+            )
+        RETURNING last_scraped_at
+        """,
+        {
+            "media_id": media_id,
+            "current_time": current_time,
+            "last_scraped_at": current_time if scraped else None,
+        },
+        force_primary=True,
+    )
+    return row["last_scraped_at"]
 
 
 async def mark_scope_scraped(media_id: str) -> None:

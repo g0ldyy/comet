@@ -1,21 +1,25 @@
-"""API package bootstrap, run before FastAPI and endpoint imports."""
+"""Import-safe API package bootstrap."""
 
-from comet.core.models import settings
-from comet.observability.metrics import (
-    configure_multiprocess_directory,
-    load_auth_token,
-    metrics,
-)
+from __future__ import annotations
 
-if settings.PROMETHEUS_ENABLED:
-    configure_multiprocess_directory(settings.PROMETHEUS_MULTIPROC_DIR)
-    auth_token = load_auth_token(
-        settings.PROMETHEUS_AUTH_TOKEN,
-        settings.PROMETHEUS_AUTH_TOKEN_FILE,
+
+def configure_metrics(settings: object) -> None:
+    from comet.observability.metrics import (
+        configure_multiprocess_directory,
+        load_auth_token,
+        metrics,
     )
-else:
-    auth_token = None
-metrics.configure(
-    settings.PROMETHEUS_ENABLED,
-    auth_token,
-)
+
+    configure_multiprocess_directory(settings.PROMETHEUS_MULTIPROC_DIR)
+    if settings.PROMETHEUS_ENABLED:
+        auth_token = load_auth_token(
+            settings.PROMETHEUS_AUTH_TOKEN,
+            settings.PROMETHEUS_AUTH_TOKEN_FILE,
+        )
+    else:
+        auth_token = None
+    metrics.configure(True, auth_token)
+    metrics.set_usenet_engine_configured(settings.USENET_ENABLED)
+
+
+__all__ = ("configure_metrics",)

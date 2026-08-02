@@ -175,5 +175,11 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Frontend dependencies and incremental build state
+node_modules/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
 # PyPI configuration file
 .pypirc

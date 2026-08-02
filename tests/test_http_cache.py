@@ -1,7 +1,8 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from comet.utils.cache import CacheControl, check_etag_match
+from comet.utils.cache import CacheControl, cached_response, check_etag_match, settings
 
 
 class HttpCacheContractTests(unittest.TestCase):
@@ -29,6 +30,31 @@ class HttpCacheContractTests(unittest.TestCase):
         for value in malformed_values:
             with self.subTest(value=value):
                 self.assertFalse(check_etag_match(self._request(value), '"current"'))
+
+    def test_etag_input_has_bounded_header_and_member_counts(self):
+        self.assertFalse(
+            check_etag_match(self._request('"' + "x" * 8_192 + '"'), '"x"')
+        )
+        many_tags = ", ".join(f'"{index}"' for index in range(129))
+        self.assertFalse(check_etag_match(self._request(many_tags), '"128"'))
+
+    def test_revalidation_preserves_vary_contract(self):
+        with patch.object(settings, "HTTP_CACHE_ENABLED", True):
+            initial = cached_response(
+                self._request(""),
+                b"body",
+                media_type="text/plain",
+                vary=("Accept-Encoding",),
+            )
+            revalidated = cached_response(
+                self._request(initial.headers["etag"]),
+                b"body",
+                media_type="text/plain",
+                vary=("Accept-Encoding",),
+            )
+
+        self.assertEqual(revalidated.status_code, 304)
+        self.assertEqual(revalidated.headers["vary"], "Accept-Encoding")
 
     def test_cache_durations_require_current_non_negative_integer_shape(self):
         setters = (

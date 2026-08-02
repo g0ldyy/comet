@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -7,12 +6,25 @@ from datetime import UTC, datetime
 from urllib.parse import quote
 
 import aiohttp
-from loguru import logger
 
+from comet.core.build_metadata import (
+    normalize_branch,
+    normalize_build_date,
+    normalize_commit,
+)
+from comet.core.models import settings
+from comet.core.provider_json import (
+    ProviderJsonError,
+    is_success_status,
+    read_provider_json,
+)
+from comet.observability.context import create_detached_task
 from comet.utils.http_client import http_client_manager
 
 GITHUB_API_TIMEOUT = 10
 GITHUB_REPO = "g0ldyy/comet"
+GITHUB_DEVELOPMENT_BRANCH = "development"
+_GITHUB_RESPONSE_LIMIT = 64 * 1024
 _GITHUB_COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -33,6 +45,10 @@ class UpdateStatus:
     error: str | None = None
 
 
+class UpdateCheckError(RuntimeError):
+    pass
+
+
 class UpdateManager:
     _instance = None
     _version_info: VersionInfo | None = None
@@ -49,17 +65,19 @@ class UpdateManager:
         if cls._version_info:
             return cls._version_info
 
-        docker_commit = os.getenv("COMET_COMMIT_HASH")
-        docker_date = os.getenv("COMET_BUILD_DATE")
-        docker_branch = os.getenv("COMET_BRANCH", "main")
+        docker_commit = settings.COMET_COMMIT_HASH
+        docker_date = settings.COMET_BUILD_DATE
+        docker_branch = settings.COMET_BRANCH
 
         if docker_commit:
             cls._version_info = VersionInfo(
-                commit_hash=docker_commit[:7]
-                if len(docker_commit) > 7
-                else docker_commit,
-                build_date=docker_date,
-                branch=docker_branch,
+                commit_hash=(
+                    normalized_commit[:7]
+                    if (normalized_commit := normalize_commit(docker_commit))
+                    else None
+                ),
+                build_date=normalize_build_date(docker_date),
+                branch=normalize_branch(docker_branch) or "main",
                 is_docker=True,
             )
             return cls._version_info
@@ -74,10 +92,12 @@ class UpdateManager:
                     subprocess.check_output(
                         ["git", "rev-parse", "--short", "HEAD"],
                         stderr=subprocess.DEVNULL,
+                        timeout=5,
                     )
                     .decode()
                     .strip()
                 )
+                commit_hash = normalize_commit(commit_hash)
             except Exception:
                 pass
 
@@ -86,10 +106,12 @@ class UpdateManager:
                     subprocess.check_output(
                         ["git", "show", "-s", "--format=%cI", "HEAD"],
                         stderr=subprocess.DEVNULL,
+                        timeout=5,
                     )
                     .decode()
                     .strip()
                 )
+                build_date = normalize_build_date(build_date)
             except Exception:
                 pass
 
@@ -98,10 +120,12 @@ class UpdateManager:
                     subprocess.check_output(
                         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                         stderr=subprocess.DEVNULL,
+                        timeout=5,
                     )
                     .decode()
                     .strip()
                 )
+                branch = normalize_branch(branch) or "main"
             except Exception:
                 pass
 
@@ -111,8 +135,7 @@ class UpdateManager:
                 branch=branch,
                 is_docker=False,
             )
-        except Exception as e:
-            logger.warning(f"Could not determine version info: {e}")
+        except Exception:
             cls._version_info = VersionInfo()
 
         return cls._version_info
@@ -121,7 +144,10 @@ class UpdateManager:
     async def check_for_updates(cls) -> UpdateStatus:
         task = cls._check_task
         if task is None or task.done():
-            task = asyncio.create_task(cls._fetch_update_status())
+            task = create_detached_task(
+                cls._fetch_update_status(),
+                name="update-check",
+            )
             cls._check_task = task
 
         try:
@@ -133,32 +159,45 @@ class UpdateManager:
     @classmethod
     async def _fetch_update_status(cls) -> UpdateStatus:
         current_info = cls.get_version_info()
-        branch = current_info.branch
+        branch = (
+            current_info.branch
+            if current_info.branch == "main"
+            else GITHUB_DEVELOPMENT_BRANCH
+        )
 
         try:
-            if (
-                type(branch) is not str
-                or not branch
-                or len(branch) > 255
-                or any(character.isspace() for character in branch)
-            ):
+            if normalize_branch(branch) is None:
                 raise ValueError("current branch is unavailable or invalid")
             timeout = aiohttp.ClientTimeout(total=GITHUB_API_TIMEOUT)
             session = await http_client_manager.get_session()
             branch_path = quote(branch, safe="")
             url = f"https://api.github.com/repos/{GITHUB_REPO}/commits/{branch_path}"
-            async with session.get(url, timeout=timeout) as resp:
+            async with session.get(
+                url,
+                timeout=timeout,
+                allow_redirects=False,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Accept-Encoding": "identity",
+                },
+            ) as resp:
                 if resp.status == 403:
-                    raise RuntimeError("GitHub API rate limit exceeded")
-                if resp.status != 200:
-                    raise RuntimeError(f"GitHub API returned {resp.status}")
+                    raise UpdateCheckError("GitHub API rate limit exceeded")
+                if not is_success_status(resp.status):
+                    raise UpdateCheckError(f"GitHub API returned {resp.status}")
 
-                data = await resp.json()
+                try:
+                    data = await read_provider_json(
+                        resp,
+                        maximum=_GITHUB_RESPONSE_LIMIT,
+                    )
+                except ProviderJsonError as exc:
+                    raise UpdateCheckError(
+                        "GitHub API returned an invalid response"
+                    ) from exc
                 latest_sha, latest_url, latest_date = cls._validate_latest_commit(data)
                 current_sha = current_info.commit_hash
-                if type(current_sha) is not str or not re.fullmatch(
-                    r"[0-9a-f]{7,40}", current_sha
-                ):
+                if normalize_commit(current_sha) is None:
                     raise ValueError("current commit hash is unavailable or invalid")
 
                 short_latest_sha = latest_sha[:7]
@@ -172,11 +211,14 @@ class UpdateManager:
                     latest_url=latest_url,
                     checked_at=datetime.now(UTC),
                 )
-        except Exception as e:
-            logger.warning(f"Failed to check for updates: {e}")
+        except Exception as exc:
+            if isinstance(exc, (UpdateCheckError, ValueError)):
+                error = str(exc)
+            else:
+                error = "GitHub API request failed"
             cls._update_status = UpdateStatus(
                 has_update=False,
-                error=str(e),
+                error=error,
                 checked_at=datetime.now(UTC),
             )
 

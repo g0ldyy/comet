@@ -1,44 +1,65 @@
 import re
-import time
-from urllib.parse import urlsplit
 
 import mediaflow_proxy.utils.http_utils
-import orjson
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
 from comet.core.config_validation import config_check
-from comet.core.database import (
-    DOWNLOAD_LINK_CACHE_TTL,
-    build_scope_lookup_params,
-    build_scope_params,
-    database,
-)
-from comet.core.logger import logger
+from comet.core.database import database
 from comet.core.models import settings
+from comet.core.sources import MAX_SIGNED_BIGINT
 from comet.debrid.exceptions import DebridLinkGenerationError
+from comet.debrid.link_cache import (
+    cache_download_link_best_effort,
+    get_cached_download_link,
+    valid_download_url,
+)
 from comet.debrid.manager import (
     build_account_key_hash,
+    build_playback_media_id,
     get_debrid,
     get_debrid_credentials,
 )
+from comet.discovery.torrent_repository import TorrentReleaseRepository
 from comet.metadata.manager import MetadataScraper
+from comet.observability.boundaries import playback_boundary
 from comet.services.status_video import build_status_video_response
 from comet.services.streaming.manager import custom_handle_stream_request
 from comet.utils.http_client import http_client_manager
-from comet.utils.network import get_client_ip
+from comet.utils.network import get_client_ip, get_client_ip_any
 
 router = APIRouter()
 _INFO_HASH_PATTERN = re.compile(r"[0-9a-f]{40}")
 _NONNEGATIVE_INTEGER_PATTERN = re.compile(r"0|[1-9][0-9]*")
+_build_playback_media_id = build_playback_media_id
+_valid_download_url = valid_download_url
+
+
+def _bounded_query_text(value, *, maximum_bytes: int) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        size = len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        return False
+    return size <= maximum_bytes and all(
+        ord(character) >= 32 and ord(character) != 127 for character in value
+    )
 
 
 def _parse_optional_path_integer(value: str) -> int | None:
     if value == "n":
         return None
-    if type(value) is not str or _NONNEGATIVE_INTEGER_PATTERN.fullmatch(value) is None:
+    if (
+        type(value) is not str
+        or len(value) > 19
+        or _NONNEGATIVE_INTEGER_PATTERN.fullmatch(value) is None
+    ):
         raise ValueError("path integer must be canonical, non-negative, or 'n'")
-    return int(value)
+    parsed = int(value)
+    if parsed > MAX_SIGNED_BIGINT:
+        raise ValueError("path integer is too large")
+    return parsed
 
 
 def _parse_playback_path(
@@ -63,130 +84,13 @@ def _parse_playback_path(
     )
 
 
-def _valid_download_url(value) -> str | None:
-    if type(value) is not str or not value or any(ord(char) < 32 for char in value):
-        return None
-    try:
-        parsed = urlsplit(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            return None
-        _ = parsed.port
-    except (ValueError, UnicodeError):
-        return None
-    return value
-
-
-def _decode_sources(sources_json) -> list[str]:
-    if not sources_json:
-        return []
-
-    try:
-        sources = orjson.loads(sources_json)
-    except (TypeError, orjson.JSONDecodeError):
-        return []
-
-    if not isinstance(sources, list):
-        return []
-    return [source for source in sources if isinstance(source, str) and source]
-
-
-def _build_playback_media_id(
-    media_only_id: str,
-    media_type: str,
-    season: int | None,
-    episode: int | None,
-) -> str:
-    if media_type not in {"movie", "series"}:
-        raise ValueError("media type must be movie or series")
-
-    is_imdb = media_only_id.startswith("tt")
-    if media_type == "movie":
-        return media_only_id if is_imdb else f"kitsu:{media_only_id}"
-    if not is_imdb:
-        return (
-            f"kitsu:{media_only_id}:{episode}"
-            if episode is not None
-            else f"kitsu:{media_only_id}"
-        )
-    if season is None:
-        return media_only_id
-    if episode is None:
-        return f"{media_only_id}:{season}"
-    return f"{media_only_id}:{season}:{episode}"
-
-
-async def cache_download_link(
-    *,
-    debrid_service: str,
-    account_key_hash: str,
-    info_hash: str,
-    season: int | None,
-    episode: int | None,
-    download_url: str,
-):
-    params = {
-        "debrid_service": debrid_service,
-        "account_key_hash": account_key_hash,
-        "info_hash": info_hash,
-        "download_url": download_url,
-        "updated_at": time.time(),
-        **build_scope_params(season, episode),
-    }
-    await database.execute(
-        """
-        INSERT INTO download_links_cache (
-            debrid_service,
-            account_key_hash,
-            info_hash,
-            season,
-            episode,
-            season_norm,
-            episode_norm,
-            download_url,
-            updated_at
-        )
-        VALUES (
-            :debrid_service,
-            :account_key_hash,
-            :info_hash,
-            :season,
-            :episode,
-            :season_norm,
-            :episode_norm,
-            :download_url,
-            :updated_at
-        )
-        ON CONFLICT (
-            debrid_service,
-            account_key_hash,
-            info_hash,
-            season_norm,
-            episode_norm
-        ) DO UPDATE SET
-            download_url = EXCLUDED.download_url,
-            updated_at = EXCLUDED.updated_at
-        """,
-        params,
-    )
-
-
-async def _cache_download_link_safely(**kwargs) -> None:
-    try:
-        await cache_download_link(**kwargs)
-    except Exception as exc:
-        logger.warning(
-            "Failed to cache generated download link for "
-            f"{kwargs['debrid_service']}:{kwargs['info_hash']} "
-            f"({type(exc).__name__})"
-        )
-
-
 @router.get(
     "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}",
     tags=["Stremio"],
     summary="Playback Proxy",
     description="Proxies the playback request to the Debrid service or returns a cached link.",
 )
+@playback_boundary(default_mode="proxy", default_source_type="torrent")
 async def playback(
     request: Request,
     b64config: str,
@@ -195,22 +99,34 @@ async def playback(
     index: str,
     season: str,
     episode: str,
-    torrent_name: str = Query(),
-    name: str = Query(),
-    media_id: str | None = Query(default=None),
-    media_type: str | None = Query(default=None),
+    torrent_name: str = Query(max_length=2_048),
+    name: str = Query(max_length=2_048),
+    media_id: str | None = Query(default=None, max_length=128),
+    media_type: str | None = Query(default=None, max_length=16),
 ):
-    config = config_check(b64config, strict_b64config=True)
-    if not config:
+    config = config_check(b64config)
+    if config is None:
+        return build_status_video_response(
+            ["BAD_REQUEST"],
+            default_key="BAD_REQUEST",
+        )
+    if config.get("schemaVersion") == 2:
         return build_status_video_response(
             ["BAD_REQUEST"],
             default_key="BAD_REQUEST",
         )
 
-    torrent_name = torrent_name.strip()
-    name = name.strip()
-    media_id = media_id.strip() if media_id else None
-    if not torrent_name or not name or media_type not in {None, "movie", "series"}:
+    if media_id:
+        request.state.comet_content_id = media_id
+    if (
+        not _bounded_query_text(torrent_name, maximum_bytes=2_048)
+        or not _bounded_query_text(name, maximum_bytes=2_048)
+        or (
+            media_id is not None
+            and not _bounded_query_text(media_id, maximum_bytes=128)
+        )
+        or media_type not in {None, "movie", "series"}
+    ):
         return build_status_video_response(
             ["BAD_REQUEST"],
             default_key="BAD_REQUEST",
@@ -235,78 +151,32 @@ async def playback(
     account_key_hash = build_account_key_hash(debrid_api_key)
 
     session = await http_client_manager.get_session()
-    min_timestamp = time.time() - DOWNLOAD_LINK_CACHE_TTL
-    scope_params = build_scope_lookup_params(season, episode)
-    cached_link = await database.fetch_one(
-        """
-        SELECT download_url
-        FROM download_links_cache
-        WHERE debrid_service = :debrid_service
-        AND account_key_hash = :account_key_hash
-        AND info_hash = :info_hash
-        AND season_norm = :season_norm
-        AND episode_norm = :episode_norm
-        AND updated_at >= :min_timestamp
-        """,
-        {
-            "debrid_service": debrid_service,
-            "account_key_hash": account_key_hash,
-            "info_hash": hash,
-            "min_timestamp": min_timestamp,
-            **scope_params,
-        },
-    )
-
-    download_url = None
-    if cached_link:
-        download_url = _valid_download_url(cached_link["download_url"])
-
     ip = get_client_ip(request)
     should_proxy = (
         settings.PROXY_DEBRID_STREAM
         and settings.PROXY_DEBRID_STREAM_PASSWORD == config["debridStreamProxyPassword"]
     )
+    link_client_ip = "" if should_proxy else ip
+    download_url = await get_cached_download_link(
+        database,
+        debrid_service=debrid_service,
+        account_key_hash=account_key_hash,
+        info_hash=hash,
+        season=season,
+        episode=episode,
+        selection_key=index,
+        client_ip=link_client_ip,
+    )
     if download_url is None:
-        # Retrieve torrent sources from database for private trackers.
-        if media_id:
-            torrent_data = await database.fetch_one(
-                """
-                SELECT sources_json
-                FROM torrents
-                WHERE info_hash = :info_hash
-                AND media_id = :media_id
-                ORDER BY updated_at DESC
-                LIMIT 1
-                """,
-                {"info_hash": hash, "media_id": media_id},
-            )
-            if torrent_data is None:
-                torrent_data = await database.fetch_one(
-                    """
-                    SELECT sources_json
-                    FROM torrents
-                    WHERE info_hash = :info_hash
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """,
-                    {"info_hash": hash},
-                )
-        else:
-            torrent_data = await database.fetch_one(
-                """
-                SELECT sources_json, media_id
-                FROM torrents
-                WHERE info_hash = :info_hash
-                ORDER BY updated_at DESC
-                LIMIT 1
-                """,
-                {"info_hash": hash},
-            )
+        repository = TorrentReleaseRepository(database)
+        torrent_data = await repository.find_context(hash, media_id=media_id)
+        if torrent_data is None and media_id is not None:
+            torrent_data = await repository.find_context(hash)
 
         sources = []
         context_media_id = media_id
-        if torrent_data:
-            sources = _decode_sources(torrent_data["sources_json"])
+        if torrent_data is not None:
+            sources = torrent_data["sources"]
             if context_media_id is None:
                 context_media_id = torrent_data["media_id"]
 
@@ -319,7 +189,7 @@ async def playback(
                 "series" if season is not None else "movie"
             )
             try:
-                full_media_id = _build_playback_media_id(
+                full_media_id = build_playback_media_id(
                     context_media_id,
                     resolved_media_type,
                     season,
@@ -332,9 +202,10 @@ async def playback(
                 )
 
             debrid_video_id = full_media_id
-            _, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+            metadata_result = await metadata_scraper.fetch_metadata_and_aliases(
                 resolved_media_type, full_media_id
             )
+            aliases = metadata_result.aliases
 
         debrid = get_debrid(
             session,
@@ -342,8 +213,13 @@ async def playback(
             debrid_media_only_id,
             debrid_service,
             debrid_api_key,
-            ip if not should_proxy else "",
+            link_client_ip,
         )
+        if debrid is None:
+            return build_status_video_response(
+                ["BAD_REQUEST"],
+                default_key="BAD_REQUEST",
+            )
         try:
             download_url = await debrid.generate_download_link(
                 hash,
@@ -362,24 +238,22 @@ async def playback(
                 default_key=status_keys[0] if status_keys else "UNKNOWN",
             )
 
-        if not download_url:
+        download_url = valid_download_url(download_url)
+        if download_url is None:
             return build_status_video_response(
                 [],
                 default_key="UNKNOWN",
             )
-        download_url = _valid_download_url(download_url)
-        if download_url is None:
-            return build_status_video_response(
-                ["BAD_REQUEST"],
-                default_key="BAD_REQUEST",
-            )
 
-        await _cache_download_link_safely(
+        await cache_download_link_best_effort(
+            database,
             debrid_service=debrid_service,
             account_key_hash=account_key_hash,
             info_hash=hash,
             season=season,
             episode=episode,
+            selection_key=index,
+            client_ip=link_client_ip,
             download_url=download_url,
         )
 
@@ -389,7 +263,9 @@ async def playback(
             download_url,
             mediaflow_proxy.utils.http_utils.get_proxy_headers(request),
             media_id=torrent_name,
-            ip=ip,
+            ip=get_client_ip_any(request)[0],
+            source_type="torrent",
+            service=debrid_service,
         )
 
     return RedirectResponse(download_url, status_code=302)

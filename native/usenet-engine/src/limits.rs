@@ -1,0 +1,3 @@
+pub const MAX_NZB_METADATA_BYTES: usize = 150 * 1024 * 1024;
+pub const MAX_DECLARED_POSTING_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_LOGICAL_BYTES: u64 = 1024 * 1024 * 1024 * 1024;

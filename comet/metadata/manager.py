@@ -1,14 +1,17 @@
 import asyncio
+import math
 import time
 from dataclasses import dataclass
+from enum import StrEnum
 from weakref import WeakValueDictionary
 
 import aiohttp
 import orjson
 
 from comet.core.database import database, encode_json_param
-from comet.core.logger import logger
 from comet.core.models import settings
+from comet.metadata.http import MetadataHttpError
+from comet.metadata.validation import metadata_text, metadata_year, normalize_aliases
 from comet.services.anime import anime_mapper
 from comet.utils.languages import merge_aliases
 from comet.utils.parsing import parse_media_id
@@ -89,12 +92,35 @@ _CACHE_UPSERT_QUERY = """
 """
 
 _ALIAS_FAILURE_RETRY_DELAY = 300
+_MAX_CACHED_ALIASES_JSON_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
 class _CacheEntry:
     metadata: dict | None
     aliases: dict | None
+
+
+class MetadataFetchStatus(StrEnum):
+    OK = "ok"
+    NOT_FOUND = "not_found"
+    UNSUPPORTED = "unsupported"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    TIMEOUT = "timeout"
+    INVALID_RESPONSE = "invalid_response"
+
+
+@dataclass(frozen=True, slots=True)
+class MetadataFetchResult:
+    status: MetadataFetchStatus
+    metadata: dict | None
+    aliases: dict
+
+
+@dataclass(frozen=True, slots=True)
+class _MetadataValue:
+    status: MetadataFetchStatus
+    metadata: dict | None
 
 
 _metadata_refresh_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
@@ -117,6 +143,13 @@ def _alias_cache_timestamp(current_time: float, succeeded: bool) -> float:
     return current_time - (cache_ttl - retry_delay)
 
 
+async def _settle_metadata_tasks(tasks: dict[str, asyncio.Task]) -> dict[str, object]:
+    if not tasks:
+        return {}
+    values = await asyncio.gather(*tasks.values())
+    return dict(zip(tasks, values, strict=True))
+
+
 class MetadataScraper:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
@@ -128,7 +161,7 @@ class MetadataScraper:
         id: str | None = None,
         season: int | None = None,
         episode: int | None = None,
-    ):
+    ) -> MetadataFetchResult:
         if id is None:
             id, season, episode = parse_media_id(media_type, media_id)
 
@@ -157,21 +190,22 @@ class MetadataScraper:
         return None
 
     @staticmethod
-    def _load_cached_aliases(aliases_json) -> dict | None:
-        if aliases_json is None:
-            return None
-
-        try:
-            aliases = orjson.loads(aliases_json)
-        except (TypeError, orjson.JSONDecodeError):
-            return None
-
-        return aliases if isinstance(aliases, dict) else None
+    def _load_cached_aliases(aliases_json) -> dict:
+        if isinstance(aliases_json, str):
+            aliases_json = aliases_json.encode("utf-8")
+        if not isinstance(aliases_json, bytes):
+            raise ValueError("cached aliases must be encoded JSON")
+        if len(aliases_json) > _MAX_CACHED_ALIASES_JSON_BYTES:
+            raise ValueError("cached aliases exceed the storage limit")
+        return normalize_aliases(orjson.loads(aliases_json))
 
     @staticmethod
     def _is_fresh(timestamp, current_time: float) -> bool:
-        return isinstance(timestamp, (int, float)) and timestamp >= (
-            current_time - settings.METADATA_CACHE_TTL
+        return (
+            not isinstance(timestamp, bool)
+            and isinstance(timestamp, (int, float))
+            and math.isfinite(timestamp)
+            and timestamp >= (current_time - settings.METADATA_CACHE_TTL)
         )
 
     def _build_cache_entry(
@@ -182,13 +216,18 @@ class MetadataScraper:
         current_time: float,
     ) -> _CacheEntry:
         metadata = None
-        if row["title"] is not None and self._is_fresh(
+        title = metadata_text(row["title"])
+        if title is not None and self._is_fresh(
             row["metadata_updated_at"], current_time
         ):
+            year = metadata_year(row["year"])
+            year_end = metadata_year(row["year_end"])
+            if year is not None and year_end is not None and year_end < year:
+                year_end = None
             metadata = {
-                "title": row["title"],
-                "year": row["year"],
-                "year_end": row["year_end"],
+                "title": title,
+                "year": year,
+                "year_end": year_end,
                 "season": season,
                 "episode": episode,
             }
@@ -228,6 +267,9 @@ class MetadataScraper:
         season: int | None,
         episode: int | None,
     ) -> _CacheEntry:
+        metadata = self._normalize_metadata_dict(metadata, season, episode)
+        if aliases is not None:
+            aliases = normalize_aliases(aliases)
         current_time = time.time()
         aliases_updated_at = _alias_cache_timestamp(
             current_time,
@@ -272,25 +314,39 @@ class MetadataScraper:
     ):
         cached = await self.get_cached(cache_id, season, episode)
         if cached.metadata is not None and cached.aliases is not None:
-            return cached.metadata, cached.aliases
+            return MetadataFetchResult(
+                MetadataFetchStatus.OK,
+                cached.metadata,
+                cached.aliases,
+            )
 
         async with _get_metadata_refresh_lock(cache_id):
             cached = await self.get_cached(cache_id, season, episode)
             if cached.metadata is not None and cached.aliases is not None:
-                return cached.metadata, cached.aliases
+                return MetadataFetchResult(
+                    MetadataFetchStatus.OK,
+                    cached.metadata,
+                    cached.aliases,
+                )
 
             metadata = cached.metadata
             aliases = cached.aliases
             update_metadata = False
+            metadata_status = (
+                MetadataFetchStatus.OK
+                if metadata is not None
+                else MetadataFetchStatus.NOT_FOUND
+            )
 
             pending = {}
             if metadata is None:
                 if provided_metadata is not None:
                     metadata = provided_metadata
+                    metadata_status = MetadataFetchStatus.OK
                     update_metadata = True
                 else:
                     pending["metadata"] = asyncio.create_task(
-                        self.get_metadata(
+                        self._get_metadata_value(
                             media_id,
                             season,
                             episode,
@@ -303,13 +359,14 @@ class MetadataScraper:
                     self.get_aliases(media_type, media_id, provider)
                 )
 
-            if pending:
-                await asyncio.gather(*pending.values())
-            if metadata_task := pending.get("metadata"):
-                metadata = metadata_task.result()
+            settled = await _settle_metadata_tasks(pending)
+            if "metadata" in settled:
+                metadata_value = settled["metadata"]
+                metadata_status = metadata_value.status
+                metadata = metadata_value.metadata
                 update_metadata = metadata is not None
-            if aliases_task := pending.get("aliases"):
-                aliases = aliases_task.result()
+            if "aliases" in settled:
+                aliases = settled["aliases"]
 
             update_aliases = "aliases" in pending
             if update_metadata or update_aliases:
@@ -325,7 +382,45 @@ class MetadataScraper:
                 metadata = refreshed.metadata
                 aliases = refreshed.aliases
 
-            return metadata, aliases if aliases is not None else {}
+            return MetadataFetchResult(
+                (MetadataFetchStatus.OK if metadata is not None else metadata_status),
+                metadata,
+                aliases if aliases is not None else {},
+            )
+
+    async def _get_metadata_value(
+        self,
+        media_id: str,
+        season: int | None,
+        episode: int | None,
+        is_kitsu: bool,
+        media_type: str,
+    ) -> _MetadataValue:
+        provider = "kitsu" if is_kitsu else "imdb"
+        if media_type not in {"movie", "series"} or (
+            provider == "kitsu" and media_type != "series"
+        ):
+            return _MetadataValue(MetadataFetchStatus.UNSUPPORTED, None)
+        try:
+            metadata = await self.get_metadata(
+                media_id,
+                season,
+                episode,
+                is_kitsu,
+                media_type,
+            )
+        except TimeoutError:
+            return _MetadataValue(MetadataFetchStatus.TIMEOUT, None)
+        except MetadataHttpError:
+            return _MetadataValue(MetadataFetchStatus.INVALID_RESPONSE, None)
+        return _MetadataValue(
+            (
+                MetadataFetchStatus.OK
+                if metadata is not None
+                else MetadataFetchStatus.NOT_FOUND
+            ),
+            metadata,
+        )
 
     def normalize_metadata(
         self,
@@ -336,11 +431,34 @@ class MetadataScraper:
         if not metadata:
             return None
 
-        title, year, year_end = metadata
-
-        if title is None:  # metadata retrieving failed
+        if not isinstance(metadata, (tuple, list)) or len(metadata) != 3:
             return None
+        title, year, year_end = metadata
+        return self._normalize_metadata_dict(
+            {
+                "title": title,
+                "year": year,
+                "year_end": year_end,
+            },
+            season,
+            episode,
+        )
 
+    @staticmethod
+    def _normalize_metadata_dict(
+        metadata: object,
+        season: int | None,
+        episode: int | None,
+    ) -> dict | None:
+        if not isinstance(metadata, dict):
+            return None
+        title = metadata_text(metadata.get("title"))
+        if title is None:
+            return None
+        year = metadata_year(metadata.get("year"))
+        year_end = metadata_year(metadata.get("year_end"))
+        if year is not None and year_end is not None and year_end < year:
+            year_end = None
         return {
             "title": title,
             "year": year,
@@ -401,7 +519,6 @@ class MetadataScraper:
         provider: str | None = None,
     ) -> dict[str, list[str]] | None:
         anime_aliases = {}
-        anime_aliases_logged = False
         anime_mapping_loaded = anime_mapper.is_loaded()
         full_media_id = f"{provider}:{media_id}"
         is_anime = anime_mapping_loaded and anime_mapper.is_anime_content(
@@ -423,40 +540,22 @@ class MetadataScraper:
                 TMDBApi(self.session).get_title_aliases(media_type, media_id)
             )
 
-        if pending:
-            await asyncio.gather(*pending.values())
+        settled = await _settle_metadata_tasks(pending)
 
-        if anime_task := pending.get("anime"):
-            anime_aliases = anime_task.result()
-            anime_alias_count = sum(len(titles) for titles in anime_aliases.values())
-            message = (
-                f"📜 Found {anime_alias_count} Anime title aliases for {media_id}"
-                if anime_alias_count
-                else f"📜 No Anime title aliases found for {media_id}"
-            )
-            logger.log("SCRAPER", message)
-            anime_aliases_logged = True
+        if "anime" in settled:
+            anime_aliases = normalize_aliases(settled["anime"])
 
         if provider == "kitsu":
-            if not anime_aliases_logged:
-                logger.log("SCRAPER", f"📜 No Anime title aliases found for {media_id}")
-            imdb_task = pending.get("imdb_id")
-            imdb_id = imdb_task.result() if imdb_task else None
+            imdb_id = settled.get("imdb_id")
             if imdb_id is None:
                 return anime_aliases
             tmdb_aliases = await TMDBApi(self.session).get_title_aliases(
                 media_type, imdb_id
             )
         else:
-            tmdb_aliases = pending["tmdb"].result()
+            tmdb_aliases = settled["tmdb"]
 
-        if tmdb_aliases:
-            total_aliases = sum(len(titles) for titles in tmdb_aliases.values())
-            logger.log(
-                "SCRAPER",
-                f"📜 Found {total_aliases} TMDB title aliases for {media_id}",
-            )
-        elif tmdb_aliases is not None:
-            logger.log("SCRAPER", f"📜 No TMDB title aliases found for {media_id}")
+        if tmdb_aliases is None:
+            return None
 
-        return merge_aliases(anime_aliases, tmdb_aliases)
+        return normalize_aliases(merge_aliases(anime_aliases, tmdb_aliases))

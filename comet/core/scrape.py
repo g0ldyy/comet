@@ -1,5 +1,8 @@
 from enum import StrEnum
 
+_MAX_SCRAPER_NAME_BYTES = 64
+_MAX_SCRAPER_SELECTOR_BYTES = 80
+
 
 class ScrapeContext(StrEnum):
     LIVE = "live"
@@ -7,24 +10,36 @@ class ScrapeContext(StrEnum):
 
 
 def normalize_scraper_name(name: str) -> str:
-    if type(name) is not str:
-        raise ValueError("scraper name must be a string")
+    if type(name) is not str or not name.strip():
+        raise ValueError("scraper name is invalid")
+    name = name.strip()
+    try:
+        if len(name.encode("utf-8")) > _MAX_SCRAPER_NAME_BYTES:
+            raise ValueError
+    except (UnicodeEncodeError, ValueError):
+        raise ValueError("scraper name is invalid") from None
 
-    normalized = name.strip().casefold()
+    normalized = name.casefold()
     if normalized.endswith("scraper"):
         normalized = normalized.removesuffix("scraper")
-    if not normalized or not normalized.isalnum():
-        raise ValueError(f"invalid scraper name: {name!r}")
+    if not normalized or not normalized.isascii() or not normalized.isalnum():
+        raise ValueError("scraper name is invalid")
     return normalized
 
 
 def normalize_scraper_timeout_selector(selector: str) -> str:
-    if type(selector) is not str:
-        raise ValueError("scraper timeout selector must be a string")
+    if type(selector) is not str or not selector.strip():
+        raise ValueError("scraper timeout selector is invalid")
+    selector = selector.strip()
+    try:
+        if len(selector.encode("utf-8")) > _MAX_SCRAPER_SELECTOR_BYTES:
+            raise ValueError
+    except (UnicodeEncodeError, ValueError):
+        raise ValueError("scraper timeout selector is invalid") from None
 
-    parts = selector.strip().split(":")
+    parts = selector.split(":")
     if len(parts) > 2:
-        raise ValueError(f"invalid scraper timeout selector: {selector!r}")
+        raise ValueError("scraper timeout selector is invalid")
 
     scraper_name = normalize_scraper_name(parts[0])
     if len(parts) == 1:
@@ -33,7 +48,5 @@ def normalize_scraper_timeout_selector(selector: str) -> str:
     try:
         context = ScrapeContext(parts[1].strip().casefold())
     except ValueError:
-        raise ValueError(
-            f"invalid scraper timeout context in selector: {selector!r}"
-        ) from None
+        raise ValueError("scraper timeout selector is invalid") from None
     return f"{scraper_name}:{context.value}"

@@ -50,22 +50,27 @@ class CacheStateManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.state, CacheState.STALE)
         self.assertEqual(result.decision, ScrapeDecision.SCRAPE_BACKGROUND)
 
-    async def test_demand_write_failure_is_visible_and_non_fatal(self):
+    async def test_demand_write_failure_propagates(self):
         manager = CacheStateManager("tt123:2")
 
-        with (
-            patch.object(
+        with self.assertRaisesRegex(RuntimeError, "database failure"):
+            with patch.object(
                 cache_state.database,
                 "fetch_one",
-                side_effect=[None, RuntimeError("database unavailable")],
-            ),
-            patch.object(cache_state.logger, "opt") as logger_opt,
-        ):
-            result = await manager.register_demand()
+                side_effect=[None, RuntimeError("database failure")],
+            ):
+                await manager.register_demand()
 
-        self.assertIsNone(result)
-        logger_opt.assert_called_once_with(exception=True)
-        logger_opt.return_value.warning.assert_called_once()
+    async def test_missing_upsert_result_propagates(self):
+        manager = CacheStateManager("tt123:2")
+
+        with self.assertRaises(TypeError):
+            with patch.object(
+                cache_state.database,
+                "fetch_one",
+                side_effect=[None, None],
+            ):
+                await manager.register_demand()
 
 
 class ScopeCoveragePersistenceTests(unittest.IsolatedAsyncioTestCase):

@@ -15,9 +15,14 @@ NO_CACHE_HEADERS = {
 }
 
 _ENTITY_TAG = re.compile(r'(?:W/)?"[\x21\x23-\x7e\x80-\xff]*"')
+_MAX_ENTITY_TAG_HEADER_LENGTH = 8_192
+_MAX_ENTITY_TAGS = 128
 
 
 def _parse_entity_tag_list(value: str) -> list[str] | None:
+    if len(value) > _MAX_ENTITY_TAG_HEADER_LENGTH:
+        return None
+
     tags: list[str] = []
     position = 0
     length = len(value)
@@ -29,6 +34,8 @@ def _parse_entity_tag_list(value: str) -> list[str] | None:
         if match is None:
             return None
         tags.append(match.group(0))
+        if len(tags) > _MAX_ENTITY_TAGS:
+            return None
         position = match.end()
         while position < length and value[position] in " \t":
             position += 1
@@ -77,16 +84,6 @@ class CacheControl:
         self._directives.append("no-store")
         return self
 
-    def must_revalidate(self):
-        """Cache must revalidate stale responses."""
-        self._directives.append("must-revalidate")
-        return self
-
-    def immutable(self):
-        """Response will not change during its freshness lifetime."""
-        self._directives.append("immutable")
-        return self
-
     def max_age(self, seconds: int):
         """Maximum time response is considered fresh (browser cache)."""
         self._max_age = _validate_cache_seconds(seconds)
@@ -128,8 +125,7 @@ def _generate_etag(body: bytes):
     return f'W/"{hash_digest}"'
 
 
-def check_etag_match(request: Request, etag: str):
-    if_none_match = request.headers.get("If-None-Match")
+def etag_matches(if_none_match: str | None, etag: str) -> bool:
     if not if_none_match:
         return False
 
@@ -145,6 +141,10 @@ def check_etag_match(request: Request, etag: str):
         (client_etag.removeprefix("W/")) == normalized_etag
         for client_etag in client_etags
     )
+
+
+def check_etag_match(request: Request, etag: str):
+    return etag_matches(request.headers.get("If-None-Match"), etag)
 
 
 class CachePolicies:
@@ -231,15 +231,12 @@ def cached_response(
 
     cache_control = (cache_policy or CachePolicies.empty_results()).build()
     etag = _generate_etag(body)
-    if check_etag_match(request, etag):
-        return Response(
-            status_code=304,
-            headers={"ETag": etag, "Cache-Control": cache_control},
-        )
-
-    headers = {"Cache-Control": cache_control, "ETag": etag}
+    headers = {"ETag": etag, "Cache-Control": cache_control}
     if vary:
         headers["Vary"] = ", ".join(vary)
+    if check_etag_match(request, etag):
+        return Response(status_code=304, headers=headers)
+
     return Response(content=body, media_type=media_type, headers=headers)
 
 

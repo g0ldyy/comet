@@ -63,6 +63,22 @@ class _PassthroughLock:
 
 
 class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unexpected_item_task_failure_aborts_the_batch(self):
+        worker = BackgroundScraperWorker()
+        worker.is_running = True
+        worker._scrape_single_media = AsyncMock(
+            side_effect=RuntimeError("state update failed")
+        )
+
+        with (
+            patch.object(settings, "BACKGROUND_SCRAPER_CONCURRENT_WORKERS", 1),
+            self.assertRaisesRegex(RuntimeError, "state update failed"),
+        ):
+            await worker._run_items_in_bounded_chunks(
+                [{"media_id": "tt1234567", "consecutive_failures": 0}],
+                None,
+            )
+
     async def test_drain_finishes_active_cycle_without_starting_another(self):
         worker = BackgroundScraperWorker()
         cycle_started = asyncio.Event()
@@ -189,21 +205,14 @@ class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_continuous_runner_propagates_cancellation(self):
         worker = BackgroundScraperWorker()
-        entered_sleep = asyncio.Event()
 
-        async def blocked_sleep(_delay):
-            entered_sleep.set()
-            await asyncio.Event().wait()
-
-        with (
-            patch(
-                "comet.background_scraper.worker.DistributedLock.acquire",
-                new=AsyncMock(return_value=False),
-            ),
-            patch("comet.background_scraper.worker.asyncio.sleep", new=blocked_sleep),
+        with patch(
+            "comet.background_scraper.worker.DistributedLock.acquire",
+            new=AsyncMock(return_value=False),
         ):
             task = asyncio.create_task(worker._run_continuous())
-            await entered_sleep.wait()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
@@ -212,6 +221,42 @@ class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
+    def test_queue_policy_consumes_validated_watermarks_without_rewriting(self):
+        worker = BackgroundScraperWorker()
+        with (
+            patch.object(settings, "BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK", 100),
+            patch.object(settings, "BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK", 200),
+            patch.object(settings, "BACKGROUND_SCRAPER_QUEUE_HARD_CAP", 300),
+        ):
+            self.assertEqual(worker._discovery_queue_limits(), (100, 200, 300))
+            allowed, reason, limits, paused = worker._evaluate_discovery_policy(200)
+            self.assertFalse(allowed)
+            self.assertEqual(reason, "above_high_watermark")
+            self.assertEqual(limits, {"low": 100, "high": 200, "hard": 300})
+            self.assertTrue(paused)
+
+            allowed, reason, _limits, paused = worker._evaluate_discovery_policy(100)
+            self.assertTrue(allowed)
+            self.assertIsNone(reason)
+            self.assertFalse(paused)
+
+        with self.assertRaises(KeyError):
+            worker._apply_discovery_headroom(10, 10, 0, {"high": 0})
+
+    def test_retry_policy_consumes_validated_backoff_and_sentinel(self):
+        worker = BackgroundScraperWorker()
+        with (
+            patch.object(settings, "BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF", 10),
+            patch.object(settings, "BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF", 25),
+        ):
+            self.assertEqual(worker._compute_backoff(1), 10)
+            self.assertEqual(worker._compute_backoff(2), 20)
+            self.assertEqual(worker._compute_backoff(3), 25)
+
+        with patch.object(settings, "BACKGROUND_SCRAPER_MAX_RETRIES", -1):
+            self.assertEqual(worker._max_retries_for_query(), 1_000_000)
+            self.assertFalse(worker._is_retry_limit_reached(1_000_000))
+
     async def test_queue_snapshot_query_executes_against_sqlite(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             database = await _create_queue_database(Path(temp_dir) / "queue.db")
@@ -374,7 +419,6 @@ class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
         }
         invalid_rows = [
             None,
-            valid | {"extra": 1},
             valid | {"movie_count": True},
             valid | {"series_count": -1},
             valid | {"episode_count": 1.5},
@@ -382,6 +426,14 @@ class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
             valid | {"oldest_item_ts": math.nan},
             valid | {"oldest_episode_ts": math.inf},
         ]
+        with patch(
+            "comet.background_scraper.worker.database.fetch_one",
+            new=AsyncMock(return_value=valid | {"extra": 1}),
+        ):
+            self.assertEqual(
+                (await worker._fetch_queue_snapshot(now=100.0))["movies"],
+                2,
+            )
 
         for row in invalid_rows:
             with (
@@ -426,6 +478,25 @@ class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fetch_val.await_count, 2)
         self.assertEqual(execute.await_count, 2)
 
+    async def test_requeue_dead_items_rejects_normalized_counts(self):
+        worker = BackgroundScraperWorker()
+
+        with (
+            patch(
+                "comet.background_scraper.worker.database.transaction",
+                return_value=AsyncMock(),
+            ),
+            patch(
+                "comet.background_scraper.worker.database.fetch_val",
+                new=AsyncMock(return_value="2"),
+            ),
+            self.assertRaisesRegex(
+                ValueError,
+                "dead_item_count must be a non-negative integer",
+            ),
+        ):
+            await worker.requeue_dead_items()
+
     async def test_recent_runs_enforces_limit_and_serializes_current_schema(self):
         worker = BackgroundScraperWorker()
         row = {
@@ -468,7 +539,6 @@ class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
         }
         invalid_rows = [
             None,
-            valid | {"extra": 1},
             valid | {"run_id": "not-a-uuid"},
             valid | {"status": "dead"},
             valid | {"started_at": 10},
@@ -482,6 +552,9 @@ class BackgroundWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         self.assertEqual(_serialize_run_row(valid), valid)
+        self.assertEqual(
+            _serialize_run_row(valid | {"extra": 1})["run_id"], valid["run_id"]
+        )
         self.assertIsNone(
             _serialize_run_row(valid | {"status": "running", "finished_at": None})[
                 "finished_at"

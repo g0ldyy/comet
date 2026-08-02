@@ -1,11 +1,11 @@
 import re
 
-_YEAR_PATTERN = re.compile(r"(?:18|19|20)\d{2}")
+_YEAR_PATTERN = re.compile(r"(?:1[89]|[2-9]\d)\d{2}")
 
 
 def parse_year(value) -> int | None:
-    if isinstance(value, int):
-        return value
+    if type(value) is int:
+        return value if 1800 <= value <= 9999 else None
 
     if not isinstance(value, str):
         return None
@@ -18,8 +18,8 @@ def parse_year(value) -> int | None:
 
 
 def parse_year_range(value) -> tuple[int | None, int | None]:
-    if isinstance(value, int):
-        return value, None
+    if type(value) is int:
+        return (value, None) if 1800 <= value <= 9999 else (None, None)
 
     if not isinstance(value, str):
         return None, None

@@ -3,13 +3,38 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.types import Receive, Scope, Send
 
-from comet.core.logger import logger
 from comet.utils.cache import NO_CACHE_HEADERS
 from comet.utils.status_keys import normalize_status_key
 
 STATUS_VIDEO_DIR = Path("comet/assets/status_videos")
 DEFAULT_STATUS_KEY = "UNKNOWN"
+
+
+class _NonSeekableFileResponse(FileResponse):
+    """Serve a complete file while explicitly disabling byte-range playback."""
+
+    def __init__(self, path: str, *, headers: dict[str, str]) -> None:
+        super().__init__(path, headers={**headers, "Accept-Ranges": "none"})
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        request_headers = scope.get("headers", ())
+        if any(name.lower() == b"range" for name, _value in request_headers):
+            scope = {
+                **scope,
+                "headers": [
+                    (name, value)
+                    for name, value in request_headers
+                    if name.lower() != b"range"
+                ],
+            }
+        await super().__call__(scope, receive, send)
 
 
 def _iter_normalized_keys(status_keys: Iterable[str | None]) -> list[str]:
@@ -80,10 +105,6 @@ def build_status_video_response(
     if video_path is None:
         normalized_default_key = normalize_status_key(default_key) or DEFAULT_STATUS_KEY
         normalized_status_keys = _iter_normalized_keys(status_keys_tuple)
-        logger.error(
-            f"Missing status video in {STATUS_VIDEO_DIR} for keys={normalized_status_keys} "
-            f"and default={normalized_default_key}"
-        )
         return JSONResponse(
             status_code=500,
             content={
@@ -94,7 +115,7 @@ def build_status_video_response(
             headers=NO_CACHE_HEADERS,
         )
 
-    return FileResponse(
+    return _NonSeekableFileResponse(
         video_path,
         headers=NO_CACHE_HEADERS,
     )

@@ -1,3 +1,4 @@
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +46,7 @@ class AtomicFileTests(unittest.IsolatedAsyncioTestCase):
             await write_text_atomic(path, "replacement")
 
             self.assertEqual(path.read_text(), "replacement")
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
             self.assertEqual(list(Path(directory).glob(".*.tmp")), [])
 
     async def test_success_syncs_file_before_replace_and_directory_after(self):

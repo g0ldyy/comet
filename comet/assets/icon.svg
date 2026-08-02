@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Comet</title>
+  <rect width="256" height="256" fill="#090909"/>
+  <path d="M58 5C47 15 38 23 29 29L14 39C7 44 6 52 11 58c5 6 15 4 24-2 9-7 15-17 18-29-6 10-14 19-22 24-7 4-14 4-16 0-2-4 3-8 10-12l14-9C48 23 55 13 58 5ZM49 25c-9 5-17 9-23 14-5 4-6 8-3 12-5-3-5-8 0-13 6-5 15-9 26-13Z" transform="translate(24 24) scale(3.25)" fill="#f4f1ec" fill-rule="evenodd"/>
+</svg>

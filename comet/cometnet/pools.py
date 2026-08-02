@@ -36,7 +36,6 @@ from pydantic import (
 
 from comet.cometnet.crypto import NodeIdentity
 from comet.cometnet.utils import canonicalize_data, run_in_executor
-from comet.core.logger import logger
 from comet.core.models import settings
 from comet.utils.atomic_file import write_text_atomic
 
@@ -54,10 +53,7 @@ def _validate_pool_id(value: object) -> str:
 def _decode_pool_id_list(data: object, label: str) -> set[str]:
     if type(data) is not list:
         raise ValueError(f"{label} root must be a list")
-    pool_ids = [_validate_pool_id(value) for value in data]
-    if len(pool_ids) != len(set(pool_ids)):
-        raise ValueError(f"{label} pool IDs must be unique")
-    return set(pool_ids)
+    return {_validate_pool_id(value) for value in data}
 
 
 def _encode_pool_id_set(values: object, label: str) -> list[str]:
@@ -77,8 +73,6 @@ def _decode_pool_peers(data: object) -> dict[str, set[str]]:
             type(peer) is not str or not peer for peer in raw_peers
         ):
             raise ValueError("pool peer values must be lists of non-empty strings")
-        if len(raw_peers) != len(set(raw_peers)):
-            raise ValueError("pool peer addresses must be unique")
         result[pool_id] = set(raw_peers)
     return result
 
@@ -552,13 +546,6 @@ class PoolStore:
         await self._load_invites()
         await self._load_pool_peers()
 
-        logger.log(
-            "COMETNET",
-            f"Loaded {len(self._manifests)} pools, "
-            f"{len(self._memberships)} memberships, "
-            f"{len(self._subscriptions)} subscriptions",
-        )
-
     async def save(self) -> None:
         """Save all data to disk."""
         async with self._auxiliary_lock:
@@ -691,8 +678,6 @@ class PoolStore:
         await self.store_manifest(manifest, identity)
 
         await self.add_membership(pool_id)
-
-        logger.log("COMETNET", f"Created pool '{display_name}' ({pool_id})")
         return manifest
 
     async def delete_pool(self, pool_id: str) -> bool:
@@ -812,8 +797,6 @@ class PoolStore:
         # Re-sign and save
         await self.store_manifest(manifest, identity)
 
-        new_member_id = NodeIdentity.node_id_from_public_key(new_member_key)
-        logger.log("COMETNET", f"Added member {new_member_id[:8]} to pool {pool_id}")
         return True
 
     async def remove_member(
@@ -859,10 +842,6 @@ class PoolStore:
         manifest.updated_at = time.time()
 
         await self.store_manifest(manifest, identity)
-
-        logger.log(
-            "COMETNET", f"Removed member {member.node_id[:8]} from pool {pool_id}"
-        )
         return True
 
     async def set_member_role(
@@ -947,8 +926,6 @@ class PoolStore:
         if manifest_path.exists():
             await run_in_executor(manifest_path.unlink)
         del self._manifests[pool_id]
-
-        logger.log("COMETNET", f"Left pool {pool_id}")
         return True
 
     # ==================== Subscription Operations ====================
@@ -966,14 +943,12 @@ class PoolStore:
         async with self._auxiliary_lock:
             subscriptions = self._subscriptions | {pool_id}
             await self._replace_subscriptions(subscriptions)
-        logger.log("COMETNET", f"Subscribed to pool {pool_id}")
 
     async def unsubscribe(self, pool_id: str) -> None:
         """Unsubscribe from a pool."""
         async with self._auxiliary_lock:
             subscriptions = self._subscriptions - {pool_id}
             await self._replace_subscriptions(subscriptions)
-        logger.log("COMETNET", f"Unsubscribed from pool {pool_id}")
 
     def is_contributor_trusted(
         self, contributor_key: str, pool_id: str | None = None
@@ -1045,8 +1020,6 @@ class PoolStore:
 
         # Persist before publishing it to callers.
         await self._save_invite(invite)
-
-        logger.log("COMETNET", f"Created invite for pool {pool_id}: {invite.to_link()}")
         return invite
 
     def get_invites(self, pool_id: str) -> list[PoolInvite]:
@@ -1067,7 +1040,6 @@ class PoolStore:
 
             # Delete from memory
             del self._invites[pool_id][invite_code]
-            logger.log("COMETNET", f"Deleted invite {invite_code} from pool {pool_id}")
             return True
         return False
 
@@ -1105,8 +1077,6 @@ class PoolStore:
             return False
 
         await self.add_membership(pool_id)
-
-        logger.log("COMETNET", f"Joined pool {pool_id} via invite")
         return True
 
     async def accept_invite_member(
@@ -1170,12 +1140,10 @@ class PoolStore:
                             manifest_file,
                             json.dumps(manifest.to_persisted_dict(), indent=2),
                         )
-                    except Exception as error:
-                        logger.warning(
-                            f"Failed to migrate legacy manifest {manifest_file}: {error}"
-                        )
-            except Exception as e:
-                logger.warning(f"Failed to load manifest {manifest_file}: {e}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     async def _load_memberships(self) -> None:
         """Load memberships from disk."""
@@ -1188,8 +1156,8 @@ class PoolStore:
                     content = await f.read()
                 data = json.loads(content)
                 self._memberships = _decode_pool_id_list(data, "memberships")
-            except Exception as e:
-                logger.warning(f"Failed to load memberships: {e}")
+            except Exception:
+                pass
 
     async def _save_memberships(self) -> None:
         """Save memberships to disk."""
@@ -1220,8 +1188,8 @@ class PoolStore:
                     content = await f.read()
                 data = json.loads(content)
                 self._subscriptions.update(_decode_pool_id_list(data, "subscriptions"))
-            except Exception as e:
-                logger.warning(f"Failed to load subscriptions: {e}")
+            except Exception:
+                pass
 
     async def _save_subscriptions(self) -> None:
         """Save subscriptions to disk."""
@@ -1248,8 +1216,7 @@ class PoolStore:
                 continue
             try:
                 pool_id = _validate_pool_id(pool_dir.name)
-            except ValueError as error:
-                logger.warning(f"Failed to load invite directory {pool_dir}: {error}")
+            except ValueError:
                 continue
 
             self._invites[pool_id] = {}
@@ -1270,8 +1237,8 @@ class PoolStore:
                     else:
                         # Clean up expired or exhausted invites.
                         await run_in_executor(invite_file.unlink)
-                except Exception as e:
-                    logger.warning(f"Failed to load invite {invite_file}: {e}")
+                except Exception:
+                    pass
 
     async def _save_invite(self, invite: PoolInvite) -> None:
         """Save an invite to disk."""
@@ -1295,8 +1262,8 @@ class PoolStore:
                     content = await f.read()
                 data = json.loads(content)
                 self._pool_peers = _decode_pool_peers(data)
-            except Exception as e:
-                logger.warning(f"Failed to load pool peers: {e}")
+            except Exception:
+                pass
 
     async def _save_pool_peers(self) -> None:
         """Save known pool peers to disk."""
@@ -1411,7 +1378,6 @@ class PoolStore:
     async def flush_dirty_manifests(self) -> None:
         """Save all modified manifests to disk."""
         async with self._mutation_lock:
-            count = 0
             for pool_id in sorted(self._dirty_manifests):
                 manifest = self._manifests.get(pool_id)
                 if manifest is None:
@@ -1422,10 +1388,6 @@ class PoolStore:
                 # remains visible to periodic/shutdown callers and can be retried.
                 await self.store_manifest(manifest)
                 self._dirty_manifests.discard(pool_id)
-                count += 1
-
-            if count > 0:
-                logger.debug(f"Flushed {count} dirty pool manifests")
 
     # ==================== Validation ====================
 
@@ -1462,17 +1424,13 @@ class PoolStore:
                     signable_data, signature, admin_key
                 ):
                     return True
-        except Exception as e:
-            logger.debug(f"Validation error for pool {manifest.pool_id}: {e}")
+        except Exception:
+            pass
 
         if manifest.signatures:
             try:
                 admin_key = next(iter(manifest.signatures.keys()))
-                member = manifest.get_member(admin_key)
-                admin_id = member.node_id if member else admin_key
-                logger.warning(
-                    f"Invalid pool manifest signature from admin {admin_id[:8]}"
-                )
+                manifest.get_member(admin_key)
             except Exception:
                 pass
 

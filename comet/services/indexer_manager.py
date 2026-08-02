@@ -1,29 +1,92 @@
 import asyncio
+import json
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
 import aiohttp
 
-from comet.core.constants import INDEXER_TIMEOUT
-from comet.core.logger import logger
-from comet.core.models import settings
+from comet.core.constants import indexer_timeout
+from comet.core.models import normalize_indexer_name, settings
+from comet.core.provider_json import is_success_status
+from comet.observability import log
+from comet.utils.http_client import read_bounded_body
+
+_MAX_INDEXER_RESPONSE_BYTES = 2 * 1024 * 1024
+_MAX_ACTIVE_INDEXERS = 64
+_MAX_INDEXER_ID_BYTES = 128
+
+
+class InvalidIndexerResponse(ValueError):
+    pass
+
+
+class IndexerRefreshError(RuntimeError):
+    pass
+
+
+def _bounded_indexer_id(value: object) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= _MAX_INDEXER_ID_BYTES
+    except UnicodeEncodeError:
+        return False
+
+
+def _indexer_name(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return normalize_indexer_name(value)
+
+
+def _reject_json_constant(_value):
+    raise InvalidIndexerResponse("invalid indexer JSON constant")
+
+
+async def read_indexer_json(response):
+    try:
+        document = await read_bounded_body(response, _MAX_INDEXER_RESPONSE_BYTES)
+        return json.loads(
+            document.decode("utf-8"),
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise InvalidIndexerResponse("invalid indexer JSON") from None
+
+
+async def read_indexer_xml(response):
+    try:
+        document = await read_bounded_body(response, _MAX_INDEXER_RESPONSE_BYTES)
+    except ValueError:
+        raise InvalidIndexerResponse("invalid indexer XML") from None
+    if b"<!entity" in document.lower():
+        raise InvalidIndexerResponse("invalid indexer XML")
+    try:
+        root = ET.fromstring(document)
+    except ET.ParseError:
+        raise InvalidIndexerResponse("invalid indexer XML") from None
+    if root.tag != "indexers":
+        raise InvalidIndexerResponse("invalid indexer XML")
+    return root
 
 
 def _active_jackett_ids(root, configured_ids: list[str]) -> list[str]:
-    configured = {value.lower() for value in configured_ids}
+    configured = {value.casefold() for value in configured_ids}
     active_ids = []
+    seen = set()
     for indexer in root.findall("indexer"):
         indexer_id = indexer.get("id")
-        if not isinstance(indexer_id, str) or not indexer_id:
+        if not _bounded_indexer_id(indexer_id) or indexer_id.casefold() in seen:
             continue
         if configured:
             title = indexer.find("title")
-            name = (
-                title.text if title is not None and isinstance(title.text, str) else ""
-            )
-            if indexer_id.lower() not in configured and name.lower() not in configured:
+            name = _indexer_name(title.text if title is not None else None)
+            if indexer_id.casefold() not in configured and name not in configured:
                 continue
+        seen.add(indexer_id.casefold())
         active_ids.append(indexer_id)
+        if len(active_ids) == _MAX_ACTIVE_INDEXERS:
+            break
     return active_ids
 
 
@@ -31,17 +94,21 @@ def _active_prowlarr_ids(
     indexers, statuses, configured_ids: list[str], current_time: datetime
 ) -> list[str]:
     if not isinstance(indexers, list) or not isinstance(statuses, list):
-        return []
+        raise InvalidIndexerResponse("invalid Prowlarr indexer response")
 
-    status_map = {
-        status["indexerId"]: status
-        for status in statuses
-        if isinstance(status, dict)
-        and isinstance(status.get("indexerId"), int)
-        and not isinstance(status["indexerId"], bool)
-    }
-    configured = {value.lower() for value in configured_ids}
+    status_map = {}
+    for status in statuses:
+        if (
+            not isinstance(status, dict)
+            or isinstance(status.get("indexerId"), bool)
+            or not isinstance(status.get("indexerId"), int)
+        ):
+            continue
+        indexer_id = status["indexerId"]
+        status_map[indexer_id] = status
+    configured = {value.casefold() for value in configured_ids}
     active_ids = []
+    seen = set()
     for indexer in indexers:
         if not isinstance(indexer, dict):
             continue
@@ -51,35 +118,38 @@ def _active_prowlarr_ids(
             or indexer.get("protocol") != "torrent"
             or not isinstance(indexer_id, int)
             or isinstance(indexer_id, bool)
-            or indexer_id <= 0
+            or indexer_id in seen
         ):
             continue
 
         status = status_map.get(indexer_id)
         if status is not None:
             disabled_till = status.get("disabledTill")
-            if disabled_till is not None:
-                if not isinstance(disabled_till, str):
-                    continue
+            if isinstance(disabled_till, str):
                 try:
                     disabled_until = datetime.fromisoformat(disabled_till)
                 except ValueError:
-                    continue
-                if disabled_until.tzinfo is None or disabled_until > current_time:
-                    continue
+                    pass
+                else:
+                    if (
+                        disabled_until.tzinfo is not None
+                        and disabled_until > current_time
+                    ):
+                        continue
 
         indexer_id_text = str(indexer_id)
         if configured:
-            name = indexer.get("name")
-            definition_name = indexer.get("definitionName")
             candidates = {
-                indexer_id_text.lower(),
-                name.lower() if isinstance(name, str) else "",
-                definition_name.lower() if isinstance(definition_name, str) else "",
+                indexer_id_text.casefold(),
+                _indexer_name(indexer.get("name")),
+                _indexer_name(indexer.get("definitionName")),
             }
             if configured.isdisjoint(candidates):
                 continue
+        seen.add(indexer_id)
         active_ids.append(indexer_id_text)
+        if len(active_ids) == _MAX_ACTIVE_INDEXERS:
+            break
     return active_ids
 
 
@@ -89,12 +159,15 @@ class IndexerManager:
         self.refresh_interval = settings.INDEXER_MANAGER_UPDATE_INTERVAL
         self.original_jackett_config = settings.JACKETT_INDEXERS.copy()
         self.original_prowlarr_config = settings.PROWLARR_INDEXERS.copy()
+        self.active_jackett_config = self.original_jackett_config.copy()
+        self.active_prowlarr_config = self.original_prowlarr_config.copy()
         self.jackett_initialized = asyncio.Event()
         self.prowlarr_initialized = asyncio.Event()
+        self._configuration_changed = asyncio.Event()
 
     async def get_session(self):
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(auto_decompress=False)
         return self.session
 
     async def close(self):
@@ -102,15 +175,30 @@ class IndexerManager:
             await self.session.close()
         self.session = None
 
+    def reconfigure(self, config) -> None:
+        self.refresh_interval = config.INDEXER_MANAGER_UPDATE_INTERVAL
+        self.original_jackett_config = config.JACKETT_INDEXERS.copy()
+        self.original_prowlarr_config = config.PROWLARR_INDEXERS.copy()
+        self.active_jackett_config = self.original_jackett_config.copy()
+        self.active_prowlarr_config = self.original_prowlarr_config.copy()
+        self.jackett_initialized.clear()
+        self.prowlarr_initialized.clear()
+        self._configuration_changed.set()
+
     async def _fetch_prowlarr_json(self, session, path: str, headers: dict):
         async with session.get(
             f"{settings.PROWLARR_URL}{path}",
-            headers=headers,
-            timeout=INDEXER_TIMEOUT,
+            headers={
+                **headers,
+                "Accept": "application/json",
+                "Accept-Encoding": "identity",
+            },
+            allow_redirects=False,
+            timeout=indexer_timeout(),
         ) as response:
-            if response.status != 200:
+            if not is_success_status(response.status):
                 return response.status, None
-            return response.status, await response.json()
+            return response.status, await read_indexer_json(response)
 
     async def update_jackett(self):
         try:
@@ -121,36 +209,30 @@ class IndexerManager:
             ):
                 return
 
-            try:
-                session = await self.get_session()
-                url = f"{settings.JACKETT_URL}/api/v2.0/indexers/!status:failing/results/torznab/api"
-                params = {
-                    "apikey": settings.JACKETT_API_KEY,
-                    "t": "indexers",
-                    "configured": "true",
-                }
-                async with session.get(
-                    url, params=params, timeout=INDEXER_TIMEOUT
-                ) as response:
-                    if response.status != 200:
-                        logger.warning(
-                            f"Failed to fetch Jackett indexers: {response.status}"
-                        )
-                        return
+            session = await self.get_session()
+            url = f"{settings.JACKETT_URL}/api/v2.0/indexers/!status:failing/results/torznab/api"
+            params = {
+                "apikey": settings.JACKETT_API_KEY,
+                "t": "indexers",
+                "configured": "true",
+            }
+            async with session.get(
+                url,
+                params=params,
+                headers={
+                    "Accept": "application/xml",
+                    "Accept-Encoding": "identity",
+                },
+                allow_redirects=False,
+                timeout=indexer_timeout(),
+            ) as response:
+                if not is_success_status(response.status):
+                    raise IndexerRefreshError(f"Jackett HTTP {response.status}")
 
-                    content = await response.text()
-                    root = ET.fromstring(content)
-                    active_ids = _active_jackett_ids(root, self.original_jackett_config)
+                root = await read_indexer_xml(response)
+                active_ids = _active_jackett_ids(root, self.original_jackett_config)
 
-                    if sorted(settings.JACKETT_INDEXERS) != sorted(active_ids):
-                        settings.JACKETT_INDEXERS = active_ids
-                        logger.log(
-                            "COMET",
-                            f"Updated Jackett indexers ({len(active_ids)}): {', '.join(active_ids)}",
-                        )
-
-            except Exception as e:
-                logger.warning(f"Error updating Jackett indexers: {e}")
+                self.active_jackett_config = active_ids
 
         finally:
             self.jackett_initialized.set()
@@ -164,67 +246,75 @@ class IndexerManager:
             ):
                 return
 
-            try:
-                session = await self.get_session()
-                headers = {"X-Api-Key": settings.PROWLARR_API_KEY}
+            session = await self.get_session()
+            headers = {"X-Api-Key": settings.PROWLARR_API_KEY}
 
-                responses = await asyncio.gather(
-                    self._fetch_prowlarr_json(session, "/api/v1/indexer", headers),
-                    self._fetch_prowlarr_json(
-                        session, "/api/v1/indexerstatus", headers
-                    ),
-                    return_exceptions=True,
+            responses = await asyncio.gather(
+                self._fetch_prowlarr_json(session, "/api/v1/indexer", headers),
+                self._fetch_prowlarr_json(session, "/api/v1/indexerstatus", headers),
+            )
+
+            (indexers_status, indexers), (statuses_status, statuses) = responses
+
+            if not (
+                is_success_status(indexers_status)
+                and is_success_status(statuses_status)
+            ):
+                raise IndexerRefreshError(
+                    f"Prowlarr HTTP {indexers_status}/{statuses_status}"
                 )
 
-                if any(isinstance(r, Exception) for r in responses):
-                    logger.warning("Failed to fetch Prowlarr indexers or statuses")
-                    return
+            current_time = datetime.now(UTC)
+            active_ids = _active_prowlarr_ids(
+                indexers,
+                statuses,
+                self.original_prowlarr_config,
+                current_time,
+            )
 
-                (indexers_status, indexers), (statuses_status, statuses) = responses
-
-                if indexers_status != 200 or statuses_status != 200:
-                    logger.warning(
-                        f"Prowlarr error: Indexers {indexers_status}, Status {statuses_status}"
-                    )
-                    return
-
-                current_time = datetime.now(UTC)
-                active_ids = _active_prowlarr_ids(
-                    indexers,
-                    statuses,
-                    self.original_prowlarr_config,
-                    current_time,
-                )
-
-                if sorted(settings.PROWLARR_INDEXERS) != sorted(active_ids):
-                    settings.PROWLARR_INDEXERS = active_ids
-
-                    # Map IDs to names for logging
-                    id_to_name = {
-                        str(i.get("id")): i.get("name", str(i.get("id")))
-                        for i in indexers
-                        if isinstance(i, dict)
-                    }
-                    active_names = [
-                        id_to_name.get(idx_id, idx_id) for idx_id in active_ids
-                    ]
-
-                    logger.log(
-                        "COMET",
-                        f"Updated Prowlarr indexers ({len(active_ids)}): {', '.join(active_names)}",
-                    )
-
-            except Exception as e:
-                logger.warning(f"Error updating Prowlarr indexers: {e}")
+            self.active_prowlarr_config = active_ids
 
         finally:
             self.prowlarr_initialized.set()
 
     async def run(self):
         while True:
-            await self.update_jackett()
-            await self.update_prowlarr()
-            await asyncio.sleep(self.refresh_interval)
+            self._configuration_changed.clear()
+            for source, refresh in (
+                ("jackett", self.update_jackett),
+                ("prowlarr", self.update_prowlarr),
+            ):
+                try:
+                    await refresh()
+                except (
+                    TimeoutError,
+                    aiohttp.ClientError,
+                    InvalidIndexerResponse,
+                    IndexerRefreshError,
+                ) as exc:
+                    log.warning(
+                        "indexer.refresh.failed",
+                        "Indexer refresh failed",
+                        provider_name=source,
+                        operation="refresh",
+                        error_code="dependency_warning",
+                        exc=exc,
+                    )
+            try:
+                await asyncio.wait_for(
+                    self._configuration_changed.wait(),
+                    timeout=self.refresh_interval,
+                )
+            except TimeoutError:
+                pass
 
 
 indexer_manager = IndexerManager()
+
+
+def active_jackett_indexers() -> list[str]:
+    return indexer_manager.active_jackett_config
+
+
+def active_prowlarr_indexers() -> list[str]:
+    return indexer_manager.active_prowlarr_config

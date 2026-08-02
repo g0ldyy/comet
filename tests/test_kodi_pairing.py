@@ -94,7 +94,6 @@ class KodiPairingTests(unittest.IsolatedAsyncioTestCase):
             {},
             {"config_b64": None},
             {"config_b64": 1},
-            {"config_b64": "ok", "extra": 1},
         ):
             with (
                 self.subTest(row=row),
@@ -106,6 +105,15 @@ class KodiPairingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertRaises(ValueError),
             ):
                 await kodi_pairing.consume_b64config_for_setup_code("1234abcd")
+        with patch.object(
+            kodi_pairing.database,
+            "fetch_one",
+            new=AsyncMock(return_value={"config_b64": "ok", "extra": 1}),
+        ):
+            self.assertEqual(
+                await kodi_pairing.consume_b64config_for_setup_code("1234abcd"),
+                "ok",
+            )
 
 
 if __name__ == "__main__":

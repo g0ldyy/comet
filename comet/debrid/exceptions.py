@@ -1,6 +1,3 @@
-from typing import Any
-
-
 class DebridError(Exception):
     """Base exception for debrid-related errors."""
 
@@ -33,12 +30,10 @@ class DebridLinkGenerationError(DebridError):
         *,
         error_code: str | None = None,
         upstream_error_code: str | None = None,
-        payload: dict[str, Any] | None = None,
     ):
         self.debrid_name = debrid_name
         self.error_code = error_code
         self.upstream_error_code = upstream_error_code
-        self.payload = payload or {}
         super().__init__(message, message)
 
     @property

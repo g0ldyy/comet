@@ -1,13 +1,47 @@
 import os
 import re
+import threading
+import time
 from pathlib import Path
+
+from comet.usenet.engine_stats import ENGINE_STAT_FIELDS
 
 CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
 _SCRAPER_INSTANCE_SUFFIX = re.compile(r"\s+#\d+$")
+_HTTP_METHODS = frozenset({"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"})
+_MAX_AUTH_TOKEN_BYTES = 4_096
+_MULTIPROCESS_METRIC_FILE = re.compile(
+    r"(?:counter|histogram|summary)_\d+\.db|"
+    r"gauge_(?:all|liveall|min|livemin|max|livemax|sum|livesum|"
+    r"mostrecent|livemostrecent)_\d+\.db"
+)
+_supervisor_metric_lock = threading.Lock()
+_usenet_engine_restarts = None
+_multiprocess_path: str | None = None
 
 
 def _normalize_scraper_label(name: str) -> str:
     return _SCRAPER_INSTANCE_SUFFIX.sub("", name).strip().casefold()
+
+
+def _normalize_http_method(method: str) -> str:
+    normalized = method.upper()
+    return normalized if normalized in _HTTP_METHODS else "OTHER"
+
+
+def _validate_auth_token(value: str) -> str:
+    value = value.strip()
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("Prometheus auth token must be bounded visible ASCII") from exc
+    if (
+        not encoded
+        or len(encoded) > _MAX_AUTH_TOKEN_BYTES
+        or any(byte < 33 or byte > 126 for byte in encoded)
+    ):
+        raise ValueError("Prometheus auth token must be bounded visible ASCII")
+    return value
 
 
 class CometMetrics:
@@ -20,7 +54,7 @@ class CometMetrics:
         self._children = {}
 
     def configure(self, enabled: bool, auth_token: str | None = None) -> None:
-        self.enabled = bool(enabled)
+        self.enabled = enabled
         self.auth_token = auth_token
         if self.enabled and not self._initialized:
             self._initialize()
@@ -104,6 +138,11 @@ class CometMetrics:
             "Number of streams returned per response.",
             ("media_type", "client"),
             buckets=(0, 1, 2, 5, 10, 20, 40, 80, 160, 320),
+        )
+        self.search_rejections = Counter(
+            "comet_search_rejections_total",
+            "Search requests rejected by a closed low-cardinality reason.",
+            ("reason",),
         )
         self.torrent_cache_lookups = Counter(
             "comet_torrent_cache_lookups_total",
@@ -218,6 +257,44 @@ class CometMetrics:
             "Duration of completed proxied debrid streams.",
             buckets=(1, 5, 15, 30, 60, 300, 900, 1800, 3600, 7200, 14400),
         )
+        self.usenet_engine_up = Gauge(
+            "comet_usenet_engine_up",
+            "Whether the replica-local Usenet engine returned a valid stats snapshot.",
+            multiprocess_mode="mostrecent",
+        )
+        self.usenet_engine_configured = Gauge(
+            "comet_usenet_engine_configured",
+            "Whether the replica is configured to run the native Usenet engine.",
+            multiprocess_mode="mostrecent",
+        )
+        self.usenet_engine_last_snapshot_timestamp = Gauge(
+            "comet_usenet_engine_last_snapshot_timestamp_seconds",
+            "Unix timestamp of the last valid native Usenet statistics snapshot.",
+            multiprocess_mode="mostrecent",
+        )
+        self.usenet_engine_stat = Gauge(
+            "comet_usenet_engine_stat",
+            "Bounded credential-free native Usenet runtime statistics.",
+            ("stat",),
+            multiprocess_mode="mostrecent",
+        )
+        self.ready = Gauge(
+            "comet_ready",
+            "Whether this worker can safely receive traffic.",
+            multiprocess_mode="livemin",
+        )
+        self.readiness_degraded = Gauge(
+            "comet_readiness_degraded",
+            "Whether this worker is serving with an optional component degraded.",
+            multiprocess_mode="livemax",
+        )
+        self.usenet_engine_configured.set(0)
+        self.usenet_engine_up.set(0)
+        self.usenet_engine_last_snapshot_timestamp.set(0)
+        self.ready.set(0)
+        self.readiness_degraded.set(0)
+        for name in sorted(ENGINE_STAT_FIELDS):
+            self._child("usenet_engine_stat", name).set(0)
 
         self._initialized = True
 
@@ -231,7 +308,7 @@ class CometMetrics:
 
     def http_started(self, method: str) -> None:
         if self.enabled:
-            self._child("http_in_progress", method.upper()).inc()
+            self._child("http_in_progress", _normalize_http_method(method)).inc()
 
     def http_finished(
         self,
@@ -243,12 +320,18 @@ class CometMetrics:
     ) -> None:
         if not self.enabled:
             return
-        method = method.upper()
+        method = _normalize_http_method(method)
         self._child("http_in_progress", method).dec()
         self._child("http_requests", method, route, str(status)).inc()
         self._child("http_duration", method, route).observe(duration)
         if response_size is not None:
             self._child("http_response_size", route).observe(response_size)
+
+    def http_probe_finished(self, method: str) -> None:
+        """Balance the in-progress gauge for an intentionally unlabelled probe."""
+
+        if self.enabled:
+            self._child("http_in_progress", _normalize_http_method(method)).dec()
 
     def observe_stream(
         self,
@@ -262,6 +345,10 @@ class CometMetrics:
             return
         self._child("stream_requests", media_type, client, cache, outcome).inc()
         self._child("stream_results", media_type, client).observe(result_count)
+
+    def observe_search_rejection(self, reason: str) -> None:
+        if self.enabled:
+            self._child("search_rejections", reason).inc()
 
     def observe_torrent_cache(
         self, media_type: str, result: str, result_count: int
@@ -343,29 +430,67 @@ class CometMetrics:
         self.proxy_bytes.inc(byte_count)
         self.proxy_duration.observe(duration)
 
+    def set_usenet_engine_stats(
+        self,
+        snapshot: dict[str, int | bool] | None,
+    ) -> None:
+        if not self.enabled:
+            return
+        if snapshot is None:
+            self.usenet_engine_up.set(0)
+            self.usenet_engine_last_snapshot_timestamp.set(0)
+            for name in sorted(ENGINE_STAT_FIELDS):
+                self._child("usenet_engine_stat", name).set(0)
+            return
+        self.usenet_engine_up.set(1)
+        self.usenet_engine_last_snapshot_timestamp.set(time.time())
+        for name in sorted(ENGINE_STAT_FIELDS):
+            self._child("usenet_engine_stat", name).set(int(snapshot[name]))
+
+    def set_usenet_engine_configured(self, configured: bool) -> None:
+        if self.enabled:
+            self.usenet_engine_configured.set(1 if configured else 0)
+
+    def set_readiness(self, state: str) -> None:
+        if not self.enabled:
+            return
+        self.ready.set(0 if state == "unavailable" else 1)
+        self.readiness_degraded.set(1 if state == "degraded" else 0)
+
 
 metrics = CometMetrics()
 
 
 def load_auth_token(token: str | None, token_file: str | None) -> str | None:
     if token is not None:
-        return token
+        return _validate_auth_token(token)
     if token_file is None:
         return None
 
-    value = Path(token_file).read_text(encoding="utf-8").strip()
-    if not value:
+    with Path(token_file).open("rb") as file:
+        body = file.read(_MAX_AUTH_TOKEN_BYTES + 1)
+    if len(body) > _MAX_AUTH_TOKEN_BYTES:
+        raise ValueError("PROMETHEUS_AUTH_TOKEN_FILE is too large")
+    if not body.strip():
         raise ValueError("PROMETHEUS_AUTH_TOKEN_FILE must not be empty")
-    return value
+    try:
+        value = body.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            "PROMETHEUS_AUTH_TOKEN_FILE must contain visible ASCII"
+        ) from exc
+    return _validate_auth_token(value)
 
 
 def configure_multiprocess_directory(path: str) -> Path:
+    global _multiprocess_path
     directory = Path(path).resolve()
     if directory == Path(directory.anchor):
         raise ValueError("PROMETHEUS_MULTIPROC_DIR must be a dedicated directory")
 
     directory.mkdir(parents=True, exist_ok=True)
-    os.environ["PROMETHEUS_MULTIPROC_DIR"] = str(directory)
+    _multiprocess_path = str(directory)
+    os.environ["PROMETHEUS_MULTIPROC_DIR"] = _multiprocess_path
     return directory
 
 
@@ -373,7 +498,9 @@ def prepare_multiprocess_directory(path: str) -> None:
     """Clear client_python mmap state once, before the server forks workers."""
     directory = configure_multiprocess_directory(path)
     for entry in directory.glob("*.db"):
-        if entry.is_file() or entry.is_symlink():
+        if _MULTIPROCESS_METRIC_FILE.fullmatch(entry.name) is not None and (
+            entry.is_file() or entry.is_symlink()
+        ):
             entry.unlink()
 
 
@@ -383,13 +510,30 @@ def mark_process_dead(pid: int, path: str) -> None:
     multiprocess.mark_process_dead(pid, path=path)
 
 
+def increment_usenet_engine_restarts(*, enabled: bool) -> None:
+    """Increment the supervisor-only counter without creating worker gauges."""
+
+    global _usenet_engine_restarts
+    if not enabled:
+        return
+    with _supervisor_metric_lock:
+        if _usenet_engine_restarts is None:
+            from prometheus_client import Counter
+
+            _usenet_engine_restarts = Counter(
+                "comet_usenet_engine_restarts_total",
+                "Native Usenet engine restarts scheduled by the supervisor.",
+            )
+        collector = _usenet_engine_restarts
+    collector.inc()
+
+
 def render_metrics() -> bytes:
     from prometheus_client import CollectorRegistry, generate_latest, multiprocess
 
-    multiprocess_path = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-    if multiprocess_path:
+    if _multiprocess_path:
         registry = CollectorRegistry()
-        multiprocess.MultiProcessCollector(registry, path=multiprocess_path)
+        multiprocess.MultiProcessCollector(registry, path=_multiprocess_path)
         return generate_latest(registry)
 
     return generate_latest()

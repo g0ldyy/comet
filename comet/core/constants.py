@@ -2,6 +2,14 @@ import aiohttp
 
 from comet.core.models import settings
 
-INDEXER_TIMEOUT = aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
-TORRENT_TIMEOUT = aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
-CATALOG_TIMEOUT = aiohttp.ClientTimeout(total=settings.CATALOG_TIMEOUT)
+
+def indexer_timeout() -> aiohttp.ClientTimeout:
+    return aiohttp.ClientTimeout(total=settings.INDEXER_MANAGER_TIMEOUT)
+
+
+def torrent_timeout() -> aiohttp.ClientTimeout:
+    return aiohttp.ClientTimeout(total=settings.GET_TORRENT_TIMEOUT)
+
+
+def catalog_timeout() -> aiohttp.ClientTimeout:
+    return aiohttp.ClientTimeout(total=settings.CATALOG_TIMEOUT)

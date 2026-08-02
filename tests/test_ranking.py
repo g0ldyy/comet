@@ -1,18 +1,20 @@
 import unittest
 from unittest.mock import patch
 
-from RTN import (
-    DefaultRanking,
-    SettingsModel,
-    Torrent,
-    check_fetch,
-    get_rank,
-    parse,
-    sort_torrents,
-)
+from RTN import DefaultRanking, SettingsModel, check_fetch, get_rank, parse
+from RTN.extras import RESOLUTION_MAP, Resolution
 
 from comet.core.models import rtn_settings_default
-from comet.services.ranking import rank_worker
+from comet.core.sources import (
+    LocatorKind,
+    LocatorPolicy,
+    NzbArtifactRef,
+    ReleaseCandidate,
+    ReleaseScope,
+    TorrentLocator,
+    TransportKind,
+)
+from comet.services.ranking import rank_release_records, sort_candidates
 
 
 class RankWorkerTests(unittest.TestCase):
@@ -46,28 +48,29 @@ class RankWorkerTests(unittest.TestCase):
         settings = SettingsModel()
         ranking = DefaultRanking()
 
-        expected = set()
+        expected = []
         for info_hash, torrent in torrents.items():
             fetchable, _ = check_fetch(torrent["parsed"], settings)
             rank = get_rank(torrent["parsed"], settings, ranking)
-            if not fetchable or rank < settings.options["remove_ranks_under"]:
+            if not fetchable:
                 continue
-            expected.add(
-                Torrent(
-                    infohash=info_hash,
-                    raw_title=torrent["title"],
-                    data=torrent["parsed"],
-                    fetch=fetchable,
-                    rank=rank,
-                    lev_ratio=0.0,
+            resolution = torrent["parsed"].resolution
+            expected.append(
+                (
+                    RESOLUTION_MAP.get(resolution.lower(), Resolution.UNKNOWN),
+                    rank,
+                    info_hash,
                 )
             )
 
-        actual = rank_worker(torrents, settings, ranking, 50, 0, True)
+        actual = rank_release_records(torrents, settings, ranking, 50, 0, True)
 
-        self.assertEqual(actual, sort_torrents(expected, 50))
+        expected.sort(key=lambda item: (item[0].value, item[1], item[2]), reverse=True)
+        self.assertEqual(
+            actual, [info_hash for _resolution, _rank, info_hash in expected]
+        )
 
-    def test_invalid_infohash_is_ignored(self):
+    def test_opaque_record_identifier_is_preserved(self):
         title = "The.Matrix.1999.1080p.BluRay.x264"
         torrents = {
             "invalid": {
@@ -77,11 +80,13 @@ class RankWorkerTests(unittest.TestCase):
             }
         }
 
-        actual = rank_worker(torrents, SettingsModel(), DefaultRanking(), 50, 0, False)
+        actual = rank_release_records(
+            torrents, SettingsModel(), DefaultRanking(), 50, 0, False
+        )
 
-        self.assertEqual(actual, {})
+        self.assertEqual(actual, ["invalid"])
 
-    def test_unexpected_torrent_error_is_not_masked(self):
+    def test_unexpected_rtn_error_is_not_masked(self):
         title = "The.Matrix.1999.1080p.BluRay.x264"
         torrents = {
             "1" * 40: {
@@ -91,9 +96,25 @@ class RankWorkerTests(unittest.TestCase):
             }
         }
 
-        with patch("comet.services.ranking.Torrent", side_effect=RuntimeError("boom")):
+        with patch(
+            "comet.services.ranking.check_fetch_and_rank_many",
+            side_effect=RuntimeError("boom"),
+        ):
             with self.assertRaisesRegex(RuntimeError, "boom"):
-                rank_worker(torrents, SettingsModel(), DefaultRanking(), 50, 0, False)
+                rank_release_records(
+                    torrents, SettingsModel(), DefaultRanking(), 50, 0, False
+                )
+
+    def test_incomplete_record_is_not_treated_as_unparsed(self):
+        with self.assertRaises(KeyError):
+            rank_release_records(
+                {"candidate": {"size": 1_000_000}},
+                SettingsModel(),
+                DefaultRanking(),
+                50,
+                0,
+                False,
+            )
 
     def test_size_filter_is_applied_before_batch_ranking(self):
         title = "The.Matrix.1999.1080p.BluRay.x264"
@@ -102,11 +123,85 @@ class RankWorkerTests(unittest.TestCase):
             "2" * 40: {"title": title, "parsed": parse(title), "size": 2_000_000},
         }
 
-        actual = rank_worker(
+        actual = rank_release_records(
             torrents, SettingsModel(), DefaultRanking(), 50, 1_500_000, False
         )
 
-        self.assertEqual(set(actual), {"1" * 40})
+        self.assertEqual(actual, ["1" * 40])
+
+    def test_mixed_torrent_and_usenet_candidates_share_one_rank_order(self):
+        torrent = ReleaseCandidate(
+            candidate_id="z-torrent",
+            media_id="tt1234567",
+            scope=ReleaseScope.MOVIE,
+            transport=TransportKind.BITTORRENT,
+            title="Movie.2026.720p.WEB-DL.x264",
+            locators=(
+                TorrentLocator(
+                    locator_id="torrent",
+                    kind=LocatorKind.TORRENT,
+                    policy=LocatorPolicy(frozenset({"direct_torrent"})),
+                    info_hash="a" * 40,
+                ),
+            ),
+            parsed=parse("Movie.2026.720p.WEB-DL.x264"),
+        )
+        usenet = ReleaseCandidate(
+            candidate_id="a-usenet",
+            media_id="tt1234567",
+            scope=ReleaseScope.MOVIE,
+            transport=TransportKind.USENET,
+            title="Movie.2026.2160p.REMUX.DV.HDR.TrueHD.HEVC",
+            locators=(
+                NzbArtifactRef(
+                    locator_id="nzb",
+                    kind=LocatorKind.NZB_ARTIFACT,
+                    policy=LocatorPolicy(frozenset({"stremio_nntp"})),
+                    artifact_sha256="b" * 64,
+                    manifest_identity="nm1:" + "c" * 64,
+                ),
+            ),
+            parsed=parse("Movie.2026.2160p.REMUX.DV.HDR.TrueHD.HEVC"),
+        )
+
+        actual = sort_candidates(
+            (torrent, usenet),
+            SettingsModel(),
+            DefaultRanking(),
+            0,
+            0,
+            False,
+        )
+
+        self.assertEqual(actual, (usenet, torrent))
+
+    def test_duplicate_candidate_ids_are_not_silently_collapsed(self):
+        candidate = ReleaseCandidate(
+            candidate_id="duplicate",
+            media_id="tt1234567",
+            scope=ReleaseScope.MOVIE,
+            transport=TransportKind.BITTORRENT,
+            title="Movie.2026.1080p.WEB-DL.x264",
+            locators=(
+                TorrentLocator(
+                    locator_id="torrent",
+                    kind=LocatorKind.TORRENT,
+                    policy=LocatorPolicy(frozenset({"direct_torrent"})),
+                    info_hash="a" * 40,
+                ),
+            ),
+            parsed=parse("Movie.2026.1080p.WEB-DL.x264"),
+        )
+
+        with self.assertRaisesRegex(ValueError, "unique"):
+            sort_candidates(
+                (candidate, candidate),
+                SettingsModel(),
+                DefaultRanking(),
+                50,
+                0,
+                False,
+            )
 
 
 if __name__ == "__main__":

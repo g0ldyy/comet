@@ -1,8 +1,15 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   comet:
     container_name: comet
     image: g0ldyy/comet
     restart: unless-stopped
+    logging: *default-logging
     init: true
     read_only: true
     security_opt:
@@ -20,6 +27,7 @@ services:
       - comet_data:/app/data
     tmpfs:
       - /tmp:size=64m,mode=1777
+      - /run/comet/usenet:size=16m,mode=0700
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,6 +36,7 @@ services:
     container_name: comet-postgres
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-comet}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}

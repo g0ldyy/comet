@@ -1,9 +1,13 @@
+from typing import Annotated
+
 from fastapi import APIRouter, BackgroundTasks, Query, Request
 
 from comet.api.endpoints.stream import stream as get_streams
 from comet.core.config_validation import config_check
-from comet.core.models import settings
+from comet.core.manifest_branding import eligible_usenet_provider_badges
+from comet.core.models import database, settings
 from comet.debrid.manager import build_addon_name
+from comet.utils.parsing import parse_media_id
 
 router = APIRouter()
 
@@ -21,14 +25,26 @@ router = APIRouter()
     description="Returns the add-on manifest with existing configuration.",
 )
 async def chilllink_manifest(request: Request, b64config: str | None = None):
-    config = config_check(b64config, strict_b64config=True)
+    config = config_check(b64config)
+    usenet_badges = (
+        await eligible_usenet_provider_badges(
+            config,
+            database,
+            usenet_offered=settings.USENET_ENABLED,
+            capability_secret=settings.COMET_CAPABILITY_SECRET,
+            native_access_token=settings.USENET_NATIVE_ACCESS_TOKEN,
+            native_servers=settings.USENET_NATIVE_SERVERS,
+        )
+        if config
+        else ()
+    )
 
     manifest = {
         "id": settings.ADDON_ID,
         "version": "2.0.0",
-        "description": "Chillio's fastest debrid search add-on.",
+        "description": "Chillio's fastest debrid/usenet search add-on.",
         "supported_endpoints": {"feeds": None, "streams": "/streams"},
-        "name": build_addon_name(settings.ADDON_NAME, config)
+        "name": build_addon_name(settings.ADDON_NAME, config, usenet_badges)
         if config
         else "❌ | Comet",
     }
@@ -56,13 +72,28 @@ async def chilllink_manifest(request: Request, b64config: str | None = None):
 async def chilllink_streams(
     request: Request,
     background_tasks: BackgroundTasks,
-    imdbID: str = Query(...),
-    type: str = Query(...),
-    season: int | None = Query(None),
-    episode: int | None = Query(None),
+    imdbID: Annotated[str, Query(min_length=1, max_length=64)],
+    type: Annotated[str, Query(min_length=1, max_length=16)],
+    season: Annotated[int | None, Query(ge=0, le=65_535)] = None,
+    episode: Annotated[int | None, Query(ge=0, le=65_535)] = None,
     b64config: str | None = None,
 ):
-    config = config_check(b64config, strict_b64config=True)
+    if (type == "movie" and (season is not None or episode is not None)) or (
+        episode is not None and season is None
+    ):
+        return {"sources": []}
+
+    media_id = imdbID
+    if type == "series" and season is not None:
+        media_id += f":{season}"
+        if episode is not None:
+            media_id += f":{episode}"
+    try:
+        parse_media_id(type, media_id)
+    except ValueError:
+        return {"sources": []}
+
+    config = config_check(b64config)
     if not config:
         return {
             "sources": [
@@ -77,7 +108,10 @@ async def chilllink_streams(
 
     debrid_entries = config["_debridEntries"]
 
-    if not debrid_entries:
+    usenet_enabled = (
+        config.get("schemaVersion") == 2 and "usenet" in config["enabledTransports"]
+    )
+    if not debrid_entries and not usenet_enabled:
         return {
             "sources": [
                 {
@@ -89,17 +123,6 @@ async def chilllink_streams(
             ]
         }
 
-    if type == "movie":
-        media_id = imdbID
-    elif type == "series":
-        media_id = imdbID
-        if season is not None:
-            media_id += f":{season}"
-            if episode is not None:
-                media_id += f":{episode}"
-    else:
-        return {"sources": []}
-
     stremio_response = await get_streams(
         request=request,
         media_type=type,
@@ -109,15 +132,20 @@ async def chilllink_streams(
         chilllink=True,
     )
 
-    stremio_streams = stremio_response["streams"]
-    sources = [
-        {
-            "id": stream["behaviorHints"]["bingeGroup"],
-            "title": stream["behaviorHints"]["filename"],
-            "url": stream["url"],
-            "metadata": stream["_chilllink"],
-        }
-        for stream in stremio_streams
-    ]
+    sources = []
+    for stream in stremio_response["streams"]:
+        if "url" not in stream or "_chilllink" not in stream:
+            # Client-delegated infoHash/nzbUrl streams are not valid ChillLink
+            # server URLs and remain available on their native Stremio path.
+            continue
+        behavior_hints = stream["behaviorHints"]
+        sources.append(
+            {
+                "id": behavior_hints["bingeGroup"],
+                "title": behavior_hints["filename"],
+                "url": stream["url"],
+                "metadata": stream["_chilllink"],
+            }
+        )
 
     return {"sources": sources}

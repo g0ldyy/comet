@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Request
 
 from comet.core.config_validation import config_check
-from comet.core.logger import logger
 from comet.debrid.manager import get_debrid_credentials
 from comet.services.debrid_account_scraper import trigger_account_snapshot_sync
 from comet.services.status_video import build_status_video_response
@@ -23,7 +22,7 @@ async def debrid_sync(
     b64config: str,
     service_index: str,
 ):
-    config = config_check(b64config, strict_b64config=True)
+    config = config_check(b64config)
     if not config:
         return build_status_video_response(["BAD_REQUEST"], default_key="BAD_REQUEST")
 
@@ -42,16 +41,8 @@ async def debrid_sync(
     )
 
     if sync_started:
-        logger.log(
-            "SCRAPER",
-            f"{debrid_service}: Manual account sync triggered via debrid-sync endpoint",
-        )
         video_code = "DEBRID_SYNC_TRIGGERED"
     else:
-        logger.log(
-            "SCRAPER",
-            f"{debrid_service}: Manual account sync already running",
-        )
         video_code = "DEBRID_SYNC_ALREADY_RUNNING"
 
     return build_status_video_response([video_code], default_key=video_code)

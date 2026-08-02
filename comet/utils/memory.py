@@ -6,8 +6,6 @@ import sys
 from ctypes.util import find_library
 from functools import lru_cache
 
-from comet.core.logger import logger
-
 
 def _env_contains(name: str, needle: str) -> bool:
     value = os.environ.get(name, "")
@@ -144,4 +142,36 @@ async def periodic_memory_trim(interval_seconds: float | None) -> None:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Periodic memory trim failed")
+            pass
+
+
+class MemoryTrimmer:
+    def __init__(self) -> None:
+        self._interval = 0.0
+        self._configuration_changed = asyncio.Event()
+
+    def reconfigure(self, config) -> None:
+        self._interval = max(0.0, float(config.MEMORY_TRIM_INTERVAL))
+        self._configuration_changed.set()
+
+    async def run(self) -> None:
+        while True:
+            self._configuration_changed.clear()
+            if self._interval <= 0:
+                await self._configuration_changed.wait()
+                continue
+            try:
+                await asyncio.wait_for(
+                    self._configuration_changed.wait(),
+                    timeout=self._interval,
+                )
+            except TimeoutError:
+                try:
+                    await asyncio.to_thread(trim_process_memory, aggressive=False)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+
+
+memory_trimmer = MemoryTrimmer()

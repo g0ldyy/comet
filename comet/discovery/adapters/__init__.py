@@ -1,0 +1,1 @@
+"""Protocol-specific discovery adapters."""

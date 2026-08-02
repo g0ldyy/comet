@@ -4,8 +4,8 @@ Comet exposes an optional Prometheus endpoint and ships a provisioned production
 dashboard. Instrumentation is disabled by default and adds no collectors or
 timers to the hot path until `PROMETHEUS_ENABLED=True`.
 
-This endpoint is separate from `/admin/api/metrics`. The admin API provides
-cached, human-oriented database aggregates. `/metrics` provides inexpensive
+This endpoint is separate from `/api/v1/admin/metrics/*`. The admin API provides
+authenticated, cached human-oriented database aggregates. `/metrics` provides inexpensive
 time-series telemetry for Prometheus and never performs database scans while it
 is being scraped.
 
@@ -163,6 +163,18 @@ error messages as labels.
 Protected API routes are exported as `/s/{token}/...`; the real public API token
 is never exposed in Prometheus.
 
+### Readiness and native engine
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `comet_ready` | gauge | Worker readiness, aggregated with `livemin` in multiprocess mode. |
+| `comet_readiness_degraded` | gauge | Optional-component degradation, aggregated with `livemax`. |
+| `comet_usenet_engine_configured` | gauge | Whether the replica is configured to use the native engine. |
+| `comet_usenet_engine_up` | gauge | Whether the last bounded native statistics refresh succeeded. |
+| `comet_usenet_engine_last_snapshot_timestamp_seconds` | gauge | Unix timestamp of the last valid native snapshot; compute age with `time() - ...`. |
+| `comet_usenet_engine_restarts_total` | counter | Restarts scheduled by the native supervisor. |
+| `comet_usenet_engine_stat` | gauge | Closed native statistic vocabulary; panels must condition it on `comet_usenet_engine_up == 1`. |
+
 ### Scrapers and debrid
 
 | Metric | Type | Meaning |
@@ -230,6 +242,7 @@ Counters reset after a complete Comet process-manager restart. Prometheus
 `deployment/monitoring/alerts.yml` includes starting rules for:
 
 - scrape availability;
+- application readiness and configured native-engine availability;
 - HTTP 5xx ratio and p95 latency;
 - scraper failure/timeout ratio;
 - database errors and replica fallbacks;

@@ -1,8 +1,11 @@
-# Scrapers, Background Scraper, and DMM
+# Discovery adapters, background discovery, and DMM
 
-## Scraper Execution Model
+## Discovery execution model
 
-`ScraperManager` discovers scraper classes dynamically and runs enabled scrapers concurrently.
+`TorrentAdapterRegistry` discovers the server-configured torrent adapters. All
+enabled adapters implement the common `DiscoveryAdapter.search()` contract and
+are scheduled concurrently by the same transport-neutral `SearchCoordinator`
+used for Usenet discovery.
 
 Enablement is controlled by `SCRAPE_*` settings with context modes:
 
@@ -20,6 +23,10 @@ For URL-based scrapers, each URL can also override context with a suffix:
 Effective execution is the intersection of scraper-level mode (`SCRAPE_*`) and URL-level mode.
 
 Anime-only gates are enforced for specific scrapers (`NYAA_ANIME_ONLY`, `ANIMETOSHO_ANIME_ONLY`, `SEADEX_ANIME_ONLY`, `NEKOBT_ANIME_ONLY`).
+
+AnimeTosho Usenet discovery is an instance capability rather than a
+user-configurable source. Enable it with `SCRAPE_ANIMETOSHO_USENET=True`;
+its torrent scraper remains controlled separately by `SCRAPE_ANIMETOSHO`.
 
 ### Scraper Timeouts
 
@@ -39,7 +46,7 @@ SCRAPER_TIMEOUT_OVERRIDES={"Zilean":90,"Jackett:live":20}
 ```
 
 Resolution order is context-specific scraper override, scraper override, then
-the context default. A timeout cancels only the affected scraper invocation;
+the context default. A timeout cancels only the affected adapter invocation;
 other providers continue and their results are retained.
 
 Without an explicit override, Jackett and Prowlarr also reserve
@@ -58,15 +65,19 @@ budgets cover the complete provider operation, including pagination and retries.
 
 Refresh interval is `INDEXER_MANAGER_UPDATE_INTERVAL`.
 
-## Torrent Orchestration
+## Torrent result processing
 
-`TorrentManager` combines:
+`TorrentResultAccumulator` retains the established torrent filtering, ranking,
+and compatibility view around the unified discovery result. It combines:
 
 1. cached torrents from DB
-2. live scraper results
+2. candidates returned by `SearchCoordinator`
 3. filter pass (`filter_worker`)
 4. ranking pass (`rank_worker`)
 5. async cache write queue
+
+There is no separate scraper scheduler: live and background torrent discovery
+both enter `SearchCoordinator`, with their respective work class and deadline.
 
 ## Background Scraper
 
@@ -80,7 +91,7 @@ Refresh interval is `INDEXER_MANAGER_UPDATE_INTERVAL`.
 - dead-item requeue API
 - run history and SLO-style status output
 
-Dashboard APIs are under `/admin/api/background-scraper/*`.
+Dashboard APIs are under `/api/v1/admin/scraping/*`.
 
 ## DMM Ingester
 
@@ -95,9 +106,9 @@ It runs in cycles controlled by `DMM_INGEST_*` settings and uses a distributed l
 
 `debrid_account_scraper.py` can sync user account magnets and merge matched account torrents into stream results.
 
-Legacy account-derived cache associations can be audited and repaired manually
-through `python -m comet.db_cli cleanup-debrid-account`. The stream request path
-does not perform this validation or cleanup.
+Account snapshots are matched against the current request only. The result is
+not persisted as a public discovery association, and stale snapshots expire
+through the configured TTL.
 
 Relevant controls:
 

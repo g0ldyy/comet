@@ -43,21 +43,25 @@ class CometNetReputationStoreTests(unittest.TestCase):
         self.assertEqual(peer.valid_contributions, 2)
         self.assertEqual(peer.invalid_contributions, 1)
 
-    def test_persisted_schema_is_strict_atomic_and_deterministic(self):
+    def test_persisted_schema_is_extensible_atomic_and_deterministic(self):
         store = ReputationStore()
         store.from_dict(current_reputation())
 
         self.assertEqual(list(store.to_dict()["peers"]), ["peer-a", "peer-b"])
         self.assertEqual(store.to_dict()["blacklist"], ["peer-a"])
+        store.from_dict(
+            {
+                **current_reputation(),
+                "extension": True,
+                "peers": {
+                    node_id: value | {"extension": True}
+                    for node_id, value in current_reputation()["peers"].items()
+                },
+            }
+        )
         original = store.to_dict()
         valid = current_reputation()
         malformed = [
-            valid | {"legacy": True},
-            valid | {"blacklist": ["peer-a", "peer-a"]},
-            {
-                **valid,
-                "peers": {"peer-a": valid["peers"]["peer-a"] | {"legacy": True}},
-            },
             {
                 **valid,
                 "peers": {
@@ -81,6 +85,9 @@ class CometNetReputationStoreTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     store.from_dict(payload)
                 self.assertEqual(store.to_dict(), original)
+
+        store.from_dict(valid | {"blacklist": ["peer-a", "peer-a"]})
+        self.assertEqual(store.to_dict()["blacklist"], ["peer-a"])
 
     def test_node_and_cleanup_inputs_are_current_and_finite(self):
         store = ReputationStore()

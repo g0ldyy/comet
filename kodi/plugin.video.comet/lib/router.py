@@ -7,6 +7,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
+from .http_json import JsonHttpError, validate_http_url
 from .parser import parse_stream_info
 from .utils import (
     ADDON_HANDLE,
@@ -19,7 +20,6 @@ from .utils import (
     get_catalog_provider_url,
     get_config_prefix,
     is_elementum_installed_and_enabled,
-    log,
 )
 
 CATALOG_PAGE_SIZE = 25
@@ -268,7 +268,9 @@ def _parse_current_stream(stream):
     url = stream.get("url")
     info_hash = stream.get("infoHash")
     if url is not None:
-        if not isinstance(url, str) or not url:
+        try:
+            url = validate_http_url(url)
+        except JsonHttpError:
             return None
         info_hash = None
         sources = []
@@ -653,7 +655,7 @@ def get_streams(params):
         return
 
     streams = response.get("streams", ())
-    if not streams:
+    if not isinstance(streams, list) or not streams:
         _notify_error("No streams available")
         return
 
@@ -799,5 +801,4 @@ def addon_router():
             action_handler(params)
             return
 
-    log("Opening root menu", xbmc.LOGINFO)
     list_root()

@@ -3,32 +3,67 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from comet.metadata.episode_index import EpisodeIndexService, database
+from comet.metadata.http import MetadataHttpResponse
 
 
 class EpisodeIndexRefreshTests(unittest.IsolatedAsyncioTestCase):
-    async def test_cached_air_date_requires_valid_current_date(self):
+    async def test_invalid_cached_air_date_surfaces(self):
         service = EpisodeIndexService(session=None)
         with patch.object(database, "fetch_one", return_value={"air_date": "invalid"}):
-            self.assertIsNone(await service._get_cached_air_date("tt123", 1, 2, None))
+            with self.assertRaisesRegex(
+                ValueError, "cached episode air date is invalid"
+            ):
+                await service._get_cached_air_date("tt123", 1, 2, None)
 
         with patch.object(
             database,
             "fetch_one",
-            return_value={"air_date": "2026-07-22T12:00:00Z"},
+            return_value={"air_date": "2026-07-22"},
         ):
             self.assertEqual(
                 await service._get_cached_air_date("tt123", 1, 2, None),
                 "2026-07-22",
             )
 
-    async def test_invalid_refresh_timestamp_is_stale(self):
+    async def test_invalid_refresh_timestamp_surfaces(self):
         service = EpisodeIndexService(session=None)
-        for value in (None, True, "invalid", float("inf")):
+        with patch.object(database, "fetch_val", return_value=None):
+            self.assertFalse(await service._is_series_index_fresh("tt123", 1.0))
+
+        for value in (True, "invalid", float("inf")):
             with (
                 self.subTest(value=value),
                 patch.object(database, "fetch_val", return_value=value),
             ):
-                self.assertFalse(await service._is_series_index_fresh("tt123", 1.0))
+                with self.assertRaisesRegex(
+                    ValueError, "cached episode refresh timestamp is invalid"
+                ):
+                    await service._is_series_index_fresh("tt123", 1.0)
+
+    async def test_invalid_cached_episode_coordinate_surfaces(self):
+        service = EpisodeIndexService(session=None)
+        with patch.object(
+            database,
+            "fetch_one",
+            return_value={"season": "invalid", "episode": 2},
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "cached episode coordinate is invalid"
+            ):
+                await service._get_cached_episode(
+                    "tt123",
+                    "2026-07-22",
+                    None,
+                )
+
+    async def test_unexpected_tmdb_failure_surfaces(self):
+        service = EpisodeIndexService(session=None)
+        with patch(
+            "comet.metadata.episode_index.TMDBApi.get_tmdb_id_from_imdb",
+            new=AsyncMock(side_effect=RuntimeError("broken client")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "broken client"):
+                await service._refresh_single_episode_from_tmdb("tt1234567", 1, 2)
 
     async def test_air_date_reverse_lookup_refreshes_the_existing_index_once(self):
         service = EpisodeIndexService(session=None)
@@ -49,9 +84,7 @@ class EpisodeIndexRefreshTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(),
             ) as refresh,
         ):
-            episode = await service.get_episode_by_air_date(
-                "tt1234567", "2026-07-25"
-            )
+            episode = await service.get_episode_by_air_date("tt1234567", "2026-07-25")
 
         self.assertEqual(episode, (3, 9))
         self.assertEqual(cached_lookup.await_count, 2)
@@ -100,3 +133,94 @@ class EpisodeIndexRefreshTests(unittest.IsolatedAsyncioTestCase):
                 "rollback",
             ],
         )
+
+    async def test_conflicting_snapshot_does_not_replace_cached_index(self):
+        service = EpisodeIndexService(session=None)
+        payload = {
+            "meta": {
+                "videos": [
+                    {
+                        "season": 1,
+                        "episode": 2,
+                        "released": "2026-01-01",
+                    },
+                    {
+                        "season": 1,
+                        "episode": 2,
+                        "released": "2026-01-02",
+                    },
+                ]
+            }
+        }
+        with (
+            patch(
+                "comet.metadata.episode_index.get_metadata_json",
+                new=AsyncMock(return_value=MetadataHttpResponse(200, payload)),
+            ),
+            patch.object(
+                service,
+                "_replace_series_index",
+                new=AsyncMock(),
+            ) as replace,
+        ):
+            await service._refresh_from_cinemeta("tt1234567")
+
+        replace.assert_not_awaited()
+
+    async def test_snapshot_accepts_numeric_coordinates_with_leading_zeroes(self):
+        service = EpisodeIndexService(session=None)
+        payload = {
+            "meta": {
+                "videos": [
+                    {
+                        "season": "01",
+                        "episode": "002",
+                        "released": "2026-01-01",
+                    }
+                ]
+            }
+        }
+        with (
+            patch(
+                "comet.metadata.episode_index.get_metadata_json",
+                new=AsyncMock(return_value=MetadataHttpResponse(200, payload)),
+            ),
+            patch.object(
+                service,
+                "_replace_series_index",
+                new=AsyncMock(),
+            ) as replace,
+        ):
+            await service._refresh_from_cinemeta("tt1234567")
+
+        rows = replace.await_args.args[2]
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "series_id": "tt1234567",
+                    "season": 1,
+                    "episode": 2,
+                    "air_date": "2026-01-01",
+                    "updated_at": rows[0]["updated_at"],
+                }
+            ],
+        )
+
+    async def test_snapshot_is_bounded_before_replacement(self):
+        service = EpisodeIndexService(session=None)
+        payload = {"meta": {"videos": [{}] * 20_001}}
+        with (
+            patch(
+                "comet.metadata.episode_index.get_metadata_json",
+                new=AsyncMock(return_value=MetadataHttpResponse(200, payload)),
+            ),
+            patch.object(
+                service,
+                "_replace_series_index",
+                new=AsyncMock(),
+            ) as replace,
+        ):
+            await service._refresh_from_cinemeta("tt1234567")
+
+        replace.assert_not_awaited()
