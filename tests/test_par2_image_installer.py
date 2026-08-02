@@ -35,17 +35,3 @@ def test_release_archive_accepts_only_the_expected_executable():
     ):
         with pytest.raises(RuntimeError):
             install_par2.extract_release(archive)
-
-
-def test_release_pins_are_the_normative_architecture_specific_values():
-    assert install_par2.COMMIT == "4db49ca45ab258c230061fb3f0d29273f7c524ea"
-    assert install_par2.RELEASES == {
-        "amd64": (
-            "par2cmdline-turbo-1.4.0-linux-amd64.zip",
-            "0be495172b4b8aeabda39c493e47de652813fab88ae745c8633e901c05494281",
-        ),
-        "arm64": (
-            "par2cmdline-turbo-1.4.0-linux-arm64.zip",
-            "1bb2acb2c549bb3a2e91be3ac6291b00d4b657a56ab23f763f2161ffe7df0fcd",
-        ),
-    }

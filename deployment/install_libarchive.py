@@ -5,17 +5,20 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import hashlib
 import io
 import os
 import tarfile
-import urllib.request
 from pathlib import Path, PurePosixPath
 
-VERSION = "3.8.8"
+from deployment.build_download import download_https
+
+VERSION = "3.8.9"
 SOURCE_FILENAME = f"libarchive-{VERSION}.tar.xz"
-SOURCE_URL = f"https://www.libarchive.org/downloads/{SOURCE_FILENAME}"
-SOURCE_SHA256 = "3873a88801da067d0528a989af06877710529d50ee8fe6f3970cbb4302efb918"
+SOURCE_URL = (
+    f"https://github.com/libarchive/libarchive/releases/download/v{VERSION}/"
+    f"{SOURCE_FILENAME}"
+)
+SOURCE_SHA256 = "888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde"
 SOURCE_ROOT = f"libarchive-{VERSION}"
 EXPECTED_VERSION = f"libarchive {VERSION}".encode()
 MAX_DOWNLOAD_BYTES = 16 * 1024 * 1024
@@ -23,25 +26,6 @@ MAX_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_MEMBERS = 5_000
 MAX_SOURCE_TIMESTAMP = 4_102_444_800  # 2100-01-01 UTC
-
-
-def _download(url: str, maximum_bytes: int) -> bytes:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Comet-container-build"},
-    )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        if response.geturl().split(":", 1)[0] != "https":
-            raise RuntimeError("download redirected away from HTTPS")
-        payload = response.read(maximum_bytes + 1)
-    if len(payload) > maximum_bytes:
-        raise RuntimeError("download exceeds its size limit")
-    return payload
-
-
-def _verify(payload: bytes) -> None:
-    if hashlib.sha256(payload).hexdigest() != SOURCE_SHA256:
-        raise RuntimeError("libarchive source SHA-256 mismatch")
 
 
 def _safe_relative_path(member: tarfile.TarInfo) -> Path:
@@ -144,8 +128,7 @@ def _remove_partial_tree(root: Path) -> None:
 
 
 def install(output: Path) -> None:
-    payload = _download(SOURCE_URL, MAX_DOWNLOAD_BYTES)
-    _verify(payload)
+    payload = download_https(SOURCE_URL, MAX_DOWNLOAD_BYTES, SOURCE_SHA256)
     output.mkdir(mode=0o755, parents=True, exist_ok=False)
     try:
         extract_source(payload, output / "source")
@@ -156,7 +139,6 @@ def install(output: Path) -> None:
             (output / "source" / "COPYING").read_bytes(),
             0o644,
         )
-        _write_exclusive(documentation / SOURCE_FILENAME, payload, 0o644)
     except BaseException:
         _remove_partial_tree(output)
         raise

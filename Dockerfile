@@ -14,8 +14,8 @@ FROM rust:1.97.1-slim-trixie AS rust-toolchain
 FROM python:3.13-slim-trixie AS par2-tool
 
 ARG TARGETARCH
-COPY deployment/install_par2.py /tmp/install_par2.py
-RUN python /tmp/install_par2.py --arch "${TARGETARCH}" --output /opt/par2 \
+COPY deployment/build_download.py deployment/install_par2.py /tmp/deployment/
+RUN PYTHONPATH=/tmp python -m deployment.install_par2 --arch "${TARGETARCH}" --output /opt/par2 \
     && test "$(/opt/par2/bin/par2 -V)" = "par2cmdline-turbo version 1.4.0"
 
 FROM python:3.13-slim-trixie AS libarchive-tool
@@ -34,8 +34,8 @@ RUN apt-get update \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY deployment/install_libarchive.py /tmp/install_libarchive.py
-RUN python /tmp/install_libarchive.py --output /opt/libarchive-build \
+COPY deployment/build_download.py deployment/install_libarchive.py /tmp/deployment/
+RUN PYTHONPATH=/tmp python -m deployment.install_libarchive --output /opt/libarchive-build \
     && cd /opt/libarchive-build/source \
     && ./configure \
         --prefix=/opt/libarchive \
@@ -52,14 +52,15 @@ RUN python /tmp/install_libarchive.py --output /opt/libarchive-build \
         --without-openssl \
         --without-xml2 \
         --without-expat \
-    && make -j2 \
+    && make -j"$(nproc)" \
     && make install-strip \
-    && test -f /opt/libarchive/lib/libarchive.so.13.8.8 \
-    && python /tmp/install_libarchive.py --verify-library /opt/libarchive/lib/libarchive.so.13.8.8 \
+    && mkdir -p /opt/libarchive-runtime \
+    && cp --dereference /opt/libarchive/lib/libarchive.so.13 /opt/libarchive-runtime/libarchive.so.13 \
+    && PYTHONPATH=/tmp python -m deployment.install_libarchive --verify-library /opt/libarchive-runtime/libarchive.so.13 \
     && mkdir -p /opt/libarchive/share/doc \
     && cp -a /opt/libarchive-build/share/doc/libarchive /opt/libarchive/share/doc/
 
-FROM python:3.13-slim-trixie AS builder
+FROM python:3.13-slim-trixie AS python-builder
 
 COPY --from=uv /uv /uvx /bin/
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
@@ -76,7 +77,6 @@ RUN apt-get update \
         gcc \
         git \
         libc6-dev \
-        make \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -85,13 +85,19 @@ COPY pyproject.toml uv.lock ./
 
 ARG TARGETPLATFORM
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${TARGETPLATFORM},sharing=locked uv sync --frozen --no-dev --no-install-project
-COPY native/usenet-engine ./native/usenet-engine
-RUN cargo build --release --manifest-path native/usenet-engine/Cargo.toml
+
+FROM rust-toolchain AS usenet-builder
+
+WORKDIR /app
+
+COPY native/usenet-engine/Cargo.toml native/usenet-engine/Cargo.lock ./native/usenet-engine/
+COPY native/usenet-engine/src ./native/usenet-engine/src
+RUN cargo build --locked --release --manifest-path native/usenet-engine/Cargo.toml
 
 FROM python:3.13-slim-trixie AS runtime
 
 LABEL name="Comet" \
-      description="Stremio's fastest torrent/debrid search add-on." \
+      description="Stremio's fastest torrent/debrid/usenet search add-on." \
       url="https://github.com/g0ldyy/comet"
 
 RUN apt-get update \
@@ -112,13 +118,13 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder /app/.venv /app/.venv
+COPY --from=python-builder /app/.venv /app/.venv
 COPY comet ./comet
 COPY --from=frontend-builder /app/frontend/dist /app/comet/frontend_dist
-COPY --from=builder /app/native/usenet-engine/target/release/usenet-engine /app/native/usenet-engine
+COPY --from=usenet-builder /app/native/usenet-engine/target/release/usenet-engine /app/native/usenet-engine
 COPY --from=par2-tool /opt/par2/bin/par2 /app/bin/par2
 COPY --from=par2-tool /opt/par2/share/doc/par2cmdline-turbo /usr/share/doc/par2cmdline-turbo
-COPY --from=libarchive-tool /opt/libarchive/lib/libarchive.so.13.8.8 /app/lib/libarchive.so.13
+COPY --from=libarchive-tool /opt/libarchive-runtime/libarchive.so.13 /app/lib/libarchive.so.13
 COPY --from=libarchive-tool /opt/libarchive/share/doc/libarchive /usr/share/doc/libarchive
 ENV TZ=UTC \
     PATH="/app/.venv/bin:$PATH" \

@@ -12,6 +12,7 @@ data
 deployment/*
 !deployment/install_par2.py
 !deployment/install_libarchive.py
+!deployment/build_download.py
 dist
 docs
 htmlcov

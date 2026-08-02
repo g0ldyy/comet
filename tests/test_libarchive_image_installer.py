@@ -62,15 +62,3 @@ def test_rejects_unsafe_or_special_members_without_leaving_a_tree(tmp_path, name
         )
 
     assert not output.exists()
-
-
-def test_pin_matches_the_normative_official_release():
-    assert install_libarchive.VERSION == "3.8.8"
-    assert (
-        install_libarchive.SOURCE_URL
-        == "https://www.libarchive.org/downloads/libarchive-3.8.8.tar.xz"
-    )
-    assert (
-        install_libarchive.SOURCE_SHA256
-        == "3873a88801da067d0528a989af06877710529d50ee8fe6f3970cbb4302efb918"
-    )

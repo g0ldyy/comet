@@ -16,11 +16,6 @@ on:
         description: Additional build args appended to the shared defaults
         required: true
         type: string
-      platforms:
-        description: Platforms passed to docker/build-push-action
-        required: false
-        default: linux/amd64,linux/arm64
-        type: string
     secrets:
       dockerhub_username:
         required: false
@@ -32,14 +27,24 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: g0ldyy/comet
+  GHCR_IMAGE: ghcr.io/g0ldyy/comet
+  DOCKERHUB_IMAGE: docker.io/g0ldyy/comet
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -58,23 +63,101 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: |
-            ghcr.io/${{ env.IMAGE_NAME }}
-            ${{ inputs.push-to-dockerhub && format('docker.io/{0}', env.IMAGE_NAME) || '' }}
+            ${{ env.GHCR_IMAGE }}
+            ${{ inputs.push-to-dockerhub && env.DOCKERHUB_IMAGE || '' }}
           tags: ${{ inputs.tags }}
 
       - id: date
         run: echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          platforms: ${{ inputs.platforms }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,"name=${{ inputs.push-to-dockerhub && format('{0},{1}', env.GHCR_IMAGE, env.DOCKERHUB_IMAGE) || env.GHCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache-${{ matrix.architecture }}
+          cache-to: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache-${{ matrix.architecture }},mode=max
           build-args: |
             COMET_COMMIT_HASH=${{ github.sha }}
             COMET_BUILD_DATE=${{ steps.date.outputs.date }}
             ${{ inputs.build-args }}
+
+      - name: Export image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/comet-digests
+          touch "/tmp/comet-digests/${IMAGE_DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-digest-${{ matrix.architecture }}
+          path: /tmp/comet-digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: ${{ inputs.push-to-dockerhub }}
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          username: ${{ secrets.dockerhub_username }}
+          password: ${{ secrets.dockerhub_access_token }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            ${{ inputs.push-to-dockerhub && env.DOCKERHUB_IMAGE || '' }}
+          tags: ${{ inputs.tags }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-digest-*
+          path: /tmp/comet-digests
+          merge-multiple: true
+
+      - name: Publish multi-architecture manifests
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          PUSH_TO_DOCKERHUB: ${{ inputs.push-to-dockerhub }}
+        run: |
+          mapfile -t digests < <(find /tmp/comet-digests -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [[ "${#digests[@]}" -ne 2 ]]; then
+            echo "Expected exactly two platform digests" >&2
+            exit 1
+          fi
+
+          publish_manifest() {
+            local image="$1"
+            local -a tags=()
+            local -a sources=()
+            while IFS= read -r tag; do
+              if [[ "$tag" == "${image}:"* ]]; then
+                tags+=(--tag "$tag")
+              fi
+            done <<< "$IMAGE_TAGS"
+            for digest in "${digests[@]}"; do
+              sources+=("${image}@sha256:${digest}")
+            done
+            docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          }
+
+          publish_manifest "$GHCR_IMAGE"
+          if [[ "$PUSH_TO_DOCKERHUB" == "true" ]]; then
+            publish_manifest "$DOCKERHUB_IMAGE"
+          fi

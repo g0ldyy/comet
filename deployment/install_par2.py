@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import io
 import os
 import stat
 import subprocess
 import tarfile
-import urllib.request
 import zipfile
 from pathlib import Path
+
+from deployment.build_download import download_https
 
 VERSION = "1.4.0"
 COMMIT = "4db49ca45ab258c230061fb3f0d29273f7c524ea"
@@ -35,25 +35,6 @@ SOURCE_SHA256 = "34b15e0bc763259f7f3580aab96c6c967e1fe5c077c5da09f69d715120e0ee8
 MAX_RELEASE_BYTES = 8 * 1024 * 1024
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
 MAX_EXECUTABLE_BYTES = 16 * 1024 * 1024
-
-
-def _download(url: str, maximum_bytes: int) -> bytes:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Comet-container-build"},
-    )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        if response.geturl().split(":", 1)[0] != "https":
-            raise RuntimeError("download redirected away from HTTPS")
-        payload = response.read(maximum_bytes + 1)
-    if len(payload) > maximum_bytes:
-        raise RuntimeError("download exceeds its size limit")
-    return payload
-
-
-def _verify(payload: bytes, expected_sha256: str, label: str) -> None:
-    if not hashlib.sha256(payload).hexdigest() == expected_sha256:
-        raise RuntimeError(f"{label} SHA-256 mismatch")
 
 
 def extract_release(payload: bytes) -> bytes:
@@ -124,12 +105,14 @@ def install(architecture: str, output: Path) -> None:
             f"unsupported target architecture: {architecture}"
         ) from error
 
-    release = _download(f"{RELEASE_BASE_URL}/{filename}", MAX_RELEASE_BYTES)
-    _verify(release, expected_release_sha256, "release archive")
+    release = download_https(
+        f"{RELEASE_BASE_URL}/{filename}",
+        MAX_RELEASE_BYTES,
+        expected_release_sha256,
+    )
     executable = extract_release(release)
 
-    source = _download(SOURCE_URL, MAX_SOURCE_BYTES)
-    _verify(source, SOURCE_SHA256, "corresponding source archive")
+    source = download_https(SOURCE_URL, MAX_SOURCE_BYTES, SOURCE_SHA256)
     copying = _source_member(source, "COPYING")
     authors = _source_member(source, "AUTHORS")
 
