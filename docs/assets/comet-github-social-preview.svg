@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
+  <title id="title">Comet — Built to find it first</title>
+  <desc id="description">Built to find it first. Stremio's fastest torrent, debrid, and Usenet search add-on.</desc>
+  <defs>
+    <filter id="blur-wide" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <style>
+      .aura { fill: none; stroke: #ff5a36; stroke-linecap: round; opacity: .42 }
+      .aura--wide { stroke-width: 30; filter: url(#blur-wide) }
+      .line { fill: none; stroke: #ff5a36; stroke-width: 2.5; stroke-linecap: round }
+      .echo { fill: none; stroke: #f4f1ec; stroke-width: 1; stroke-linecap: round; opacity: .12 }
+      .echo--soft { opacity: .06 }
+    </style>
+  </defs>
+  <rect width="1280" height="640" fill="#090909"/>
+
+  <path d="M640 640C800 427 1005 251 1280 138" class="aura aura--wide"/>
+  <path d="M640 640C800 427 1005 251 1280 138" class="line"/>
+  <path d="M731 640C868 458 1045 309 1280 211" class="echo"/>
+  <path d="M821 640C932 500 1084 377 1280 290" class="echo echo--soft"/>
+
+  <g transform="translate(72 56)">
+    <g transform="scale(.82)">
+      <path d="M58 5C47 15 38 23 29 29L14 39C7 44 6 52 11 58c5 6 15 4 24-2 9-7 15-17 18-29-6 10-14 19-22 24-7 4-14 4-16 0-2-4 3-8 10-12l14-9C48 23 55 13 58 5Z" fill="#f4f1ec"/>
+      <path d="M54 14C43 23 34 28 24 33c-9 5-14 10-14 16-2-7 2-14 10-19 10-6 22-10 34-16Z" fill="#ff5a36"/>
+      <path d="M49 25c-9 5-17 9-23 14-5 4-6 8-3 12-5-3-5-8 0-13 6-5 15-9 26-13Z" fill="#f4f1ec"/>
+    </g>
+    <text x="64" y="42" fill="#f4f1ec" font-family="Manrope, 'Noto Sans', sans-serif" font-size="34" font-weight="720" letter-spacing="-.8">Comet</text>
+  </g>
+
+  <g font-family="Manrope, 'Noto Sans', sans-serif">
+    <text x="76" y="260" fill="#f4f1ec" font-size="70" font-weight="730" letter-spacing="-3.4">Built to find it</text>
+    <text x="76" y="340" fill="#f4f1ec" font-size="70" font-weight="730" letter-spacing="-3.4">first.</text>
+    <rect x="77" y="381" width="54" height="4" rx="2" fill="#ff5a36"/>
+    <text x="76" y="442" fill="#aaa59e" font-size="22" font-weight="480">Stremio's fastest torrent/debrid/usenet search add-on.</text>
+    <g transform="translate(76 530)" fill="#f4f1ec" font-size="14" font-weight="650" letter-spacing="2.4">
+      <text>TORRENT</text>
+      <circle cx="116" cy="-6" r="3" fill="#ff5a36"/>
+      <text x="140">DEBRID</text>
+      <circle cx="246" cy="-6" r="3" fill="#ff5a36"/>
+      <text x="270">USENET</text>
+    </g>
+  </g>
+</svg>
