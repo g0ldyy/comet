@@ -583,8 +583,23 @@ def _emergency_write(event: str, *, once_key: str | None = None) -> None:
             _emergency_active = False
 
 
-def bootstrap_failure() -> None:
-    _emergency_write("runtime.bootstrap.failed")
+def bootstrap_failure(
+    exception: BaseException | None = None,
+    *,
+    process_role: str = "web_worker",
+) -> None:
+    if exception is None:
+        _emergency_write("runtime.bootstrap.failed")
+        return
+    try:
+        try:
+            diagnostic_settings = LoggingSettings()
+        except Exception:
+            diagnostic_settings = LoggingSettings(_env_file=None)
+        configure(diagnostic_settings, process_role=process_role)
+        configuration_invalid(exception=exception)
+    except Exception:
+        _emergency_write("runtime.bootstrap.failed")
 
 
 def configure_entrypoint(*, process_role: str) -> LoggingSettings:

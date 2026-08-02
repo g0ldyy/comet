@@ -19,6 +19,7 @@ from comet.observability.context import (
 from comet.observability.logging import (
     LoggingSettings,
     LogValidationError,
+    bootstrap_failure,
     configuration_invalid,
     configure,
     configure_stdlib_bridge,
@@ -114,6 +115,34 @@ class LoggingContractTests(unittest.TestCase):
         payload = json.loads(records[0])
         self.assertEqual(payload["event"], "config.invalid")
         self.assertIn("public CometNet requires", payload["details"])
+
+    def test_bootstrap_failure_identifies_invalid_setting_without_its_value(self):
+        secret = "short-secret"
+        try:
+            AppSettings(
+                _env_file=None,
+                USENET_NATIVE_ACCESS_TOKEN=secret,
+            )
+        except ValidationError as error:
+            with patch.dict(
+                os.environ,
+                {"LOG_FORMAT": "json", "LOG_PROFILE": "normal"},
+                clear=True,
+            ):
+                records = self.render(
+                    lambda captured_error=error: bootstrap_failure(
+                        exception=captured_error,
+                        process_role="supervisor",
+                    )
+                )
+        else:
+            self.fail("invalid native access token was accepted")
+
+        payload = json.loads(records[0])
+        self.assertEqual(payload["event"], "config.invalid")
+        self.assertEqual(payload["setting_name"], "USENET_NATIVE_ACCESS_TOKEN")
+        self.assertIn("must be an opaque 32-to-256-byte value", payload["details"])
+        self.assertNotIn(secret, records[0].decode())
 
     def test_no_color_uses_presence_not_truthiness(self):
         with patch.dict(os.environ, {}, clear=True):

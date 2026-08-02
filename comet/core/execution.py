@@ -48,11 +48,11 @@ def worker_initializer(
         start_event_persistence(str(database.url))
         clear_context()
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-    except BaseException:
+    except BaseException as exc:
         try:
             from comet.observability.logging import bootstrap_failure
 
-            bootstrap_failure()
+            bootstrap_failure(exception=exc, process_role="executor_worker")
         finally:
             os._exit(78)
 

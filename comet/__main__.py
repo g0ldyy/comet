@@ -11,8 +11,8 @@ from comet.observability.logging import (
 def main() -> None:
     try:
         prepare_effective_settings_environment()
-    except Exception:
-        bootstrap_failure()
+    except Exception as exc:
+        bootstrap_failure(exception=exc, process_role="cli")
         raise SystemExit(78) from None
     configure_entrypoint(process_role="cli")
     try:

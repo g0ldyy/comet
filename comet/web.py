@@ -25,8 +25,8 @@ from comet.observability.stderr import install_stderr_proxy
 if __name__ == "__main__":
     try:
         prepare_effective_settings_environment()
-    except Exception:
-        bootstrap_failure()
+    except Exception as exc:
+        bootstrap_failure(exception=exc, process_role="web_master")
         raise SystemExit(78) from None
 configure_entrypoint(process_role="web_master")
 os.environ["COMET_WEB_MASTER_PID"] = str(os.getpid())

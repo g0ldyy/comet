@@ -22,8 +22,8 @@ _initial_role = (
 )
 try:
     ensure_configured(process_role=_initial_role)
-except Exception:
-    bootstrap_failure()
+except Exception as exc:
+    bootstrap_failure(exception=exc, process_role=_initial_role)
     raise SystemExit(78) from None
 
 try:
