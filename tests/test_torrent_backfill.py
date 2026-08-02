@@ -471,6 +471,20 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             {"a" * 40},
         )
 
+    async def test_final_migration_does_not_wrap_backfill_in_one_transaction(self):
+        transaction_depths = []
+
+        async def observe_transaction_depth(database):
+            transaction_depths.append(database._transaction_depth.get())
+
+        with patch(
+            "comet.discovery.torrent_backfill.backfill_legacy_torrents",
+            side_effect=observe_transaction_depth,
+        ):
+            await _migration_remove_legacy_torrent_storage(self.context)
+
+        self.assertEqual(transaction_depths, [0])
+
     async def test_generic_torrent_cleanup_is_bounded_to_stale_public_rows(self):
         await _migration_remove_legacy_torrent_storage(self.context)
         old = torrent_manager._construct_torrent_update(

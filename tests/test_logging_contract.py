@@ -503,6 +503,29 @@ class LoggingContractTests(unittest.TestCase):
             rendered,
         )
 
+    def test_debug_stack_keeps_the_failure_site(self):
+        self.configure("debug")
+
+        def failure_site():
+            raise RuntimeError("leaf failure")
+
+        try:
+            failure_site()
+        except RuntimeError as error:
+            records = self.render(
+                lambda captured_error=error: log.error(
+                    "operation.failed",
+                    "Operation failed",
+                    error_code="unexpected_failure",
+                    exc=captured_error,
+                )
+            )
+
+        self.assertIn(
+            "test_logging_contract:failure_site",
+            json.loads(records[0])["debug_stack"],
+        )
+
     def test_uvicorn_startup_failure_preserves_the_underlying_exception(self):
         self.configure("normal")
         configure_stdlib_bridge()

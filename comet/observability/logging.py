@@ -831,7 +831,7 @@ def _safe_exception(
         return error_type, message, None
     frames: list[str] = []
     trace: TracebackType | None = exc.__traceback__
-    for frame in traceback.extract_tb(trace, limit=8):
+    for frame in traceback.extract_tb(trace, limit=-8):
         module = _safe_source_token(
             os.path.splitext(os.path.basename(frame.filename))[0]
         )

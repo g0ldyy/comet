@@ -1056,9 +1056,11 @@ async def _migration_remove_legacy_torrent_storage(ctx: MigrationContext):
 
     from comet.discovery.torrent_backfill import backfill_legacy_torrents
 
-    async with ctx.database.transaction():
-        await backfill_legacy_torrents(ctx.database)
-        await _drop_table_if_exists(ctx, "torrents")
+    # The backfill is idempotent and commits bounded batches internally. Keeping
+    # one outer transaction here would retain every per-candidate PostgreSQL
+    # advisory lock until the complete legacy cache had been migrated.
+    await backfill_legacy_torrents(ctx.database)
+    await _drop_table_if_exists(ctx, "torrents")
 
     if await _table_exists(ctx, "torrents"):
         raise RuntimeError("legacy torrent storage still exists after cutover")
