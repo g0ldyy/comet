@@ -200,6 +200,17 @@ class ApiV1Tests(unittest.IsolatedAsyncioTestCase):
             generated = generate()
         self.assertEqual(OUTPUT.read_text(encoding="utf-8"), generated)
 
+    async def test_login_accepts_a_single_character_password(self):
+        password = "é"
+        with patch.object(api_v1.settings, "ADMIN_DASHBOARD_PASSWORD", password):
+            response = await self.client.post(
+                "/api/v1/auth/login",
+                headers={"Origin": "http://testserver"},
+                json={"password": password},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+
     async def test_login_cookie_session_and_origin_csrf_policy(self):
         no_origin = await self.client.post(
             "/api/v1/auth/login",
@@ -1173,7 +1184,7 @@ class ApiV1Tests(unittest.IsolatedAsyncioTestCase):
                 "Origin": "http://testserver",
                 "X-CSRF-Token": csrf,
             },
-            json={"updates": {"USENET_NATIVE_ACCESS_TOKEN": "short"}},
+            json={"updates": {"USENET_NATIVE_ACCESS_TOKEN": "bad token"}},
         )
         self.assertEqual(invalid_secret.status_code, 422)
         self.assertEqual(invalid_secret.json()["error"]["code"], "settings_invalid")
@@ -1184,13 +1195,13 @@ class ApiV1Tests(unittest.IsolatedAsyncioTestCase):
                     "location": ["USENET_NATIVE_ACCESS_TOKEN"],
                     "type": "value_error",
                     "message": (
-                        "USENET_NATIVE_ACCESS_TOKEN must be an opaque "
-                        "32-to-256-byte value"
+                        "USENET_NATIVE_ACCESS_TOKEN must be a non-empty opaque value "
+                        "of at most 256 bytes"
                     ),
                 }
             ],
         )
-        self.assertNotIn("short", invalid_secret.text)
+        self.assertNotIn("bad token", invalid_secret.text)
 
         await self._login()
         snapshot = await self.client.get("/api/v1/admin/settings")

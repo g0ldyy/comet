@@ -1,5 +1,3 @@
-import base64
-import binascii
 import math
 import os
 import re
@@ -309,6 +307,19 @@ def _bounded_credential(value: object) -> str:
     ):
         raise ValueError("configured credential must be bounded text")
     return value
+
+
+def _is_bounded_opaque_credential(value: object, maximum_bytes: int) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return len(encoded) <= maximum_bytes and not any(
+        character.isspace() or ord(character) < 33 or ord(character) == 127
+        for character in value
+    )
 
 
 def _bounded_display_text(
@@ -1428,21 +1439,10 @@ class AppSettings(ServerSettings):
     def validate_usenet_native_access_token(cls, value):
         if value is None:
             return None
-        if not isinstance(value, str):
+        if not _is_bounded_opaque_credential(value, 256):
             raise ValueError(
-                "USENET_NATIVE_ACCESS_TOKEN must be an opaque 32-to-256-byte value"
-            )
-        try:
-            token_size = len(value.encode("utf-8"))
-        except UnicodeEncodeError:
-            raise ValueError(
-                "USENET_NATIVE_ACCESS_TOKEN must be an opaque 32-to-256-byte value"
-            ) from None
-        if not 32 <= token_size <= 256 or any(
-            character.isspace() or ord(character) < 33 for character in value
-        ):
-            raise ValueError(
-                "USENET_NATIVE_ACCESS_TOKEN must be an opaque 32-to-256-byte value"
+                "USENET_NATIVE_ACCESS_TOKEN must be a non-empty opaque value "
+                "of at most 256 bytes"
             )
         return value
 
@@ -1450,19 +1450,7 @@ class AppSettings(ServerSettings):
     def validate_comet_capability_secret(cls, value):
         if value is None:
             return None
-        try:
-            decoded_secret = base64.urlsafe_b64decode(value + "=")
-        except (binascii.Error, ValueError) as exc:
-            raise ValueError(
-                "COMET_CAPABILITY_SECRET must be canonical base64url"
-            ) from exc
-        if (
-            len(value) != 43
-            or len(decoded_secret) != 32
-            or base64.urlsafe_b64encode(decoded_secret).decode().rstrip("=") != value
-        ):
-            raise ValueError("COMET_CAPABILITY_SECRET must encode exactly 32 bytes")
-        return value
+        return _bounded_credential(value)
 
     @field_validator("USENET_NATIVE_SERVERS")
     def validate_usenet_native_servers(cls, value):
@@ -2945,21 +2933,10 @@ class ConfigModel(BaseModel):
             except ValueError as exc:
                 raise ValueError("Stremio NNTP options are invalid") from exc
         if self.nativeAccessToken is not None:
-            try:
-                token_size = len(self.nativeAccessToken.encode("utf-8"))
-            except UnicodeEncodeError:
+            if not _is_bounded_opaque_credential(self.nativeAccessToken, 256):
                 raise ValueError(
-                    "nativeAccessToken must be a bounded opaque value"
-                ) from None
-            if (
-                not self.nativeAccessToken
-                or token_size > 256
-                or any(
-                    character.isspace() or ord(character) < 32 or ord(character) == 127
-                    for character in self.nativeAccessToken
+                    "nativeAccessToken must be an opaque value of at most 256 bytes"
                 )
-            ):
-                raise ValueError("nativeAccessToken must be a bounded opaque value")
         return self
 
 

@@ -118,9 +118,7 @@ class LoggingContractTests(unittest.TestCase):
 
     def test_invalid_configuration_preserves_loader_failure_diagnostic(self):
         self.configure("normal")
-        error = ValueError(
-            "stored operator setting is not recognized: LEGACY_SETTING"
-        )
+        error = ValueError("stored operator setting is not recognized: LEGACY_SETTING")
 
         records = self.render(lambda: configuration_invalid(exception=error))
 
@@ -130,7 +128,7 @@ class LoggingContractTests(unittest.TestCase):
         self.assertEqual(payload["error_message"], str(error))
 
     def test_bootstrap_failure_identifies_invalid_setting_without_its_value(self):
-        secret = "short-secret"
+        secret = "unsafe secret"
         try:
             AppSettings(
                 _env_file=None,
@@ -154,7 +152,7 @@ class LoggingContractTests(unittest.TestCase):
         payload = json.loads(records[0])
         self.assertEqual(payload["event"], "config.invalid")
         self.assertEqual(payload["setting_name"], "USENET_NATIVE_ACCESS_TOKEN")
-        self.assertIn("must be an opaque 32-to-256-byte value", payload["details"])
+        self.assertIn("must be a non-empty opaque value", payload["details"])
         self.assertNotIn(secret, records[0].decode())
 
     def test_no_color_uses_presence_not_truthiness(self):

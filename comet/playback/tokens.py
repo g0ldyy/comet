@@ -141,9 +141,20 @@ def _valid_suffix(prefix: str, suffix: object) -> bool:
 
 class CapabilityCodec:
     def __init__(self, root_secret: str):
-        raw_root = _b64decode(root_secret)
-        if len(raw_root) != 32:
-            raise ValueError("capability root must contain 32 bytes")
+        if not isinstance(root_secret, str) or not root_secret:
+            raise ValueError("capability root must be a non-empty string")
+        try:
+            raw_root = root_secret.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("capability root must be valid UTF-8") from exc
+        try:
+            decoded_root = _b64decode(root_secret)
+        except CapabilityError:
+            pass
+        else:
+            # Keep existing generated roots compatible while allowing passphrases.
+            if len(decoded_root) == 32:
+                raw_root = decoded_root
         self._partition_key = self._derive(raw_root, b"comet-url-partition-v1")
         self._capability_key = self._derive(raw_root, b"comet-playback-capability-v1")
 

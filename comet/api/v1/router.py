@@ -222,8 +222,8 @@ async def login(request: Request, body: LoginRequest):
             headers={"Retry-After": str(LOGIN_RETRY_AFTER_SECONDS)},
         )
     if not valid_login_field(body.password) or not secrets.compare_digest(
-        body.password,
-        settings.ADMIN_DASHBOARD_PASSWORD,
+        body.password.encode("utf-8"),
+        settings.ADMIN_DASHBOARD_PASSWORD.encode("utf-8"),
     ):
         raise ApiProblem(
             status_code=401,
@@ -293,8 +293,8 @@ async def configure_login(request: Request, body: LoginRequest):
             headers={"Retry-After": str(LOGIN_RETRY_AFTER_SECONDS)},
         )
     if not valid_login_field(body.password) or not secrets.compare_digest(
-        body.password,
-        settings.CONFIGURE_PAGE_PASSWORD,
+        body.password.encode("utf-8"),
+        settings.CONFIGURE_PAGE_PASSWORD.encode("utf-8"),
     ):
         raise ApiProblem(
             status_code=401,

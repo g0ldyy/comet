@@ -52,6 +52,28 @@ def _signed_prepared_asset_token(
     return f"pa2.{encoded}.{signature}"
 
 
+def test_capability_accepts_short_operator_passphrases():
+    codec = CapabilityCodec("x")
+    partition = codec.configuration_partition(b"normalized")
+    token = codec.encode(
+        "pa2",
+        partition=partition,
+        suffix=[uuid.uuid4().bytes],
+        ttl=60,
+        now=100,
+    )
+
+    assert codec.decode(token, partition=partition, now=120)
+
+
+def test_generated_capability_roots_keep_their_existing_derivation():
+    codec = CapabilityCodec(ROOT)
+    partition = codec.configuration_partition(b"normalized")
+    token = _signed_prepared_asset_token(partition)
+
+    assert codec.decode(token, partition=partition, now=120)
+
+
 def test_capability_is_bound_to_prefix_partition_and_expiry():
     codec = CapabilityCodec(ROOT)
     partition = codec.configuration_partition(b"normalized")

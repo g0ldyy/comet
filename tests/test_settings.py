@@ -376,7 +376,7 @@ class AppSettingsTests(unittest.TestCase):
         generated = AppSettings(_env_file=None, USENET_ENABLED=True)
         configured = AppSettings(
             _env_file=None,
-            USENET_NATIVE_ACCESS_TOKEN="configured-usenet-access-token-123",
+            USENET_NATIVE_ACCESS_TOKEN="x",
         )
 
         self.assertIsNone(disabled.USENET_NATIVE_ACCESS_TOKEN)
@@ -391,6 +391,17 @@ class AppSettingsTests(unittest.TestCase):
             configured.usenet_native_access_token_source,
             "configured",
         )
+        self.assertEqual(configured.USENET_NATIVE_ACCESS_TOKEN, "x")
+        with self.assertRaises(ValidationError):
+            AppSettings(_env_file=None, USENET_NATIVE_ACCESS_TOKEN="x" * 257)
+
+    def test_capability_secret_accepts_an_operator_passphrase(self):
+        configured = AppSettings(
+            _env_file=None,
+            COMET_CAPABILITY_SECRET="x",
+        )
+
+        self.assertEqual(configured.COMET_CAPABILITY_SECRET, "x")
 
     def test_generated_capability_secret_is_persisted_and_reused(self):
         with TemporaryDirectory() as directory:
@@ -456,6 +467,10 @@ class AppSettingsTests(unittest.TestCase):
                 _resolve_persisted_token(None, str(linked), "ADMIN_DASHBOARD_PASSWORD")
 
     def test_persisted_tokens_have_bounded_files_and_url_safe_api_shape(self):
+        self.assertEqual(
+            AppSettings(_env_file=None, PUBLIC_API_TOKEN="x").PUBLIC_API_TOKEN,
+            "x",
+        )
         for token in ("contains/slash", "contains space", "x" * 257):
             with self.subTest(token=token[:16]), self.assertRaises(ValidationError):
                 AppSettings(_env_file=None, PUBLIC_API_TOKEN=token)
@@ -1053,7 +1068,7 @@ class AppSettingsTests(unittest.TestCase):
     def test_operator_credentials_are_bounded_before_consumers(self):
         configured = AppSettings(
             _env_file=None,
-            COMETNET_KEY_PASSWORD="clé privée",
+            COMETNET_KEY_PASSWORD="x",
             MEDIAFUSION_URL=[
                 "https://one.example",
                 "https://two.example",
@@ -1100,6 +1115,10 @@ class AppSettingsTests(unittest.TestCase):
                 AppSettings(_env_file=None, ADMIN_DASHBOARD_PASSWORD=password)
 
         for field in ("ADMIN_DASHBOARD_PASSWORD", "CONFIGURE_PAGE_PASSWORD"):
+            self.assertEqual(
+                getattr(AppSettings(_env_file=None, **{field: "x"}), field),
+                "x",
+            )
             for password in ("x" * 4_097, "secret\nvalue"):
                 with (
                     self.subTest(field=field, password=password[:16]),
