@@ -769,6 +769,13 @@ class FreshGenericSchemaTests(unittest.IsolatedAsyncioTestCase):
                             "parsed_json": parsed_json,
                         },
                         {
+                            "media_id": "tt2345678",
+                            "info_hash": "a" * 40,
+                            "title": "Same.Release.Different.Movie.2026.1080p",
+                            "tracker": "Indexer",
+                            "parsed_json": parsed_json,
+                        },
+                        {
                             "media_id": "tt1234567",
                             "info_hash": "b" * 40,
                             "title": "Private.2026.1080p.WEB-DL-GROUP",
@@ -811,13 +818,13 @@ class FreshGenericSchemaTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertEqual(signature, await self._schema_signature(upgraded))
-                self.assertEqual(candidate_count, 1)
+                self.assertEqual(candidate_count, 2)
                 self.assertEqual(
                     await upgraded.fetch_val(
                         "SELECT COUNT(*) FROM release_candidates",
                         force_primary=True,
                     ),
-                    1,
+                    2,
                 )
                 self.assertEqual(
                     await upgraded.fetch_val(

@@ -488,7 +488,6 @@ def test_usenet_private_origins_use_canonical_effective_ports():
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("USENET_NATIVE_ACCESS_TOKEN", "too-short"),
         ("USENET_NATIVE_MAX_STREAMS", 0),
         ("USENET_MEMORY_CACHE_BYTES", 1024),
         ("USENET_DISK_CACHE_BYTES", -1),

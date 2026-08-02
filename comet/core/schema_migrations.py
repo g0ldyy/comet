@@ -1048,12 +1048,13 @@ async def _migration_media_demand_scrape_coverage(ctx: MigrationContext):
 
 async def _migration_remove_legacy_torrent_storage(ctx: MigrationContext):
     """Finish the homogeneous cutover to transport-neutral release storage."""
+    if not await _table_exists(ctx, "torrents"):
+        return True
+
     await _ensure_managed_table(ctx, RELEASE_CANDIDATES_TABLE_SPEC)
     await _ensure_managed_table(ctx, CANDIDATE_IDENTITIES_TABLE_SPEC)
     await _ensure_managed_table(ctx, CANDIDATE_REDIRECTS_TABLE_SPEC)
     await _ensure_managed_table(ctx, RELEASE_LOCATORS_TABLE_SPEC)
-    if not await _table_exists(ctx, "torrents"):
-        return True
 
     from comet.discovery.torrent_backfill import backfill_legacy_torrents
 
@@ -1161,7 +1162,6 @@ async def _migration_usenet_release_schema(ctx: MigrationContext):
     await _ensure_operator_schema(ctx)
     await _ensure_operations_schema(ctx)
     await _upgrade_download_link_cache(ctx)
-    await _migration_remove_legacy_torrent_storage(ctx)
     return True
 
 
@@ -1197,6 +1197,7 @@ async def _migration_candidate_identity_scope(ctx: MigrationContext):
     await _drop_index_if_exists(ctx, "idx_candidate_identities_candidate_v1")
     for index_sql in _render_index_sql(CANDIDATE_IDENTITIES_TABLE_SPEC):
         await _ensure_index(ctx, index_sql)
+    await _migration_remove_legacy_torrent_storage(ctx)
     return True
 
 
