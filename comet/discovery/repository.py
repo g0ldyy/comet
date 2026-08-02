@@ -1267,7 +1267,7 @@ def _safe_attribute_value(
     value: object,
     depth: int,
     *,
-    unbounded_list: bool = False,
+    unbounded: bool = False,
 ) -> object:
     if depth > 6:
         raise ValueError("candidate attributes are too deeply nested")
@@ -1282,13 +1282,16 @@ def _safe_attribute_value(
             raise ValueError("candidate attribute number is invalid")
         return value
     if isinstance(value, str):
-        if len(value) > 4_096:
+        if not unbounded and len(value) > 4_096:
             raise ValueError("candidate attribute text is invalid")
         return value
     if isinstance(value, (list, tuple)):
-        if not unbounded_list and len(value) > 128:
+        if not unbounded and len(value) > 128:
             raise ValueError("candidate attribute list is too large")
-        return [_safe_attribute_value(item, depth + 1) for item in value]
+        return [
+            _safe_attribute_value(item, depth + 1, unbounded=unbounded)
+            for item in value
+        ]
     if isinstance(value, Mapping):
         if len(value) > 128:
             raise ValueError("candidate attribute object is too large")
@@ -1299,7 +1302,7 @@ def _safe_attribute_value(
             result[key] = _safe_attribute_value(
                 item,
                 depth + 1,
-                unbounded_list=key == "tracker_sources",
+                unbounded=key == "tracker_sources",
             )
         return result
     raise ValueError("candidate attribute value is unsupported")

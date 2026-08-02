@@ -341,7 +341,9 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             info_hash="a" * 40,
             title="Movie.2026.1080p.WEB-DL-GROUP",
         )
-        sources = [f"udp://tracker-{index}" for index in range(256)]
+        sources = ["udp://" + "x" * 8_192] + [
+            f"udp://tracker-{index}" for index in range(256)
+        ]
         await self.database.execute(
             "UPDATE torrents SET sources_json = :sources_json",
             {"sources_json": orjson.dumps(sources).decode()},
