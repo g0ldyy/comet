@@ -133,7 +133,7 @@ class NyaaScraper(TorrentDiscoveryAdapter):
         semaphore = asyncio.Semaphore(settings.NYAA_MAX_CONCURRENT_PAGES)
         results = await gather_concurrently(
             get_all_nyaa_pages(self.session, query, semaphore)
-            for query in request.query_titles
+            for query in request.scoped_query_titles()
         )
         for result in results:
             torrents.extend(result)

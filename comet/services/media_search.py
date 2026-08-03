@@ -621,7 +621,6 @@ def episode_matching_policy(
     search_season: int | None,
     search_episode: int | None,
     *,
-    cached_only: bool,
     has_debrid: bool,
     enable_torrent: bool,
 ) -> tuple[bool, bool]:
@@ -631,11 +630,11 @@ def episode_matching_policy(
         and search_episode is not None
         and media_only_id.startswith("tt")
     )
-    allow_debrid_verified_season_packs = (
-        is_imdb_episode_request and cached_only and has_debrid and not enable_torrent
+    allow_debrid_season_packs = (
+        is_imdb_episode_request and has_debrid and not enable_torrent
     )
     reject_unknown_episode_files = (
-        is_imdb_episode_request and not allow_debrid_verified_season_packs
+        is_imdb_episode_request and not allow_debrid_season_packs
     )
     return is_imdb_episode_request, reject_unknown_episode_files
 
@@ -1232,7 +1231,6 @@ async def _search_media(
         media_only_id,
         search_season,
         search_episode,
-        cached_only=bool(config["cachedOnly"]),
         has_debrid=bool(debrid_entries),
         enable_torrent=enable_torrent,
     )

@@ -24,7 +24,6 @@ from comet.discovery.adapters.newznab import (
     NewznabFeedItem,
     _bounded_decimal,
     _parse_caps,
-    _read_bounded,
     map_newznab_nzb_item,
     newznab_item_published_at_ms,
     newznab_item_size,
@@ -35,7 +34,6 @@ from comet.playback.base import Actionability, ProviderStatus, Readiness
 from comet.usenet.outbound import OutboundUrlError, fetch_http_bytes
 
 _FEED_URL = "https://feed.animetosho.org/api"
-_MAX_FEED_BYTES = 2 * 1024 * 1024
 _MAX_NZB_BYTES = 150 * 1024 * 1024
 _INFO_HASH = re.compile(r"[0-9a-fA-F]{40}$")
 _MAX_SEEDERS = (1 << 31) - 1
@@ -103,7 +101,6 @@ class AnimeToshoAdapter:
         try:
             payload = await self._request(
                 {"t": "caps", "apikey": "0"},
-                maximum=256 * 1024,
             )
             caps = _parse_caps(payload)
             if "search" not in caps.operations:
@@ -224,7 +221,6 @@ class AnimeToshoAdapter:
                     "limit": str(limit),
                     "apikey": "0",
                 },
-                maximum=_MAX_FEED_BYTES,
             )
             items, total = parse_newznab_feed(payload)
             items = items[:limit]
@@ -316,13 +312,10 @@ class AnimeToshoAdapter:
     async def _request(
         self,
         params: dict[str, str],
-        *,
-        maximum: int,
     ) -> bytes:
         return await self._request_url(
             _FEED_URL,
             params=params,
-            maximum=maximum,
             accept="application/xml, text/xml, application/rss+xml",
             operation="animetosho_search",
             request_limit=4,
@@ -332,7 +325,7 @@ class AnimeToshoAdapter:
         self,
         url: str,
         *,
-        maximum: int,
+        maximum: int = _MAX_NZB_BYTES,
         accept: str,
         operation: str,
         request_limit: int,
@@ -372,7 +365,7 @@ class AnimeToshoAdapter:
                 raise NewznabError("provider_unavailable", retryable=True)
             if not is_success_status(response.status):
                 raise NewznabError("provider_response_invalid")
-            return await _read_bounded(response, maximum)
+            return await response.read()
 
 
 def _nzb_token(value: object) -> str | None:

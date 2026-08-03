@@ -5,7 +5,6 @@ from comet.core.models import settings
 from comet.core.provider_json import is_success_status
 from comet.discovery.adapters.newznab import (
     NewznabError,
-    _read_bounded,
     parse_newznab_feed,
 )
 from comet.discovery.torrent_base import (
@@ -69,7 +68,7 @@ class AnimeToshoScraper(TorrentDiscoveryAdapter):
             if not is_success_status(response.status):
                 raise NewznabError("provider_response_invalid")
 
-            content = await _read_bounded(response, 2 * 1024 * 1024)
+            content = await response.read()
             if not content.strip():
                 return [], 0
 
@@ -122,7 +121,8 @@ class AnimeToshoScraper(TorrentDiscoveryAdapter):
     async def scrape(self, request: ScrapeRequest):
         semaphore = asyncio.Semaphore(settings.ANIMETOSHO_MAX_CONCURRENT_PAGES)
         results = await gather_concurrently(
-            self._scrape_query(query, semaphore) for query in request.query_titles
+            self._scrape_query(query, semaphore)
+            for query in request.scoped_query_titles()
         )
         return deduplicate_torrents(
             [torrent for torrents in results for torrent in torrents]

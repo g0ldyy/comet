@@ -22,6 +22,14 @@ class ScrapeRequest(BaseModel):
     def query_titles(self) -> tuple[str, ...]:
         return (self.search_titles or (self.title,))[:MAX_INDEXER_TITLES]
 
+    def scoped_query_titles(self) -> tuple[str, ...]:
+        if self.media_type != "series" or self.season is None:
+            return self.query_titles
+        suffix = f" S{self.season:02d}"
+        if self.episode is not None:
+            suffix += f"E{self.episode:02d}"
+        return tuple(f"{title}{suffix}" for title in self.query_titles)
+
     def title_queries(self, *, include_episode_variants: bool = False):
         queries = []
         for title in self.query_titles:

@@ -12,10 +12,37 @@ from comet.services.media_search import (
     MediaSearchResult,
     MediaSearchStatus,
     background_scrape,
+    episode_matching_policy,
 )
 
 
 class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
+    def test_debrid_only_episode_search_keeps_matching_season_packs(self):
+        self.assertEqual(
+            episode_matching_policy(
+                "series",
+                "tt1234567",
+                3,
+                6,
+                has_debrid=True,
+                enable_torrent=False,
+            ),
+            (True, False),
+        )
+
+    def test_direct_episode_search_requires_an_explicit_episode(self):
+        self.assertEqual(
+            episode_matching_policy(
+                "series",
+                "tt1234567",
+                3,
+                6,
+                has_debrid=True,
+                enable_torrent=True,
+            ),
+            (True, True),
+        )
+
     async def test_inflight_timeout_keeps_the_stremio_retry_notice(self):
         request = Request(
             {

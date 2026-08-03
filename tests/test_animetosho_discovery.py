@@ -66,6 +66,9 @@ class _Response:
     async def __aexit__(self, *_args):
         return False
 
+    async def read(self):
+        return self.body
+
     async def iter_chunked(self, size):
         for offset in range(0, len(self.body), size):
             yield self.body[offset : offset + size]
@@ -125,9 +128,8 @@ class AnimeToshoDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         active = 0
         peak = 0
 
-        async def request(_params, *, maximum):
+        async def request(_params):
             nonlocal active, peak
-            self.assertEqual(maximum, 2 * 1024 * 1024)
             active += 1
             peak = max(peak, active)
             await asyncio.sleep(0)

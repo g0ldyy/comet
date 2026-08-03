@@ -317,6 +317,21 @@ class AnimeMapper:
         if provider is None:
             return None
 
+        if provider == "imdb":
+            parts = media_id.split(":")
+            if len(parts) > 1 and parts[1].isdigit():
+                season = int(parts[1])
+                episode = (
+                    int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+                )
+                kitsu_id = self._get_kitsu_for_imdb_scope(
+                    provider_id,
+                    season,
+                    episode,
+                )
+                if kitsu_id is not None:
+                    provider, provider_id = "kitsu", kitsu_id
+
         query = """
             SELECT i2.provider_id
             FROM anime_ids i1
@@ -329,6 +344,25 @@ class AnimeMapper:
         return await database.fetch_val(
             query, {"provider": provider, "provider_id": provider_id}
         )
+
+    def _get_kitsu_for_imdb_scope(
+        self,
+        imdb_id: str,
+        season: int,
+        episode: int | None,
+    ) -> str | None:
+        candidates = []
+        for kitsu_id in self._imdb_kitsu_mapping_cache.get(imdb_id, ()):
+            mapping = self._kitsu_mapping_cache[kitsu_id]
+            if mapping.get("from_season") != season:
+                continue
+            from_episode = mapping.get("from_episode")
+            start = 1 if from_episode is None else from_episode
+            if episode is None or start <= episode:
+                candidates.append((start, kitsu_id))
+        if not candidates:
+            return None
+        return (min if episode is None else max)(candidates)[1]
 
     def get_kitsu_episode_mapping(self, kitsu_id: str | int):
         if not self.loaded:

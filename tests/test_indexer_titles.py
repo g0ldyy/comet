@@ -256,6 +256,22 @@ class IndexerTitleTests(unittest.TestCase):
             ),
         )
 
+    def test_scoped_queries_avoid_broad_episode_searches(self):
+        request = ScrapeRequest(
+            media_type="series",
+            media_id="tt123:2:3",
+            media_only_id="tt123",
+            title="Canonical",
+            season=2,
+            episode=3,
+            search_titles=("Canonical", "Original"),
+        )
+
+        self.assertEqual(
+            request.scoped_query_titles(),
+            ("Canonical S02E03", "Original S02E03"),
+        )
+
     def test_season_variants_do_not_require_an_episode(self):
         request = ScrapeRequest(
             media_type="series",

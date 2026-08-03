@@ -8,6 +8,34 @@ from comet.services.anime import AnimeMapper
 
 
 class AnimeMapperTests(unittest.IsolatedAsyncioTestCase):
+    async def test_anilist_lookup_uses_imdb_season_mapping(self):
+        mapper = AnimeMapper()
+        mapper.loaded = True
+        mapper._kitsu_mapping_cache = {
+            "first": {
+                "imdb_id": "tt1234567",
+                "from_season": 1,
+                "from_episode": 1,
+            },
+            "third": {
+                "imdb_id": "tt1234567",
+                "from_season": 3,
+                "from_episode": 1,
+            },
+        }
+        mapper._imdb_kitsu_mapping_cache = {"tt1234567": ["first", "third"]}
+
+        with patch(
+            "comet.services.anime.database.fetch_val",
+            new=AsyncMock(return_value="333"),
+        ) as fetch:
+            self.assertEqual(await mapper.get_anilist_id("tt1234567:3:6"), "333")
+
+        self.assertEqual(
+            fetch.await_args.args[1],
+            {"provider": "kitsu", "provider_id": "third"},
+        )
+
     async def test_corrupt_cached_entry_is_not_treated_as_no_aliases(self):
         mapper = AnimeMapper()
         mapper.loaded = True
