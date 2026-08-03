@@ -139,7 +139,7 @@ describe("PlaybackStep", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("hides Debrid library search until an account is configured", () => {
+  it("hides Debrid options until an account is configured", () => {
     render(
       <PlaybackStep
         bootstrap={bootstrap}
@@ -156,5 +156,23 @@ describe("PlaybackStep", () => {
     expect(
       screen.queryByRole("switch", { name: "configure.playback.scrapeLibraries" }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("configure.playback.proxyPassword")).not.toBeInTheDocument();
+  });
+
+  it("shows the proxy password when the proxy is enabled and an account is configured", () => {
+    render(
+      <PlaybackStep
+        bootstrap={bootstrap}
+        debridServices={[]}
+        onDebridServicesChange={vi.fn()}
+        onProxyPasswordChange={vi.fn()}
+        onScrapeChange={vi.fn()}
+        proxyPassword=""
+        scrape={false}
+        showDebridOptions
+      />,
+    );
+
+    expect(screen.getByLabelText("configure.playback.proxyPassword")).toBeInTheDocument();
   });
 });

@@ -292,7 +292,7 @@ export function PlaybackStep({
           />
         </div>
       ) : null}
-      {bootstrap.capabilities.proxy_debrid_stream ? (
+      {bootstrap.capabilities.proxy_debrid_stream && showDebridOptions ? (
         <Input
           autoComplete="off"
           label={t("configure.playback.proxyPassword")}
