@@ -93,7 +93,7 @@ class StremThruAvailabilityTests(unittest.TestCase):
             filenames,
         )
 
-    def test_malformed_file_rejects_the_complete_provider_response(self):
+    def test_malformed_file_does_not_discard_a_valid_sibling(self):
         responses = [
             {
                 "data": {
@@ -114,8 +114,80 @@ class StremThruAvailabilityTests(unittest.TestCase):
             }
         ]
 
-        with self.assertRaisesRegex(ValueError, "instant availability file"):
-            _prepare_cached_torrents(responses, is_offcloud=False)
+        torrents, filenames = _prepare_cached_torrents(
+            responses,
+            is_offcloud=False,
+        )
+
+        self.assertEqual(filenames, ["Movie.mkv"])
+        self.assertEqual(len(torrents), 1)
+
+    def test_store_cache_marker_is_ignored_without_losing_real_files(self):
+        responses = [
+            {
+                "data": {
+                    "items": [
+                        {
+                            "hash": "a" * 40,
+                            "files": [
+                                {
+                                    "index": -1,
+                                    "path": "",
+                                    "name": "",
+                                    "size": 42,
+                                    "source": "dl",
+                                },
+                                {
+                                    "index": 0,
+                                    "path": "/Movie.2026.mkv",
+                                    "name": "Movie.2026.mkv",
+                                    "size": 42,
+                                    "source": "tb",
+                                },
+                            ],
+                        }
+                    ]
+                }
+            }
+        ]
+
+        torrents, filenames = _prepare_cached_torrents(
+            responses,
+            is_offcloud=False,
+        )
+
+        self.assertEqual(filenames, ["Movie.2026.mkv"])
+        self.assertEqual(len(torrents), 1)
+        self.assertEqual(len(torrents[0]["files"]), 1)
+
+    def test_unusable_empty_name_is_ignored(self):
+        responses = [
+            {
+                "data": {
+                    "items": [
+                        {
+                            "hash": "a" * 40,
+                            "files": [
+                                {
+                                    "index": 0,
+                                    "path": "",
+                                    "name": "",
+                                    "size": 42,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        ]
+
+        torrents, filenames = _prepare_cached_torrents(
+            responses,
+            is_offcloud=False,
+        )
+
+        self.assertEqual(torrents, [])
+        self.assertEqual(filenames, [])
 
     def test_parser_failure_is_not_converted_to_a_missing_file(self):
         parsed = object()
@@ -131,6 +203,23 @@ class StremThruAvailabilityTests(unittest.TestCase):
 
 
 class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_malformed_instant_payload_becomes_an_isolated_provider_error(self):
+        client = StremThru(None, None, None, "debridlink:token", "")
+        client.check_premium = AsyncMock()
+        client.get_instant = AsyncMock(
+            return_value={
+                "data": {
+                    "items": {},
+                }
+            }
+        )
+
+        with self.assertRaisesRegex(
+            DebridLinkGenerationError,
+            "Invalid instant availability response",
+        ):
+            await client.get_availability(["a" * 40], {}, {}, {})
+
     async def test_store_json_response_closes_after_complete_payload_read(self):
         response = _ResponseContext({"data": {"value": "complete"}})
         session = _Session(response)

@@ -326,11 +326,17 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         await self.database.disconnect()
         self.temporary_directory.cleanup()
 
-    def coordinator(self, adapter, background_task_adder=None):
+    def coordinator(
+        self,
+        adapter,
+        background_task_adder=None,
+        candidate_normalizer=None,
+    ):
         return SearchCoordinator(
             {self.source_id: adapter},
             database=self.database,
             background_task_adder=background_task_adder,
+            candidate_normalizer=candidate_normalizer,
             hard_timeout=1,
         )
 
@@ -368,6 +374,36 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             fresh.candidates[0].candidate_id,
             _torrent_candidate().candidate_id,
         )
+
+    async def test_oversized_source_is_bounded_before_persistence(self):
+        base = _torrent_candidate()
+        candidates = tuple(
+            replace(
+                base,
+                candidate_id=f"candidate-{index}",
+                title=f"release-{index}",
+                locators=(
+                    replace(
+                        base.locators[0],
+                        locator_id=f"torrent-{index}",
+                        info_hash=f"{index + 1:040x}",
+                    ),
+                ),
+            )
+            for index in range(4)
+        )
+        adapter = FakeAdapter(
+            DiscoveryBatch(
+                candidates=candidates,
+                coverage=frozenset({"bittorrent"}),
+            )
+        )
+
+        with patch("comet.discovery.manager.MAX_DISCOVERY_CANDIDATES", 2):
+            result = await self.search(self.coordinator(adapter))
+
+        self.assertEqual(len(result.candidates), 2)
+        self.assertEqual(len(adapter.contexts), 1)
 
     async def test_stale_branch_returns_immediately_and_schedules_one_refresh(self):
         adapter = FakeAdapter(
@@ -474,6 +510,7 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         started = asyncio.Event()
         release = asyncio.Event()
         lock_attempts = 0
+        normalization_count = 0
         acquire = DistributedLock.acquire
 
         async def observed_acquire(lock, *args, **kwargs):
@@ -494,16 +531,27 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
                 coverage=frozenset({"bittorrent"}),
             )
         )
+
+        async def normalize(candidates):
+            nonlocal normalization_count
+            normalization_count += 1
+            return candidates
+
         with patch.object(DistributedLock, "acquire", new=observed_acquire):
-            first = asyncio.create_task(self.search(self.coordinator(adapter)))
+            coordinator = self.coordinator(
+                adapter,
+                candidate_normalizer=normalize,
+            )
+            first = asyncio.create_task(self.search(coordinator))
             await started.wait()
-            second = asyncio.create_task(self.search(self.coordinator(adapter)))
+            second = asyncio.create_task(self.search(coordinator))
             await asyncio.sleep(0)
             release.set()
             results = await asyncio.gather(first, second)
 
         self.assertEqual(lock_attempts, 1)
         self.assertEqual(len(adapter.contexts), 1)
+        self.assertEqual(normalization_count, 1)
         self.assertTrue(all(len(result.candidates) == 1 for result in results))
 
     async def test_cancelled_waiter_does_not_cancel_shared_local_work(self):
@@ -544,6 +592,7 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         release = asyncio.Event()
         second_lock_attempt = asyncio.Event()
         lock_attempts = 0
+        normalization_count = 0
         acquire = DistributedLock.acquire
 
         async def bypass_local(_key, factory):
@@ -569,19 +618,34 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
                 coverage=frozenset({"bittorrent"}),
             )
         )
+
+        async def normalize(candidates):
+            nonlocal normalization_count
+            normalization_count += 1
+            return candidates
+
         with (
             patch.object(discovery_manager._local_singleflight, "run", bypass_local),
             patch.object(DistributedLock, "acquire", new=observed_acquire),
         ):
-            first = asyncio.create_task(self.search(self.coordinator(adapter)))
+            first = asyncio.create_task(
+                self.search(
+                    self.coordinator(adapter, candidate_normalizer=normalize)
+                )
+            )
             await started.wait()
-            second = asyncio.create_task(self.search(self.coordinator(adapter)))
+            second = asyncio.create_task(
+                self.search(
+                    self.coordinator(adapter, candidate_normalizer=normalize)
+                )
+            )
             await second_lock_attempt.wait()
             release.set()
             results = await asyncio.gather(first, second)
 
         self.assertEqual(lock_attempts, 2)
         self.assertEqual(len(adapter.contexts), 1)
+        self.assertEqual(normalization_count, 1)
         self.assertTrue(all(len(result.candidates) == 1 for result in results))
 
     async def test_concurrent_failure_does_not_cascade_retries(self):

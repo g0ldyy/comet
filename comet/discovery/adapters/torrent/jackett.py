@@ -168,12 +168,15 @@ class JackettScraper(TorrentDiscoveryAdapter):
 
         for result_batch in batched(torrent_results, _REQUEST_BATCH_SIZE):
             processed_torrents = await gather_concurrently(
-                self.process_torrent(
-                    result,
-                    request.media_only_id,
-                    request.season,
-                )
-                for result in result_batch
+                (
+                    self.process_torrent(
+                        result,
+                        request.media_only_id,
+                        request.season,
+                    )
+                    for result in result_batch
+                ),
+                preserve_successes=True,
             )
             for sublist in processed_torrents:
                 torrents.extend(sublist)

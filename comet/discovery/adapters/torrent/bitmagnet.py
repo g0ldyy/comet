@@ -28,18 +28,24 @@ class BitmagnetScraper(TorrentDiscoveryAdapter):
                 attr_name = attr.get("name")
                 attr_value = attr.get("value")
                 if attr_name == "size":
-                    size = int(attr_value)
+                    try:
+                        size = int(attr_value)
+                    except (TypeError, ValueError):
+                        size = None
                 elif attr_name == "infohash":
                     info_hash = attr_value
                 elif attr_name == "seeders":
-                    seeders = int(attr_value)
+                    try:
+                        seeders = int(attr_value)
+                    except (TypeError, ValueError):
+                        seeders = None
             if (
                 not isinstance(title, str)
                 or not title
                 or not isinstance(info_hash, str)
                 or not info_hash
             ):
-                raise ValueError("Bitmagnet result is invalid")
+                continue
             torrents.append(
                 {
                     "title": title,

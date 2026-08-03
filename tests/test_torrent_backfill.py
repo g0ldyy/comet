@@ -160,7 +160,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         candidates = await self.database.fetch_all(
             """
             SELECT media_id, scope, season_norm, episode_norm, transport,
-                   release_key, attributes_json
+                   release_key, parsed_json, attributes_json
             FROM release_candidates
             ORDER BY media_id
             """,
@@ -205,6 +205,9 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [row["release_key"] for row in candidates],
             ["btih:" + "a" * 40, "btih:" + "b" * 40],
+        )
+        self.assertTrue(
+            all(orjson.loads(row["parsed_json"])["raw_title"] for row in candidates)
         )
         self.assertEqual(len(locators), 3)
         self.assertTrue(all(row["locator_kind"] == "torrent" for row in locators))

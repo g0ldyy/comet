@@ -281,7 +281,7 @@ class StreamAddonScraperTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([torrent["fileIndex"] for torrent in torrents], [0, 0])
 
-    async def test_seadex_malformed_result_fails_the_source_batch(self):
+    async def test_seadex_malformed_result_is_ignored(self):
         scraper = SeaDexScraper(None, _Session({"items": [None]}))
         with (
             patch(
@@ -292,9 +292,10 @@ class StreamAddonScraperTests(unittest.IsolatedAsyncioTestCase):
                 "comet.discovery.adapters.torrent.seadex.anime_mapper.get_anilist_id",
                 new=AsyncMock(return_value=123),
             ),
-            self.assertRaisesRegex(ValueError, "SeaDex result"),
         ):
-            await scraper.scrape(REQUEST)
+            torrents = await scraper.scrape(REQUEST)
+
+        self.assertEqual(torrents, [])
 
     async def test_debridio_parses_valid_streams(self):
         payload = {

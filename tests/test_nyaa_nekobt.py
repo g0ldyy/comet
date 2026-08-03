@@ -47,21 +47,25 @@ def _nyaa_row(title, info_hash, *, size="1.5 GiB", seeders="12"):
 
 
 class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
-    def test_nyaa_rejects_a_malformed_candidate_row(self):
+    def test_nyaa_malformed_candidate_does_not_discard_valid_siblings(self):
         malformed = f"""
             <tr>
                 <td><a href="/view/2" title="Broken.Movie">Broken.Movie</a></td>
                 <td><a href="magnet:?xt=urn:btih:{"b" * 40}">magnet</a></td>
             </tr>
         """
-        with self.assertRaisesRegex(ValueError, "incomplete"):
-            extract_torrent_data(
-                _nyaa_row("First &amp; Movie", "a" * 40)
-                + malformed
-                + _nyaa_row("Second.Movie", "c" * 40, size="2 GiB", seeders="3")
-            )
+        torrents = extract_torrent_data(
+            _nyaa_row("First &amp; Movie", "a" * 40)
+            + malformed
+            + _nyaa_row("Second.Movie", "c" * 40, size="2 GiB", seeders="3")
+        )
 
-    async def test_nekobt_rejects_a_malformed_result(self):
+        self.assertEqual(
+            [torrent["infoHash"] for torrent in torrents],
+            ["a" * 40, "c" * 40],
+        )
+
+    async def test_nekobt_malformed_results_do_not_discard_valid_siblings(self):
         payload = {
             "error": False,
             "data": {
@@ -90,8 +94,14 @@ class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
         }
         scraper = NekoBTScraper(None, _Session(payload))
 
-        with self.assertRaisesRegex(ValueError, "not an object"):
-            await scraper._fetch_page({})
+        torrents, more, media_id = await scraper._fetch_page({})
+
+        self.assertEqual(
+            [torrent["infoHash"] for torrent in torrents],
+            ["a" * 40, "c" * 40],
+        )
+        self.assertFalse(more)
+        self.assertIsNone(media_id)
 
     async def test_nekobt_propagates_transport_failures(self):
         scraper = NekoBTScraper(None, _FailingSession())

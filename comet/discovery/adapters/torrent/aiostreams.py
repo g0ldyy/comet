@@ -2,7 +2,7 @@ import base64
 from functools import cache
 
 from comet.core.provider_json import is_success_status
-from comet.discovery.torrent_base import TorrentDiscoveryAdapter
+from comet.discovery.torrent_base import TorrentDiscoveryAdapter, parse_valid_items
 from comet.discovery.torrent_models import ScrapeRequest
 
 
@@ -76,4 +76,4 @@ class AiostreamsScraper(TorrentDiscoveryAdapter):
         streams = results["data"].get("results")
         if not isinstance(streams, list):
             raise ValueError("AIOStreams response is invalid")
-        return [self._parse_stream(torrent) for torrent in streams]
+        return parse_valid_items(streams, self._parse_stream)

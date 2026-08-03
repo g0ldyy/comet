@@ -2,6 +2,8 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from RTN import ParsedData
+
 from comet.core.scrape import ScrapeContext
 from comet.core.sources import (
     MAX_SIGNED_BIGINT,
@@ -23,6 +25,7 @@ from comet.services.orchestration import (
     TorrentResultAccumulator,
     settings,
     torrent_adapter_registry,
+    torrent_update_queue,
 )
 
 
@@ -151,6 +154,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
                     "size": 1000,
                     "tracker": "TorBox",
                     "sources": [],
+                    "parsed": None,
                 }
             ],
         )
@@ -219,7 +223,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         )
         await manager.filter_manager([])
 
-    async def test_filter_manager_exposes_invalid_scraper_results(self):
+    async def test_filter_manager_ignores_invalid_scraper_sibling(self):
         manager = TorrentResultAccumulator(
             media_type="movie",
             media_full_id="tt123",
@@ -232,8 +236,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             aliases={},
             remove_adult_content=False,
         )
-        with self.assertRaises(TypeError):
-            await manager.filter_manager([None])
+        await manager.filter_manager([None])
 
         self.assertEqual(manager.ready_to_cache, [])
 
@@ -280,7 +283,8 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         cache_started = asyncio.Event()
         release_cache = asyncio.Event()
 
-        async def cache_torrents():
+        async def cache_torrents(*, defer=True):
+            self.assertTrue(defer)
             cache_started.set()
             await release_cache.wait()
 
@@ -294,6 +298,46 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(scrape.done())
             release_cache.set()
             await scrape
+
+    async def test_live_torrent_cache_write_is_registered_after_response(self):
+        scheduled = []
+        manager = TorrentResultAccumulator(
+            media_type="movie",
+            media_full_id="tt123",
+            media_only_id="tt123",
+            title="Title",
+            year=2024,
+            year_end=None,
+            season=None,
+            episode=None,
+            aliases={},
+            remove_adult_content=False,
+            cache_task_adder=lambda *args: scheduled.append(args),
+        )
+        manager.ready_to_cache = [
+            {
+                "infoHash": "a" * 40,
+                "fileIndex": 0,
+                "title": "Title.2024.mkv",
+                "size": 100,
+                "seeders": 1,
+                "tracker": "test",
+                "sources": [],
+                "parsed": ParsedData(raw_title="Title.2024.mkv"),
+            }
+        ]
+
+        with patch.object(
+            torrent_update_queue,
+            "add_torrent_infos",
+            new=AsyncMock(),
+        ) as persist:
+            await manager.cache_torrents()
+
+        persist.assert_not_awaited()
+        self.assertEqual(len(scheduled), 1)
+        self.assertIs(scheduled[0][0], persist)
+        self.assertEqual(scheduled[0][2], "tt123")
 
     async def test_cache_media_id_reads_start_concurrently(self):
         manager = TorrentResultAccumulator(
@@ -327,7 +371,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(primary_started.is_set())
         self.assertTrue(alternate_started.is_set())
 
-    async def test_corrupt_cached_parse_fails_the_cache_read(self):
+    async def test_corrupt_cached_parse_does_not_discard_valid_sibling(self):
         manager = TorrentResultAccumulator(
             media_type="movie",
             media_full_id="tt123",
@@ -364,11 +408,43 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
 
-        with (
-            patch.object(manager, "_fetch_cached_rows", return_value=rows),
-            self.assertRaises(ValueError),
-        ):
+        with patch.object(manager, "_fetch_cached_rows", return_value=rows):
             await manager.get_cached_torrents()
+
+        self.assertEqual(set(manager.torrents), {"b" * 40})
+
+    async def test_empty_cached_parse_is_an_absent_selection(self):
+        manager = TorrentResultAccumulator(
+            media_type="movie",
+            media_full_id="tt123",
+            media_only_id="tt123",
+            title="Title",
+            year=2024,
+            year_end=None,
+            season=None,
+            episode=None,
+            aliases={},
+            remove_adult_content=False,
+        )
+        rows = [
+            {
+                "file_index": None,
+                "seeders": 1,
+                "size": 100,
+                "tracker": "cache",
+                "sources_json": "[]",
+                "episode": None,
+                "updated_at": 1,
+                "info_hash": "a" * 40,
+                "title": "Unparsed.mkv",
+                "parsed_json": "{}",
+            }
+        ]
+
+        with patch.object(manager, "_fetch_cached_rows", return_value=rows):
+            await manager.get_cached_torrents()
+
+        self.assertEqual(manager.torrents, {})
 
     async def test_series_cache_projects_episode_children_without_losing_pack_title(
         self,

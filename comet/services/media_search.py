@@ -59,7 +59,11 @@ from comet.services.debrid_account_scraper import (
     get_account_torrents_for_media,
     schedule_account_snapshot_refresh,
 )
-from comet.services.filtering import filter_release_candidates
+from comet.services.filtering import (
+    apply_release_candidate_policy,
+    normalize_release_candidates,
+    release_normalization_fingerprint,
+)
 from comet.services.orchestration import TorrentResultAccumulator
 from comet.services.ranking import sort_candidates
 from comet.usenet.access import NativeAccessAuthorizer
@@ -247,7 +251,10 @@ async def _search_configured_sources(
     season: int | None,
     episode: int | None,
     title_aliases: tuple[str, ...] = (),
+    title: str | None = None,
+    aliases: dict[str, list[str]] | None = None,
     year: int | None = None,
+    year_end: int | None = None,
     air_date: str | None = None,
     absolute_episode: int | None = None,
     search_scope: str | None = None,
@@ -342,10 +349,35 @@ async def _search_configured_sources(
         if codec is not None
         else None
     )
+    aliases = {} if aliases is None else aliases
+
+    async def normalize_candidates(candidates: tuple[ReleaseCandidate, ...]):
+        return await normalize_release_candidates(
+            candidates,
+            title=title,
+            year=year,
+            year_end=year_end,
+            media_type=media_type,
+            aliases=aliases,
+            content_id=media_id,
+        )
+
+    normalization_fingerprint = (
+        release_normalization_fingerprint(
+            title=title,
+            year=year,
+            year_end=year_end,
+            media_type=media_type,
+            aliases=aliases,
+        )
+        if title is not None
+        else None
+    )
     result = await SearchCoordinator(
         adapters,
         database=database if account_partition is not None else None,
         background_task_adder=add_background_task,
+        candidate_normalizer=(normalize_candidates if title is not None else None),
     ).search(
         MediaQuery(
             media_id,
@@ -353,10 +385,13 @@ async def _search_configured_sources(
             season,
             episode,
             title_aliases=title_aliases,
+            title=title,
             year=year,
+            year_end=year_end,
             air_date=air_date,
             absolute_episode=absolute_episode,
             search_scope=search_scope,
+            normalization_fingerprint=normalization_fingerprint,
         ),
         plan,
         account_partition=account_partition,
@@ -377,30 +412,38 @@ async def _filter_and_rank_discovery_candidates(
     candidates: tuple,
     *,
     title: str,
-    year: int,
+    year: int | None,
     year_end: int | None,
     media_type: str,
-    aliases: dict,
+    aliases: dict[str, list[str]],
+    content_id: str,
     remove_adult_content: bool,
     config: Mapping[str, Any],
-    content_id: str | None = None,
 ) -> tuple:
-    """Run non-torrent releases through the shared RTN filter and rank rules."""
+    """Apply request policy and ranking to normalized discovery candidates."""
     if not candidates:
         return ()
-    loop = asyncio.get_running_loop()
-    filtered = await loop.run_in_executor(
-        get_executor(),
-        filter_release_candidates,
-        candidates,
-        title,
-        year,
-        year_end,
-        media_type,
-        aliases,
-        remove_adult_content,
-        content_id,
+    legacy_candidates = tuple(
+        candidate for candidate in candidates if candidate.parsed is None
     )
+    if legacy_candidates:
+        normalized_legacy = await normalize_release_candidates(
+            legacy_candidates,
+            title=title,
+            year=year,
+            year_end=year_end,
+            media_type=media_type,
+            aliases=aliases,
+            content_id=content_id,
+        )
+        candidates = tuple(
+            candidate for candidate in candidates if candidate.parsed is not None
+        ) + normalized_legacy
+    filtered = apply_release_candidate_policy(
+        candidates,
+        remove_adult_content=remove_adult_content,
+    )
+    loop = asyncio.get_running_loop()
     ranked = await loop.run_in_executor(
         get_executor(),
         sort_candidates,
@@ -536,12 +579,12 @@ async def _prepare_discovery_only_view(
     config: Mapping[str, Any],
     discovery_result: DiscoveryResult,
     *,
-    title: str,
     content_id: str,
-    year: int,
+    title: str,
+    year: int | None,
     year_end: int | None,
+    aliases: dict[str, list[str]],
     media_type: str,
-    aliases: dict,
     remove_adult_content: bool,
     season: int | None,
     episode: int | None,
@@ -556,9 +599,9 @@ async def _prepare_discovery_only_view(
         year_end=year_end,
         media_type=media_type,
         aliases=aliases,
+        content_id=content_id,
         remove_adult_content=remove_adult_content,
         config=config,
-        content_id=content_id,
     )
     return await _prepare_provider_view(
         config,
@@ -789,6 +832,7 @@ async def get_and_cache_multi_service_availability(
     ip: str,
     target_air_date: str | None = None,
     known_cache_status: dict | None = None,
+    add_background_task: BackgroundTaskAdder | None = None,
 ):
     service_cache_status = defaultdict(dict)
     errors = {}
@@ -839,6 +883,7 @@ async def get_and_cache_multi_service_availability(
                     episode,
                     media_scope,
                     target_air_date=target_air_date,
+                    add_background_task=add_background_task,
                 )
                 return cached_hashes, torrent_updates, None
             except DebridAuthError as error:
@@ -1113,7 +1158,10 @@ async def _search_media(
             season=search_season,
             episode=search_episode,
             title_aliases=_discovery_title_aliases(title, aliases),
+            title=title,
+            aliases=aliases,
             year=year,
+            year_end=year_end,
             air_date=None,
             absolute_episode=search_episode if is_kitsu else None,
             search_scope=presentation_scope,
@@ -1135,12 +1183,12 @@ async def _search_media(
         ) = await _prepare_discovery_only_view(
             config,
             discovery_result,
-            title=title,
             content_id=media_id,
+            title=title,
             year=year,
             year_end=year_end,
-            media_type=media_type,
             aliases=aliases,
+            media_type=media_type,
             remove_adult_content=remove_adult_content,
             season=search_season,
             episode=search_episode,
@@ -1215,6 +1263,7 @@ async def _search_media(
         target_air_date=target_air_date,
         reject_unknown_episode_files=reject_unknown_episode_files,
         media_scope=media_scope,
+        cache_task_adder=add_background_task,
     )
 
     await torrent_manager.get_cached_torrents()
@@ -1269,9 +1318,9 @@ async def _search_media(
         year_end=year_end,
         media_type=media_type,
         aliases=aliases,
+        content_id=media_id,
         remove_adult_content=remove_adult_content,
         config=config,
-        content_id=media_id,
     )
     await torrent_manager.ingest_release_candidates(
         "configured-discovery", discovery_result.candidates
@@ -1372,6 +1421,7 @@ async def _search_media(
             ip,
             target_air_date=target_air_date,
             known_cache_status=service_cache_status,
+            add_background_task=add_background_task,
         )
         merge_service_cache_status(service_cache_status, fresh_service_cache_status)
 

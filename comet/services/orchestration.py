@@ -28,7 +28,11 @@ from comet.discovery.torrent_repository import (
 )
 from comet.observability import current_request_id
 from comet.observability.logging import log
-from comet.services.filtering import filter_release_records
+from comet.services.filtering import (
+    filter_release_records,
+    normalize_release_candidates,
+    release_normalization_fingerprint,
+)
 from comet.services.ranking import rank_release_records
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.languages import select_indexer_titles
@@ -61,6 +65,7 @@ class TorrentResultAccumulator:
         target_air_date: str | None = None,
         reject_unknown_episode_files: bool = False,
         media_scope: MediaScope | None = None,
+        cache_task_adder=None,
     ):
         self.media_type = media_type
         self.media_id = media_full_id
@@ -92,6 +97,7 @@ class TorrentResultAccumulator:
         self.ranked_torrents = {}
         self.primary_cached = False
         self.live_result_timestamp = time.time()
+        self.cache_task_adder = cache_task_adder
 
     def _matches_requested_scope(
         self,
@@ -168,6 +174,7 @@ class TorrentResultAccumulator:
             adapters,
             hard_timeout=hard_timeout,
             database=database,
+            candidate_normalizer=self._normalize_candidates,
         ).search(
             MediaQuery(
                 media_id=self.media_only_id,
@@ -180,6 +187,13 @@ class TorrentResultAccumulator:
                 title=self.title,
                 year_end=self.year_end,
                 search_titles=request.query_titles,
+                normalization_fingerprint=release_normalization_fingerprint(
+                    title=self.title,
+                    year=self.year,
+                    year_end=self.year_end,
+                    media_type=self.media_type,
+                    aliases=self.aliases,
+                ),
             ),
             plan,
             account_partition=SERVER_TORRENT_ACCOUNT_PARTITION,
@@ -194,10 +208,24 @@ class TorrentResultAccumulator:
             ],
         )
 
-        await self.cache_torrents()
+        await self.cache_torrents(defer=context is ScrapeContext.LIVE)
 
         self._publish_ready_torrents(self.ready_to_cache)
         return discovery_result
+
+    async def _normalize_candidates(
+        self,
+        candidates: tuple[ReleaseCandidate, ...],
+    ) -> tuple[ReleaseCandidate, ...]:
+        return await normalize_release_candidates(
+            candidates,
+            title=self.title,
+            year=self.year,
+            year_end=self.year_end,
+            media_type=self.media_type,
+            aliases=self.aliases,
+            content_id=self.media_id,
+        )
 
     def _publish_ready_torrents(self, torrents: list[dict]) -> None:
         """Expose already-filtered releases through the legacy torrent view."""
@@ -254,6 +282,7 @@ class TorrentResultAccumulator:
             "size": candidate.size,
             "tracker": candidate.source or source_id,
             "sources": list(tracker_sources),
+            "parsed": candidate.parsed,
         }
 
     async def _fetch_cached_rows(self, media_id: str):
@@ -280,7 +309,8 @@ class TorrentResultAccumulator:
         if rows:
             best_rows = {}
 
-            def row_priority(row):
+            def row_priority(item):
+                row, _parsed = item
                 preferred_scope = (
                     row["episode"] is None
                     if self.media_scope.is_aggregate
@@ -300,17 +330,18 @@ class TorrentResultAccumulator:
                 )
 
             for row in rows:
+                parsed_data = load_cached_parsed(row["parsed_json"])
+                if parsed_data is None:
+                    continue
                 info_hash = row["info_hash"]
                 current = best_rows.get(info_hash)
-                if current is None or row_priority(row) > row_priority(current):
-                    best_rows[info_hash] = row
+                item = (row, parsed_data)
+                if current is None or row_priority(item) > row_priority(current):
+                    best_rows[info_hash] = item
 
             rows = list(best_rows.values())
 
-        for row in rows:
-            parsed_data = load_cached_parsed(row["parsed_json"])
-            if parsed_data is None:
-                continue
+        for row, parsed_data in rows:
             ensure_multi_language(parsed_data)
 
             target_season = self.search_season
@@ -334,13 +365,19 @@ class TorrentResultAccumulator:
                 continue
 
             info_hash = row["info_hash"]
+            try:
+                sources = orjson.loads(row["sources_json"])
+            except (orjson.JSONDecodeError, TypeError):
+                sources = []
+            if not isinstance(sources, list):
+                sources = []
             self.torrents[info_hash] = {
                 "fileIndex": row["file_index"],
                 "title": row["title"],
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": orjson.loads(row["sources_json"]),
+                "sources": [source for source in sources if isinstance(source, str)],
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
@@ -384,13 +421,28 @@ class TorrentResultAccumulator:
                 }
             )
 
-    async def cache_torrents(self, torrents: list[dict] | None = None):
+    async def cache_torrents(
+        self,
+        torrents: list[dict] | None = None,
+        *,
+        defer: bool = True,
+    ):
         file_infos = []
         for torrent in self.ready_to_cache if torrents is None else torrents:
             self._append_cache_file_infos(file_infos, torrent)
 
         if file_infos:
-            await torrent_update_queue.add_torrent_infos(file_infos, self.media_only_id)
+            if defer and self.cache_task_adder is not None:
+                self.cache_task_adder(
+                    torrent_update_queue.add_torrent_infos,
+                    file_infos,
+                    self.media_only_id,
+                )
+            else:
+                await torrent_update_queue.add_torrent_infos(
+                    file_infos,
+                    self.media_only_id,
+                )
 
     async def filter_manager(
         self,
@@ -399,17 +451,35 @@ class TorrentResultAccumulator:
         if len(torrents) == 0:
             return
 
-        new_torrents = [
-            torrent
-            for torrent in torrents
-            if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
-        ]
-
-        self.seen_hashes.update(
-            (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
-        )
+        new_torrents = []
+        for torrent in torrents:
+            if not isinstance(torrent, dict):
+                continue
+            info_hash = torrent.get("infoHash")
+            title = torrent.get("title")
+            if not isinstance(info_hash, str) or not isinstance(title, str):
+                continue
+            identity = (info_hash, title)
+            if identity in self.seen_hashes:
+                continue
+            self.seen_hashes.add(identity)
+            new_torrents.append(torrent)
 
         if not new_torrents:
+            return
+
+        unparsed_torrents = []
+        for torrent in new_torrents:
+            parsed = torrent.get("parsed")
+            if not isinstance(parsed, ParsedData):
+                unparsed_torrents.append(torrent)
+                continue
+            parsed = parsed.model_copy(deep=True)
+            if self.remove_adult_content and parsed.adult:
+                continue
+            self.ready_to_cache.append({**torrent, "parsed": parsed})
+
+        if not unparsed_torrents:
             return
 
         loop = asyncio.get_running_loop()
@@ -418,7 +488,7 @@ class TorrentResultAccumulator:
             loop.run_in_executor(
                 get_executor(),
                 filter_release_records,
-                new_torrents[i : i + chunk_size],
+                unparsed_torrents[i : i + chunk_size],
                 self.title,
                 self.year,
                 self.year_end,
@@ -427,7 +497,7 @@ class TorrentResultAccumulator:
                 self.remove_adult_content,
                 self.media_id,
             )
-            for i in range(0, len(new_torrents), chunk_size)
+            for i in range(0, len(unparsed_torrents), chunk_size)
         ]
         results = await asyncio.gather(*tasks)
         for result in results:

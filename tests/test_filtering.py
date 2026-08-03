@@ -9,6 +9,7 @@ from comet.core.sources import (
     NzbArtifactRef,
     ReleaseCandidate,
     ReleaseScope,
+    TorrentLocator,
     TransportKind,
 )
 from comet.services.filtering import (
@@ -46,6 +47,33 @@ class AliasFilteringTests(unittest.TestCase):
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0].candidate_id, candidate.candidate_id)
         self.assertEqual(filtered[0].parsed.resolution, "1080p")
+
+    def test_torrent_candidate_carries_its_shared_parse_into_the_locator(self):
+        candidate = ReleaseCandidate(
+            candidate_id="candidate",
+            media_id="tt123",
+            scope=ReleaseScope.MOVIE,
+            transport=TransportKind.BITTORRENT,
+            title="The.Matrix.1999.1080p.WEB-DL.x264",
+            locators=(
+                TorrentLocator(
+                    locator_id="locator",
+                    kind=LocatorKind.TORRENT,
+                    policy=LocatorPolicy(frozenset({"direct_torrent"})),
+                    info_hash="a" * 40,
+                ),
+            ),
+        )
+
+        filtered = filter_release_candidates(
+            (candidate,), "The Matrix", 1999, None, "movie", {}, False
+        )
+
+        self.assertEqual(filtered[0].parsed.resolution, "1080p")
+        self.assertIn(
+            '"raw_title":"The.Matrix.1999.1080p.WEB-DL.x264"',
+            filtered[0].locators[0].selection_parsed_json,
+        )
 
     def test_cached_parse_clone_detaches_mutated_languages(self):
         cached = parse("Movie.2024.MULTI.FRENCH.1080p.WEB-DL")

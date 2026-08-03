@@ -201,6 +201,29 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
             hashlib.sha256(b"one").hexdigest(),
         )
 
+    async def test_corrupt_cached_locator_does_not_discard_valid_sibling(self):
+        query = MediaQuery("tt1234568", "movie")
+        first = self.candidate(query.media_id, "first")
+        second = self.candidate(query.media_id, "second")
+        stored = await self.persist(query, (first, second), now=1)
+        await self.database.execute(
+            """
+            UPDATE release_locators
+            SET locator_json = '{}'
+            WHERE locator_id = :locator_id
+            """,
+            {"locator_id": stored[first.candidate_id].locator_ids["nzb1:locator:first"]},
+        )
+
+        loaded = await self.repository.load_active(
+            query,
+            self.branch_fingerprint,
+            owner_configuration_partition=self.owner_partition,
+            now=2,
+        )
+
+        self.assertEqual([candidate.title for candidate in loaded], [second.title])
+
     async def test_candidate_locators_are_unbounded_and_chunked(self):
         query = MediaQuery("tt1234569", "movie")
         info_hash = "a" * 40

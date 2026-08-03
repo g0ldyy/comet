@@ -151,7 +151,7 @@ class SearchCoverageRepository:
 def query_fingerprint(query: MediaQuery) -> str:
     values = _query_values(query)
     return hashlib.sha256(
-        b"comet-discovery-query-v1\0"
+        b"comet-discovery-query-v2\0"
         + deterministic_cbor(
             [
                 values["media_id"],
@@ -164,6 +164,7 @@ def query_fingerprint(query: MediaQuery) -> str:
                 query.air_date,
                 query.absolute_episode,
                 query.requested_language,
+                query.normalization_fingerprint,
             ]
         )
     ).hexdigest()
@@ -227,6 +228,11 @@ def _query_values(query: MediaQuery) -> dict[str, object]:
         or _DATE_RE.fullmatch(query.air_date) is None
     ):
         raise ValueError("media query air date is invalid")
+    if query.normalization_fingerprint is not None and (
+        not isinstance(query.normalization_fingerprint, str)
+        or _FINGERPRINT_RE.fullmatch(query.normalization_fingerprint) is None
+    ):
+        raise ValueError("media query normalization fingerprint is invalid")
     if (
         not isinstance(query.title_aliases, tuple)
         or len(query.title_aliases) > MAX_TITLE_ALIASES

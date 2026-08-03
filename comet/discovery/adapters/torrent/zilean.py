@@ -3,6 +3,7 @@ from comet.discovery.torrent_base import (
     TorrentDiscoveryAdapter,
     deduplicate_torrents,
     gather_concurrently,
+    parse_valid_items,
 )
 from comet.discovery.torrent_models import ScrapeRequest
 
@@ -63,6 +64,6 @@ class ZileanScraper(TorrentDiscoveryAdapter):
             fetch(title) for title in request.query_titles
         )
         for data in responses:
-            torrents.extend(self._parse_result(result) for result in data)
+            torrents.extend(parse_valid_items(data, self._parse_result))
 
         return deduplicate_torrents(torrents)

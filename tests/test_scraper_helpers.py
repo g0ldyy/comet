@@ -6,7 +6,22 @@ from comet.utils.parsing import associate_urls_credentials
 
 
 class ScraperTaskTests(unittest.IsolatedAsyncioTestCase):
-    async def test_gather_propagates_a_partial_failure(self):
+    async def test_gather_preserves_successful_sibling_on_partial_failure(self):
+        async def succeed():
+            return "result"
+
+        async def fail():
+            raise RuntimeError("transport failed")
+
+        self.assertEqual(
+            await gather_concurrently(
+                (succeed(), fail()),
+                preserve_successes=True,
+            ),
+            ["result"],
+        )
+
+    async def test_gather_propagates_partial_failure_when_coverage_is_incomplete(self):
         async def succeed():
             return "result"
 

@@ -124,13 +124,13 @@ def _prepare_cached_torrents(responses, *, is_offcloud: bool):
 
         for torrent in items:
             if not isinstance(torrent, dict):
-                raise ValueError("invalid instant availability item")
+                continue
             info_hash = torrent.get("hash")
             if (
                 not isinstance(info_hash, str)
                 or _INFO_HASH.fullmatch(info_hash) is None
             ):
-                raise ValueError("invalid instant availability item")
+                continue
             if info_hash in seen_hashes:
                 continue
 
@@ -141,24 +141,29 @@ def _prepare_cached_torrents(responses, *, is_offcloud: bool):
                     not isinstance(torrent_files, list)
                     or len(torrent_files) > _MAX_MAGNET_FILES
                 ):
-                    raise ValueError("invalid instant availability files")
+                    continue
 
                 for file in torrent_files:
                     if not isinstance(file, dict):
-                        raise ValueError("invalid instant availability file")
+                        continue
                     name = file.get("name")
                     index = file.get("index")
                     size = file.get("size")
                     if (
-                        not _bounded_text(name, 2_048)
-                        or isinstance(index, bool)
+                        isinstance(index, bool)
                         or not isinstance(index, int)
                         or not -1 <= index <= MAX_SIGNED_BIGINT
                         or isinstance(size, bool)
                         or not isinstance(size, int)
                         or not -1 <= size <= MAX_SIGNED_BIGINT
                     ):
-                        raise ValueError("invalid instant availability file")
+                        continue
+                    if name == "" and index == -1 and file.get("path") == "":
+                        # StremThru can include a store-specific cache marker next
+                        # to richer file metadata learned from another source.
+                        continue
+                    if not _bounded_text(name, 2_048):
+                        continue
                     filename = name.rsplit("/", 1)[-1]
                     if not is_video(filename):
                         continue
@@ -496,10 +501,16 @@ class StremThru:
         responses = await asyncio.gather(*tasks)
 
         is_offcloud = self.store_name == "offcloud"
-        cached_torrents, filenames_to_parse = _prepare_cached_torrents(
-            responses,
-            is_offcloud=is_offcloud,
-        )
+        try:
+            cached_torrents, filenames_to_parse = _prepare_cached_torrents(
+                responses,
+                is_offcloud=is_offcloud,
+            )
+        except ValueError:
+            raise DebridLinkGenerationError(
+                self.store_name,
+                f"{self.store_name}: Invalid instant availability response.",
+            ) from None
         requested_series_id, requested_season, requested_episode = (
             self._requested_episode_scope()
         )

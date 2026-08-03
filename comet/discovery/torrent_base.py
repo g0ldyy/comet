@@ -1,7 +1,7 @@
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import TypeVar
 
 from comet.core.sources import TransportKind
@@ -37,9 +37,36 @@ def deduplicate_torrents(torrents: list[dict]) -> list[dict]:
     return unique
 
 
-async def gather_concurrently[T](tasks: Iterable[Awaitable[T]]) -> list[T]:
-    """Run independent tasks concurrently and propagate failures."""
-    return list(await asyncio.gather(*tasks))
+async def gather_concurrently[T](
+    tasks: Iterable[Awaitable[T]],
+    *,
+    preserve_successes: bool = False,
+) -> list[T]:
+    """Run siblings concurrently, optionally keeping partial processed results."""
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    successful = []
+    failures = []
+    for result in results:
+        if isinstance(result, asyncio.CancelledError):
+            raise result
+        if isinstance(result, Exception):
+            failures.append(result)
+        else:
+            successful.append(result)
+    if failures and (not preserve_successes or not successful):
+        raise failures[0]
+    return successful
+
+
+def parse_valid_items[T, R](items: Iterable[T], parser: Callable[[T], R]) -> list[R]:
+    """Parse provider siblings independently and discard only malformed items."""
+    parsed = []
+    for item in items:
+        try:
+            parsed.append(parser(item))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+    return parsed
 
 
 class TorrentDiscoveryAdapter(ABC):
@@ -105,12 +132,15 @@ class TorrentDiscoveryAdapter(ABC):
                 time.perf_counter() - started_at,
                 result_count,
             )
-        candidates = tuple(
-            torrent_candidate_from_scrape_result(result, query)
-            for result in raw_results
-        )
+        candidates = []
+        for result in raw_results:
+            try:
+                candidate = torrent_candidate_from_scrape_result(result, query)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                continue
+            candidates.append(candidate)
         return DiscoveryBatch(
-            candidates,
+            tuple(candidates),
             coverage=frozenset({TransportKind.BITTORRENT.value}),
         )
 

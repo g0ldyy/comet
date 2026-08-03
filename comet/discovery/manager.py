@@ -6,6 +6,7 @@ import time
 import weakref
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
+from itertools import islice
 from typing import TypeVar
 
 from comet.core.capabilities import CapabilityPlan
@@ -14,12 +15,16 @@ from comet.core.sources import ReleaseCandidate, TransportKind
 from comet.discovery.base import DiscoveryAdapter
 from comet.discovery.capabilities import DiscoveryBranchFingerprint
 from comet.discovery.coverage import SearchCoverageRepository, query_fingerprint
-from comet.discovery.models import DiscoveryBatch, DiscoveryContext, MediaQuery
+from comet.discovery.models import (
+    MAX_DISCOVERY_CANDIDATES,
+    DiscoveryBatch,
+    DiscoveryContext,
+    MediaQuery,
+)
 from comet.discovery.repository import ReleaseDiscoveryRepository
 from comet.observability import log
 from comet.services.lock import DistributedLock
 
-MAX_DISCOVERY_CANDIDATES = 10_000
 MAX_DISCOVERY_DIAGNOSTICS = 64
 MAX_DISCOVERY_DIAGNOSTIC_BYTES = 512
 _T = TypeVar("_T")
@@ -103,6 +108,13 @@ class SearchCoordinator:
         hard_timeout: float = 8.0,
         database=None,
         background_task_adder: Callable | None = None,
+        candidate_normalizer: (
+            Callable[
+                [tuple[ReleaseCandidate, ...]],
+                Awaitable[tuple[ReleaseCandidate, ...]],
+            ]
+            | None
+        ) = None,
         fresh_ttl: float = 900.0,
         empty_ttl: float = 30.0,
         retry_ttl: float = 60.0,
@@ -129,6 +141,7 @@ class SearchCoordinator:
         self._hard_timeout = float(hard_timeout)
         self._database = database
         self._background_task_adder = background_task_adder
+        self._candidate_normalizer = candidate_normalizer
         self._fresh_ttl = float(fresh_ttl)
         self._empty_ttl = float(empty_ttl)
         self._retry_ttl = float(retry_ttl)
@@ -314,7 +327,7 @@ class SearchCoordinator:
         work_class: ScrapeContext,
     ) -> DiscoveryBatch:
         if not use_cache:
-            return await adapter.search(
+            response = await adapter.search(
                 query,
                 _context(
                     branches,
@@ -326,6 +339,7 @@ class SearchCoordinator:
                     work_class,
                 ),
             )
+            return await self._normalize_batch(response)
         branch_pairs = tuple(
             (
                 branch,
@@ -518,10 +532,24 @@ class SearchCoordinator:
                 )
 
             cancellation = asyncio.Event()
+            provider_name = (
+                getattr(adapter, "discovery_name", None)
+                or type(adapter)
+                .__name__.removesuffix("Scraper")
+                .removesuffix("Adapter")
+            )[:128]
 
             async def refresh():
+                refresh_started = loop.time()
+                log.info(
+                    "discovery.refresh.started",
+                    "Discovery source scrape started",
+                    provider_name=provider_name,
+                    source_type=branch,
+                    operation=work_class.value,
+                )
                 try:
-                    return await adapter.search(
+                    response = await adapter.search(
                         query,
                         _context(
                             (branch,),
@@ -533,6 +561,17 @@ class SearchCoordinator:
                             work_class,
                         ),
                     )
+                    response = await self._normalize_batch(response)
+                    log.info(
+                        "discovery.refresh.completed",
+                        "Discovery source scrape completed",
+                        provider_name=provider_name,
+                        source_type=branch,
+                        operation=work_class.value,
+                        candidate_count=len(response.candidates),
+                        duration_ms=(loop.time() - refresh_started) * 1000,
+                    )
+                    return response
                 finally:
                     cancellation.set()
 
@@ -552,9 +591,14 @@ class SearchCoordinator:
                 return DiscoveryBatch(diagnostics=response.diagnostics)
             branch_transport = TransportKind(branch)
             branch_candidates = tuple(
-                candidate
-                for candidate in response.candidates
-                if candidate.transport is branch_transport
+                islice(
+                    (
+                        candidate
+                        for candidate in response.candidates
+                        if candidate.transport is branch_transport
+                    ),
+                    MAX_DISCOVERY_CANDIDATES,
+                )
             )
             await repository.persist_success(
                 query,
@@ -597,6 +641,18 @@ class SearchCoordinator:
             raise
         finally:
             await lock.release()
+
+    async def _normalize_batch(self, response: DiscoveryBatch) -> DiscoveryBatch:
+        if not isinstance(response, DiscoveryBatch):
+            raise ValueError("discovery adapter returned an invalid batch")
+        if self._candidate_normalizer is None or not response.candidates:
+            return response
+        candidates = await self._candidate_normalizer(response.candidates)
+        if not isinstance(candidates, tuple) or any(
+            not isinstance(candidate, ReleaseCandidate) for candidate in candidates
+        ):
+            raise ValueError("discovery candidate normalizer returned an invalid batch")
+        return replace(response, candidates=candidates)
 
 
 def _branch_identity(

@@ -112,7 +112,7 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
             MAX_INDEXER_RESPONSE_BYTES,
         )
 
-    def test_bitmagnet_rejects_an_incomplete_result(self):
+    def test_bitmagnet_ignores_an_incomplete_result(self):
         root = ET.fromstring(
             """
             <rss xmlns:torznab="http://torznab.com/schemas/2015/feed">
@@ -120,8 +120,10 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
             </rss>
             """
         )
-        with self.assertRaisesRegex(ValueError, "Bitmagnet result"):
-            BitmagnetScraper(None, None, "https://bitmagnet.test").parse_items(root)
+        self.assertEqual(
+            BitmagnetScraper(None, None, "https://bitmagnet.test").parse_items(root),
+            [],
+        )
 
     async def test_dmm_storage_failures_propagate(self):
         with (
@@ -219,7 +221,7 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
             expected_queries,
         )
 
-    async def test_jackett_processing_failure_fails_the_source(self):
+    async def test_jackett_processing_failure_keeps_valid_sibling(self):
         results = [
             {"token": "first"},
             {"token": "failed"},
@@ -235,8 +237,9 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
         scraper.fetch_jackett_results = AsyncMock(return_value=results)
         scraper.process_torrent = AsyncMock(side_effect=process)
         with patch.object(indexer_manager, "active_jackett_config", ["indexer"]):
-            with self.assertRaisesRegex(RuntimeError, "bad torrent payload"):
-                await scraper.scrape(REQUEST)
+            torrents = await scraper.scrape(REQUEST)
+
+        self.assertEqual([torrent["infoHash"] for torrent in torrents], ["first"])
 
     async def test_prowlarr_does_not_require_an_unconsumed_info_url(self):
         results = [
@@ -258,7 +261,7 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
             [torrent["infoHash"] for torrent in torrents], ["first", "second"]
         )
 
-    async def test_prowlarr_partial_query_failure_fails_the_source(self):
+    async def test_prowlarr_partial_query_failure_preserves_cache_coverage(self):
         request = REQUEST.model_copy(update={"search_titles": ("Working", "Failed")})
 
         async def search(query):
@@ -370,6 +373,11 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
               <title>Obsession.2026.720p.WEB-DL.x264</title>
               <torznab:attr name="size" value="1000" />
               <torznab:attr name="infohash" value="3333333333333333333333333333333333333333" />
+            </item>
+            <item>
+              <title>Missing hash must not discard valid siblings</title>
+              <torznab:attr name="size" value="invalid" />
+              <torznab:attr name="infohash" value="" />
             </item>
           </channel>
         </rss>

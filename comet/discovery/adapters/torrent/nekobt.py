@@ -3,6 +3,7 @@ from comet.discovery.torrent_base import (
     TorrentDiscoveryAdapter,
     deduplicate_torrents,
     gather_concurrently,
+    parse_valid_items,
 )
 from comet.discovery.torrent_models import ScrapeRequest
 from comet.services.torrent_manager import extract_trackers_from_magnet
@@ -85,7 +86,7 @@ class NekoBTScraper(TorrentDiscoveryAdapter):
         more = data.get("more")
         if not isinstance(more, bool):
             raise ValueError("NekoBT response has an invalid pagination flag")
-        return [self._parse_torrent(item) for item in results], more, media_id
+        return parse_valid_items(results, self._parse_torrent), more, media_id
 
     async def _fetch_all(self, base_params: dict) -> tuple[list[dict], str | None]:
         params = {**base_params, "limit": PAGE_LIMIT, "offset": 0}

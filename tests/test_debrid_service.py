@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from comet.services.debrid import DebridService
 from comet.utils.parsing import MediaScope
@@ -86,6 +86,48 @@ class DebridServiceCacheTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(torrents[info_hash]["fileIndex"])
                 schedule.assert_called_once_with("torbox", availability)
 
+    async def test_live_cache_write_is_registered_after_response(self):
+        info_hash = "a" * 40
+        availability = [
+            {
+                "info_hash": info_hash,
+                "index": 0,
+                "title": "Movie.mkv",
+                "size": 100,
+                "season": None,
+                "episode": None,
+                "parsed": None,
+            }
+        ]
+        add_background_task = Mock()
+        with (
+            patch(
+                "comet.services.debrid.retrieve_debrid_availability",
+                new=AsyncMock(return_value=availability),
+            ),
+            patch("comet.services.debrid.schedule_cache_availability") as schedule,
+        ):
+            await DebridService("torbox", "token", "").get_and_cache_availability(
+                session=None,
+                info_hashes=[info_hash],
+                seeders_map={},
+                tracker_map={},
+                sources_map={},
+                torrents=None,
+                media_id="tt1234567",
+                media_only_id="tt1234567",
+                season=None,
+                episode=None,
+                media_scope=MediaScope.MOVIE,
+                add_background_task=add_background_task,
+            )
+
+        schedule.assert_not_called()
+        function, service, scheduled = add_background_task.call_args.args
+        self.assertEqual(function.__name__, "schedule_cache_availability_after_response")
+        self.assertEqual(service, "torbox")
+        self.assertIs(scheduled, availability)
+
     async def test_cached_season_scope_never_replaces_pack_metadata(self):
         info_hash = "a" * 40
         torrent = {
@@ -151,7 +193,7 @@ class DebridServiceCacheTests(unittest.IsolatedAsyncioTestCase):
             lookup.assert_not_called()
         self.assertEqual(torrents[info_hash]["title"], "Show.S02.COMPLETE.1080p.mkv")
 
-    async def test_corrupt_cached_parse_fails_the_cache_read(self):
+    async def test_corrupt_cached_parse_does_not_discard_valid_sibling(self):
         service = DebridService("realdebrid", "token", "")
         torrents = {
             "a" * 40: {"parsed": None},
@@ -174,13 +216,15 @@ class DebridServiceCacheTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
 
-        with (
-            patch(
-                "comet.services.debrid.get_cached_availability",
-                return_value=rows,
-            ),
-            self.assertRaises(ValueError),
+        with patch(
+            "comet.services.debrid.get_cached_availability",
+            return_value=rows,
         ):
-            await service.check_existing_availability(
+            cached, updates = await service.check_existing_availability(
                 list(torrents), None, None, MediaScope.MOVIE, torrents
             )
+
+        self.assertEqual(cached, {"a" * 40, "b" * 40})
+        self.assertEqual(set(updates), {"a" * 40, "b" * 40})
+        self.assertNotIn("parsed", updates["a" * 40])
+        self.assertEqual(updates["b" * 40]["parsed"].raw_title, "Valid.mkv")

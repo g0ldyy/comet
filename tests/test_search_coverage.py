@@ -109,10 +109,16 @@ class SearchCoverageRepositoryTests(unittest.IsolatedAsyncioTestCase):
             MediaQuery(**{**self.query.__dict__, "absolute_episode": 16}),
             MediaQuery(**{**self.query.__dict__, "requested_language": "en"}),
             MediaQuery(**{**self.query.__dict__, "search_scope": "season_pack"}),
+            MediaQuery(
+                **{
+                    **self.query.__dict__,
+                    "normalization_fingerprint": "b" * 64,
+                }
+            ),
         ]
 
         self.assertEqual(
-            len({baseline, *(query_fingerprint(item) for item in variants)}), 8
+            len({baseline, *(query_fingerprint(item) for item in variants)}), 9
         )
 
     def test_query_resolves_every_closed_release_scope(self):

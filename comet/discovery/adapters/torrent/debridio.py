@@ -5,7 +5,7 @@ import orjson
 
 from comet.core.models import settings
 from comet.core.provider_json import is_success_status
-from comet.discovery.torrent_base import TorrentDiscoveryAdapter
+from comet.discovery.torrent_base import TorrentDiscoveryAdapter, parse_valid_items
 from comet.discovery.torrent_models import ScrapeRequest
 from comet.utils.formatting import size_to_bytes
 
@@ -102,4 +102,4 @@ class DebridioScraper(TorrentDiscoveryAdapter):
             results.get("streams"), list
         ):
             raise ValueError("Debridio response is invalid")
-        return [self._parse_stream(torrent) for torrent in results["streams"]]
+        return parse_valid_items(results["streams"], self._parse_stream)

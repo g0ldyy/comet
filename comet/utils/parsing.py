@@ -91,21 +91,25 @@ def resolve_media_scope(
 def load_cached_parsed(value) -> ParsedData | None:
     if value is None:
         return None
-    payload = orjson.loads(value)
-    if not isinstance(payload, dict):
-        raise ValueError("cached parsed metadata is invalid")
-    return ParsedData(**payload)
+    try:
+        payload = orjson.loads(value)
+        if not isinstance(payload, dict) or not payload:
+            return None
+        return ParsedData(**payload)
+    except (orjson.JSONDecodeError, TypeError, ValueError):
+        return None
 
 
 def load_cached_string_list(value) -> list[str]:
     if value is None:
         return []
-    payload = orjson.loads(value)
-    if not isinstance(payload, list) or not all(
-        isinstance(item, str) for item in payload
-    ):
-        raise ValueError("cached string list is invalid")
-    return payload
+    try:
+        payload = orjson.loads(value)
+    except (orjson.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, str)]
 
 
 def ensure_multi_language(parsed: ParsedData):

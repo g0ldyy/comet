@@ -60,6 +60,13 @@ def schedule_cache_availability(debrid_service: str, availability: list):
     return task
 
 
+async def schedule_cache_availability_after_response(
+    debrid_service: str,
+    availability: list,
+) -> None:
+    schedule_cache_availability(debrid_service, availability)
+
+
 async def shutdown_cache_writes() -> None:
     if not _cache_write_tasks:
         return

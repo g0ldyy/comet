@@ -1,5 +1,5 @@
 from comet.core.provider_json import is_success_status
-from comet.discovery.torrent_base import TorrentDiscoveryAdapter
+from comet.discovery.torrent_base import TorrentDiscoveryAdapter, parse_valid_items
 from comet.discovery.torrent_models import ScrapeRequest
 
 
@@ -48,4 +48,4 @@ class PeerflixScraper(TorrentDiscoveryAdapter):
             results.get("streams"), list
         ):
             raise ValueError("Peerflix response is invalid")
-        return [self._parse_stream(stream) for stream in results["streams"]]
+        return parse_valid_items(results["streams"], self._parse_stream)

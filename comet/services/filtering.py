@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import re
 import unicodedata
 from collections import OrderedDict, defaultdict
@@ -5,16 +7,20 @@ from collections.abc import Collection
 from dataclasses import replace
 from threading import Event, Lock
 
+import orjson
 from pydantic import ValidationError
 from RTN import normalize_title, parse, title_match
 
+from comet.core.execution import configured_max_workers, get_executor
+from comet.core.locator_codec import parsed_json
 from comet.core.models import settings
-from comet.core.sources import ReleaseCandidate, TransportKind
+from comet.core.sources import ReleaseCandidate, TorrentLocator
 from comet.observability import log
 from comet.utils.languages import alias_language
 from comet.utils.parsing import ensure_multi_language
 
 _TITLE_MATCH_CACHE_MAX_ENTRIES = 65_536
+_NORMALIZATION_PIPELINE_VERSION = 2
 _FILTER_MESSAGES = {
     "adult_content": "Rejected adult release",
     "alias_language": "Added release language from alias",
@@ -396,7 +402,11 @@ def filter_release_records(
                 if lang not in ("neutral", "en"):
                     country_aliases[scrubbed_t] = lang
     for record in records:
-        release_title = record["title"]
+        if not isinstance(record, dict):
+            continue
+        release_title = record.get("title")
+        if not isinstance(release_title, str):
+            continue
 
         if release_title == "":
             _log_filter_decision(
@@ -483,18 +493,17 @@ def filter_release_records(
 def filter_release_candidates(
     candidates: tuple[ReleaseCandidate, ...],
     title: str,
-    year: int,
+    year: int | None,
     year_end: int | None,
     media_type: str,
     aliases: dict,
     remove_adult_content: bool,
     content_id: str | None = None,
 ) -> tuple[ReleaseCandidate, ...]:
-    """Apply the shared title filter to non-torrent discovery candidates."""
+    """Parse and media-match transport-neutral discovery candidates."""
     records = [
         {"title": candidate.title, "candidate": candidate}
         for candidate in candidates
-        if candidate.transport is not TransportKind.BITTORRENT
     ]
     filtered = filter_release_records(
         records,
@@ -506,6 +515,91 @@ def filter_release_candidates(
         remove_adult_content,
         content_id,
     )
-    return tuple(
-        replace(record["candidate"], parsed=record["parsed"]) for record in filtered
+    normalized = []
+    for record in filtered:
+        candidate = record["candidate"]
+        parsed = record["parsed"]
+        encoded_parsed = parsed_json(parsed, trusted=True)
+        locators = tuple(
+            replace(locator, selection_parsed_json=encoded_parsed)
+            if isinstance(locator, TorrentLocator)
+            else locator
+            for locator in candidate.locators
+        )
+        normalized.append(replace(candidate, parsed=parsed, locators=locators))
+    return tuple(normalized)
+
+
+async def normalize_release_candidates(
+    candidates: tuple[ReleaseCandidate, ...],
+    *,
+    title: str,
+    year: int | None,
+    year_end: int | None,
+    media_type: str,
+    aliases: dict[str, list[str]],
+    content_id: str | None = None,
+) -> tuple[ReleaseCandidate, ...]:
+    """Run the deterministic, shareable RTN stage outside request policy."""
+    if not candidates:
+        return ()
+    worker_count = max(1, configured_max_workers() or 1)
+    chunk_size = max(
+        20,
+        (len(candidates) + worker_count * 4 - 1) // (worker_count * 4),
     )
+    loop = asyncio.get_running_loop()
+    executor = get_executor()
+    chunks = await asyncio.gather(
+        *(
+            loop.run_in_executor(
+                executor,
+                filter_release_candidates,
+                candidates[offset : offset + chunk_size],
+                title,
+                year,
+                year_end,
+                media_type,
+                aliases,
+                False,
+                content_id,
+            )
+            for offset in range(0, len(candidates), chunk_size)
+        )
+    )
+    return tuple(candidate for chunk in chunks for candidate in chunk)
+
+
+def apply_release_candidate_policy(
+    candidates: tuple[ReleaseCandidate, ...],
+    *,
+    remove_adult_content: bool,
+) -> tuple[ReleaseCandidate, ...]:
+    """Apply the cheap request-specific policy after shared normalization."""
+    return tuple(
+        candidate
+        for candidate in candidates
+        if candidate.parsed is not None
+        and (not remove_adult_content or not candidate.parsed.adult)
+    )
+
+
+def release_normalization_fingerprint(
+    *,
+    title: str,
+    year: int | None,
+    year_end: int | None,
+    media_type: str,
+    aliases: dict[str, list[str]],
+) -> str:
+    payload = orjson.dumps(
+        [
+            _NORMALIZATION_PIPELINE_VERSION,
+            title,
+            year,
+            year_end,
+            media_type,
+            [[key, aliases[key]] for key in sorted(aliases)],
+        ]
+    )
+    return hashlib.sha256(b"comet-release-normalization\0" + payload).hexdigest()

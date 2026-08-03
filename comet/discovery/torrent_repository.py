@@ -1,6 +1,7 @@
 """Transport-neutral persistence and reads for public torrent releases."""
 
 import hashlib
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any
@@ -26,7 +27,7 @@ from comet.discovery.repository import (
     ReleaseDiscoveryRepository,
     decode_candidate_attributes,
 )
-from comet.utils.parsing import MediaScope
+from comet.utils.parsing import MediaScope, load_cached_parsed
 
 ACCOUNT_TRACKER_PREFIX = "DebridAccount|"
 _PUBLIC_PARTITION = "0" * 64
@@ -77,7 +78,7 @@ def _torrent_row(row: Any) -> dict[str, object]:
         "row": row,
         "media_id": media_id,
         "info_hash": info_hash,
-        "parsed": None,
+        "parsed": load_cached_parsed(row["parsed_json"]),
         "parsed_json": row["parsed_json"],
         "scope": scope,
         "season_norm": season_norm,
@@ -221,11 +222,21 @@ def torrent_candidate_from_scrape_result(
     """Translate one server-configured torrent result at the discovery boundary."""
     info_hash = torrent["infoHash"].lower()
     title = torrent["title"]
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", info_hash) is None
+        or not isinstance(title, str)
+        or not title
+    ):
+        raise ValueError("torrent scrape result is invalid")
     file_index = torrent["fileIndex"]
     seeders = torrent["seeders"]
     size = torrent["size"]
     tracker = torrent["tracker"]
     sources = torrent["sources"]
+    parsed = torrent.get("parsed")
+    encoded_parsed = parsed_json(parsed, trusted=True)
+    if not isinstance(sources, (list, tuple)):
+        raise ValueError("torrent scrape result sources are invalid")
     season_norm = query.season if query.season is not None else -1
     episode_norm = query.episode if query.episode is not None else -1
     locator_key = hashlib.sha256(
@@ -256,11 +267,12 @@ def torrent_candidate_from_scrape_result(
                 episode_norm=episode_norm,
                 selection_title=title,
                 selection_size=size,
-                selection_parsed_json="{}",
+                selection_parsed_json=encoded_parsed,
             ),
         ),
         size=size,
         source=tracker,
+        parsed=parsed,
         transport_stats=stats,
         identities=(f"btih:{info_hash}",),
     )
@@ -351,14 +363,17 @@ class TorrentReleaseRepository:
         )
         result = []
         for row in rows:
-            attributes = decode_candidate_attributes(row["attributes_json"])
-            stats = attributes["transport_stats"]
-            locator = locator_from_json(
-                row["locator_id"],
-                "torrent",
-                row["locator_json"],
-                row["policy_json"],
-            )
+            try:
+                attributes = decode_candidate_attributes(row["attributes_json"])
+                stats = attributes["transport_stats"]
+                locator = locator_from_json(
+                    row["locator_id"],
+                    "torrent",
+                    row["locator_json"],
+                    row["policy_json"],
+                )
+            except (KeyError, TypeError, ValueError, orjson.JSONDecodeError):
+                continue
             has_selection = locator.selection_title is not None
             selected_season_norm = (
                 locator.season_norm if has_selection else row["season_norm"]
@@ -399,6 +414,7 @@ class TorrentReleaseRepository:
                     "parsed_json": (
                         locator.selection_parsed_json
                         if has_selection
+                        and locator.selection_parsed_json not in (None, "{}")
                         else row["parsed_json"]
                     ),
                     "season": locator_season,

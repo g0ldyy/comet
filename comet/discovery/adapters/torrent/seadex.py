@@ -28,13 +28,13 @@ class SeaDexScraper(TorrentDiscoveryAdapter):
             raise ValueError("SeaDex response is invalid")
         for item in data["items"]:
             if not isinstance(item, dict) or not isinstance(item.get("expand"), dict):
-                raise ValueError("SeaDex result is invalid")
+                continue
             torrent_items = item["expand"].get("trs", [])
             if not isinstance(torrent_items, list):
-                raise ValueError("SeaDex result is invalid")
+                continue
             for torrent in torrent_items:
                 if not isinstance(torrent, dict):
-                    raise ValueError("SeaDex result is invalid")
+                    continue
                 info_hash = torrent.get("infoHash")
                 if info_hash == "<redacted>":
                     continue
@@ -44,13 +44,13 @@ class SeaDexScraper(TorrentDiscoveryAdapter):
                     or not info_hash
                     or not isinstance(files, list)
                 ):
-                    raise ValueError("SeaDex result is invalid")
+                    continue
                 for idx, file in enumerate(files):
                     if not isinstance(file, dict):
-                        raise ValueError("SeaDex result is invalid")
+                        continue
                     name = file.get("name")
                     if not isinstance(name, str) or not name or "length" not in file:
-                        raise ValueError("SeaDex result is invalid")
+                        continue
                     torrents.append(
                         {
                             "title": name,

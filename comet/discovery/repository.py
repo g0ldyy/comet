@@ -11,6 +11,10 @@ from dataclasses import dataclass
 import orjson
 from sqlalchemy.engine.url import make_url
 
+from comet.core.database import (
+    build_json_list_membership_predicate,
+    encode_json_param,
+)
 from comet.core.locator_codec import (
     locator_from_json,
     locator_json,
@@ -31,6 +35,7 @@ from comet.discovery.coverage import (
     search_scope,
 )
 from comet.discovery.models import MediaQuery
+from comet.utils.parsing import load_cached_parsed
 
 _PUBLIC_PARTITION = bytes(32)
 LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID = "4d92fc74-6f21-5e67-96e5-80bc4f38092c"
@@ -39,6 +44,10 @@ _CANDIDATE_CHUNK = 250
 _LOCATOR_CHUNK = 300
 _COVERAGE_CHUNK = 500
 _IDENTITY_SCHEMES = frozenset({"btih", "nm1"})
+_CANDIDATE_ID_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "redirect.redirected_candidate_id",
+    "candidate_ids",
+)
 _CANDIDATE_SHARED_COLUMNS = frozenset(
     {
         "visibility_partition",
@@ -111,8 +120,6 @@ class ReleaseDiscoveryRepository:
         query_key = query_fingerprint(query)
         scope = search_scope(query)
         candidate_batch = tuple(candidates)
-        if len(candidate_batch) > 1_000:
-            raise ValueError("discovery batch is too large")
         observed_at = time.time() if now is None else _timestamp(now)
         observed_at_ms = int(observed_at * 1_000)
         async with self._database.transaction():
@@ -402,8 +409,25 @@ class ReleaseDiscoveryRepository:
             deduplicated[(values["transport"], values["release_key"])] = values
         candidate_ids = await self._upsert_candidates(list(deduplicated.values()))
 
+        canonical_torrent_keys = {
+            (values["transport"], values["release_key"])
+            for candidate, values in planned
+            if _has_canonical_torrent_identity(candidate, values["release_key"])
+        }
+        await self._upsert_canonical_torrent_identities(
+            (
+                candidate_ids[candidate_key],
+                visibility_partition,
+                candidate_key[1][5:],
+                observed_at_ms,
+            )
+            for candidate_key in canonical_torrent_keys
+        )
+
         for candidate, values in planned:
             candidate_key = (values["transport"], values["release_key"])
+            if candidate_key in canonical_torrent_keys:
+                continue
             canonical_id = candidate_ids[candidate_key]
             for identity in _candidate_identity_evidence(
                 candidate,
@@ -422,10 +446,11 @@ class ReleaseDiscoveryRepository:
                 )
             candidate_ids[candidate_key] = canonical_id
 
+        resolved_candidate_ids = await self._resolve_candidate_ids(
+            tuple(candidate_ids.values())
+        )
         for candidate_key, candidate_id in tuple(candidate_ids.items()):
-            candidate_ids[candidate_key], _visited = await self._resolve_candidate_id(
-                candidate_id
-            )
+            candidate_ids[candidate_key] = resolved_candidate_ids[candidate_id]
 
         planned_locators: list[tuple[int, str, dict[str, object]]] = []
         for index, (candidate, values) in enumerate(planned):
@@ -924,6 +949,53 @@ class ReleaseDiscoveryRepository:
             raise RuntimeError("candidate redirect crosses candidate family")
         return target_id, (candidate_id,)
 
+    async def _resolve_candidate_ids(
+        self,
+        candidate_ids: tuple[str, ...],
+    ) -> dict[str, str]:
+        resolved = {candidate_id: candidate_id for candidate_id in candidate_ids}
+        for offset in range(0, len(candidate_ids), _COVERAGE_CHUNK):
+            chunk = candidate_ids[offset : offset + _COVERAGE_CHUNK]
+            rows = await self._database.fetch_all(
+                f"""
+                SELECT
+                    redirect.redirected_candidate_id,
+                    redirect.canonical_candidate_id,
+                    origin.visibility_partition,
+                    origin.transport,
+                    target.visibility_partition AS target_visibility_partition,
+                    target.transport AS target_transport,
+                    chained.redirected_candidate_id AS chained_candidate_id
+                FROM candidate_redirects AS redirect
+                JOIN release_candidates AS origin
+                  ON origin.candidate_id = redirect.redirected_candidate_id
+                JOIN release_candidates AS target
+                  ON target.candidate_id = redirect.canonical_candidate_id
+                LEFT JOIN candidate_redirects AS chained
+                  ON chained.redirected_candidate_id =
+                     redirect.canonical_candidate_id
+                WHERE {_CANDIDATE_ID_MEMBERSHIP_SQL}
+                """,
+                {"candidate_ids": encode_json_param(chunk)},
+                force_primary=True,
+            )
+            for row in rows:
+                source_id = row["redirected_candidate_id"]
+                target_id = row["canonical_candidate_id"]
+                if (
+                    target_id == source_id
+                    or row["chained_candidate_id"] is not None
+                ):
+                    raise RuntimeError("candidate redirect cycle or chain detected")
+                if (
+                    row["target_visibility_partition"]
+                    != row["visibility_partition"]
+                    or row["target_transport"] != row["transport"]
+                ):
+                    raise RuntimeError("candidate redirect crosses candidate family")
+                resolved[source_id] = target_id
+        return resolved
+
     async def _candidate_row(self, candidate_id: str):
         row = await self._database.fetch_one(
             """
@@ -989,6 +1061,45 @@ class ReleaseDiscoveryRepository:
         if len(resolved) != len(rows):  # pragma: no cover - database corruption
             raise RuntimeError("persisted discovery candidate disappeared")
         return resolved
+
+    async def _upsert_canonical_torrent_identities(
+        self,
+        rows: Iterable[tuple[str, str, str, int]],
+    ) -> None:
+        batch = tuple(rows)
+        for offset in range(0, len(batch), _CANDIDATE_CHUNK):
+            chunk = batch[offset : offset + _CANDIDATE_CHUNK]
+            tuples = []
+            values = {}
+            for index, (candidate_id, visibility, info_hash, now_ms) in enumerate(
+                chunk
+            ):
+                tuples.append(
+                    f"(:candidate_id_{index}, :visibility_{index}, 'bittorrent',"
+                    f" 'btih', :info_hash_{index}, :now_ms_{index}, :now_ms_{index})"
+                )
+                values.update(
+                    {
+                        f"candidate_id_{index}": candidate_id,
+                        f"visibility_{index}": visibility,
+                        f"info_hash_{index}": info_hash,
+                        f"now_ms_{index}": now_ms,
+                    }
+                )
+            await self._database.execute(
+                f"""
+                INSERT INTO candidate_identities (
+                    candidate_id, visibility_partition, transport,
+                    identity_scheme, identity_value,
+                    created_at_ms, updated_at_ms
+                ) VALUES {", ".join(tuples)}
+                ON CONFLICT (
+                    candidate_id, identity_scheme, identity_value
+                ) DO UPDATE SET updated_at_ms = excluded.updated_at_ms
+                """,
+                values,
+                force_primary=True,
+            )
 
     async def _upsert_locators(
         self, rows: list[dict[str, object]]
@@ -1082,7 +1193,8 @@ class ReleaseDiscoveryRepository:
                 candidate.candidate_id, candidate.media_id,
                 candidate.scope, candidate.transport, candidate.title,
                 candidate.byte_size,
-                candidate.published_at_ms, candidate.attributes_json,
+                candidate.published_at_ms, candidate.parsed_json,
+                candidate.attributes_json,
                 locator.locator_id, locator.locator_kind,
                 locator.locator_json, locator.policy_json
             FROM release_locator_coverage coverage
@@ -1145,28 +1257,30 @@ class ReleaseDiscoveryRepository:
         )
         grouped: dict[str, tuple[object, list]] = {}
         for row in rows:
-            candidate_id = row["candidate_id"]
-            entry = grouped.get(candidate_id)
-            if entry is None:
-                entry = (row, [])
-                grouped[candidate_id] = entry
-            entry[1].append(
-                locator_from_json(
+            try:
+                locator = locator_from_json(
                     row["locator_id"],
                     row["locator_kind"],
                     row["locator_json"],
                     row["policy_json"],
                 )
-            )
+            except (TypeError, ValueError):
+                continue
+            candidate_id = row["candidate_id"]
+            entry = grouped.get(candidate_id)
+            if entry is None:
+                entry = (row, [])
+                grouped[candidate_id] = entry
+            entry[1].append(locator)
         result = []
         for candidate_id, (row, locators) in grouped.items():
-            transport = TransportKind(row["transport"])
-            attributes = _decode_attributes(
-                row["attributes_json"],
-                trusted=transport is TransportKind.BITTORRENT,
-            )
-            result.append(
-                ReleaseCandidate(
+            try:
+                transport = TransportKind(row["transport"])
+                attributes = _decode_attributes(
+                    row["attributes_json"],
+                    trusted=transport is TransportKind.BITTORRENT,
+                )
+                candidate = ReleaseCandidate(
                     candidate_id=candidate_id,
                     media_id=row["media_id"],
                     scope=ReleaseScope(row["scope"]),
@@ -1176,9 +1290,12 @@ class ReleaseDiscoveryRepository:
                     size=row["byte_size"],
                     published_at_ms=row["published_at_ms"],
                     source=attributes["source"],
+                    parsed=load_cached_parsed(row["parsed_json"]),
                     transport_stats=attributes["transport_stats"],
                 )
-            )
+            except (KeyError, TypeError, ValueError):
+                continue
+            result.append(candidate)
         return tuple(result)
 
 
@@ -1405,6 +1522,23 @@ def _candidate_identity_evidence(
         elif include_artifact_identity and isinstance(locator, NzbArtifactRef):
             identities[locator.manifest_identity] = None
     return tuple(identities)
+
+
+def _has_canonical_torrent_identity(
+    candidate: ReleaseCandidate,
+    release_key: object,
+) -> bool:
+    if (
+        candidate.transport is not TransportKind.BITTORRENT
+        or not isinstance(release_key, str)
+        or release_key != candidate.candidate_id
+        or not release_key.startswith("btih:")
+    ):
+        return False
+    return _candidate_identity_evidence(
+        candidate,
+        include_artifact_identity=True,
+    ) == (release_key,)
 
 
 def _identity_lock_id(scheme: str, value: str) -> int:

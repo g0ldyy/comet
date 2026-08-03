@@ -9,6 +9,7 @@ from comet.services.debrid_cache import (
     get_cached_availability,
     get_cached_availability_any_service,
     schedule_cache_availability,
+    schedule_cache_availability_after_response,
 )
 from comet.utils.parsing import MediaScope, ensure_multi_language, load_cached_parsed
 
@@ -114,6 +115,7 @@ class DebridService:
         episode: int | None,
         media_scope: MediaScope,
         target_air_date: str | None = None,
+        add_background_task=None,
     ) -> tuple[set[str], dict[str, dict]]:
         started_at = time.perf_counter() if metrics.enabled else 0.0
         outcome = "success"
@@ -181,7 +183,14 @@ class DebridService:
                 if update:
                     torrent_updates.setdefault(info_hash, {}).update(update)
 
-        schedule_cache_availability(self.debrid_service, availability)
+        if add_background_task is None:
+            schedule_cache_availability(self.debrid_service, availability)
+        else:
+            add_background_task(
+                schedule_cache_availability_after_response,
+                self.debrid_service,
+                availability,
+            )
         return cached_hashes, torrent_updates
 
     async def check_existing_availability(
@@ -226,20 +235,28 @@ class DebridService:
         cached_hashes = set()
         torrent_updates = {}
         for row in rows:
-            info_hash = row["info_hash"]
+            try:
+                info_hash = row["info_hash"]
+            except (KeyError, TypeError):
+                continue
+            if not isinstance(info_hash, str):
+                continue
             cached_hashes.add(info_hash)
             if torrents is not None and not media_scope.is_aggregate:
                 torrent = torrents.get(info_hash)
                 if torrent is None:
                     continue
 
-                update = self._build_torrent_update(
-                    torrent,
-                    file_index=row["file_index"],
-                    title=row["title"],
-                    size=row["size"],
-                    parsed=row["parsed"],
-                )
+                try:
+                    update = self._build_torrent_update(
+                        torrent,
+                        file_index=row["file_index"],
+                        title=row["title"],
+                        size=row["size"],
+                        parsed=row["parsed"],
+                    )
+                except (TypeError, ValueError):
+                    continue
                 if update:
                     torrent_updates[info_hash] = update
 
@@ -260,17 +277,24 @@ class DebridService:
         rows = await get_cached_availability_any_service(info_hashes, season, episode)
 
         for row in rows:
-            info_hash = row["info_hash"]
+            try:
+                info_hash = row["info_hash"]
+            except (KeyError, TypeError):
+                continue
+            if not isinstance(info_hash, str):
+                continue
             torrent = torrents.get(info_hash)
             if torrent is None:
                 continue
 
-            torrent.update(
-                cls._build_torrent_update(
+            try:
+                update = cls._build_torrent_update(
                     torrent,
                     file_index=row["file_index"],
                     title=row["title"],
                     size=row["size"],
                     parsed=row["parsed"],
                 )
-            )
+            except (TypeError, ValueError):
+                continue
+            torrent.update(update)
