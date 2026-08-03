@@ -189,6 +189,11 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
                 "build_adapters",
                 return_value={"capture": CaptureAdapter()},
             ),
+            patch.object(
+                torrent_adapter_registry,
+                "branch_fingerprints",
+                return_value=None,
+            ),
             patch.object(manager, "cache_torrents"),
         ):
             await manager.scrape_torrents(ScrapeContext.LIVE)

@@ -1,27 +1,67 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import orjson
+from fastapi import BackgroundTasks
+from starlette.requests import Request
+
+from comet.api.endpoints.stream import stream
+from comet.core.models import settings
 from comet.core.scrape import ScrapeContext
-from comet.services.media_search import background_scrape
+from comet.services.media_search import (
+    MediaSearchResult,
+    MediaSearchStatus,
+    background_scrape,
+)
 
 
 class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
+    async def test_inflight_timeout_keeps_the_stremio_retry_notice(self):
+        request = Request(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "https",
+                "path": "/stream/movie/tt123.json",
+                "raw_path": b"/stream/movie/tt123.json",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 1234),
+                "server": ("example.test", 443),
+            }
+        )
+        config = {
+            "_debridEntries": [],
+            "_enableTorrent": True,
+            "schemaVersion": 1,
+            "scrapeDebridAccountTorrents": False,
+        }
+        with (
+            patch.object(settings, "HTTP_CACHE_ENABLED", True),
+            patch("comet.api.endpoints.stream.config_check", return_value=config),
+            patch(
+                "comet.api.endpoints.stream.search_media",
+                new=AsyncMock(return_value=MediaSearchResult(MediaSearchStatus.BUSY)),
+            ),
+        ):
+            response = await stream(
+                request,
+                "movie",
+                "tt123",
+                BackgroundTasks(),
+            )
+
+        payload = orjson.loads(response.body)
+        self.assertEqual(len(payload["streams"]), 1)
+        self.assertIn("Scraping in progress", payload["streams"][0]["description"])
+        self.assertIn("no-store", response.headers["cache-control"])
+
     async def test_empty_cache_refresh_does_not_mark_scope_scraped(self):
         manager = AsyncMock()
         manager.torrents = {}
-        lock = AsyncMock()
-        lock.acquire.return_value = True
-
-        async def run(operation):
-            return await operation
-
-        lock.run.side_effect = run
 
         with (
-            patch(
-                "comet.services.media_search.DistributedLock",
-                return_value=lock,
-            ),
             patch(
                 "comet.services.media_search.mark_scope_scraped",
                 new=AsyncMock(),
@@ -37,24 +77,12 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
 
         manager.scrape_torrents.assert_awaited_once_with(ScrapeContext.BACKGROUND)
         mark_scraped.assert_not_awaited()
-        lock.release.assert_awaited_once()
 
     async def test_populated_cache_refresh_marks_scope_scraped(self):
         manager = AsyncMock()
         manager.torrents = {"a" * 40: {}}
-        lock = AsyncMock()
-        lock.acquire.return_value = True
-
-        async def run(operation):
-            return await operation
-
-        lock.run.side_effect = run
 
         with (
-            patch(
-                "comet.services.media_search.DistributedLock",
-                return_value=lock,
-            ),
             patch(
                 "comet.services.media_search.mark_scope_scraped",
                 new=AsyncMock(),
@@ -70,26 +98,12 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
 
         manager.scrape_torrents.assert_awaited_once_with(ScrapeContext.BACKGROUND)
         mark_scraped.assert_awaited_once_with("tt123")
-        lock.release.assert_awaited_once()
 
-    async def test_background_scrape_failure_surfaces_after_lock_release(self):
+    async def test_background_scrape_failure_surfaces(self):
         manager = AsyncMock()
         manager.scrape_torrents.side_effect = RuntimeError("scrape failed")
-        lock = AsyncMock()
-        lock.acquire.return_value = True
 
-        async def run(operation):
-            return await operation
-
-        lock.run.side_effect = run
-
-        with (
-            patch(
-                "comet.services.media_search.DistributedLock",
-                return_value=lock,
-            ),
-            self.assertRaisesRegex(RuntimeError, "scrape failed"),
-        ):
+        with self.assertRaisesRegex(RuntimeError, "scrape failed"):
             await background_scrape(
                 manager,
                 media_id="tt123",
@@ -97,5 +111,3 @@ class StreamScrapeContextTests(unittest.IsolatedAsyncioTestCase):
                 ip="127.0.0.1",
                 session=None,
             )
-
-        lock.release.assert_awaited_once()

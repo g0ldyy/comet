@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+import uuid
 from unittest.mock import patch
 
 from comet.core.scrape import ScrapeContext
@@ -17,6 +18,55 @@ from comet.utils.network_manager import AsyncClientWrapper
 
 
 class TorrentAdapterRegistryTests(unittest.IsolatedAsyncioTestCase):
+    def test_registered_adapter_ids_are_stable_persistable_uuids(self):
+        class ExampleScraper(TorrentDiscoveryAdapter):
+            async def scrape(self, request):
+                del request
+                return []
+
+        first = {}
+        repeated = {}
+        TorrentAdapterRegistry._register_adapter(
+            first, "Example", ExampleScraper(None, None), 8
+        )
+        TorrentAdapterRegistry._register_adapter(
+            first, "Example #2", ExampleScraper(None, None), 8
+        )
+        TorrentAdapterRegistry._register_adapter(
+            repeated, "Example", ExampleScraper(None, None), 8
+        )
+        TorrentAdapterRegistry._register_adapter(
+            repeated, "Example #2", ExampleScraper(None, None), 8
+        )
+
+        self.assertEqual(tuple(first), tuple(repeated))
+        self.assertEqual(len(first), 2)
+        self.assertTrue(
+            all(str(uuid.UUID(source_id)) == source_id for source_id in first)
+        )
+
+    def test_branch_fingerprints_are_stable_and_context_scoped(self):
+        class ExampleScraper(TorrentDiscoveryAdapter):
+            async def scrape(self, request):
+                del request
+                return []
+
+        adapters = {"server-torrent:example": ExampleScraper(None, None)}
+
+        first = TorrentAdapterRegistry.branch_fingerprints(adapters, ScrapeContext.LIVE)
+        repeated = TorrentAdapterRegistry.branch_fingerprints(
+            adapters, ScrapeContext.LIVE
+        )
+        background = TorrentAdapterRegistry.branch_fingerprints(
+            adapters, ScrapeContext.BACKGROUND
+        )
+
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(first, background)
+        identity = first[("server-torrent:example", "bittorrent")]
+        self.assertTrue(identity.public_visibility)
+        self.assertEqual(len(identity.fingerprint), 64)
+
     async def test_scraper_implements_the_discovery_adapter_contract(self):
         class ExampleScraper(TorrentDiscoveryAdapter):
             async def scrape(self, request):

@@ -669,6 +669,7 @@ async def stream(
         )
 
     if search_result.status is MediaSearchStatus.BUSY:
+        response_cache_policy = CachePolicies.no_cache()
         return _stream_response(
             {
                 "streams": [

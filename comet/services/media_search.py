@@ -60,7 +60,6 @@ from comet.services.debrid_account_scraper import (
     schedule_account_snapshot_refresh,
 )
 from comet.services.filtering import filter_release_candidates
-from comet.services.lock import DistributedLock
 from comet.services.orchestration import TorrentResultAccumulator
 from comet.services.ranking import sort_candidates
 from comet.usenet.access import NativeAccessAuthorizer
@@ -701,34 +700,23 @@ async def background_scrape(
     ip: str,
     session,
 ):
-    scrape_lock = DistributedLock(media_id)
-    lock_acquired = await scrape_lock.acquire()
+    await torrent_manager.scrape_torrents(ScrapeContext.BACKGROUND)
 
-    if not lock_acquired:
-        return
+    if debrid_entries and torrent_manager.torrents:
+        await get_and_cache_multi_service_availability(
+            session,
+            debrid_entries,
+            torrent_manager.torrents,
+            torrent_manager.media_id,
+            torrent_manager.media_only_id,
+            torrent_manager.search_season,
+            torrent_manager.search_episode,
+            torrent_manager.media_scope,
+            ip,
+            target_air_date=torrent_manager.target_air_date,
+        )
 
-    async def run_scrape():
-        await torrent_manager.scrape_torrents(ScrapeContext.BACKGROUND)
-
-        if debrid_entries and torrent_manager.torrents:
-            await get_and_cache_multi_service_availability(
-                session,
-                debrid_entries,
-                torrent_manager.torrents,
-                torrent_manager.media_id,
-                torrent_manager.media_only_id,
-                torrent_manager.search_season,
-                torrent_manager.search_episode,
-                torrent_manager.media_scope,
-                ip,
-                target_air_date=torrent_manager.target_air_date,
-            )
-
-    try:
-        await scrape_lock.run(run_scrape())
-        await _mark_scope_scraped_if_populated(media_id, torrent_manager.torrents)
-    finally:
-        await scrape_lock.release()
+    await _mark_scope_scraped_if_populated(media_id, torrent_manager.torrents)
 
 
 async def check_multi_service_availability(
@@ -1245,75 +1233,10 @@ async def _search_media(
     cache_manager = CacheStateManager(media_id)
     cache_result = await cache_manager.check_and_decide(torrent_count)
     force_scrape_now = not torrent_manager.primary_cached
-    lock_acquired = cache_result.lock_acquired
     account_snapshot_ready = False
-
-    if force_scrape_now and not lock_acquired:
-        lock_acquired = await cache_manager.try_acquire_lock()
-
-    torrent_branch_locked = (force_scrape_now and not lock_acquired) or (
-        cache_result.should_return_wait_message and not force_scrape_now
-    )
+    torrent_discovery_inflight = False
     discovery_result = None
-    if torrent_branch_locked and not torrent_manager.torrents:
-        discovery_result = await discovery_task
-        (
-            candidates,
-            provider_options,
-            rendered_candidate_ids,
-            provider_capabilities,
-        ) = await _prepare_discovery_only_view(
-            config,
-            discovery_result,
-            title=title,
-            content_id=media_id,
-            year=year,
-            year_end=year_end,
-            media_type=media_type,
-            aliases=aliases,
-            remove_adult_content=remove_adult_content,
-            season=search_season,
-            episode=search_episode,
-            season_norm=presentation_season,
-            episode_norm=presentation_episode,
-        )
-        if provider_options:
-            return MediaSearchResult(
-                MediaSearchStatus.OK,
-                metadata=metadata,
-                aliases=aliases,
-                media_scope=media_scope,
-                cache_state=cache_state,
-                media_only_id=media_only_id,
-                search_season=search_season,
-                search_episode=search_episode,
-                is_torrent_only=False,
-                use_account_scrape=False,
-                candidates=candidates,
-                discovery_diagnostics=discovery_result.diagnostics,
-                provider_options=provider_options,
-                rendered_candidate_ids=rendered_candidate_ids,
-                provider_capabilities=provider_capabilities,
-                candidate_count=len(candidates),
-            )
-        return MediaSearchResult(
-            MediaSearchStatus.BUSY,
-            metadata=metadata,
-            aliases=aliases,
-            media_scope=media_scope,
-            cache_state=cache_state,
-            media_only_id=media_only_id,
-            search_season=search_season,
-            search_episode=search_episode,
-            is_torrent_only=is_torrent_only,
-            use_account_scrape=use_account_scrape,
-            discovery_diagnostics=discovery_result.diagnostics,
-        )
-    if (
-        not torrent_branch_locked
-        and cache_result.should_scrape_background
-        and not force_scrape_now
-    ):
+    if cache_result.should_scrape_background and not force_scrape_now:
         add_background_task(
             background_scrape,
             torrent_manager,
@@ -1323,21 +1246,19 @@ async def _search_media(
             session,
         )
 
-    if not torrent_branch_locked and (
-        cache_result.should_scrape_now or force_scrape_now
-    ):
-        try:
-            if use_account_scrape:
-                await asyncio.gather(
-                    torrent_manager.scrape_torrents(ScrapeContext.LIVE),
-                    ensure_account_snapshot_ready(session, debrid_entries, ip),
-                )
-                account_snapshot_ready = True
-            else:
-                await torrent_manager.scrape_torrents(ScrapeContext.LIVE)
-            await _mark_scope_scraped_if_populated(media_id, torrent_manager.torrents)
-        finally:
-            await cache_manager.release_lock()
+    if cache_result.should_scrape_now or force_scrape_now:
+        if use_account_scrape:
+            torrent_discovery_result, _ = await asyncio.gather(
+                torrent_manager.scrape_torrents(ScrapeContext.LIVE),
+                ensure_account_snapshot_ready(session, debrid_entries, ip),
+            )
+            account_snapshot_ready = True
+        else:
+            torrent_discovery_result = await torrent_manager.scrape_torrents(
+                ScrapeContext.LIVE
+            )
+        torrent_discovery_inflight = torrent_discovery_result.inflight
+        await _mark_scope_scraped_if_populated(media_id, torrent_manager.torrents)
 
     if discovery_result is None:
         discovery_result = await discovery_task
@@ -1523,7 +1444,13 @@ async def _search_media(
         ]
 
     return MediaSearchResult(
-        MediaSearchStatus.OK,
+        (
+            MediaSearchStatus.BUSY
+            if torrent_discovery_inflight
+            and not ranked_info_hashes
+            and not provider_options
+            else MediaSearchStatus.OK
+        ),
         metadata=metadata,
         aliases=aliases,
         media_scope=media_scope,

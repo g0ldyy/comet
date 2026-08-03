@@ -19,7 +19,10 @@ from comet.core.sources import (
 from comet.discovery.manager import SearchCoordinator
 from comet.discovery.models import MediaQuery
 from comet.discovery.torrent_models import ScrapeRequest
-from comet.discovery.torrent_registry import torrent_adapter_registry
+from comet.discovery.torrent_registry import (
+    SERVER_TORRENT_ACCOUNT_PARTITION,
+    torrent_adapter_registry,
+)
 from comet.discovery.torrent_repository import (
     TorrentReleaseRepository,
 )
@@ -157,9 +160,14 @@ class TorrentResultAccumulator:
                 default=8.0,
             )
         )
+        branch_fingerprints = torrent_adapter_registry.branch_fingerprints(
+            adapters,
+            context,
+        )
         discovery_result = await SearchCoordinator(
             adapters,
             hard_timeout=hard_timeout,
+            database=database,
         ).search(
             MediaQuery(
                 media_id=self.media_only_id,
@@ -174,8 +182,10 @@ class TorrentResultAccumulator:
                 search_titles=request.query_titles,
             ),
             plan,
+            account_partition=SERVER_TORRENT_ACCOUNT_PARTITION,
             trace_id=current_request_id(),
             work_class=context,
+            branch_fingerprints=branch_fingerprints,
         )
         await self.filter_manager(
             [
@@ -187,6 +197,7 @@ class TorrentResultAccumulator:
         await self.cache_torrents()
 
         self._publish_ready_torrents(self.ready_to_cache)
+        return discovery_result
 
     def _publish_ready_torrents(self, torrents: list[dict]) -> None:
         """Expose already-filtered releases through the legacy torrent view."""

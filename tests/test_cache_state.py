@@ -14,10 +14,7 @@ class CacheStateManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_inherited_results_do_not_skip_first_exact_scope_scrape(self):
         manager = CacheStateManager("tt123:2")
 
-        with (
-            patch.object(manager, "register_demand", return_value=None),
-            patch.object(manager, "_try_acquire_lock", return_value=True),
-        ):
+        with patch.object(manager, "register_demand", return_value=None):
             result = await manager.check_and_decide(torrent_count=15)
 
         self.assertEqual(result.state, CacheState.FIRST_SEARCH)
@@ -105,8 +102,7 @@ class ScopeCoveragePersistenceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(await series.register_demand())
             self.assertIsNone(await season_two.register_demand())
 
-            with patch.object(season_one, "_try_acquire_lock", return_value=True):
-                first_season_request = await season_one.check_and_decide(15)
+            first_season_request = await season_one.check_and_decide(15)
             self.assertEqual(
                 first_season_request.decision,
                 ScrapeDecision.SCRAPE_FOREGROUND,

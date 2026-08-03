@@ -476,6 +476,28 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
 
 
 class TorznabRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_inflight_timeout_remains_a_retryable_uncached_protocol_error(self):
+        request = _request("t=movie&imdbid=1234567")
+        with (
+            patch.object(settings, "HTTP_CACHE_ENABLED", True),
+            patch(
+                "comet.api.endpoints.torznab.http_client_manager.get_session",
+                new=AsyncMock(return_value=object()),
+            ),
+            patch("comet.api.endpoints.torznab.config_check", return_value={}),
+            patch(
+                "comet.api.endpoints.torznab.search_media",
+                new=AsyncMock(return_value=MediaSearchResult(MediaSearchStatus.BUSY)),
+            ),
+        ):
+            response = await torznab_api(request, BackgroundTasks())
+
+        root = ET.fromstring(response.body)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(root.attrib["code"], "900")
+        self.assertEqual(root.attrib["description"], "Search busy; retry shortly")
+        self.assertIn("no-store", response.headers["cache-control"])
+
     async def test_offset_and_limit_parameters_are_ignored(self):
         request = _request("t=movie&imdbid=1234567&offset=200&limit=1")
         with (

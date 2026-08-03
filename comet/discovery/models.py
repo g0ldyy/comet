@@ -64,3 +64,4 @@ class DiscoveryBatch:
     candidates: tuple[ReleaseCandidate, ...] = ()
     diagnostics: tuple[str, ...] = ()
     coverage: frozenset[str] = field(default_factory=frozenset)
+    inflight: bool = False

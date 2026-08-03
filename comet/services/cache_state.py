@@ -4,7 +4,6 @@ from enum import Enum
 
 from comet.core.database import database
 from comet.core.models import settings
-from comet.services.lock import DistributedLock
 
 
 async def _upsert_scope_demand(
@@ -75,7 +74,6 @@ class ScrapeDecision(Enum):
     USE_CACHE = "use_cache"
     SCRAPE_FOREGROUND = "scrape_foreground"
     SCRAPE_BACKGROUND = "scrape_background"
-    WAIT_FOR_OTHER = "wait_for_other"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +82,6 @@ class CacheCheckResult:
     decision: ScrapeDecision
     has_cached_torrents: bool
     scope_scraped_at: float | None
-    lock_acquired: bool = False
 
     @property
     def should_scrape_now(self) -> bool:
@@ -94,18 +91,12 @@ class CacheCheckResult:
     def should_scrape_background(self) -> bool:
         return self.decision is ScrapeDecision.SCRAPE_BACKGROUND
 
-    @property
-    def should_return_wait_message(self) -> bool:
-        return self.decision is ScrapeDecision.WAIT_FOR_OTHER
-
 
 class CacheStateManager:
     """Tracks reusable results separately from exact-scope scrape coverage."""
 
     def __init__(self, media_id: str):
         self.media_id = media_id
-        self._lock: DistributedLock | None = None
-        self._lock_acquired = False
 
     async def register_demand(self) -> float | None:
         """Record demand and return the last scrape for this exact media ID."""
@@ -136,41 +127,20 @@ class CacheStateManager:
     @staticmethod
     def _determine_decision(
         state: CacheState,
-        lock_acquired: bool,
     ) -> ScrapeDecision:
         if state is CacheState.FRESH:
             return ScrapeDecision.USE_CACHE
         if state is CacheState.STALE:
             return ScrapeDecision.SCRAPE_BACKGROUND
-        if lock_acquired:
-            return ScrapeDecision.SCRAPE_FOREGROUND
-        return ScrapeDecision.WAIT_FOR_OTHER
-
-    async def _try_acquire_lock(self) -> bool:
-        if self._lock is None:
-            self._lock = DistributedLock(self.media_id)
-        self._lock_acquired = await self._lock.acquire()
-        return self._lock_acquired
-
-    async def try_acquire_lock(self) -> bool:
-        return await self._try_acquire_lock()
-
-    async def release_lock(self) -> None:
-        if self._lock_acquired and self._lock is not None:
-            await self._lock.release()
-            self._lock_acquired = False
+        return ScrapeDecision.SCRAPE_FOREGROUND
 
     async def check_and_decide(self, torrent_count: int) -> CacheCheckResult:
         last_scraped_at = await self.register_demand()
         state = self._determine_state(torrent_count, last_scraped_at)
-        lock_acquired = False
-        if state in (CacheState.EMPTY, CacheState.FIRST_SEARCH):
-            lock_acquired = await self._try_acquire_lock()
 
         return CacheCheckResult(
             state=state,
-            decision=self._determine_decision(state, lock_acquired),
+            decision=self._determine_decision(state),
             has_cached_torrents=torrent_count > 0,
             scope_scraped_at=last_scraped_at,
-            lock_acquired=lock_acquired,
         )

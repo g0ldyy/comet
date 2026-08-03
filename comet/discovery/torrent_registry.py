@@ -1,10 +1,16 @@
+import hashlib
 import importlib
 import inspect
 import pkgutil
 from pathlib import Path
 
+import orjson
+
+from comet.core.discovery_sources import instance_discovery_source_id
 from comet.core.models import settings
 from comet.core.scrape import ScrapeContext, normalize_scraper_name
+from comet.core.settings_catalog import build_settings_catalog
+from comet.discovery.capabilities import DiscoveryBranchFingerprint
 from comet.discovery.torrent_base import TorrentDiscoveryAdapter
 from comet.discovery.torrent_models import ScrapeRequest
 from comet.services.anime import anime_mapper
@@ -14,6 +20,10 @@ from comet.utils.parsing import (
     parse_url_scrape_mode,
     url_mode_matches_context,
 )
+
+SERVER_TORRENT_ACCOUNT_PARTITION = hashlib.sha256(
+    b"comet-server-torrent-public-partition-v1"
+).digest()
 
 
 class TorrentAdapterRegistry:
@@ -151,6 +161,47 @@ class TorrentAdapterRegistry:
                 )
         return adapters
 
+    @staticmethod
+    def branch_fingerprints(
+        adapters: dict[str, TorrentDiscoveryAdapter],
+        context: ScrapeContext,
+    ) -> dict[tuple[str, str], DiscoveryBranchFingerprint]:
+        """Bind shared source coverage to the effective server configuration."""
+
+        catalog = {entry.key: entry.category for entry in build_settings_catalog()}
+        configuration = settings.model_dump(mode="json")
+        source_configuration = {
+            key: value
+            for key, value in configuration.items()
+            if catalog.get(key) in {"scrapers_proxies", "discovery_indexers"}
+            or key.startswith("DMM_")
+        }
+        generation = hashlib.sha256(
+            b"comet-server-torrent-settings-v1\0"
+            + orjson.dumps(source_configuration, option=orjson.OPT_SORT_KEYS)
+        ).digest()
+        result = {}
+        for configuration_id, adapter in adapters.items():
+            fingerprint = hashlib.sha256(
+                b"comet-server-torrent-branch-v1\0"
+                + generation
+                + b"\0"
+                + configuration_id.encode("utf-8")
+                + b"\0"
+                + type(adapter).__module__.encode("utf-8")
+                + b"."
+                + type(adapter).__qualname__.encode("utf-8")
+                + b"\0"
+                + context.value.encode("ascii")
+            ).hexdigest()
+            result[(configuration_id, "bittorrent")] = DiscoveryBranchFingerprint(
+                configuration_id,
+                "bittorrent",
+                fingerprint,
+                public_visibility=True,
+            )
+        return result
+
     def _register_url_adapters(
         self,
         adapters,
@@ -185,13 +236,13 @@ class TorrentAdapterRegistry:
         adapter: TorrentDiscoveryAdapter,
         timeout: float,
     ) -> None:
-        configuration_id = "server-torrent:" + normalize_scraper_name(
+        source_key = "server-torrent:" + normalize_scraper_name(
             display_name.partition(" #")[0]
         )
+        configuration_id = instance_discovery_source_id(source_key)
         suffix = 2
-        base_id = configuration_id
         while configuration_id in adapters:
-            configuration_id = f"{base_id}:{suffix}"
+            configuration_id = instance_discovery_source_id(f"{source_key}:{suffix}")
             suffix += 1
         adapter.discovery_name = display_name
         adapter.discovery_timeout = timeout

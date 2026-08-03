@@ -6,9 +6,14 @@ from uuid import UUID, uuid5
 from comet.core.models import settings
 
 _INSTANCE_SOURCE_NAMESPACE = UUID("a338a7dc-a92d-4c14-9f3a-f11fba3abed2")
-ANIMETOSHO_USENET_SOURCE_ID = str(
-    uuid5(_INSTANCE_SOURCE_NAMESPACE, "animetosho-usenet")
-)
+
+
+def instance_discovery_source_id(source_key: str) -> str:
+    """Return the stable persisted identity of an operator-owned source."""
+    return str(uuid5(_INSTANCE_SOURCE_NAMESPACE, source_key))
+
+
+ANIMETOSHO_USENET_SOURCE_ID = instance_discovery_source_id("animetosho-usenet")
 
 
 def effective_discovery_sources(

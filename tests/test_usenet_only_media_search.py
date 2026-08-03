@@ -416,7 +416,7 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
         search_sources.assert_awaited_once()
         torrent_manager.assert_not_called()
 
-    async def test_locked_torrent_branch_returns_independent_usenet_results(self):
+    async def test_inflight_torrent_branch_returns_independent_usenet_results(self):
         config = {
             "schemaVersion": 2,
             "enabledTransports": ("bittorrent", "usenet"),
@@ -425,6 +425,9 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
             "scrapeDebridAccountTorrents": False,
             "cachedOnly": False,
             "removeTrash": True,
+            "rtnSettings": None,
+            "rtnRanking": None,
+            "maxSize": 0,
         }
         metadata = {
             "title": "Example",
@@ -440,19 +443,25 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
         )
         manager = MagicMock()
         manager.get_cached_torrents = AsyncMock()
+        manager.scrape_torrents = AsyncMock(
+            return_value=DiscoveryResult((), (), _EMPTY_PLAN, inflight=True)
+        )
+        manager.ingest_release_candidates = AsyncMock()
+        manager.rank_torrents = AsyncMock()
         manager.primary_cached = False
         manager.torrents = {}
+        manager.ranked_torrents = {}
+        filtered_candidate = MagicMock()
+        filtered_candidate.candidate_id = "usenet:test"
         cache_manager = MagicMock()
         cache_manager.check_and_decide = AsyncMock(
             return_value=CacheCheckResult(
                 CacheState.EMPTY,
-                ScrapeDecision.WAIT_FOR_OTHER,
+                ScrapeDecision.SCRAPE_FOREGROUND,
                 False,
                 None,
-                False,
             )
         )
-        cache_manager.try_acquire_lock = AsyncMock(return_value=False)
         with (
             patch(
                 "comet.services.media_search.http_client_manager.get_session",
@@ -468,16 +477,24 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=discovery),
             ),
             patch(
-                "comet.services.media_search._prepare_discovery_only_view",
+                "comet.services.media_search._filter_and_rank_discovery_candidates",
+                new=AsyncMock(return_value=(filtered_candidate,)),
+            ),
+            patch(
+                "comet.services.media_search._prepare_provider_view",
                 new=AsyncMock(
                     return_value=(
-                        ("visible-usenet",),
+                        (filtered_candidate,),
                         ("playable-option",),
                         {},
                         {},
                     )
                 ),
             ) as prepare,
+            patch(
+                "comet.services.media_search.sort_candidates",
+                return_value=(filtered_candidate,),
+            ),
             patch(
                 "comet.services.media_search.TorrentResultAccumulator",
                 return_value=manager,
@@ -495,7 +512,15 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
                 False,
             ),
         ):
-            result = await search_media(
+            result_with_usenet = await search_media(
+                "movie",
+                "tt1234567",
+                config,
+                "",
+                lambda *_args, **_kwargs: None,
+            )
+            prepare.return_value = ((), (), {}, {})
+            result_without_fallback = await search_media(
                 "movie",
                 "tt1234567",
                 config,
@@ -503,10 +528,11 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
                 lambda *_args, **_kwargs: None,
             )
 
-        self.assertEqual(result.status, MediaSearchStatus.OK)
-        self.assertEqual(result.candidates, ("visible-usenet",))
-        self.assertEqual(result.provider_options, ("playable-option",))
-        prepare.assert_awaited_once()
+        self.assertEqual(result_with_usenet.status, MediaSearchStatus.OK)
+        self.assertEqual(result_with_usenet.candidates, (filtered_candidate,))
+        self.assertEqual(result_with_usenet.provider_options, ("playable-option",))
+        self.assertEqual(result_without_fallback.status, MediaSearchStatus.BUSY)
+        self.assertEqual(prepare.await_count, 2)
 
     async def test_discovery_task_is_cancelled_and_joined_after_torrent_failure(self):
         config = {
