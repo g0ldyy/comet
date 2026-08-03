@@ -1,15 +1,21 @@
 import asyncio
+import os
+import tempfile
 import unittest
 import uuid
+from pathlib import Path
 from unittest.mock import patch
 
+from comet.core.models import AppSettings
 from comet.core.scrape import ScrapeContext
 from comet.discovery.adapters.torrent.jackett import JackettScraper
+from comet.discovery.adapters.torrent.jackettio import JackettioScraper
 from comet.discovery.adapters.torrent.prowlarr import ProwlarrScraper
 from comet.discovery.adapters.torrent.torrentio import TorrentioScraper
 from comet.discovery.adapters.torrent.zilean import ZileanScraper
 from comet.discovery.models import DiscoveryContext, MediaQuery
 from comet.discovery.torrent_base import TorrentDiscoveryAdapter
+from comet.discovery.torrent_models import ScrapeRequest
 from comet.discovery.torrent_registry import (
     TorrentAdapterRegistry,
     settings,
@@ -18,6 +24,54 @@ from comet.utils.network_manager import AsyncClientWrapper
 
 
 class TorrentAdapterRegistryTests(unittest.IsolatedAsyncioTestCase):
+    def test_dotenv_url_scraper_uses_the_same_configuration_contract(self):
+        manager = TorrentAdapterRegistry.__new__(TorrentAdapterRegistry)
+        manager.adapter_types = {"JackettioScraper": JackettioScraper}
+
+        for environment, expected_count in (
+            ({"SCRAPE_JACKETTIO": "true"}, 0),
+            (
+                {
+                    "SCRAPE_JACKETTIO": "true",
+                    "JACKETTIO_URL": "https://jackettio.example/",
+                },
+                1,
+            ),
+        ):
+            with self.subTest(environment=environment):
+                with tempfile.TemporaryDirectory() as directory:
+                    env_file = Path(directory) / ".env"
+                    env_file.write_text(
+                        "".join(f"{key}={value}\n" for key, value in environment.items()),
+                        encoding="utf-8",
+                    )
+                    with patch.dict(os.environ, {}, clear=True):
+                        configured = AppSettings(_env_file=env_file)
+                with (
+                    settings.bind_snapshot(configured),
+                    patch(
+                        "comet.discovery.torrent_registry.network_manager.get_client"
+                    ) as get_client,
+                ):
+                    adapters = manager.build_adapters(
+                        ScrapeRequest(
+                            media_type="movie",
+                            media_id="tt15239678",
+                            media_only_id="tt15239678",
+                            title="Dune: Part Two",
+                        )
+                    )
+
+                self.assertEqual(len(adapters), expected_count)
+                if expected_count:
+                    get_client.assert_called_once()
+                    self.assertEqual(
+                        next(iter(adapters.values())).url,
+                        "https://jackettio.example",
+                    )
+                else:
+                    get_client.assert_not_called()
+
     def test_registered_adapter_ids_are_stable_persistable_uuids(self):
         class ExampleScraper(TorrentDiscoveryAdapter):
             async def scrape(self, request):

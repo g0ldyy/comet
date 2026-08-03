@@ -75,7 +75,7 @@ class TorrentAdapterRegistry:
     @staticmethod
     def _resolve_url_for_context(url: str, context: str):
         parsed_url, mode = parse_url_scrape_mode(url)
-        if not url_mode_matches_context(mode, context):
+        if not parsed_url or not url_mode_matches_context(mode, context):
             return None
         return parsed_url
 
@@ -102,40 +102,42 @@ class TorrentAdapterRegistry:
                 if not is_anime_content:
                     continue
 
-            scrape_timeout = self._resolve_timeout(scraper_class, request.context)
+            url_credentials_pairs = None
+            if scraper_class.url_setting is not None:
+                credential_setting = scraper_class.credential_setting
+                url_credentials_pairs = [
+                    (resolved_url, credentials)
+                    for url, credentials in associate_urls_credentials(
+                        settings.__dict__[scraper_class.url_setting],
+                        (
+                            settings.__dict__[credential_setting]
+                            if credential_setting is not None
+                            else None
+                        ),
+                    )
+                    if (
+                        resolved_url := self._resolve_url_for_context(
+                            url, request.context
+                        )
+                    )
+                    is not None
+                ]
+                if not url_credentials_pairs:
+                    continue
 
-            # Get client wrapper
+            scrape_timeout = self._resolve_timeout(scraper_class, request.context)
             client = network_manager.get_client(
                 scraper_name=scraper_name_clean, impersonate=scraper_class.impersonate
             )
 
-            if scraper_class.credential_setting is not None:
-                url_credentials_pairs = associate_urls_credentials(
-                    settings.__dict__[scraper_class.url_setting],
-                    settings.__dict__[scraper_class.credential_setting],
-                )
+            if url_credentials_pairs is not None:
                 self._register_url_adapters(
                     adapters,
                     scraper_name_clean,
                     scraper_class,
                     client,
                     scrape_timeout,
-                    request.context,
                     url_credentials_pairs,
-                )
-            elif scraper_class.url_setting is not None:
-                urls = settings.__dict__[scraper_class.url_setting]
-                if isinstance(urls, str):
-                    urls = [urls]
-
-                self._register_url_adapters(
-                    adapters,
-                    scraper_name_clean,
-                    scraper_class,
-                    client,
-                    scrape_timeout,
-                    request.context,
-                    ((url, None) for url in urls),
                 )
             else:
                 scraper = scraper_class(self, client)
@@ -195,16 +197,12 @@ class TorrentAdapterRegistry:
         scraper_class,
         client,
         scrape_timeout,
-        context,
         url_credentials,
     ) -> None:
         active_instance_count = 0
         for url, credentials in url_credentials:
-            parsed_url = self._resolve_url_for_context(url, context)
-            if parsed_url is None:
-                continue
             active_instance_count += 1
-            args = (self, client, parsed_url)
+            args = (self, client, url)
             if scraper_class.credential_setting is not None:
                 args += (credentials,)
             scraper = scraper_class(*args)
