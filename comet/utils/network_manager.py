@@ -10,6 +10,7 @@ from curl_cffi.requests import AsyncSession as CurlSession
 from curl_cffi.requests import RequestsError
 
 from comet.core.models import settings
+from comet.observability.logging import log
 from comet.utils.proxy import (
     REMOTE_DNS_PROXY_SCHEMES,
     is_socks_proxy,
@@ -139,6 +140,14 @@ def _retry_delay(retry_after, base_delay: float, attempt: int) -> float | None:
     return min(max(requested, bounded_base), _MAX_RETRY_DELAY_SECONDS)
 
 
+def _provider_host(url: str) -> str | None:
+    """Extract the upstream host without exposing URL paths or credentials."""
+    try:
+        return urlparse(url).hostname
+    except ValueError:
+        return None
+
+
 class _RequestContextManager:
     def __init__(self, wrapper, method, url, **kwargs):
         self.wrapper = wrapper
@@ -238,20 +247,30 @@ class _RequestContextManager:
                 return self.response
 
             # Handle 429 Too Many Requests
+            delay = None
             if attempt < max_retries:
-                retry_after = self.response.headers.get("Retry-After")
-                delay = _retry_delay(retry_after, base_delay, attempt)
-                if delay is None:
-                    return self.response
-
-                # Cleanup aiohttp context manager for the failed attempt
-                if not self.wrapper.impersonate and self.aiohttp_cm is not None:
-                    await self.aiohttp_cm.__aexit__(None, None, None)
-                    self.aiohttp_cm = None
-
-                await asyncio.sleep(delay)
-            else:
+                delay = _retry_delay(
+                    self.response.headers.get("Retry-After"), base_delay, attempt
+                )
+            log.warning(
+                "http.upstream.rate_limited",
+                "Upstream request rate limited",
+                provider_host=_provider_host(self.url),
+                http_method=self.method.lower(),
+                http_status=429,
+                attempt_count=attempt + 1,
+                retryable=delay is not None,
+                **({"backoff_ms": delay * 1_000} if delay is not None else {}),
+            )
+            if delay is None:
                 return self.response
+
+            # Cleanup aiohttp context manager for the failed attempt
+            if not self.wrapper.impersonate and self.aiohttp_cm is not None:
+                await self.aiohttp_cm.__aexit__(None, None, None)
+                self.aiohttp_cm = None
+
+            await asyncio.sleep(delay)
 
     async def __aexit__(self, exc_type, exc, tb):
         try:

@@ -64,10 +64,67 @@ class NetworkManagerContractTests(unittest.IsolatedAsyncioTestCase):
         )
         request = _RequestContextManager(wrapper, "GET", "https://example.invalid")
 
-        result = await request._attempt_request(None)
+        with patch("comet.utils.network_manager.log.warning") as warning:
+            result = await request._attempt_request(None)
 
         self.assertEqual(result.status, 429)
         self.assertEqual(session.requests, 1)
+        warning.assert_called_once_with(
+            "http.upstream.rate_limited",
+            "Upstream request rate limited",
+            provider_host="example.invalid",
+            http_method="get",
+            http_status=429,
+            attempt_count=1,
+            retryable=False,
+        )
+
+    async def test_rate_limit_log_redacts_the_request_url_and_records_the_retry(self):
+        rate_limited = SimpleNamespace(
+            status_code=429,
+            headers={},
+            encoding="utf-8",
+        )
+        recovered = SimpleNamespace(status_code=200, headers={}, encoding="utf-8")
+
+        class Session:
+            def __init__(self):
+                self.responses = iter((rate_limited, recovered))
+
+            async def request(self, _method, _url, **_kwargs):
+                return next(self.responses)
+
+        wrapper = SimpleNamespace(
+            impersonate="chrome",
+            _resolved_proxy_url=None,
+            _get_curl_session=AsyncMock(return_value=Session()),
+        )
+        request = _RequestContextManager(
+            wrapper,
+            "GET",
+            "https://api.example.test/search?api_key=secret-canary",
+        )
+
+        with (
+            patch("comet.utils.network_manager.log.warning") as warning,
+            patch(
+                "comet.utils.network_manager.asyncio.sleep", new=AsyncMock()
+            ) as sleep,
+        ):
+            result = await request._attempt_request(None)
+
+        self.assertEqual(result.status, 200)
+        warning.assert_called_once_with(
+            "http.upstream.rate_limited",
+            "Upstream request rate limited",
+            provider_host="api.example.test",
+            http_method="get",
+            http_status=429,
+            attempt_count=1,
+            retryable=True,
+            backoff_ms=settings.RATELIMIT_RETRY_BASE_DELAY * 1_000,
+        )
+        sleep.assert_awaited_once_with(settings.RATELIMIT_RETRY_BASE_DELAY)
 
     def test_unexpected_proxy_resolution_failure_propagates(self):
         proxy_url = "http://user:secret@proxy.internal:8080"
