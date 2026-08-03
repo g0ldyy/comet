@@ -33,21 +33,59 @@ QueueKind = Literal["item", "episode"]
 QueueAction = Literal["retry", "defer", "abandon"]
 ControlAction = Literal["start", "stop", "pause", "resume", "drain", "cancel_drain"]
 _QUEUE_STATUSES = ("discovered", "running", "success", "failed", "dead", "deferred")
+_RUNTIME_FRESH_SECONDS = 2
 
 
-def _run(row) -> ScraperRunView:
+def _live_run_stats(runtimes) -> dict[str, dict[str, int]]:
+    stats: dict[str, dict[str, int]] = {}
+    for row in runtimes:
+        run_id = row["run_id"]
+        if run_id is None:
+            continue
+        current = stats.setdefault(
+            run_id,
+            {"processed": 0, "success": 0, "failed": 0, "torrents_found": 0},
+        )
+        for field in current:
+            current[field] = max(current[field], row[field])
+    return stats
+
+
+def _run(row, live_stats: dict[str, dict[str, int]] | None = None) -> ScraperRunView:
+    counters = (
+        live_stats.get(row["run_id"])
+        if live_stats is not None and row["status"] == "running"
+        else None
+    )
     return ScraperRunView(
         run_id=row["run_id"],
         started_at=row["started_at"],
         finished_at=row["finished_at"],
         status=row["status"],
-        processed=row["processed"],
-        success=row["success"],
-        failed=row["failed"],
-        torrents_found=row["torrents_found"],
+        processed=counters["processed"] if counters is not None else row["processed"],
+        success=counters["success"] if counters is not None else row["success"],
+        failed=counters["failed"] if counters is not None else row["failed"],
+        torrents_found=(
+            counters["torrents_found"]
+            if counters is not None
+            else row["torrents_found"]
+        ),
         duration_ms=row["duration_ms"],
         worker_count=row["worker_count"],
         error_code="background_failure" if row["last_error"] is not None else None,
+    )
+
+
+async def _fresh_runtimes(now: float):
+    return await database.fetch_all(
+        """
+        SELECT *
+        FROM background_scraper_runtimes
+        WHERE last_heartbeat >= :cutoff
+        ORDER BY state, instance_id, process_id
+        """,
+        {"cutoff": now - _RUNTIME_FRESH_SECONDS},
+        force_primary=True,
     )
 
 
@@ -136,23 +174,21 @@ async def scraping_snapshot(
                 if oldest_ready_at is None
                 else min(oldest_ready_at, row["oldest_ready_at"])
             )
-    runtimes = await database.fetch_all(
-        """
-        SELECT *
-        FROM background_scraper_runtimes
-        WHERE last_heartbeat >= :cutoff
-        ORDER BY state, instance_id, process_id
-        """,
-        {"cutoff": now - 2},
-        force_primary=True,
-    )
+    runtimes = await _fresh_runtimes(now)
+    live_stats = _live_run_stats(runtimes)
     run_summary = await database.fetch_one(
         """
         SELECT
             COUNT(*) AS runs,
-            COALESCE(SUM(processed_count), 0) AS processed,
-            COALESCE(SUM(failed_count), 0) AS failed,
-            COALESCE(SUM(torrents_found_count), 0) AS torrents_found
+            COALESCE(SUM(
+                CASE WHEN status != 'running' THEN processed_count ELSE 0 END
+            ), 0) AS processed,
+            COALESCE(SUM(
+                CASE WHEN status != 'running' THEN failed_count ELSE 0 END
+            ), 0) AS failed,
+            COALESCE(SUM(
+                CASE WHEN status != 'running' THEN torrents_found_count ELSE 0 END
+            ), 0) AS torrents_found
         FROM background_scraper_runs
         WHERE started_at >= :cutoff
         """,
@@ -167,6 +203,12 @@ async def scraping_snapshot(
         LIMIT 1
         """,
         force_primary=True,
+    )
+    latest_view = _run(latest, live_stats) if latest is not None else None
+    live_view = (
+        latest_view
+        if latest_view is not None and latest_view.status == "running"
+        else None
     )
     return success_response(
         request,
@@ -195,10 +237,13 @@ async def scraping_snapshot(
                 hard_cap=settings.BACKGROUND_SCRAPER_QUEUE_HARD_CAP,
             ),
             runs_24h=run_summary["runs"],
-            processed_24h=run_summary["processed"],
-            failed_24h=run_summary["failed"],
-            torrents_found_24h=run_summary["torrents_found"],
-            latest_run=_run(latest) if latest is not None else None,
+            processed_24h=run_summary["processed"]
+            + (live_view.processed if live_view is not None else 0),
+            failed_24h=run_summary["failed"]
+            + (live_view.failed if live_view is not None else 0),
+            torrents_found_24h=run_summary["torrents_found"]
+            + (live_view.torrents_found if live_view is not None else 0),
+            latest_run=latest_view,
         ),
     )
 
@@ -367,6 +412,7 @@ async def scraper_runs(
         force_primary=True,
     )
     page = rows[:limit]
+    live_stats = _live_run_stats(await _fresh_runtimes(time.time()))
     next_cursor = (
         encode_timestamp_cursor(page[-1]["started_at"], page[-1]["run_id"])
         if len(rows) > limit
@@ -375,7 +421,7 @@ async def scraper_runs(
     return success_response(
         request,
         ScraperRunsPageData(
-            items=[_run(row) for row in page],
+            items=[_run(row, live_stats) for row in page],
             next_cursor=next_cursor,
         ),
     )

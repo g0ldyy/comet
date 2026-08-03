@@ -869,14 +869,29 @@ class ApiV1Tests(unittest.IsolatedAsyncioTestCase):
                 started_at, processed, success, failed, torrents_found,
                 discovered_items, errors, last_heartbeat
             ) VALUES (
-                :instance_id, 321, 'running', 0, NULL,
+                :instance_id, 321, 'running', 0, :run_id,
                 :started_at, 2, 1, 1, 3, 4, 1, :heartbeat
             )
             """,
             {
                 "instance_id": "a" * 32,
+                "run_id": "22222222-2222-4222-8222-222222222222",
                 "started_at": now - 30,
                 "heartbeat": now,
+            },
+        )
+        await self.database.execute(
+            """
+            INSERT INTO background_scraper_runs (
+                run_id, started_at, status, processed_count, success_count,
+                failed_count, torrents_found_count, duration_ms, worker_count
+            ) VALUES (
+                :run_id, :started_at, 'running', 0, 0, 0, 0, 0, 1
+            )
+            """,
+            {
+                "run_id": "22222222-2222-4222-8222-222222222222",
+                "started_at": now - 30,
             },
         )
 
@@ -887,6 +902,17 @@ class ApiV1Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["queue"]["episodes"], 1)
         self.assertEqual(data["queue"]["dead"], 1)
         self.assertEqual(data["runtimes"][0]["processed"], 2)
+        self.assertEqual(data["processed_24h"], 6)
+        self.assertEqual(data["failed_24h"], 2)
+        self.assertEqual(data["torrents_found_24h"], 11)
+        self.assertEqual(data["latest_run"]["processed"], 2)
+        self.assertEqual(data["latest_run"]["torrents_found"], 3)
+
+        runs = await self.client.get("/api/v1/admin/scraping/runs")
+        self.assertEqual(runs.status_code, 200, runs.text)
+        current_run = runs.json()["data"]["items"][0]
+        self.assertEqual(current_run["processed"], 2)
+        self.assertEqual(current_run["torrents_found"], 3)
 
         queue = await self.client.get(
             "/api/v1/admin/scraping/queue/item",

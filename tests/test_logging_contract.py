@@ -1,3 +1,4 @@
+import asyncio
 import gc
 import json
 import logging
@@ -557,6 +558,35 @@ class LoggingContractTests(unittest.TestCase):
         self.assertEqual(payload["details"], "Worker failed to boot")
         self.assertEqual(payload["error_type"], "RuntimeError")
         self.assertEqual(payload["error_message"], "worker boot failed")
+
+    def test_asyncio_failure_preserves_context_and_exception(self):
+        self.configure("normal")
+        configure_stdlib_bridge()
+
+        try:
+            raise RuntimeError("task failed")
+        except RuntimeError:
+            records = self.render(
+                lambda: logging.getLogger("asyncio").exception(
+                    "Task exception was never retrieved"
+                )
+            )
+
+        payload = json.loads(records[0])
+        self.assertEqual(payload["event"], "dependency.asyncio.failed")
+        self.assertEqual(payload["details"], "Task exception was never retrieved")
+        self.assertEqual(payload["error_type"], "RuntimeError")
+        self.assertEqual(payload["error_message"], "task failed")
+
+    def test_asyncio_cancellation_is_not_reported_as_a_dependency_failure(self):
+        self.configure("normal")
+        configure_stdlib_bridge()
+
+        records = self.render(
+            lambda: logging.getLogger("asyncio").error(asyncio.CancelledError())
+        )
+
+        self.assertEqual(records, [])
 
     def test_production_rejection_is_fixed_and_does_not_raise(self):
         self.configure("normal", strict=False)

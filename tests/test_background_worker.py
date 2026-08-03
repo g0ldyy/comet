@@ -2,7 +2,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from databases import Database
 
@@ -12,6 +12,7 @@ from comet.background_scraper.worker import (
 )
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.models import settings
+from comet.metadata.manager import MetadataFetchResult, MetadataFetchStatus
 
 
 async def _create_queue_database(path: Path) -> ReplicaAwareDatabase:
@@ -62,6 +63,97 @@ class _PassthroughLock:
 
 
 class BackgroundWorkerLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_movie_scrape_consumes_structured_metadata_result(self):
+        worker = BackgroundScraperWorker()
+        worker.metadata_scraper = Mock()
+        worker.metadata_scraper.fetch_aliases_with_metadata = AsyncMock(
+            return_value=MetadataFetchResult(
+                MetadataFetchStatus.OK,
+                {
+                    "title": "Spider-Man: Homecoming",
+                    "year": 2017,
+                    "year_end": None,
+                },
+                {"en": ["Spider-Man: Homecoming"]},
+            )
+        )
+        manager = Mock()
+        manager.torrents = {"hash": {}}
+        manager.scrape_torrents = AsyncMock()
+
+        with (
+            patch(
+                "comet.background_scraper.worker.TorrentResultAccumulator",
+                return_value=manager,
+            ) as accumulator,
+            patch(
+                "comet.background_scraper.worker.mark_scope_scraped",
+                new=AsyncMock(),
+            ) as mark_scraped,
+        ):
+            count = await worker._scrape_movie(
+                {
+                    "media_id": "tt2250912",
+                    "media_type": "movie",
+                    "title": "Spider-Man: Homecoming",
+                    "year": 2017,
+                    "year_end": None,
+                }
+            )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(
+            accumulator.call_args.kwargs["aliases"],
+            {"en": ["Spider-Man: Homecoming"]},
+        )
+        manager.scrape_torrents.assert_awaited_once()
+        mark_scraped.assert_awaited_once_with("tt2250912")
+
+    async def test_completed_item_emits_progress_log(self):
+        worker = BackgroundScraperWorker()
+        worker.is_running = True
+        worker._scrape_movie = AsyncMock(return_value=3)
+        worker._update_item_state = AsyncMock()
+
+        with patch("comet.background_scraper.worker.log.info") as info:
+            await worker._scrape_single_media(
+                {
+                    "media_id": "tt2250912",
+                    "media_type": "movie",
+                    "consecutive_failures": 0,
+                },
+                None,
+            )
+
+        self.assertEqual(worker.stats.total_processed, 1)
+        self.assertEqual(worker.stats.total_success, 1)
+        info.assert_called_once()
+        self.assertEqual(info.call_args.args[0], "background.item.completed")
+        self.assertEqual(info.call_args.kwargs["outcome"], "ok")
+        self.assertEqual(info.call_args.kwargs["torrent_count"], 3)
+
+    async def test_failed_item_logs_the_caught_exception(self):
+        worker = BackgroundScraperWorker()
+        worker.is_running = True
+        failure = TypeError("invalid metadata result")
+        worker._scrape_movie = AsyncMock(side_effect=failure)
+        worker._update_item_state = AsyncMock()
+
+        with patch("comet.background_scraper.worker.log.warning") as warning:
+            await worker._scrape_single_media(
+                {
+                    "media_id": "tt2250912",
+                    "media_type": "movie",
+                    "consecutive_failures": 0,
+                },
+                None,
+            )
+
+        self.assertEqual(worker.stats.total_failed, 1)
+        self.assertEqual(worker.stats.errors, 1)
+        self.assertIs(warning.call_args.kwargs["exc"], failure)
+        self.assertEqual(warning.call_args.kwargs["outcome"], "failed")
+
     async def test_unexpected_item_task_failure_aborts_the_batch(self):
         worker = BackgroundScraperWorker()
         worker.is_running = True

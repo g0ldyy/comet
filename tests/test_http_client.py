@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 
 import aiohttp
@@ -35,6 +36,30 @@ class HttpClientLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(await manager.get_session(), replacement)
         finally:
             await manager.close()
+
+    async def test_close_defers_a_leased_session_until_its_owner_releases_it(self):
+        manager = HttpClientManager()
+        acquired = asyncio.Event()
+        release = asyncio.Event()
+
+        async def hold_lease():
+            async with manager.bind() as session:
+                acquired.set()
+                await release.wait()
+                return session
+
+        task = asyncio.create_task(hold_lease())
+        await acquired.wait()
+        leased = await manager.get_session()
+
+        await manager.close()
+        self.assertFalse(leased.closed)
+
+        release.set()
+        self.assertIs(await task, leased)
+        self.assertTrue(leased.closed)
+        self.assertEqual(manager._leases, {})
+        self.assertEqual(manager._retired, set())
 
     async def test_user_destination_http_pool_is_strict_and_cookie_free(self):
         manager = HttpClientManager()

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from comet.core.database import database
 from comet.core.models import settings
 from comet.core.scrape import ScrapeContext
-from comet.metadata.manager import MetadataScraper
+from comet.metadata.manager import MetadataFetchResult, MetadataScraper
 from comet.observability import log, metrics, run_context
 from comet.services.cache_state import mark_scope_scraped
 from comet.services.lock import DistributedLock
@@ -913,6 +913,13 @@ class BackgroundScraperWorker:
         if max_discovery_items <= 0:
             return 0
 
+        started_at = time.monotonic()
+        log.info(
+            "background.discovery.started",
+            "Background catalog discovery started",
+            media_type=media_type,
+            requested_count=max_discovery_items,
+        )
         discovered = 0
         batch = []
         now = time.time()
@@ -959,6 +966,13 @@ class BackgroundScraperWorker:
         if batch:
             await self._upsert_discovered_items(batch)
 
+        log.info(
+            "background.discovery.completed",
+            "Background catalog discovery completed",
+            media_type=media_type,
+            item_count=discovered,
+            duration_ms=(time.monotonic() - started_at) * 1000,
+        )
         return discovered
 
     async def _is_discovery_candidate_blocked(
@@ -1160,6 +1174,8 @@ class BackgroundScraperWorker:
         torrents_found = 0
         success = False
         error_message = None
+        error: Exception | None = None
+        started_at = time.monotonic()
 
         try:
             if media_type == "movie":
@@ -1167,8 +1183,9 @@ class BackgroundScraperWorker:
             else:
                 torrents_found = await self._scrape_series(item, deadline)
             success = torrents_found > 0
-        except Exception as e:
-            error_message = str(e)
+        except Exception as exc:
+            error = exc
+            error_message = str(exc)
             self.stats.errors += 1
 
         await self._update_item_state(item, success, torrents_found, error_message)
@@ -1180,14 +1197,48 @@ class BackgroundScraperWorker:
         self.stats.total_processed += 1
         self.stats.total_torrents_found += torrents_found
 
+        outcome = "ok" if success else "failed" if error is not None else "skipped"
+        emit = log.warning if error is not None else log.info
+        emit(
+            "background.item.completed",
+            "Background scraper item completed",
+            content_id=item["media_id"],
+            media_type=media_type,
+            operation="item",
+            outcome=outcome,
+            torrent_count=torrents_found,
+            success_count=self.stats.total_success,
+            failure_count=self.stats.total_failed,
+            duration_ms=(time.monotonic() - started_at) * 1000,
+            failure_reason=(
+                None
+                if success
+                else "item_error"
+                if error is not None
+                else "no_torrents"
+            ),
+            error_code="background_item_failure" if error is not None else None,
+            exc=error,
+        )
+
+    async def _fetch_item_metadata(self, item: dict) -> MetadataFetchResult:
+        media_id = item["media_id"]
+        media_type = item["media_type"]
+        request_media_id = media_id if media_type == "movie" else f"{media_id}:1:1"
+        return await self.metadata_scraper.fetch_aliases_with_metadata(
+            media_type,
+            request_media_id,
+            item["title"],
+            item["year"],
+            item.get("year_end"),
+            id=media_id,
+        )
+
     async def _scrape_movie(self, item: dict) -> int:
         media_id = item["media_id"]
-        title = item["title"]
-        year = item["year"]
 
-        metadata, aliases = await self.metadata_scraper.fetch_aliases_with_metadata(
-            "movie", media_id, title, year, id=media_id
-        )
+        metadata_result = await self._fetch_item_metadata(item)
+        metadata = metadata_result.metadata
         if metadata is None:
             return 0
 
@@ -1200,7 +1251,7 @@ class BackgroundScraperWorker:
             year_end=None,
             season=None,
             episode=None,
-            aliases=aliases,
+            aliases=metadata_result.aliases,
             remove_adult_content=settings.REMOVE_ADULT_CONTENT,
         )
 
@@ -1212,15 +1263,10 @@ class BackgroundScraperWorker:
 
     async def _scrape_series(self, item: dict, deadline: float | None) -> int:
         media_id = item["media_id"]
-        title = item["title"]
-        year = item["year"]
-        year_end = item["year_end"]
         total_torrents = 0
 
-        series_media_id = f"{media_id}:1:1"
-        metadata, aliases = await self.metadata_scraper.fetch_aliases_with_metadata(
-            "series", series_media_id, title, year, year_end, id=media_id
-        )
+        metadata_result = await self._fetch_item_metadata(item)
+        metadata = metadata_result.metadata
         if metadata is None:
             return 0
 
@@ -1255,7 +1301,7 @@ class BackgroundScraperWorker:
                     year_end=metadata["year_end"],
                     season=season,
                     episode=episode_number,
-                    aliases=aliases,
+                    aliases=metadata_result.aliases,
                     remove_adult_content=settings.REMOVE_ADULT_CONTENT,
                 )
                 await manager.scrape_torrents(ScrapeContext.BACKGROUND)

@@ -408,6 +408,7 @@ async def _lifespan_resources(app: FastAPI):
         )
         cleanup.push_async_callback(_cancel_task, memory_trim_task)
 
+        cleanup.push_async_callback(background_scraper.stop)
         # Start background scraper if enabled
         if settings.BACKGROUND_SCRAPER_ENABLED:
             background_scraper.clear_finished_task()
@@ -416,7 +417,6 @@ async def _lifespan_resources(app: FastAPI):
                     background_scraper.start(),
                     name="background.scraper",
                 )
-            cleanup.push_async_callback(background_scraper.stop)
 
         # Start DMM Ingester if enabled
         if settings.DMM_INGEST_ENABLED:

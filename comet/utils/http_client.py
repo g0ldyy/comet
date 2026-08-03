@@ -35,11 +35,12 @@ class HttpClientManager:
             return self._session
 
         async with self._lock:
-            if self._session and not self._session.closed:
-                return self._session
+            return self._ensure_session(settings)
 
-            self._session = self.build(settings)
-            return self._session
+    def _ensure_session(self, config) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = self.build(config)
+        return self._session
 
     @staticmethod
     def build(config) -> aiohttp.ClientSession:
@@ -108,8 +109,10 @@ class HttpClientManager:
 
     @asynccontextmanager
     async def bind(self):
-        session = await self.init()
+        from comet.core.models import settings
+
         async with self._lock:
+            session = self._ensure_session(settings)
             self._leases[session] = self._leases.get(session, 0) + 1
         token = self._bound.set(session)
         try:
@@ -135,12 +138,14 @@ class HttpClientManager:
                 for session in (self._session, self._user_session)
                 if session is not None
             }
+            leased = {
+                session for session in sessions if self._leases.get(session, 0) > 0
+            }
             self._session = None
             self._user_session = None
-            self._retired.clear()
-            self._leases.clear()
+            self._retired = leased
         await asyncio.gather(
-            *(session.close() for session in sessions if not session.closed),
+            *(session.close() for session in sessions - leased if not session.closed),
             return_exceptions=True,
         )
 

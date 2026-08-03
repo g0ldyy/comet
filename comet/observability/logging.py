@@ -1389,17 +1389,24 @@ class _ClosedBridgeHandler(stdlib_logging.Handler):
             return
         failed = record.levelno >= stdlib_logging.ERROR
         if record.name == "asyncio":
+            exception, details = _dependency_failure(record)
+            if isinstance(exception, asyncio.CancelledError):
+                return
             if failed:
                 log.error(
                     "dependency.asyncio.failed",
                     message="Async runtime dependency failed",
                     error_code="dependency_failure",
+                    details=details,
+                    exc=exception,
                 )
             else:
                 log.warning(
                     "dependency.asyncio.degraded",
                     message="Async runtime dependency degraded",
                     error_code="dependency_warning",
+                    details=details,
+                    exc=exception,
                 )
         elif record.name == "demagnetize":
             if failed:
