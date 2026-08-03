@@ -7,6 +7,7 @@ import orjson
 from httpx import ASGITransport, AsyncClient
 
 from comet.api import app as app_module
+from comet.core.config_codec import encode_configuration_segment
 from comet.core.config_validation import config_check
 
 DEVELOPMENT_CONFIGURATOR_DOCUMENT = {
@@ -290,6 +291,24 @@ class InstalledAddonCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(manifest["name"], "❌ | Comet")
         self.assertNotIn("OBSOLETE CONFIGURATION", manifest["description"])
         self.assertEqual(manifest["resources"][0]["name"], "stream")
+
+    async def test_compact_install_url_serves_a_valid_manifest(self):
+        encoded = encode_configuration_segment(
+            orjson.dumps(DEVELOPMENT_CONFIGURATOR_DOCUMENT)
+        )
+        self.assertTrue(encoded.startswith("z1."))
+        with patch(
+            "comet.api.endpoints.manifest.eligible_usenet_provider_badges",
+            new=AsyncMock(return_value=[]),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app_module.app),
+                base_url="http://testserver",
+            ) as client:
+                response = await client.get(f"/{encoded}/manifest.json")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["resources"][0]["name"], "stream")
 
 
 if __name__ == "__main__":

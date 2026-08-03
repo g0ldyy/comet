@@ -13,7 +13,10 @@ If `CONFIGURE_PAGE_PASSWORD` is configured, Comet shows a login form first.
 
 ## Step 2: Set Your Streaming Options
 
-The configuration page stores settings inside the generated manifest URL.
+The configuration page stores settings inside the generated manifest URL. New
+links use a compressed, self-contained segment; no server-side configuration
+record is required. Existing uncompressed installation URLs remain supported
+and Comet automatically uses the compact form for playback links it returns.
 
 Main options for beginners:
 

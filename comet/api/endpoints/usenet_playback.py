@@ -16,6 +16,7 @@ from comet.core.capability_bindings import (
     native_instance_credential_material,
     record_playback_capability_failure,
 )
+from comet.core.config_validation import configuration_url_segment
 from comet.core.models import database, settings
 from comet.core.sources import TORRENT_PROVIDER_KINDS
 from comet.debrid.exceptions import DebridLinkGenerationError
@@ -546,8 +547,9 @@ def _broker() -> NzbBroker:
     )
 
 
-def _playback_url(b64config: str, capability: str) -> str:
-    path = f"{settings.STREMIO_API_PREFIX}/{b64config}/playback/v2/{capability}"
+def _playback_url(b64config: str, capability: str, config: dict) -> str:
+    compact_config = configuration_url_segment(config, b64config)
+    path = f"{settings.STREMIO_API_PREFIX}/{compact_config}/playback/v2/{capability}"
     return f"{settings.PUBLIC_BASE_URL}{path}" if settings.PUBLIC_BASE_URL else path
 
 
@@ -1190,7 +1192,7 @@ async def playback_v2(request: Request, b64config: str, capability: str):
                 state=prepared.preparation.state,
             )
             return RedirectResponse(
-                _playback_url(b64config, prepared.capability),
+                _playback_url(b64config, prepared.capability, config),
                 status_code=307,
                 headers=_PLAYBACK_RESPONSE_HEADERS,
             )

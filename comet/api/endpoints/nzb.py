@@ -24,7 +24,7 @@ from comet.core.capability_bindings import (
     native_instance_credential_material,
     resolve_capability_options,
 )
-from comet.core.config_validation import config_check
+from comet.core.config_validation import config_check, configuration_url_segment
 from comet.core.models import database, settings
 from comet.core.provider_governor import ProviderGovernor
 from comet.core.sources import (
@@ -503,7 +503,8 @@ async def _manual_import_response(
     base_url = settings.PUBLIC_BASE_URL or (
         f"{request.url.scheme}://{request.url.netloc}"
     )
-    playback_base_url = f"{base_url}{settings.STREMIO_API_PREFIX}/{b64config}"
+    compact_config = configuration_url_segment(config, b64config)
+    playback_base_url = f"{base_url}{settings.STREMIO_API_PREFIX}/{compact_config}"
     nzb_url = f"{playback_base_url}/nzb/v1/{capability}.nzb"
     selection_url = f"{playback_base_url}/nzb/v1/{capability}/select"
     title = (

@@ -2,7 +2,7 @@
 
 ## High-Level Request Flow
 
-1. Client requests manifest (`/manifest.json` or `/{b64config}/manifest.json`).
+1. Client requests manifest (`/manifest.json` or `/{urlconfig}/manifest.json`).
 2. Client requests streams (`/stream/{media_type}/{media_id}.json` or configured route).
 3. Comet fetches metadata, reads cache, may scrape, may check debrid availability.
 4. Stream list is returned with playback URLs.
@@ -15,7 +15,10 @@
 `stream.py` behavior includes:
 
 - Media type filter (`movie`/`series` only).
-- Config decoding/validation via base64 config.
+- Bounded decoding of either the current compressed `z1` URL configuration or
+  the historical plain-base64 representation.
+- Automatic canonicalization to the shortest representation for generated
+  playback, NZB, sync, and reconfiguration links.
 - Optional digital-release blocking (`DIGITAL_RELEASE_FILTER`).
 - Metadata+aliases retrieval and caching.
 - Cache-state decision: immediate scrape, background scrape, or wait message.

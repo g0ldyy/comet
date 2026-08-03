@@ -13,6 +13,7 @@ from comet.api.endpoints.stream import (
     stream,
 )
 from comet.core.capabilities import EligibleProvider
+from comet.core.config_codec import encode_configuration_segment
 from comet.core.sources import (
     LocatorKind,
     LocatorPolicy,
@@ -154,13 +155,19 @@ class UsenetStreamRenderingTests(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         }
+        legacy_config = base64.urlsafe_b64encode(
+            orjson.dumps({"schemaVersion": 2, "legacyPadding": "x" * 3_000})
+        ).decode().rstrip("=")
+        compact_config = encode_configuration_segment(
+            base64.urlsafe_b64decode(legacy_config + "=" * (-len(legacy_config) % 4))
+        )
         request = Request(
             {
                 "type": "http",
                 "method": "GET",
                 "scheme": "https",
                 "server": ("comet.example", 443),
-                "path": "/config/stream/movie/tt1234567.json",
+                "path": f"/{legacy_config}/stream/movie/tt1234567.json",
                 "query_string": b"",
                 "headers": (),
                 "client": ("127.0.0.1", 12345),
@@ -188,15 +195,17 @@ class UsenetStreamRenderingTests(unittest.IsolatedAsyncioTestCase):
                 "movie",
                 "tt1234567",
                 BackgroundTasks(),
-                b64config="config",
+                b64config=legacy_config,
             )
 
         payload = orjson.loads(response.body)
         self.assertEqual(len(payload["streams"]), 1)
         self.assertEqual(
             payload["streams"][0]["url"],
-            "https://comet.example/config/playback/v2/pi2.signed.capability",
+            f"https://comet.example/{compact_config}/playback/v2/pi2.signed.capability",
         )
+        self.assertTrue(compact_config.startswith("z1."))
+        self.assertLess(len(payload["streams"][0]["url"]), 512)
         self.assertNotIn(f"/playback/{info_hash}/0/", payload["streams"][0]["url"])
 
     async def test_v2_renderer_preserves_the_canonical_cross_transport_order(self):

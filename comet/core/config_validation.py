@@ -1,10 +1,12 @@
-import base64
 import json
-import re
 from functools import lru_cache
 
 from pydantic import ValidationError
 
+from comet.core.config_codec import (
+    decode_configuration_segment,
+    encode_configuration_segment,
+)
 from comet.core.credentials import api_credential
 from comet.core.models import (
     ConfigModel,
@@ -93,13 +95,14 @@ _DEFAULT_VALIDATED_CONFIG["_debridEntries"] = []
 _DEFAULT_VALIDATED_CONFIG["_enableTorrent"] = True
 _DEFAULT_OPTIONS = default_config["options"]
 
-_MAX_CONFIG_SEGMENT_BYTES = 32 * 1024
-_MAX_CONFIG_JSON_BYTES = 24 * 1024
-_CONFIG_BASE64 = re.compile(r"^(?:[A-Za-z0-9+/]+={0,2}|[A-Za-z0-9_-]+={0,2})$")
-
-
 def _reject_nonfinite_json_constant(_value):
     raise ValueError("non-finite JSON number")
+
+
+class _ValidatedConfiguration(dict):
+    def __init__(self, config: dict, url_segment: str):
+        super().__init__(config)
+        self.url_segment = url_segment
 
 
 def normalize_validated_config(validated_config: dict) -> dict:
@@ -153,32 +156,22 @@ def normalize_validated_config(validated_config: dict) -> dict:
 @lru_cache(maxsize=512)
 def _parse_and_validate_config(b64config: str):
     try:
-        encoded_size = len(b64config.encode("ascii"))
-    except UnicodeEncodeError:
-        return None
-    if (
-        encoded_size > _MAX_CONFIG_SEGMENT_BYTES
-        or len(b64config) % 4 == 1
-        or _CONFIG_BASE64.fullmatch(b64config) is None
-    ):
-        return None
-    try:
-        padded = b64config + "=" * (-len(b64config) % 4)
-        decoded = base64.b64decode(padded, altchars=b"-_", validate=True)
-        if len(decoded) > _MAX_CONFIG_JSON_BYTES:
-            return None
+        decoded = decode_configuration_segment(b64config)
         config = json.loads(
             decoded.decode("utf-8"),
             parse_constant=_reject_nonfinite_json_constant,
         )
-    except ValueError:
+    except (UnicodeDecodeError, ValueError):
         return None
     try:
         validated_config = ConfigModel.model_validate(config).model_dump()
     except ValidationError:
         return None
     try:
-        return normalize_validated_config(validated_config)
+        return _ValidatedConfiguration(
+            normalize_validated_config(validated_config),
+            encode_configuration_segment(decoded),
+        )
     except ValueError:
         return None
 
@@ -188,3 +181,10 @@ def config_check(b64config: str | None):
         return _default_validated_config()
 
     return _parse_and_validate_config(b64config)
+
+
+def configuration_url_segment(config: dict, original_segment: str) -> str:
+    """Return the cached shortest URL segment for a validated configuration."""
+    if isinstance(config, _ValidatedConfiguration):
+        return config.url_segment
+    return encode_configuration_segment(decode_configuration_segment(original_segment))

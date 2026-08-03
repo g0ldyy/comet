@@ -7,7 +7,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Request
 
 from comet.core.capability_bindings import resolve_capability_options
-from comet.core.config_validation import config_check
+from comet.core.config_validation import config_check, configuration_url_segment
 from comet.core.models import database, settings
 from comet.core.sources import (
     SERVER_USENET_PROVIDER_KINDS,
@@ -745,7 +745,8 @@ async def stream(
         else f"{request.url.scheme}://{request.url.netloc}"
     )
     api_prefix = STREMIO_API_PREFIX
-    config_segment = f"/{b64config}" if b64config else ""
+    compact_config = configuration_url_segment(config, b64config) if b64config else None
+    config_segment = f"/{compact_config}" if compact_config else ""
     playback_base_url = f"{base_playback_host}{api_prefix}{config_segment}"
     if b64config and is_v2:
         base_streams[:0] = _render_discovery_diagnostics(

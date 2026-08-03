@@ -50,12 +50,71 @@ describe("configuration codec", () => {
     expect(decodeConfiguration(encoded)).toEqual(configuration);
   });
 
+  it("decodes historical development base64 configurations", () => {
+    const configuration = {
+      debridApiKey: "existing-development-install-key",
+      debridService: "realdebrid",
+      enableTorrent: true,
+      schemaVersion: 1,
+    } satisfies ConfigModel;
+    const bytes = new TextEncoder().encode(JSON.stringify(configuration));
+    const historical = btoa(String.fromCharCode(...bytes));
+
+    expect(decodeConfiguration(historical)).toEqual(configuration);
+  });
+
+  it("compresses realistic self-contained configurations", () => {
+    const configuration = {
+      accounts: {
+        debrid: { apiKey: "debrid-secret-credential", kind: "realdebrid" },
+        indexer: {
+          apiKey: "indexer-secret-credential",
+          endpoint: "https://indexer.example/api",
+          kind: "indexer",
+        },
+      },
+      discoverySources: [
+        {
+          accountId: "indexer",
+          configurationId: "33333333-3333-4333-8333-333333333333",
+          displayName: "My indexer",
+          enabled: true,
+          kind: "newznab",
+          options: { endpoint: "https://indexer.example/api" },
+        },
+      ],
+      enabledTransports: ["bittorrent", "usenet"],
+      languages: { allowed: [], exclude: [], preferred: ["en"], required: ["fr"] },
+      playbackProviders: [
+        {
+          accountId: "debrid",
+          configurationId: "11111111-1111-4111-8111-111111111111",
+          displayName: "Living room",
+          enabled: true,
+          kind: "realdebrid",
+          options: {},
+        },
+      ],
+      resultFormat: ["title", "video_info", "audio_info", "size"],
+      schemaVersion: 2,
+    } satisfies ConfigModel;
+    const legacyLength = Math.ceil(
+      new TextEncoder().encode(JSON.stringify(configuration)).length * (4 / 3),
+    );
+
+    const { encoded } = encodeConfiguration(configuration);
+
+    expect(encoded).toMatch(/^z1\.[A-Za-z0-9_-]+$/);
+    expect(encoded.length).toBeLessThan(legacyLength * 0.45);
+    expect(decodeConfiguration(encoded)).toEqual(configuration);
+  });
+
   it("uses the public manifest when no custom configuration is provided", () => {
     const configuration = bootstrap.default_configuration;
 
     expect(manifestLocation(undefined, "", false).url).toBe("http://localhost/manifest.json");
     expect(manifestLocation(configuration, "", true).url).toMatch(
-      /^stremio:\/\/localhost\/[^/]+\/manifest\.json$/,
+      /^stremio:\/\/localhost\/z1\.[A-Za-z0-9_-]+\/manifest\.json$/,
     );
   });
 });
