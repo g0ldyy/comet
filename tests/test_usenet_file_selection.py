@@ -118,6 +118,15 @@ def test_episode_selection_handles_packs_multi_episode_and_ambiguity():
         select_asset(assets, (1, 3, 9))
 
 
+def test_episode_selection_accepts_one_engine_classified_obfuscated_video():
+    assets = catalog_engine_source_assets(
+        ARTIFACT,
+        [_asset("4SWP1OuyjO8INluR1P8jjywt6dd7Zg3M.mkv")],
+    )
+
+    assert select_asset(assets, (1, 14, 2)) == assets[0]
+
+
 def test_anime_absolute_and_explicit_asset_selection_are_exact():
     assets = catalog_engine_source_assets(
         ARTIFACT,

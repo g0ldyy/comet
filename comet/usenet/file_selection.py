@@ -588,6 +588,8 @@ def select_asset(
                 asset.relative_path, selection_intent[1], selection_intent[2]
             )
         ]
+        if not matches and len(assets) == 1:
+            matches = [assets[0]]
     elif (
         len(selection_intent) == 2
         and selection_intent[0] == 2
