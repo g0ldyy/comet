@@ -199,9 +199,9 @@ class TorrentAdapterRegistry:
         scrape_timeout,
         url_credentials,
     ) -> None:
-        active_instance_count = 0
-        for url, credentials in url_credentials:
-            active_instance_count += 1
+        for active_instance_count, (url, credentials) in enumerate(
+            url_credentials, start=1
+        ):
             args = (self, client, url)
             if scraper_class.credential_setting is not None:
                 args += (credentials,)

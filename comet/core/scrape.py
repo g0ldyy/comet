@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, Field
 
 
 class ScrapeContext(StrEnum):
@@ -12,7 +12,7 @@ class ScrapeContext(StrEnum):
 def normalize_scraper_mode(value: object) -> bool | str:
     if isinstance(value, str):
         normalized = value.strip().casefold()
-        if normalized in {"1", "on", "t", "true", "y", "yes"}:
+        if normalized in {"1", "both", "on", "t", "true", "y", "yes"}:
             return True
         if normalized in {"0", "f", "false", "n", "no", "off"}:
             return False
@@ -20,10 +20,14 @@ def normalize_scraper_mode(value: object) -> bool | str:
             return normalized
     elif isinstance(value, bool):
         return value
-    raise ValueError("scraper mode must be true, false, live, or background")
+    raise ValueError("scraper mode must be true, false, both, live, or background")
 
 
-ScraperMode = Annotated[bool | str, BeforeValidator(normalize_scraper_mode)]
+ScraperMode = Annotated[
+    bool | str,
+    BeforeValidator(normalize_scraper_mode),
+    Field(validate_default=True),
+]
 
 
 def normalize_scraper_name(name: str) -> str:

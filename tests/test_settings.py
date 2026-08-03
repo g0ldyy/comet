@@ -52,14 +52,30 @@ class AppSettingsTests(unittest.TestCase):
     def test_scraper_modes_normalize_environment_boolean_strings(self):
         settings = AppSettings(
             _env_file=None,
+            SCRAPE_JACKETT="Both",
             SCRAPE_ZILEAN="True",
             SCRAPE_STREMTHRU="false",
             SCRAPE_TORRENTIO="LIVE",
         )
 
+        self.assertIs(settings.SCRAPE_JACKETT, True)
         self.assertIs(settings.SCRAPE_ZILEAN, True)
         self.assertIs(settings.SCRAPE_STREMTHRU, False)
         self.assertEqual(settings.SCRAPE_TORRENTIO, "live")
+        self.assertTrue(settings.is_scraper_enabled(settings.SCRAPE_JACKETT, "live"))
+        self.assertTrue(
+            settings.is_scraper_enabled(settings.SCRAPE_JACKETT, "background")
+        )
+        self.assertEqual(settings.format_scraper_mode(settings.SCRAPE_JACKETT), "both")
+
+    def test_legacy_indexer_manager_both_mode_uses_both_contexts(self):
+        settings = AppSettings(
+            _env_file=None,
+            INDEXER_MANAGER_TYPE="jackett",
+        )
+
+        self.assertIs(settings.INDEXER_MANAGER_MODE, True)
+        self.assertIs(settings.SCRAPE_JACKETT, True)
 
     def test_indexer_languages_are_normalized_and_deduplicated(self):
         settings = AppSettings(

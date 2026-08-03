@@ -233,7 +233,7 @@ class AppSettings(ServerSettings):
     INDEXER_MANAGER_TYPE: str | None = None
     INDEXER_MANAGER_URL: str | None = "http://127.0.0.1:9117"
     INDEXER_MANAGER_API_KEY: str | None = None
-    INDEXER_MANAGER_MODE: bool | str = "both"
+    INDEXER_MANAGER_MODE: ScraperMode = "both"
     INDEXER_MANAGER_TIMEOUT: int = 30
     INDEXER_MANAGER_INDEXERS: list[str] = Field(default_factory=list)
     INDEXER_MANAGER_UPDATE_INTERVAL: int = 900

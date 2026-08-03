@@ -42,7 +42,9 @@ class TorrentAdapterRegistryTests(unittest.IsolatedAsyncioTestCase):
                 with tempfile.TemporaryDirectory() as directory:
                     env_file = Path(directory) / ".env"
                     env_file.write_text(
-                        "".join(f"{key}={value}\n" for key, value in environment.items()),
+                        "".join(
+                            f"{key}={value}\n" for key, value in environment.items()
+                        ),
                         encoding="utf-8",
                     )
                     with patch.dict(os.environ, {}, clear=True):
