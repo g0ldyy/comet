@@ -299,11 +299,23 @@ class AnimeMapperTests(unittest.IsolatedAsyncioTestCase):
                 "comet.services.anime.fetch_http_bytes",
                 new=AsyncMock(side_effect=lambda url, **_kwargs: payloads[url]),
             ) as fetch,
+            patch("comet.services.anime.log.info") as info,
         ):
             self.assertTrue(await mapper._refresh_from_remote())
 
         persist.assert_awaited_once_with([], [], [])
         self.assertEqual(fetch.await_count, 3)
+        self.assertEqual(
+            [call.args[0] for call in info.call_args_list],
+            [
+                "anime.download.started",
+                "anime.download.completed",
+                "anime.refresh.completed",
+            ],
+        )
+        self.assertEqual(info.call_args_list[1].kwargs["response_bytes"], 15)
+        self.assertEqual(info.call_args_list[2].kwargs["item_count"], 0)
+        self.assertEqual(info.call_args_list[2].kwargs["outcome"], "ok")
         expected_limits = {
             mapper._aod_url: anime._AOD_MAX_BYTES,
             mapper._fribb_url: anime._FRIBB_MAX_BYTES,
@@ -348,10 +360,16 @@ class AnimeMapperTests(unittest.IsolatedAsyncioTestCase):
                 new=refresh_lock,
             ),
             patch("comet.services.anime.fetch_http_bytes", new=fetch),
+            patch("comet.services.anime.log.warning") as warning,
         ):
             self.assertFalse(await mapper._refresh_from_remote())
 
         self.assertEqual(cancelled, 2)
+        warning.assert_called_once()
+        self.assertEqual(warning.call_args.args[0], "anime.download.failed")
+        self.assertEqual(warning.call_args.kwargs["failure_reason"], "network_error")
+        self.assertEqual(warning.call_args.kwargs["outcome"], "failed")
+        self.assertIsInstance(warning.call_args.kwargs["exc"], BaseExceptionGroup)
 
     def test_remote_json_uses_normal_key_semantics_and_identities_remain_scoped(self):
         self.assertEqual(

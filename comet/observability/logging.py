@@ -549,7 +549,34 @@ def recent_logs(*, since: int = 0, process_id: int | None = None) -> dict[str, o
     }
 
 
-def _emergency_write(event: str, *, once_key: str | None = None) -> None:
+def _render_pretty_line(
+    *,
+    timestamp: str,
+    level: str,
+    category: str,
+    message: str,
+    details: str = "",
+) -> bytes:
+    icon, category_color, _dashboard_color = _CATEGORY_STYLES[category]
+    color = not _settings.no_color
+    rendered_level = f"{_LEVEL_COLORS[level]}{level}{_RESET_COLOR}" if color else level
+    rendered_category = (
+        f"{category_color}{icon} {category}{_RESET_COLOR}"
+        if color
+        else f"{icon} {category}"
+    )
+    suffix = f" | {details}" if details else ""
+    return (
+        f"{timestamp} | {rendered_category} | {rendered_level} | {message}{suffix}\n"
+    ).encode()
+
+
+def _emergency_write(
+    event: str,
+    *,
+    once_key: str | None = None,
+    failure_reason: str | None = None,
+) -> None:
     global _emergency_active
     if event not in _EMERGENCY_EVENTS:
         event = "runtime.bootstrap.failed"
@@ -567,13 +594,24 @@ def _emergency_write(event: str, *, once_key: str | None = None) -> None:
         level, message = _EMERGENCY_EVENTS[event]
         timestamp = _utc_timestamp()
         if _settings.LOG_FORMAT == LogFormat.JSON:
-            # All interpolated values originate from the closed tables above.
-            payload = (
-                f'{{"timestamp":"{timestamp}","level":"{level}",'
-                f'"event":"{event}","message":"{message}"}}\n'
-            ).encode("ascii")
+            record = {
+                "timestamp": timestamp,
+                "level": level,
+                "event": event,
+                "message": message,
+            }
+            if failure_reason is not None:
+                record["failure_reason"] = failure_reason
+            payload = orjson.dumps(record) + b"\n"
         else:
-            payload = f"{timestamp} {level} {event} - {message}\n".encode("ascii")
+            details = f"reason={failure_reason}" if failure_reason is not None else ""
+            payload = _render_pretty_line(
+                timestamp=timestamp,
+                level=level,
+                category="SYSTEM",
+                message=message,
+                details=details,
+            )
         if len(payload) <= _MAX_LINE_BYTES:
             os.write(2, payload)
     except Exception:
@@ -988,23 +1026,13 @@ def _render(record: Mapping[str, object], *, details: str) -> bytes:
     if _settings.LOG_FORMAT == LogFormat.JSON:
         payload = orjson.dumps(record) + b"\n"
     else:
-        level = str(record["level"])
-        category = str(record["category"])
-        icon, category_color, _dashboard_color = _CATEGORY_STYLES[category]
-        color = not _settings.no_color
-        rendered_level = (
-            f"{_LEVEL_COLORS[level]}{level}{_RESET_COLOR}" if color else level
+        payload = _render_pretty_line(
+            timestamp=str(record["timestamp"]),
+            level=str(record["level"]),
+            category=str(record["category"]),
+            message=str(record["message"]),
+            details=details,
         )
-        rendered_category = (
-            f"{category_color}{icon} {category}{_RESET_COLOR}"
-            if color
-            else f"{icon} {category}"
-        )
-        suffix = f" | {details}" if details else ""
-        payload = (
-            f"{record['timestamp']} | {rendered_category} | {rendered_level} | "
-            f"{record['message']}{suffix}\n"
-        ).encode()
     if len(payload) > _MAX_LINE_BYTES:
         raise LogValidationError("line_budget")
     return payload
@@ -1082,14 +1110,24 @@ def ingest_native_event(document: bytes) -> None:
         if request_id is not None:
             record["request_id"] = request_id
         _backend.bind(comet_record=record).log(level, "")
-    except (LogValidationError, ValueError, orjson.JSONDecodeError) as error:
+    except LogValidationError as error:
         _reject(f"native_{error}")
+    except orjson.JSONDecodeError:
+        _reject("native_json")
+    except ValueError:
+        _reject("native_value")
 
 
 def _reject(reason: str) -> None:
+    if _TOKEN_PATTERN.fullmatch(reason) is None:
+        reason = "invalid_record"
     if _strict:
         raise LogValidationError(reason)
-    _emergency_write("logging.record.rejected", once_key=reason)
+    _emergency_write(
+        "logging.record.rejected",
+        once_key=reason,
+        failure_reason=reason,
+    )
 
 
 class LogFacade:

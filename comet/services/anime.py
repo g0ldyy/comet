@@ -9,6 +9,7 @@ import orjson
 
 from comet.core.database import backend_lock, database
 from comet.core.models import settings
+from comet.observability import log
 from comet.observability.context import create_detached_task
 from comet.usenet.outbound import OutboundUrlError, fetch_http_bytes
 from comet.utils.memory import trim_process_memory
@@ -167,6 +168,12 @@ class AnimeMapper:
 
     async def load_anime_mapping(self):
         if not settings.ANIME_MAPPING_ENABLED:
+            log.info(
+                "anime.mapping.disabled",
+                "Anime mapping is disabled",
+                provider_name="anime-mapping",
+                operation="load",
+            )
             return True
 
         if self.loaded:
@@ -479,8 +486,19 @@ class AnimeMapper:
 
         await self._load_mapping_caches()
 
-        if schedule_refresh and await self._needs_refresh():
-            self._schedule_background_refresh()
+        if schedule_refresh:
+            needs_refresh = await self._needs_refresh()
+            log.info(
+                "anime.mapping.loaded",
+                "Anime mapping loaded from database",
+                provider_name="anime-mapping",
+                operation="load",
+                cache_state="stale" if needs_refresh else "fresh",
+                item_count=count,
+                result_count=len(self.anime_imdb_ids),
+            )
+            if needs_refresh:
+                self._schedule_background_refresh()
 
         self.loaded = True
         return True
@@ -501,6 +519,34 @@ class AnimeMapper:
                 ):
                     return True
 
+                loop = asyncio.get_running_loop()
+                refresh_started = loop.time()
+                operation = "background_refresh" if background else "startup_refresh"
+                log.info(
+                    "anime.download.started",
+                    "Anime mapping download started",
+                    provider_name="anime-mapping",
+                    operation=operation,
+                    cache_state="stale" if self.loaded else "empty",
+                    requested_count=3,
+                )
+
+                def _log_refresh_failure(
+                    failure_reason: str,
+                    exc: BaseException | None = None,
+                ) -> None:
+                    log.warning(
+                        "anime.refresh.failed",
+                        "Anime mapping refresh failed",
+                        provider_name="anime-mapping",
+                        operation=operation,
+                        outcome="failed",
+                        failure_reason=failure_reason,
+                        error_code="dependency_warning",
+                        duration_ms=(loop.time() - refresh_started) * 1000,
+                        exc=exc,
+                    )
+
                 async def _download_json(url: str, maximum: int):
                     return await fetch_http_bytes(
                         url,
@@ -509,6 +555,7 @@ class AnimeMapper:
                         redirects=3,
                     )
 
+                download_started = loop.time()
                 download_failed = False
                 try:
                     async with asyncio.TaskGroup() as task_group:
@@ -521,21 +568,47 @@ class AnimeMapper:
                         kitsu_task = task_group.create_task(
                             _download_json(self._kitsu_imdb_url, _KITSU_MAX_BYTES)
                         )
-                except* OutboundUrlError:
+                except* OutboundUrlError as exc_group:
+                    log.warning(
+                        "anime.download.failed",
+                        "Anime mapping download failed",
+                        provider_name="anime-mapping",
+                        operation=operation,
+                        outcome="failed",
+                        failure_reason="network_error",
+                        error_code="dependency_warning",
+                        duration_ms=(loop.time() - download_started) * 1000,
+                        exc=exc_group,
+                    )
                     download_failed = True
                 if download_failed:
                     return False
+
+                response_bytes = sum(
+                    len(task.result()) for task in (aod_task, fribb_task, kitsu_task)
+                )
+                log.info(
+                    "anime.download.completed",
+                    "Anime mapping download completed",
+                    provider_name="anime-mapping",
+                    operation=operation,
+                    outcome="ok",
+                    requested_count=3,
+                    response_bytes=response_bytes,
+                    duration_ms=(loop.time() - download_started) * 1000,
+                )
 
                 try:
                     data_aod = _decode_json(aod_task.result())
                     data_fribb = _decode_json(fribb_task.result())
                     data_kitsu_imdb = _decode_json(kitsu_task.result())
-                except ValueError:
+                except ValueError as exc:
+                    _log_refresh_failure("invalid_json", exc)
                     return False
 
-                if not isinstance(data_aod, dict):
-                    return False
-                anime_list = data_aod.get("data")
+                anime_list = (
+                    data_aod.get("data") if isinstance(data_aod, dict) else None
+                )
                 if (
                     not isinstance(anime_list, list)
                     or len(anime_list) > _MAX_ANIME_ENTRIES
@@ -544,14 +617,16 @@ class AnimeMapper:
                     or not isinstance(data_kitsu_imdb, list)
                     or len(data_kitsu_imdb) > _MAX_KITSU_MAPPINGS
                 ):
+                    _log_refresh_failure("invalid_payload")
                     return False
                 try:
-                    await self._persist_remote_mapping(
+                    total_entries = await self._persist_remote_mapping(
                         anime_list,
                         data_fribb,
                         data_kitsu_imdb,
                     )
-                except AnimeMappingPayloadError:
+                except AnimeMappingPayloadError as exc:
+                    _log_refresh_failure("invalid_payload", exc)
                     return False
 
                 del data_aod
@@ -563,6 +638,16 @@ class AnimeMapper:
                 await self._load_mapping_caches()
 
                 self.loaded = True
+                log.info(
+                    "anime.refresh.completed",
+                    "Anime mapping refresh completed",
+                    provider_name="anime-mapping",
+                    operation=operation,
+                    outcome="ok",
+                    item_count=total_entries,
+                    result_count=len(self.anime_imdb_ids),
+                    duration_ms=(loop.time() - refresh_started) * 1000,
+                )
                 return True
 
     async def _persist_remote_mapping(

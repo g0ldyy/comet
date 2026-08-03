@@ -596,7 +596,27 @@ class LoggingContractTests(unittest.TestCase):
         if records:
             rendered = records[0].decode()
             self.assertNotIn(canary, rendered)
-            self.assertEqual(json.loads(records[0])["event"], "logging.record.rejected")
+            payload = json.loads(records[0])
+            self.assertEqual(payload["event"], "logging.record.rejected")
+            self.assertEqual(payload["failure_reason"], "event")
+
+    def test_pretty_rejection_is_actionable_and_uses_error_color(self):
+        with patch.dict(os.environ):
+            os.environ.pop("NO_COLOR", None)
+            self.configure("normal", "pretty", strict=False)
+        records = self.render(
+            lambda: log.info(
+                "logging.contract",
+                "Valid message",
+                unsupported_field="must-not-be-logged",
+            )
+        )
+
+        self.assertEqual(len(records), 1)
+        rendered = records[0].decode()
+        self.assertIn("\x1b[31mERROR\x1b[0m", rendered)
+        self.assertIn("Logging record rejected | reason=unknown_field", rendered)
+        self.assertNotIn("must-not-be-logged", rendered)
 
     def test_context_is_generated_and_restored(self):
         self.configure("normal")
