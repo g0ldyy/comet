@@ -7,6 +7,7 @@ edition = "2024"
 quality-gates = []
 
 [dependencies]
+aes = "0.8"
 quick-xml = "0.41"
 crc32fast = "1.4"
 flate2 = "1.1.9"
@@ -17,6 +18,7 @@ md-5 = "0.10"
 mimalloc = "0.1.52"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sevenz-rust = { version = "0.6.1", default-features = false, features = ["aes256", "compress"] }
 sha1 = "0.10"
 sha2 = "0.10"
 unicode-normalization = "0.1"

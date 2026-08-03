@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const MAX_SESSION_BYTES: u64 = limits::MAX_LOGICAL_BYTES;
-const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_DECLARED_POSTING_BYTES: u64 = limits::MAX_DECLARED_POSTING_BYTES;
 const MAX_ACTIVE_SESSIONS: usize = 1024;
 // A maximum-size metadata request must have room to expand into Rust
@@ -571,7 +570,7 @@ impl RandomAccessSession {
             let session = shared.lock().expect("random access session lock");
             let final_logical = offset.checked_add(length).ok_or("invalid_session_range")?;
             if length == 0
-                || length > MAX_READ_BYTES
+                || length > limits::MAX_RANGE_BYTES
                 || offset >= session.size
                 || final_logical > session.size
             {

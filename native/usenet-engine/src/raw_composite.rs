@@ -2,12 +2,13 @@ use crate::archive_group::VolumePlan;
 use crate::materialization::ImmutableFileIdentity;
 use crate::reader_lease::{ReaderGeneration, ReaderLeaseError, ReaderLeases, ReaderPermit};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use zeroize::Zeroizing;
 
 pub const MAX_COMPOSITE_PARTS: usize = crate::archive_group::MAX_VOLUMES;
 const MAX_COMPOSITE_BYTES: u64 = crate::limits::MAX_LOGICAL_BYTES;
-const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
 pub const MIN_COMPOSITE_METADATA_BUDGET_BYTES: usize = 8 * 1024 * 1024;
 const COMPOSITE_BASE_METADATA_BYTES: usize = 512;
 const COMPOSITE_PART_METADATA_BYTES: usize = 384;
@@ -15,7 +16,7 @@ const MAX_COMPOSITE_READERS: usize = 8;
 const COMPOSITE_IDLE_TTL: Duration = Duration::from_secs(15 * 60);
 const COMPOSITE_ABSOLUTE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum RawCompositeBacking {
     Materialization(ImmutableFileIdentity),
     Session {
@@ -24,6 +25,94 @@ pub enum RawCompositeBacking {
         exact_size: u64,
         _retention: crate::session::SessionRetention,
     },
+    Aes256CbcSessions {
+        sessions: Arc<SessionSet>,
+        pack_offset: u64,
+        pack_size: u64,
+        key: Arc<Zeroizing<[u8; 32]>>,
+        initial_vector: [u8; 16],
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct SessionSource {
+    pub identity: String,
+    pub revision: String,
+    pub exact_size: u64,
+    pub retention: crate::session::SessionRetention,
+}
+
+#[derive(Clone, Debug)]
+pub struct SessionSet {
+    sessions: Vec<SessionSource>,
+    prefix_ends: Vec<u64>,
+    exact_size: u64,
+}
+
+impl SessionSet {
+    pub fn new(sessions: Vec<SessionSource>) -> Result<Self, &'static str> {
+        if sessions.is_empty() || sessions.len() > MAX_COMPOSITE_PARTS {
+            return Err("invalid_raw_composite");
+        }
+        let mut exact_size = 0_u64;
+        let mut identities = std::collections::BTreeSet::new();
+        let mut revisions = std::collections::BTreeSet::new();
+        let mut prefix_ends = Vec::with_capacity(sessions.len());
+        for session in &sessions {
+            if session.exact_size == 0
+                || !identities.insert(&session.identity)
+                || !revisions.insert(&session.revision)
+            {
+                return Err("invalid_raw_composite");
+            }
+            exact_size = exact_size
+                .checked_add(session.exact_size)
+                .ok_or("invalid_raw_composite")?;
+            if exact_size > MAX_COMPOSITE_BYTES {
+                return Err("invalid_raw_composite");
+            }
+            prefix_ends.push(exact_size);
+        }
+        Ok(Self {
+            sessions,
+            prefix_ends,
+            exact_size,
+        })
+    }
+
+    pub fn exact_size(&self) -> u64 {
+        self.exact_size
+    }
+
+    pub fn ranges(
+        &self,
+        offset: u64,
+        length: u64,
+    ) -> Result<Vec<(&SessionSource, u64, u64)>, &'static str> {
+        let end = offset.checked_add(length).ok_or("raw_composite_conflict")?;
+        if length == 0 || end > self.exact_size {
+            return Err("raw_composite_conflict");
+        }
+        let mut ranges = Vec::new();
+        let mut position = offset;
+        while position < end {
+            let index = self
+                .prefix_ends
+                .partition_point(|prefix| *prefix <= position);
+            let session = self.sessions.get(index).ok_or("raw_composite_conflict")?;
+            let session_start = if index == 0 {
+                0
+            } else {
+                self.prefix_ends[index - 1]
+            };
+            let source_offset = position - session_start;
+            let available = session.exact_size - source_offset;
+            let range_length = available.min(end - position);
+            ranges.push((session, source_offset, range_length));
+            position += range_length;
+        }
+        Ok(ranges)
+    }
 }
 
 impl PartialEq for RawCompositeBacking {
@@ -48,6 +137,28 @@ impl PartialEq for RawCompositeBacking {
                     && left_revision == right_revision
                     && left_size == right_size
             }
+            (
+                Self::Aes256CbcSessions {
+                    sessions: left_sessions,
+                    pack_offset: left_offset,
+                    pack_size: left_size,
+                    key: left_key,
+                    initial_vector: left_vector,
+                },
+                Self::Aes256CbcSessions {
+                    sessions: right_sessions,
+                    pack_offset: right_offset,
+                    pack_size: right_size,
+                    key: right_key,
+                    initial_vector: right_vector,
+                },
+            ) => {
+                left_sessions == right_sessions
+                    && left_offset == right_offset
+                    && left_size == right_size
+                    && left_key == right_key
+                    && left_vector == right_vector
+            }
             _ => false,
         }
     }
@@ -60,9 +171,64 @@ impl RawCompositeBacking {
         match self {
             Self::Materialization(identity) => identity.size,
             Self::Session { exact_size, .. } => *exact_size,
+            Self::Aes256CbcSessions { pack_size, .. } => *pack_size,
         }
     }
 }
+
+impl fmt::Debug for RawCompositeBacking {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Materialization(identity) => formatter
+                .debug_tuple("Materialization")
+                .field(identity)
+                .finish(),
+            Self::Session {
+                identity,
+                revision,
+                exact_size,
+                ..
+            } => formatter
+                .debug_struct("Session")
+                .field("identity", identity)
+                .field("revision", revision)
+                .field("exact_size", exact_size)
+                .finish(),
+            Self::Aes256CbcSessions {
+                sessions,
+                pack_offset,
+                pack_size,
+                initial_vector,
+                ..
+            } => formatter
+                .debug_struct("Aes256CbcSessions")
+                .field("sessions", sessions)
+                .field("pack_offset", pack_offset)
+                .field("pack_size", pack_size)
+                .field("initial_vector", initial_vector)
+                .field("key", &"[redacted]")
+                .finish(),
+        }
+    }
+}
+
+impl PartialEq for SessionSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity == other.identity
+            && self.revision == other.revision
+            && self.exact_size == other.exact_size
+    }
+}
+
+impl Eq for SessionSource {}
+
+impl PartialEq for SessionSet {
+    fn eq(&self, other: &Self) -> bool {
+        self.sessions == other.sessions
+    }
+}
+
+impl Eq for SessionSet {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawCompositePart {
@@ -186,7 +352,7 @@ impl RawCompositeSource {
         C: Fn() -> bool,
     {
         if length == 0
-            || length > MAX_READ_BYTES
+            || length > crate::limits::MAX_RANGE_BYTES
             || offset >= self.exact_size
             || offset
                 .checked_add(length)
@@ -358,6 +524,13 @@ impl RawCompositeRegistry {
             prefetch_generation: None,
             _permit: permit,
         })
+    }
+
+    pub fn exact_size(&mut self, identity: &str, now: Instant) -> Option<u64> {
+        self.remove_expired(now);
+        let entry = self.entries.get_mut(identity)?;
+        entry.last_access = now;
+        Some(entry.source.exact_size())
     }
 
     pub fn open_reader(&mut self, identity: &str, now: Instant) -> Result<String, &'static str> {

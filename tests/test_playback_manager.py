@@ -876,9 +876,15 @@ class PlaybackManagerTests(unittest.IsolatedAsyncioTestCase):
             True,
         )
         session_volumes = [("S" * 22, revision, "opaque", 100)]
-        engine.catalog_session_archive_volumes.assert_awaited_once_with(session_volumes)
+        engine.catalog_session_archive_volumes.assert_awaited_once_with(
+            session_volumes,
+            passphrase=None,
+        )
         engine.open_session_archive_member.assert_awaited_once_with(
-            session_volumes, 42, "Movie.mkv"
+            session_volumes,
+            42,
+            "Movie.mkv",
+            passphrase=None,
         )
         engine.inspect_raw_composite.assert_awaited_once_with(identity, 42)
 

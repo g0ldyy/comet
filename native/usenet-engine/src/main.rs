@@ -3,7 +3,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::env;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -52,6 +52,7 @@ mod raw_composite;
 mod reader_lease;
 mod resources;
 mod session;
+mod seven_zip_direct;
 
 const API_VERSION: &str = "1";
 const MAX_NZB_BYTES: usize = limits::MAX_NZB_METADATA_BYTES;
@@ -68,6 +69,7 @@ const ENGINE_REQUEST_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_REQUEST_BODY_TIMEOUT: Duration = Duration::from_secs(35);
 const ENGINE_RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(35);
 const ENGINE_BACKGROUND_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const RAW_COMPOSITE_INITIAL_INSPECTION_BYTES: u64 = 64 * 1024;
 #[cfg(test)]
 const PROVIDER_TEST_WORKERS: usize = 4;
 const MAX_CONCURRENT_PREFETCH_SESSIONS: usize = 8;
@@ -280,6 +282,8 @@ struct SessionArchiveVolumeRequest {
 #[derive(Deserialize)]
 struct SessionArchiveCatalogRequest {
     volumes: Vec<SessionArchiveVolumeRequest>,
+    #[serde(default)]
+    passphrase: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -287,6 +291,8 @@ struct SessionArchiveOpenRequest {
     volumes: Vec<SessionArchiveVolumeRequest>,
     expected_output_size: u64,
     selected_path: String,
+    #[serde(default)]
+    passphrase: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1875,30 +1881,125 @@ impl EngineState {
                     end,
                     cancelled,
                 )?;
-                if let Some(generation) = prefetch_generation {
-                    let lease = self
-                        .sessions
-                        .lock()
-                        .expect("session registry lock")
-                        .get(identity, Instant::now())?;
-                    let prefetch_start = lease
-                        .session
-                        .lock()
-                        .expect("random access session lock")
-                        .prefetch_start_after(end);
-                    if let Some(posting_index) = prefetch_start {
-                        self.start_session_prefetch(
-                            Arc::clone(&lease.session),
-                            Arc::clone(&lease.recreation_key),
-                            Arc::clone(&lease.context),
-                            generation.clone(),
-                            posting_index,
-                        );
-                    }
-                }
+                self.prefetch_session_after(identity, end, prefetch_generation)?;
                 Ok(bytes)
             }
+            raw_composite::RawCompositeBacking::Aes256CbcSessions {
+                sessions,
+                pack_offset,
+                pack_size,
+                key,
+                initial_vector,
+            } => {
+                let aligned_start = start / 16 * 16;
+                let aligned_end = end
+                    .checked_add(16)
+                    .map(|value| value / 16 * 16)
+                    .ok_or("raw_composite_conflict")?
+                    .min(*pack_size);
+                let cipher_length = aligned_end
+                    .checked_sub(aligned_start)
+                    .ok_or("raw_composite_conflict")?;
+                let prefix = if aligned_start == 0 { 0 } else { 16 };
+                let fetch_start = pack_offset
+                    .checked_add(aligned_start)
+                    .and_then(|value| value.checked_sub(prefix))
+                    .ok_or("raw_composite_conflict")?;
+                let mut fetched = self.read_session_set_range(
+                    sessions,
+                    fetch_start,
+                    prefix + cipher_length,
+                    prefetch_generation,
+                    cancelled,
+                )?;
+                let vector = if prefix == 0 {
+                    *initial_vector
+                } else {
+                    <[u8; 16]>::try_from(&fetched[..16]).map_err(|_| "raw_composite_conflict")?
+                };
+                let prefix = usize::try_from(prefix).map_err(|_| "raw_composite_conflict")?;
+                seven_zip_direct::decrypt_cbc_blocks(key, &vector, &mut fetched[prefix..])?;
+                let within =
+                    usize::try_from(start - aligned_start).map_err(|_| "raw_composite_conflict")?;
+                let length =
+                    usize::try_from(end - start + 1).map_err(|_| "raw_composite_conflict")?;
+                let output_start = prefix.checked_add(within).ok_or("raw_composite_conflict")?;
+                let output_end = output_start
+                    .checked_add(length)
+                    .filter(|end| *end <= fetched.len())
+                    .ok_or("raw_composite_conflict")?;
+                fetched.copy_within(output_start..output_end, 0);
+                fetched.truncate(length);
+                Ok(fetched)
+            }
         }
+    }
+
+    fn read_session_set_range<F>(
+        self: &Arc<Self>,
+        sessions: &raw_composite::SessionSet,
+        offset: u64,
+        length: u64,
+        prefetch_generation: Option<&reader_lease::ReaderGeneration>,
+        cancelled: &F,
+    ) -> Result<Vec<u8>, &'static str>
+    where
+        F: Fn() -> bool,
+    {
+        let mut output =
+            Vec::with_capacity(usize::try_from(length).map_err(|_| "raw_composite_conflict")?);
+        for (session, start, range_length) in sessions.ranges(offset, length)? {
+            let range_end = start + range_length - 1;
+            let mut source_start = start;
+            let mut remaining = range_length;
+            while remaining > 0 {
+                let chunk_length = remaining.min(limits::MAX_RANGE_BYTES);
+                let end = source_start + chunk_length - 1;
+                output.extend_from_slice(&self.read_session_range(
+                    &session.identity,
+                    &session.revision,
+                    session.exact_size,
+                    source_start,
+                    end,
+                    cancelled,
+                )?);
+                source_start += chunk_length;
+                remaining -= chunk_length;
+            }
+            self.prefetch_session_after(&session.identity, range_end, prefetch_generation)?;
+        }
+        Ok(output)
+    }
+
+    fn prefetch_session_after(
+        self: &Arc<Self>,
+        identity: &str,
+        end: u64,
+        generation: Option<&reader_lease::ReaderGeneration>,
+    ) -> Result<(), &'static str> {
+        let Some(generation) = generation else {
+            return Ok(());
+        };
+        let lease = self
+            .sessions
+            .lock()
+            .expect("session registry lock")
+            .get(identity, Instant::now())?;
+        let prefetch_start = lease
+            .session
+            .lock()
+            .expect("random access session lock")
+            .prefetch_start_after(end);
+        if let Some(posting_index) = prefetch_start {
+            self.start_session_prefetch(
+                Arc::clone(&lease.session),
+                Arc::clone(&lease.recreation_key),
+                Arc::clone(&lease.context),
+                generation.clone(),
+                posting_index,
+            );
+        }
+        Ok(())
     }
 }
 
@@ -2905,7 +3006,7 @@ struct SessionArchiveVolume {
     relative_path: String,
     exact_size: u64,
     retention: session::SessionRetention,
-    evidence: archive::ArchiveEvidence,
+    evidence: Option<archive::ArchiveEvidence>,
 }
 
 struct SessionArchiveProbeVolume {
@@ -2914,6 +3015,124 @@ struct SessionArchiveProbeVolume {
     relative_path: String,
     exact_size: u64,
     retention: session::SessionRetention,
+}
+
+struct SessionArchiveReader<'a, F> {
+    state: &'a EngineState,
+    volumes: &'a [SessionArchiveVolume],
+    prefix_ends: Vec<u64>,
+    position: u64,
+    cancelled: &'a F,
+    failure: Option<&'static str>,
+}
+
+impl<'a, F> SessionArchiveReader<'a, F>
+where
+    F: Fn() -> bool,
+{
+    fn new(
+        state: &'a EngineState,
+        volumes: &'a [SessionArchiveVolume],
+        cancelled: &'a F,
+    ) -> Result<Self, &'static str> {
+        let mut total = 0_u64;
+        let mut prefix_ends = Vec::with_capacity(volumes.len());
+        for volume in volumes {
+            total = total
+                .checked_add(volume.exact_size)
+                .ok_or("archive_volume_budget")?;
+            prefix_ends.push(total);
+        }
+        Ok(Self {
+            state,
+            volumes,
+            prefix_ends,
+            position: 0,
+            cancelled,
+            failure: None,
+        })
+    }
+
+    fn exact_size(&self) -> u64 {
+        self.prefix_ends.last().copied().unwrap_or(0)
+    }
+
+    fn failure(&self) -> Option<&'static str> {
+        self.failure
+    }
+}
+
+impl<F> Read for SessionArchiveReader<'_, F>
+where
+    F: Fn() -> bool,
+{
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.exact_size().saturating_sub(self.position);
+        let wanted =
+            usize::try_from(remaining.min(output.len() as u64)).expect("read length fits usize");
+        if wanted == 0 {
+            return Ok(0);
+        }
+        let mut written = 0_usize;
+        while written < wanted {
+            let index = self
+                .prefix_ends
+                .partition_point(|end| *end <= self.position);
+            let volume = self
+                .volumes
+                .get(index)
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
+            let volume_start = if index == 0 {
+                0
+            } else {
+                self.prefix_ends[index - 1]
+            };
+            let source_start = self.position - volume_start;
+            let length = (volume.exact_size - source_start)
+                .min(u64::try_from(wanted - written).expect("buffer length fits u64"));
+            let source_end = source_start + length - 1;
+            match self.state.read_session_range_with_class(
+                &volume.session_id,
+                &volume.revision,
+                volume.exact_size,
+                source_start,
+                source_end,
+                nntp::WorkClass::Preparation,
+                self.cancelled,
+            ) {
+                Ok(bytes) => {
+                    let length = bytes.len();
+                    output[written..written + length].copy_from_slice(&bytes);
+                    written += length;
+                    self.position += u64::try_from(length).expect("read length fits u64");
+                }
+                Err(code) => {
+                    self.failure = Some(code);
+                    return Err(std::io::Error::other(code));
+                }
+            }
+        }
+        Ok(written)
+    }
+}
+
+impl<F> Seek for SessionArchiveReader<'_, F>
+where
+    F: Fn() -> bool,
+{
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        let absolute = match position {
+            SeekFrom::Start(offset) => i128::from(offset),
+            SeekFrom::Current(offset) => i128::from(self.position) + i128::from(offset),
+            SeekFrom::End(offset) => i128::from(self.exact_size()) + i128::from(offset),
+        };
+        let absolute = u64::try_from(absolute)
+            .ok()
+            .filter(|offset| *offset <= self.exact_size())
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        self.position = absolute;
+        Ok(absolute)
+    }
 }
 
 fn observe_archive_probe_failure(observed: &mut Option<&'static str>, code: &'static str) {
@@ -2928,7 +3147,7 @@ fn probe_session_archive_volume<F>(
     volume: &SessionArchiveProbeVolume,
     state: &EngineState,
     cancelled: &F,
-) -> Result<archive::ArchiveEvidence, &'static str>
+) -> Result<(archive::ArchiveEvidence, Vec<u8>), &'static str>
 where
     F: Fn() -> bool,
 {
@@ -2948,7 +3167,7 @@ where
             cancelled,
         )?;
         match archive::detect_archive(&head) {
-            Ok(Some(evidence)) => break evidence,
+            Ok(Some(evidence)) => break (evidence, head),
             Ok(None) => return Err("archive_direct_unsupported"),
             Err("archive_header_incomplete") if length < maximum => {
                 length = (length * 2).min(maximum);
@@ -3016,9 +3235,69 @@ where
         });
     }
     let next = AtomicUsize::new(0);
+
+    let mut preprobed = None;
+    if let Some((first_index, first)) = probes.iter().enumerate().find(|(_index, probe)| {
+        archive::classify_volume_name(&probe.relative_path).is_some_and(|hint| {
+            matches!(
+                hint.scheme,
+                archive::VolumeScheme::SevenZipSplit | archive::VolumeScheme::NumericSplit
+            ) && hint.number == 1
+        }) || probes.len() == 1
+    }) {
+        let (evidence, head) = probe_session_archive_volume(first, state, cancelled)?;
+        if evidence.format == archive::ArchiveFormat::SevenZip {
+            let inputs = probes
+                .iter()
+                .enumerate()
+                .map(|(index, probe)| archive_group::VolumeInput {
+                    content_identity: &probe.revision,
+                    relative_path: &probe.relative_path,
+                    exact_size: probe.exact_size,
+                    head: if index == first_index { &head } else { b"" },
+                    tail: b"",
+                })
+                .collect::<Vec<_>>();
+            let plan = archive_group::plan_volumes(&inputs)?;
+            let mut by_revision = probes
+                .into_iter()
+                .enumerate()
+                .map(|(index, probe)| {
+                    (
+                        probe.revision.clone(),
+                        SessionArchiveVolume {
+                            session_id: probe.session_id,
+                            revision: probe.revision,
+                            relative_path: probe.relative_path,
+                            exact_size: probe.exact_size,
+                            retention: probe.retention,
+                            evidence: (index == first_index).then_some(evidence),
+                        },
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            let ordered = plan
+                .volumes
+                .iter()
+                .map(|volume| {
+                    by_revision
+                        .remove(&volume.content_identity)
+                        .ok_or("archive_volume_conflict")
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok((plan, ordered));
+        }
+        preprobed = Some((first_index, evidence));
+    }
+
     let failed = AtomicBool::new(false);
     let failure = Mutex::new(None);
-    let completed = Mutex::new(Vec::with_capacity(probes.len()));
+    let preprobed_index = preprobed.map(|(index, _evidence)| index);
+    let mut initial_completed = Vec::with_capacity(probes.len());
+    if let Some(preprobed) = preprobed {
+        initial_completed.push(preprobed);
+    }
+    let completed = Mutex::new(initial_completed);
     thread::scope(|scope| {
         for _ in 0..probes.len().min(state.nntp_pools.preparation_slots()) {
             scope.spawn(|| {
@@ -3030,8 +3309,11 @@ where
                     let Some(probe) = probes.get(index) else {
                         return;
                     };
+                    if preprobed_index == Some(index) {
+                        continue;
+                    }
                     match probe_session_archive_volume(probe, state, cancelled) {
-                        Ok(evidence) => completed
+                        Ok((evidence, _head)) => completed
                             .lock()
                             .expect("archive header completion lock")
                             .push((index, evidence)),
@@ -3066,7 +3348,7 @@ where
                 relative_path: probe.relative_path,
                 exact_size: probe.exact_size,
                 retention: probe.retention,
-                evidence,
+                evidence: Some(evidence),
             }
         })
         .collect::<Vec<_>>();
@@ -3076,7 +3358,7 @@ where
             content_identity: &volume.revision,
             relative_path: &volume.relative_path,
             exact_size: volume.exact_size,
-            evidence: volume.evidence,
+            evidence: volume.evidence.expect("RAR volume evidence"),
         })
         .collect::<Vec<_>>();
     let plan = archive_group::plan_rar_headers(&inputs)?;
@@ -3145,6 +3427,132 @@ where
         archive::ArchiveFormat::Rar5 => rar_stored::parse_rar5_stored_members(&sizes, read),
         _ => unreachable!("RAR format checked above"),
     }
+}
+
+fn parse_session_seven_zip_members<F>(
+    volumes: &[SessionArchiveVolume],
+    passphrase: Option<&str>,
+    state: &EngineState,
+    cancelled: &F,
+) -> Result<Vec<seven_zip_direct::StoredMember>, &'static str>
+where
+    F: Fn() -> bool,
+{
+    let mut reader = SessionArchiveReader::new(state, volumes, cancelled)?;
+    let exact_size = reader.exact_size();
+    let result = seven_zip_direct::parse_stored_members(&mut reader, exact_size, passphrase);
+    if let Some(code) = reader.failure() {
+        return Err(code);
+    }
+    result
+}
+
+fn seven_zip_archive_catalog(
+    plan: &archive_group::VolumePlan,
+    members: &[seven_zip_direct::StoredMember],
+) -> Result<Vec<ArchiveCatalogMember>, &'static str> {
+    let mut catalog = members
+        .iter()
+        .filter_map(|member| {
+            inspect::classify_path(&member.relative_path).map(|kind| (member, kind))
+        })
+        .map(|(member, kind)| {
+            Ok(ArchiveCatalogMember {
+                member_id: archive_group::member_identity(
+                    &plan.set_identity,
+                    &member.relative_path,
+                    member.exact_size,
+                )?,
+                relative_path: member.relative_path.clone(),
+                exact_size: member.exact_size,
+                kind,
+            })
+        })
+        .collect::<Result<Vec<_>, &'static str>>()?;
+    catalog.sort_by_cached_key(|member| {
+        (
+            member.relative_path.to_lowercase(),
+            member.relative_path.clone(),
+        )
+    });
+    Ok(catalog)
+}
+
+fn session_sources(volumes: &[SessionArchiveVolume]) -> Vec<raw_composite::SessionSource> {
+    volumes
+        .iter()
+        .map(|volume| raw_composite::SessionSource {
+            identity: volume.session_id.clone(),
+            revision: volume.revision.clone(),
+            exact_size: volume.exact_size,
+            retention: volume.retention.clone(),
+        })
+        .collect()
+}
+
+fn plain_session_parts(
+    volumes: &[SessionArchiveVolume],
+    offset: u64,
+    length: u64,
+) -> Result<Vec<raw_composite::RawCompositePart>, &'static str> {
+    let sessions = raw_composite::SessionSet::new(session_sources(volumes))?;
+    sessions
+        .ranges(offset, length)?
+        .into_iter()
+        .map(|(session, source_offset, exact_size)| {
+            Ok(raw_composite::RawCompositePart {
+                content_identity: session.revision.clone(),
+                source_offset,
+                exact_size,
+                backing: raw_composite::RawCompositeBacking::Session {
+                    identity: session.identity.clone(),
+                    revision: session.revision.clone(),
+                    exact_size: session.exact_size,
+                    _retention: session.retention.clone(),
+                },
+            })
+        })
+        .collect()
+}
+
+fn open_session_seven_zip_member(
+    plan: &archive_group::VolumePlan,
+    volumes: &[SessionArchiveVolume],
+    member: &seven_zip_direct::StoredMember,
+) -> Result<raw_composite::RawCompositeSource, &'static str> {
+    let member_id = archive_group::member_identity(
+        &plan.set_identity,
+        &member.relative_path,
+        member.exact_size,
+    )?;
+    let parts = match &member.source {
+        seven_zip_direct::StoredSource::Plain { offset } => {
+            plain_session_parts(volumes, *offset, member.exact_size)?
+        }
+        seven_zip_direct::StoredSource::Aes(source) => {
+            let sessions = Arc::new(raw_composite::SessionSet::new(session_sources(volumes))?);
+            if source
+                .pack_offset
+                .checked_add(source.pack_size)
+                .is_none_or(|end| end > sessions.exact_size())
+            {
+                return Err("archive_header_invalid");
+            }
+            vec![raw_composite::RawCompositePart {
+                content_identity: member_id.clone(),
+                source_offset: source.plaintext_offset,
+                exact_size: member.exact_size,
+                backing: raw_composite::RawCompositeBacking::Aes256CbcSessions {
+                    sessions,
+                    pack_offset: source.pack_offset,
+                    pack_size: source.pack_size,
+                    key: Arc::clone(&source.key),
+                    initial_vector: source.initial_vector,
+                },
+            }]
+        }
+    };
+    raw_composite::RawCompositeSource::from_ranges(member_id, parts)
 }
 
 fn stored_archive_catalog(
@@ -4026,13 +4434,43 @@ fn handle(
             match serde_json::from_slice::<SessionArchiveCatalogRequest>(body)
                 .map_err(|_| "archive_volume_invalid")
                 .and_then(|request| {
+                    let passphrase = validated_archive_passphrase(request.passphrase)?;
                     let _reservation = state.resources.reserve_archive_job()?;
                     let (plan, volumes) =
                         plan_session_archive(request.volumes, state, &cancelled)?;
-                    let members = stored_archive_catalog(
-                        &plan,
-                        parse_session_stored_members(&plan, &volumes, state, &cancelled)?,
-                    )?;
+                    let members = match plan.kind {
+                        archive_group::VolumePlanKind::SingleArchive(
+                            archive::ArchiveFormat::SevenZip,
+                        )
+                        | archive_group::VolumePlanKind::MultiVolumeArchive(
+                            archive::ArchiveFormat::SevenZip,
+                        ) => {
+                            let direct_members = parse_session_seven_zip_members(
+                                &volumes,
+                                passphrase.as_deref().map(String::as_str),
+                                state,
+                                &cancelled,
+                            )?;
+                            let catalog = seven_zip_archive_catalog(&plan, &direct_members)?;
+                            let mut composites = state
+                                .raw_composites
+                                .lock()
+                                .expect("raw composite registry lock");
+                            for member in &direct_members {
+                                if inspect::classify_path(&member.relative_path).is_some() {
+                                    composites.insert(
+                                        open_session_seven_zip_member(&plan, &volumes, member)?,
+                                        Instant::now(),
+                                    )?;
+                                }
+                            }
+                            catalog
+                        }
+                        _ => stored_archive_catalog(
+                            &plan,
+                            parse_session_stored_members(&plan, &volumes, state, &cancelled)?,
+                        )?,
+                    };
                     let payload = serde_json::to_string(&ArchiveCatalogResponse {
                         version: 1,
                         plan: &plan,
@@ -4058,9 +4496,57 @@ fn handle(
                     }
                     let selected_path =
                         archive::normalize_archive_path(&request.selected_path)?;
+                    let passphrase = validated_archive_passphrase(request.passphrase)?;
                     let _reservation = state.resources.reserve_archive_job()?;
                     let (plan, volumes) =
                         plan_session_archive(request.volumes, state, &cancelled)?;
+                    if matches!(
+                        plan.kind,
+                        archive_group::VolumePlanKind::SingleArchive(
+                            archive::ArchiveFormat::SevenZip
+                        ) | archive_group::VolumePlanKind::MultiVolumeArchive(
+                            archive::ArchiveFormat::SevenZip
+                        )
+                    ) {
+                        let member_id = archive_group::member_identity(
+                            &plan.set_identity,
+                            &selected_path,
+                            request.expected_output_size,
+                        )?;
+                        if state
+                            .raw_composites
+                            .lock()
+                            .expect("raw composite registry lock")
+                            .exact_size(&member_id, Instant::now())
+                            == Some(request.expected_output_size)
+                        {
+                            return Ok((
+                                plan,
+                                member_id,
+                                request.expected_output_size,
+                                selected_path,
+                            ));
+                        }
+                        let member = parse_session_seven_zip_members(
+                            &volumes,
+                            passphrase.as_deref().map(String::as_str),
+                            state,
+                            &cancelled,
+                        )?
+                        .into_iter()
+                        .find(|member| {
+                            member.relative_path == selected_path
+                                && member.exact_size == request.expected_output_size
+                        })
+                        .ok_or("archive_member_not_found")?;
+                        let source = open_session_seven_zip_member(&plan, &volumes, &member)?;
+                        let (identity, exact_size) = state
+                            .raw_composites
+                            .lock()
+                            .expect("raw composite registry lock")
+                            .insert(source, Instant::now())?;
+                        return Ok((plan, identity, exact_size, member.relative_path));
+                    }
                     let member = parse_session_stored_members(
                         &plan,
                         &volumes,
@@ -5070,14 +5556,17 @@ fn handle(
                             },
                         )
                     };
-                    let head_length = request.expected_size.min(budget);
-                    let head = read(0, head_length)?;
-                    let tail = if request.expected_size > budget {
-                        read(request.expected_size - budget, budget)?
-                    } else {
-                        Vec::new()
-                    };
-                    inspect::probe_container(&head, &tail)
+                    let maximum = request.expected_size.min(budget);
+                    let mut head_length = maximum.min(RAW_COMPOSITE_INITIAL_INSPECTION_BYTES);
+                    loop {
+                        let head = read(0, head_length)?;
+                        match inspect::probe_container(&head, &[]) {
+                            Err("container_probe_incomplete") if head_length < maximum => {
+                                head_length = head_length.saturating_mul(2).min(maximum);
+                            }
+                            result => break result,
+                        }
+                    }
                 }) {
                 Ok(evidence) => response(
                     "200 OK",

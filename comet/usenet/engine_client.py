@@ -211,6 +211,8 @@ def _prepare_par2_volume_request(
 
 def _prepare_session_archive_request(
     volumes: list[tuple[str, str, str, int]],
+    *,
+    passphrase: str | None = None,
 ) -> tuple[bytes, dict[str, object], set[str], dict[str, tuple[str, int]]]:
     if not isinstance(volumes, list) or not 1 <= len(volumes) <= MAX_ARCHIVE_VOLUMES:
         raise ValueError("session archive request is invalid")
@@ -251,6 +253,8 @@ def _prepare_session_archive_request(
             }
         )
     request = {"volumes": payload_volumes}
+    if passphrase is not None:
+        request["passphrase"] = passphrase
     payload = orjson.dumps(request)
     if len(payload) > MAX_ENGINE_NZB_METADATA_BYTES:
         raise ValueError("session archive request exceeds the engine input limit")
@@ -610,10 +614,13 @@ class EngineClient(EngineTransport):
     async def catalog_session_archive_volumes(
         self,
         volumes: list[tuple[str, str, str, int]],
+        *,
+        passphrase: str | None = None,
     ) -> tuple[dict[str, object], list[dict[str, object]]]:
-        """Catalog stored RAR members directly over sparse NNTP sessions."""
+        """Catalog seekable archive members directly over sparse NNTP sessions."""
+        _validate_archive_passphrase(passphrase)
         payload, _request, identities, expected = _prepare_session_archive_request(
-            volumes
+            volumes, passphrase=passphrase
         )
         return await self._catalog_archive_request(
             payload,
@@ -1367,10 +1374,13 @@ class EngineClient(EngineTransport):
         volumes: list[tuple[str, str, str, int]],
         expected_output_size: int,
         selected_path: str,
+        *,
+        passphrase: str | None = None,
     ) -> tuple[dict[str, object], str, int, str]:
-        """Open one stored RAR member directly over sparse NNTP sessions."""
+        """Open one seekable archive member over sparse NNTP sessions."""
+        _validate_archive_passphrase(passphrase)
         _payload, request, identities, expected = _prepare_session_archive_request(
-            volumes
+            volumes, passphrase=passphrase
         )
         return await self._open_stored_archive_request(
             request,
@@ -1443,7 +1453,6 @@ class EngineClient(EngineTransport):
         etag = response["etag"]
         if (
             plan["kind"].get("layout") not in {"single_archive", "multi_volume_archive"}
-            or plan["kind"].get("format") not in {"rar4", "rar5"}
             or not is_sha256_hex(identity)
             or identity
             != _archive_member_identity(

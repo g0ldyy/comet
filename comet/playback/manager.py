@@ -968,6 +968,7 @@ async def _open_par2_proven_session_archive_source(
     engine_servers: list[dict[str, object]],
     account_partition: bytes,
     provider_set_generation: str,
+    archive_passphrase: str | None = None,
 ) -> tuple[
     ArchiveVolumeGroup,
     tuple[dict[str, object], str, int, str, UsenetAsset],
@@ -998,6 +999,7 @@ async def _open_par2_proven_session_archive_source(
             engine_servers=engine_servers,
             account_partition=account_partition,
             provider_set_generation=provider_set_generation,
+            archive_passphrase=archive_passphrase,
         )
     raise source_failure
 
@@ -1184,6 +1186,7 @@ async def prepare_native_usenet(
                     engine_servers=engine_servers,
                     account_partition=native_account_partition,
                     provider_set_generation=provider_set_generation,
+                    archive_passphrase=archive_passphrase,
                 )
             except EngineArchiveError as exc:
                 if exc.retryable:
@@ -1205,6 +1208,7 @@ async def prepare_native_usenet(
                             engine_servers=engine_servers,
                             account_partition=native_account_partition,
                             provider_set_generation=provider_set_generation,
+                            archive_passphrase=archive_passphrase,
                         )
                     except EngineNntpError:
                         raise
@@ -2266,6 +2270,7 @@ async def _open_session_archive_source(
     engine_servers: list[dict[str, object]],
     account_partition: bytes,
     provider_set_generation: str,
+    archive_passphrase: str | None = None,
 ) -> tuple[dict[str, object], str, int, str, UsenetAsset]:
     runtime_stats = await engine.stats()
     concurrency = min(
@@ -2293,7 +2298,10 @@ async def _open_session_archive_source(
             *(open_volume(asset) for asset in archive_group.volumes)
         )
     )
-    plan, members = await engine.catalog_session_archive_volumes(volumes)
+    plan, members = await engine.catalog_session_archive_volumes(
+        volumes,
+        passphrase=archive_passphrase,
+    )
     assets = catalog_archive_members(plan["set_identity"], members)
     if not assets:
         raise EngineArchiveError("archive_direct_unsupported", retryable=False)
@@ -2302,6 +2310,7 @@ async def _open_session_archive_source(
         volumes,
         selected.declared_bytes,
         selected.relative_path,
+        passphrase=archive_passphrase,
     )
     await engine.inspect_raw_composite(identity, exact_size)
     return plan, identity, exact_size, revision, selected

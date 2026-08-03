@@ -559,6 +559,8 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
         for path in (
             "/v1/materializations",
             f"/v1/artifacts/{'a' * 64}/native-inspect",
+            f"/v1/materializations/{'a' * 64}/native-inspect",
+            f"/v1/raw-composites/{'a' * 64}/native-inspect",
             "/v1/archive-plan",
             "/v1/archive-direct/catalog",
             "/v1/archive-direct/open",
@@ -1186,13 +1188,17 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
             ("POST", "/v1/archive-direct/open"),
         )
         session_id = "S" * 22
+        session_plan = dict(
+            plan,
+            kind={"layout": "single_archive", "format": "seven_zip"},
+        )
         client.request = AsyncMock(
             side_effect=[
                 (
                     200,
                     {},
                     json.dumps(
-                        {"version": 1, "plan": plan, "members": [member]}
+                        {"version": 1, "plan": session_plan, "members": [member]}
                     ).encode(),
                 ),
                 (
@@ -1205,7 +1211,7 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
                             "exact_size": exact_size,
                             "etag": member_identity,
                             "relative_path": selected_path,
-                            "plan": plan,
+                            "plan": session_plan,
                         }
                     ).encode(),
                 ),
@@ -1213,16 +1219,21 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
         )
 
         returned_plan, members = await client.catalog_session_archive_volumes(
-            [(session_id, content_identity, "release.rar", 100)]
+            [(session_id, content_identity, "release.rar", 100)],
+            passphrase="archive-secret",
         )
         opened = await client.open_session_archive_member(
             [(session_id, content_identity, "release.rar", 100)],
             exact_size,
             selected_path,
+            passphrase="archive-secret",
         )
 
-        self.assertEqual((returned_plan, members), (plan, [member]))
-        self.assertEqual(opened, (plan, member_identity, exact_size, member_identity))
+        self.assertEqual((returned_plan, members), (session_plan, [member]))
+        self.assertEqual(
+            opened,
+            (session_plan, member_identity, exact_size, member_identity),
+        )
         first_request, second_request = client.request.await_args_list
         self.assertEqual(
             first_request.args[:2],
@@ -1238,8 +1249,16 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(
+            json.loads(first_request.args[2])["passphrase"],
+            "archive-secret",
+        )
+        self.assertEqual(
             second_request.args[:2],
             ("POST", "/v1/session-archives/open"),
+        )
+        self.assertEqual(
+            json.loads(second_request.args[2])["passphrase"],
+            "archive-secret",
         )
         rar4_plan = dict(plan, kind={"layout": "single_archive", "format": "rar4"})
         client.request = AsyncMock(

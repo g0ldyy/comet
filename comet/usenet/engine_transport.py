@@ -104,8 +104,12 @@ def _engine_operation(method: str, path: str) -> str:
         if path.endswith("/native-inspect"):
             return "native_inspect"
     if path.startswith("/v1/materializations"):
+        if path.endswith("/native-inspect"):
+            return "native_inspect"
         return "materialization"
     if path.startswith("/v1/raw-composites"):
+        if path.endswith("/native-inspect"):
+            return "native_inspect"
         return "raw_composite"
     if path.startswith("/v1/sessions"):
         return "session"
