@@ -824,14 +824,16 @@ RELEASE_CANDIDATES_TABLE_SPEC = ManagedTableSpec(
             visibility_partition CHAR(64) NOT NULL CHECK (
                 {_lower_hex_check("visibility_partition", 64)}
             ),
-            media_id VARCHAR(255) NOT NULL CHECK (
-                length(media_id) BETWEEN 1 AND 255
+            media_id TEXT NOT NULL CHECK (
+                transport = 'bittorrent'
+                OR length(media_id) BETWEEN 1 AND 255
             ),
             transport VARCHAR(16) NOT NULL CHECK (
                 transport IN ('bittorrent', 'usenet')
             ),
-            release_key VARCHAR(128) NOT NULL CHECK (
-                length(release_key) BETWEEN 1 AND 128
+            release_key TEXT NOT NULL CHECK (
+                transport = 'bittorrent'
+                OR length(release_key) BETWEEN 1 AND 128
             ),
             scope VARCHAR(32) NOT NULL CHECK (scope IN (
                 'movie', 'episode', 'season_pack', 'series_pack',
@@ -840,18 +842,25 @@ RELEASE_CANDIDATES_TABLE_SPEC = ManagedTableSpec(
             season_norm INTEGER NOT NULL,
             episode_norm INTEGER NOT NULL,
             daily_date VARCHAR(10),
-            title VARCHAR(1024) NOT NULL CHECK (
-                length(title) BETWEEN 1 AND 1024
+            title TEXT NOT NULL CHECK (
+                transport = 'bittorrent'
+                OR length(title) BETWEEN 1 AND 1024
             ),
-            byte_size BIGINT CHECK (byte_size IS NULL OR byte_size > 0),
+            byte_size BIGINT CHECK (
+                transport = 'bittorrent'
+                OR byte_size IS NULL
+                OR byte_size > 0
+            ),
             published_at_ms BIGINT CHECK (
-                published_at_ms IS NULL OR published_at_ms >= 0
+                transport = 'bittorrent'
+                OR published_at_ms IS NULL
+                OR published_at_ms >= 0
             ),
             parsed_json TEXT NOT NULL CHECK (
-                length(parsed_json) <= 65536
+                transport = 'bittorrent' OR length(parsed_json) <= 65536
             ),
             attributes_json TEXT NOT NULL CHECK (
-                length(attributes_json) <= 65536
+                transport = 'bittorrent' OR length(attributes_json) <= 65536
             ),
             created_at_ms BIGINT NOT NULL CHECK (created_at_ms >= 0),
             updated_at_ms BIGINT NOT NULL CHECK (updated_at_ms >= 0),
@@ -896,8 +905,9 @@ CANDIDATE_IDENTITIES_TABLE_SPEC = ManagedTableSpec(
             identity_scheme VARCHAR(16) NOT NULL CHECK (
                 identity_scheme IN ('btih', 'nm1')
             ),
-            identity_value VARCHAR(256) NOT NULL CHECK (
-                length(identity_value) BETWEEN 1 AND 256
+            identity_value TEXT NOT NULL CHECK (
+                transport = 'bittorrent'
+                OR length(identity_value) BETWEEN 1 AND 256
             ),
             created_at_ms BIGINT NOT NULL CHECK (created_at_ms >= 0),
             updated_at_ms BIGINT NOT NULL CHECK (updated_at_ms >= 0),
@@ -972,10 +982,12 @@ RELEASE_LOCATORS_TABLE_SPEC = ManagedTableSpec(
                 'torrent', 'real_nzb', 'nzb_artifact', 'easynews_http'
             )),
             locator_json TEXT NOT NULL CHECK (
-                length(locator_json) BETWEEN 2 AND 65536
+                locator_kind = 'torrent'
+                OR length(locator_json) BETWEEN 2 AND 65536
             ),
             policy_json TEXT NOT NULL CHECK (
-                length(policy_json) BETWEEN 2 AND 16384
+                locator_kind = 'torrent'
+                OR length(policy_json) BETWEEN 2 AND 16384
             ),
             content_key VARCHAR(256) NOT NULL CHECK (
                 length(content_key) BETWEEN 1 AND 256

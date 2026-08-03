@@ -70,7 +70,7 @@ class TorrentAdapterRegistryTests(unittest.IsolatedAsyncioTestCase):
                 del request
                 return [{"title": "incomplete"}]
 
-        with self.assertRaisesRegex(ValueError, "incomplete"):
+        with self.assertRaises(KeyError):
             await MalformedScraper(None, None).search(
                 MediaQuery("tt123", "movie", title="Movie"),
                 DiscoveryContext(frozenset({"bittorrent"})),

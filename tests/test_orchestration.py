@@ -232,7 +232,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(manager.ready_to_cache, [])
 
-    def test_torrent_projections_do_not_emit_oversized_database_values(self):
+    def test_torrent_projections_preserve_values_without_validation(self):
         torrent = {
             "title": "Movie.2026.1080p.WEB-DL",
             "infoHash": "a" * 40,
@@ -243,23 +243,21 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             "sources": [],
             "parsed": None,
         }
-        with self.assertRaisesRegex(ValueError, "runtime torrent is invalid"):
-            torrent_candidate_from_runtime(
-                torrent["infoHash"],
-                torrent,
-                media_id="tt123",
-                scope=ReleaseScope.MOVIE,
-                season_norm=-1,
-                episode_norm=-1,
-            )
-        with self.assertRaisesRegex(
-            ValueError,
-            "torrent discovery result is invalid",
-        ):
-            torrent_candidate_from_scrape_result(
-                torrent,
-                MediaQuery("tt123", "movie"),
-            )
+        runtime = torrent_candidate_from_runtime(
+            torrent["infoHash"],
+            torrent,
+            media_id="tt123",
+            scope=ReleaseScope.MOVIE,
+            season_norm=-1,
+            episode_norm=-1,
+        )
+        discovery = torrent_candidate_from_scrape_result(
+            torrent,
+            MediaQuery("tt123", "movie"),
+        )
+
+        self.assertEqual(runtime.size, MAX_SIGNED_BIGINT + 1)
+        self.assertEqual(discovery.size, MAX_SIGNED_BIGINT + 1)
 
     async def test_scrape_waits_until_cache_updates_are_enqueued(self):
         manager = TorrentResultAccumulator(

@@ -204,6 +204,7 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_candidate_locators_are_unbounded_and_chunked(self):
         query = MediaQuery("tt1234569", "movie")
         info_hash = "a" * 40
+        opaque_parsed = "development\n" + "x" * 70_000
         locators = tuple(
             TorrentLocator(
                 locator_id=f"torrent:locator:{index}",
@@ -216,7 +217,7 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 file_index=index,
                 selection_title=f"File.{index}.mkv",
                 selection_size=index + 1,
-                selection_parsed_json="{}",
+                selection_parsed_json=opaque_parsed if index == 0 else "{}",
             )
             for index in range(333)
         )
@@ -240,6 +241,10 @@ class ReleaseDiscoveryRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(stored[candidate.candidate_id].locator_ids), 333)
         self.assertEqual(len(loaded[0].locators), 333)
+        self.assertIn(
+            opaque_parsed,
+            {locator.selection_parsed_json for locator in loaded[0].locators},
+        )
 
     async def test_transport_stats_round_trip_as_opaque_json(self):
         query = MediaQuery("tt1234568", "movie")

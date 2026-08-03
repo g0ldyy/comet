@@ -20,6 +20,7 @@ from comet.core.sources import (
     LocatorPolicy,
     NzbArtifactRef,
     ReleaseCandidate,
+    TransportKind,
 )
 from comet.core.sql_batch import chunk_parameters
 from comet.discovery.repository import ReleaseDiscoveryRepository
@@ -157,7 +158,10 @@ class RenderedReleaseRepository:
 
     @staticmethod
     def _parsed_json(candidate: ReleaseCandidate) -> str:
-        return parsed_json(candidate.parsed)
+        return parsed_json(
+            candidate.parsed,
+            trusted=candidate.transport is TransportKind.BITTORRENT,
+        )
 
     async def persist(
         self,

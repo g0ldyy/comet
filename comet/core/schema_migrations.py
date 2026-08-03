@@ -1058,15 +1058,39 @@ async def _migration_remove_legacy_torrent_storage(ctx: MigrationContext):
 
     from comet.discovery.torrent_backfill import backfill_legacy_torrents
 
-    # The backfill is idempotent and commits bounded batches internally. Keeping
-    # one outer transaction here would retain every per-candidate PostgreSQL
-    # advisory lock until the complete legacy cache had been migrated.
+    if ctx.is_postgres and await ctx.database.fetch_val(
+        "SELECT pg_total_relation_size('torrents') >= 536870912",
+        force_primary=True,
+    ):
+        for index_name in (
+            "idx_release_candidates_media_scope_v1",
+            "idx_release_candidates_last_seen_v1",
+            "idx_candidate_identities_exact_v1",
+            "idx_release_locators_candidate_kind_v1",
+            "idx_release_locators_discovery_v1",
+            "idx_release_locators_expiry_v1",
+        ):
+            await _drop_index_if_exists(ctx, index_name)
+
+    # The idempotent backfill commits bounded ranges so a large upgrade never
+    # accumulates one database-sized WAL, lock, or rollback scope.
     await backfill_legacy_torrents(ctx.database)
+    await _ensure_release_storage_indexes(ctx)
     await _drop_table_if_exists(ctx, "torrents")
 
     if await _table_exists(ctx, "torrents"):
         raise RuntimeError("legacy torrent storage still exists after cutover")
     return True
+
+
+async def _ensure_release_storage_indexes(ctx: MigrationContext) -> None:
+    for spec in (
+        RELEASE_CANDIDATES_TABLE_SPEC,
+        CANDIDATE_IDENTITIES_TABLE_SPEC,
+        RELEASE_LOCATORS_TABLE_SPEC,
+    ):
+        for index_sql in _render_index_sql(spec):
+            await _ensure_index(ctx, index_sql)
 
 
 USENET_RELEASE_SCHEMA_MIGRATION = "2026080201_usenet_release_schema"
@@ -1167,6 +1191,67 @@ async def _migration_usenet_release_schema(ctx: MigrationContext):
 
 async def _migration_candidate_identity_scope(ctx: MigrationContext):
     if ctx.is_postgres:
+        await ctx.database.execute(
+            """
+            ALTER TABLE release_candidates
+                ALTER COLUMN media_id TYPE TEXT,
+                ALTER COLUMN release_key TYPE TEXT,
+                ALTER COLUMN title TYPE TEXT
+            """
+        )
+        await ctx.database.execute(
+            """
+            ALTER TABLE candidate_identities
+                ALTER COLUMN identity_value TYPE TEXT
+            """
+        )
+        candidate_checks = {
+            "media_id": "transport = 'bittorrent' OR length(media_id) BETWEEN 1 AND 255",
+            "release_key": "transport = 'bittorrent' OR length(release_key) BETWEEN 1 AND 128",
+            "title": "transport = 'bittorrent' OR length(title) BETWEEN 1 AND 1024",
+            "byte_size": "transport = 'bittorrent' OR byte_size IS NULL OR byte_size > 0",
+            "published_at_ms": "transport = 'bittorrent' OR published_at_ms IS NULL OR published_at_ms >= 0",
+            "parsed_json": "transport = 'bittorrent' OR length(parsed_json) <= 65536",
+            "attributes_json": "transport = 'bittorrent' OR length(attributes_json) <= 65536",
+        }
+        for column, check in candidate_checks.items():
+            constraint = f"release_candidates_{column}_check"
+            await ctx.database.execute(
+                f"""
+                ALTER TABLE release_candidates
+                    DROP CONSTRAINT IF EXISTS {constraint},
+                    ADD CONSTRAINT {constraint} CHECK ({check}) NOT VALID
+                """
+            )
+        await ctx.database.execute(
+            """
+            ALTER TABLE candidate_identities
+                DROP CONSTRAINT IF EXISTS candidate_identities_identity_value_check,
+                ADD CONSTRAINT candidate_identities_identity_value_check CHECK (
+                    transport = 'bittorrent'
+                    OR length(identity_value) BETWEEN 1 AND 256
+                ) NOT VALID
+            """
+        )
+        locator_checks = {
+            "locator_json": """
+                locator_kind = 'torrent'
+                OR length(locator_json) BETWEEN 2 AND 65536
+            """,
+            "policy_json": """
+                locator_kind = 'torrent'
+                OR length(policy_json) BETWEEN 2 AND 16384
+            """,
+        }
+        for column, check in locator_checks.items():
+            constraint = f"release_locators_{column}_check"
+            await ctx.database.execute(
+                f"""
+                ALTER TABLE release_locators
+                    DROP CONSTRAINT IF EXISTS {constraint},
+                    ADD CONSTRAINT {constraint} CHECK ({check}) NOT VALID
+                """
+            )
         constraints = await ctx.database.fetch_all(
             """
             SELECT constraint_name

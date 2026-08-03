@@ -309,7 +309,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             ["tt1234567", "tt2345678"],
         )
 
-    async def test_invalid_cache_row_is_discarded_without_blocking_valid_data(self):
+    async def test_legacy_rows_are_migrated_without_content_validation(self):
         await self._insert(
             media_id="tt1234567",
             info_hash="a" * 40,
@@ -329,13 +329,15 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [tuple(row.values()) for row in candidates],
-            [("tt1234567", "btih:" + "a" * 40)],
+            [
+                ("tt1234567", "btih:" + "a" * 40),
+                ("tt2345678", "btih:not-an-info-hash"),
+            ],
         )
-        self.assertEqual(result.eligible_rows, 1)
-        self.assertEqual(result.persisted_rows, 1)
-        self.assertEqual(result.discarded_rows, 1)
+        self.assertEqual(result.eligible_rows, 2)
+        self.assertEqual(result.persisted_rows, 2)
 
-    async def test_duplicate_legacy_locator_is_discarded_without_losing_candidate(self):
+    async def test_duplicate_legacy_locators_collapse_during_upsert(self):
         await self.database.execute("DROP INDEX unq_torrents_scope_v3")
         for _ in range(2):
             await self._insert(
@@ -346,9 +348,8 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
 
         result = await backfill_legacy_torrents(self.database)
 
-        self.assertEqual(result.eligible_rows, 1)
+        self.assertEqual(result.eligible_rows, 2)
         self.assertEqual(result.persisted_rows, 1)
-        self.assertEqual(result.discarded_rows, 1)
         self.assertEqual(
             await self.database.fetch_val("SELECT COUNT(*) FROM release_candidates"),
             1,
@@ -522,8 +523,10 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             },
             force_primary=True,
         )
-        with self.assertRaisesRegex(RuntimeError, "tracker sources"):
-            await repository.find_context("a" * 40)
+        self.assertEqual(
+            await repository.find_context("a" * 40),
+            {"media_id": "tt1234567", "sources": [None]},
+        )
 
     async def test_final_migration_backfills_public_and_removes_legacy_table(self):
         await self._insert(
@@ -843,13 +846,13 @@ class FreshGenericSchemaTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertEqual(signature, await self._schema_signature(upgraded))
-                self.assertEqual(candidate_count, 2)
+                self.assertEqual(candidate_count, 3)
                 self.assertEqual(
                     await upgraded.fetch_val(
                         "SELECT COUNT(*) FROM release_candidates",
                         force_primary=True,
                     ),
-                    2,
+                    3,
                 )
                 self.assertEqual(
                     await upgraded.fetch_val(

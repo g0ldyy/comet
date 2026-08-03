@@ -151,37 +151,62 @@ class RenderedReleaseRepositoryTests(unittest.TestCase):
             locator,
         )
 
-    def test_locator_codec_rejects_noncanonical_final_values(self):
+    def test_torrent_locator_values_round_trip_opaquely(self):
         torrent = TorrentLocator(
             locator_id="torrent",
             kind=LocatorKind.TORRENT,
             policy=LocatorPolicy(frozenset({"direct_torrent"})),
             info_hash="a" * 40,
         )
-        with self.subTest("uppercase info hash"):
-            with self.assertRaises(ValueError):
-                locator_json(replace(torrent, info_hash="A" * 40))
-        with self.subTest("incomplete torrent selection"):
-            with self.assertRaisesRegex(ValueError, "fields are incomplete"):
-                locator_json(replace(torrent, selection_size=42))
+        for locator in (
+            replace(torrent, info_hash="A" * 40),
+            replace(
+                torrent,
+                file_index=-42,
+                season_norm=-99,
+                episode_norm="future",
+                selection_title="",
+                selection_size=-1,
+                selection_parsed_json="opaque, not JSON\n" + "x" * 70_000,
+            ),
+        ):
+            with self.subTest(locator=locator):
+                self.assertEqual(
+                    locator_from_json(
+                        locator.locator_id,
+                        locator.kind.value,
+                        locator_json(locator),
+                        policy_json(locator),
+                    ),
+                    locator,
+                )
+
+    def test_usenet_locator_policy_rejects_noncanonical_values(self):
+        real_nzb = RealNzbRef(
+            locator_id="real-nzb",
+            kind=LocatorKind.REAL_NZB,
+            policy=LocatorPolicy(frozenset({"torbox_usenet"})),
+            adapter_configuration_id="11111111-1111-4111-8111-111111111111",
+            remote_guid="release",
+        )
         with self.subTest("provider kind incompatible with locator"):
             with self.assertRaises(ValueError):
                 policy_json(
                     replace(
-                        torrent,
-                        policy=LocatorPolicy(frozenset({"torbox_usenet"})),
+                        real_nzb,
+                        policy=LocatorPolicy(frozenset({"direct_torrent"})),
                     )
                 )
         with self.subTest("noncanonical provider set"):
-            policy = policy_json(torrent)
+            policy = policy_json(real_nzb)
             with self.assertRaises(ValueError):
                 locator_from_json(
-                    torrent.locator_id,
-                    torrent.kind.value,
-                    locator_json(torrent),
+                    real_nzb.locator_id,
+                    real_nzb.kind.value,
+                    locator_json(real_nzb),
                     policy.replace(
-                        '["direct_torrent"]',
-                        '["direct_torrent","direct_torrent"]',
+                        '["torbox_usenet"]',
+                        '["torbox_usenet","torbox_usenet"]',
                     ),
                 )
 

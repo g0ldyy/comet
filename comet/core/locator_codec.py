@@ -28,7 +28,7 @@ def locator_json(locator: Locator) -> str:
     expected_kind: LocatorKind
     if isinstance(locator, TorrentLocator):
         expected_kind = LocatorKind.TORRENT
-        payload = {"info_hash": _lower_hex(locator.info_hash, "info_hash", 40)}
+        payload = {"info_hash": locator.info_hash}
         selection_values = (
             locator.file_index,
             locator.selection_title,
@@ -41,49 +41,14 @@ def locator_json(locator: Locator) -> str:
             or locator.episode_norm != -1
         )
         if has_selection:
-            if locator.selection_title is None or locator.selection_parsed_json is None:
-                raise ValueError("torrent selection fields are incomplete")
-            if locator.file_index is not None and (
-                isinstance(locator.file_index, bool)
-                or not isinstance(locator.file_index, int)
-                or locator.file_index < 0
-            ):
-                raise ValueError("torrent file index is invalid")
-            if (
-                isinstance(locator.season_norm, bool)
-                or not isinstance(locator.season_norm, int)
-                or locator.season_norm < -1
-                or isinstance(locator.episode_norm, bool)
-                or not isinstance(locator.episode_norm, int)
-                or locator.episode_norm < -1
-            ):
-                raise ValueError("torrent selection scope is invalid")
-            parsed_payload = _text(
-                locator.selection_parsed_json,
-                "selection_parsed_json",
-                32_768,
-            )
-            try:
-                parsed_value = orjson.loads(parsed_payload)
-            except (orjson.JSONDecodeError, TypeError) as exc:
-                raise ValueError("torrent selection metadata is invalid") from exc
-            if not isinstance(parsed_value, dict):
-                raise ValueError("torrent selection metadata is invalid")
             payload.update(
                 {
                     "file_index": locator.file_index,
                     "season_norm": locator.season_norm,
                     "episode_norm": locator.episode_norm,
-                    "selection_title": _text(
-                        locator.selection_title,
-                        "selection_title",
-                        1_024,
-                    ),
-                    "selection_size": _optional_positive_size(
-                        locator.selection_size,
-                        "selection_size",
-                    ),
-                    "selection_parsed_json": parsed_payload,
+                    "selection_title": locator.selection_title,
+                    "selection_size": locator.selection_size,
+                    "selection_parsed_json": locator.selection_parsed_json,
                 }
             )
     elif isinstance(locator, RealNzbRef):
@@ -169,13 +134,31 @@ def locator_json(locator: Locator) -> str:
         }
     else:
         raise ValueError("unsupported locator type")
-    if locator.kind != expected_kind:
-        raise ValueError("locator kind does not match locator type")
-    return _canonical_json(payload, 65_536, "locator")
+    return _canonical_json(
+        payload,
+        None if expected_kind is LocatorKind.TORRENT else 65_536,
+        "locator",
+    )
 
 
 def policy_json(locator: Locator) -> str:
     policy = locator.policy
+    if isinstance(locator, TorrentLocator):
+        owner_partition = policy.owner_configuration_partition
+        return _canonical_json(
+            {
+                "allowed_provider_kinds": sorted(policy.allowed_provider_kinds),
+                "exact_provider_configuration_id": (
+                    policy.exact_provider_configuration_id
+                ),
+                "expires_at": policy.expires_at,
+                "owner_configuration_partition": (
+                    owner_partition.hex() if owner_partition is not None else None
+                ),
+            },
+            None,
+            "locator policy",
+        )
     if not isinstance(policy, LocatorPolicy) or not isinstance(
         locator.kind, LocatorKind
     ):
@@ -228,13 +211,15 @@ def policy_json(locator: Locator) -> str:
     )
 
 
-def parsed_json(parsed: object | None) -> str:
+def parsed_json(parsed: object | None, *, trusted: bool = False) -> str:
     if parsed is None:
         return "{}"
     model_dump = getattr(parsed, "model_dump", None)
-    if not callable(model_dump):
+    if callable(model_dump):
+        parsed = model_dump()
+    elif not trusted:
         raise ValueError("invalid parsed release")
-    return _canonical_json(model_dump(), 65_536, "parsed release")
+    return _canonical_json(parsed, None if trusted else 65_536, "parsed release")
 
 
 def locator_from_json(
@@ -249,54 +234,31 @@ def locator_from_json(
         raw_policy = orjson.loads(policy_payload)
     except (orjson.JSONDecodeError, TypeError, ValueError) as exc:
         raise ValueError("invalid persisted locator") from exc
-    if not isinstance(payload, dict) or not isinstance(raw_policy, dict):
+    if locator_kind is not LocatorKind.TORRENT and (
+        not isinstance(payload, dict) or not isinstance(raw_policy, dict)
+    ):
         raise ValueError("invalid persisted locator")
     policy = _policy_from_mapping(raw_policy, locator_kind)
     common = {
-        "locator_id": _text(locator_id, "locator_id", 128),
+        "locator_id": (
+            locator_id
+            if locator_kind is LocatorKind.TORRENT
+            else _text(locator_id, "locator_id", 128)
+        ),
         "kind": locator_kind,
         "policy": policy,
     }
     if locator_kind is LocatorKind.TORRENT:
-        base_fields = {"info_hash"}
-        selection_fields = {
-            "file_index",
-            "season_norm",
-            "episode_norm",
-            "selection_title",
-            "selection_size",
-            "selection_parsed_json",
-        }
-        if payload.keys() not in (base_fields, base_fields | selection_fields):
-            raise ValueError("invalid persisted locator fields")
         locator = TorrentLocator(
             **common,
-            info_hash=_lower_hex(payload["info_hash"], "info_hash", 40),
-            file_index=_optional_nonnegative_integer(
-                payload.get("file_index"),
-                "file_index",
-            ),
-            season_norm=_scope_integer(payload.get("season_norm", -1)),
-            episode_norm=_scope_integer(payload.get("episode_norm", -1)),
-            selection_title=_optional_text(
-                payload.get("selection_title"),
-                "selection_title",
-                1_024,
-            ),
-            selection_size=_optional_positive_size(
-                payload.get("selection_size"),
-                "selection_size",
-            ),
-            selection_parsed_json=_optional_json_object_text(
-                payload.get("selection_parsed_json"),
-                "selection_parsed_json",
-                32_768,
-            ),
+            info_hash=payload.get("info_hash"),
+            file_index=payload.get("file_index"),
+            season_norm=payload.get("season_norm", -1),
+            episode_norm=payload.get("episode_norm", -1),
+            selection_title=payload.get("selection_title"),
+            selection_size=payload.get("selection_size"),
+            selection_parsed_json=payload.get("selection_parsed_json"),
         )
-        if selection_fields <= payload.keys() and (
-            locator.selection_title is None or locator.selection_parsed_json is None
-        ):
-            raise ValueError("invalid persisted locator fields")
     elif locator_kind is LocatorKind.REAL_NZB:
         if payload.keys() != {"adapter_configuration_id", "remote_guid"}:
             raise ValueError("invalid persisted locator fields")
@@ -390,9 +352,10 @@ def locator_from_json(
                 "byte_size",
             ),
         )
-    # Re-serialization applies the same limits and canonical form to decoded data.
-    locator_json(locator)
-    policy_json(locator)
+    if locator_kind is not LocatorKind.TORRENT:
+        # Untrusted locator types must pass the write-side checks on reads too.
+        locator_json(locator)
+        policy_json(locator)
     return locator
 
 
@@ -400,6 +363,14 @@ def _policy_from_mapping(
     payload: Mapping[object, object],
     locator_kind: LocatorKind,
 ) -> LocatorPolicy:
+    if locator_kind is LocatorKind.TORRENT:
+        owner_partition = payload.get("owner_configuration_partition")
+        return LocatorPolicy(
+            frozenset(payload.get("allowed_provider_kinds", ())),
+            bytes.fromhex(owner_partition) if owner_partition is not None else None,
+            payload.get("exact_provider_configuration_id"),
+            payload.get("expires_at"),
+        )
     if payload.keys() != {
         "allowed_provider_kinds",
         "exact_provider_configuration_id",
@@ -446,12 +417,12 @@ def _policy_from_mapping(
     return policy
 
 
-def _canonical_json(value: object, maximum: int, field: str) -> str:
+def _canonical_json(value: object, maximum: int | None, field: str) -> str:
     try:
         payload = orjson.dumps(value, option=orjson.OPT_SORT_KEYS).decode()
     except (orjson.JSONEncodeError, TypeError) as exc:
         raise ValueError(f"invalid {field} JSON") from exc
-    if len(payload.encode()) > maximum:
+    if maximum is not None and len(payload.encode()) > maximum:
         raise ValueError(f"{field} JSON is too large")
     return payload
 
@@ -527,42 +498,3 @@ def _optional_positive_size(value: object, field: str) -> int | None:
     ):
         raise ValueError(f"invalid locator {field}")
     return value
-
-
-def _optional_nonnegative_integer(value: object, field: str) -> int | None:
-    if value is None:
-        return None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 0 <= value <= 2**31 - 1
-    ):
-        raise ValueError(f"invalid locator {field}")
-    return value
-
-
-def _scope_integer(value: object) -> int:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not -1 <= value <= 100_000
-    ):
-        raise ValueError("invalid torrent selection scope")
-    return value
-
-
-def _optional_json_object_text(
-    value: object,
-    field: str,
-    maximum: int,
-) -> str | None:
-    if value is None:
-        return None
-    payload = _text(value, field, maximum)
-    try:
-        decoded = orjson.loads(payload)
-    except (orjson.JSONDecodeError, TypeError) as exc:
-        raise ValueError(f"invalid locator {field}") from exc
-    if not isinstance(decoded, dict):
-        raise ValueError(f"invalid locator {field}")
-    return payload

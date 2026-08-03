@@ -410,7 +410,10 @@ class ReleaseDiscoveryRepository:
                 include_artifact_identity=origin_kind
                 not in {"manual_upload", "manual_url"},
             ):
-                scheme, value = _candidate_identity(identity)
+                scheme, value = _candidate_identity(
+                    identity,
+                    trusted=candidate.transport is TransportKind.BITTORRENT,
+                )
                 canonical_id = await self._attach_identity(
                     canonical_id,
                     scheme,
@@ -1157,13 +1160,17 @@ class ReleaseDiscoveryRepository:
             )
         result = []
         for candidate_id, (row, locators) in grouped.items():
-            attributes = _decode_attributes(row["attributes_json"])
+            transport = TransportKind(row["transport"])
+            attributes = _decode_attributes(
+                row["attributes_json"],
+                trusted=transport is TransportKind.BITTORRENT,
+            )
             result.append(
                 ReleaseCandidate(
                     candidate_id=candidate_id,
                     media_id=row["media_id"],
                     scope=ReleaseScope(row["scope"]),
-                    transport=TransportKind(row["transport"]),
+                    transport=transport,
                     title=row["title"],
                     locators=tuple(locators),
                     size=row["byte_size"],
@@ -1188,18 +1195,19 @@ def _candidate_values(
         raise ValueError("candidate media does not match discovery query")
     if candidate.scope is not scope:
         raise ValueError("candidate scope does not match discovery query")
-    if (
-        not isinstance(candidate.candidate_id, str)
-        or not 1 <= len(candidate.candidate_id) <= 128
-        or any(ord(character) < 32 for character in candidate.candidate_id)
-    ):
-        raise ValueError("candidate release key is invalid")
-    if (
-        not isinstance(candidate.title, str)
-        or not 1 <= len(candidate.title) <= 1_024
-        or any(ord(character) < 32 for character in candidate.title)
-    ):
-        raise ValueError("candidate title is invalid")
+    if candidate.transport is not TransportKind.BITTORRENT:
+        if (
+            not isinstance(candidate.candidate_id, str)
+            or not 1 <= len(candidate.candidate_id) <= 128
+            or any(ord(character) < 32 for character in candidate.candidate_id)
+        ):
+            raise ValueError("candidate release key is invalid")
+        if (
+            not isinstance(candidate.title, str)
+            or not 1 <= len(candidate.title) <= 1_024
+            or any(ord(character) < 32 for character in candidate.title)
+        ):
+            raise ValueError("candidate title is invalid")
     return {
         "candidate_id": _uuid7(observed_at_ms),
         "visibility_partition": visibility,
@@ -1213,13 +1221,24 @@ def _candidate_values(
         "title": candidate.title,
         "byte_size": candidate.size,
         "published_at_ms": candidate.published_at_ms,
-        "parsed_json": parsed_json(candidate.parsed),
+        "parsed_json": parsed_json(
+            candidate.parsed,
+            trusted=candidate.transport is TransportKind.BITTORRENT,
+        ),
         "attributes_json": _attributes_json(candidate),
         "now_ms": observed_at_ms,
     }
 
 
 def _attributes_json(candidate: ReleaseCandidate) -> str:
+    if candidate.transport is TransportKind.BITTORRENT:
+        return orjson.dumps(
+            {
+                "source": candidate.source,
+                "transport_stats": candidate.transport_stats,
+            },
+            option=orjson.OPT_SORT_KEYS,
+        ).decode()
     source = candidate.source
     if not isinstance(source, str):
         raise ValueError("candidate source is invalid")
@@ -1238,7 +1257,13 @@ def _attributes_json(candidate: ReleaseCandidate) -> str:
     return payload
 
 
-def _decode_attributes(payload: str) -> dict[str, object]:
+def _decode_attributes(
+    payload: str,
+    *,
+    trusted: bool = False,
+) -> dict[str, object]:
+    if trusted:
+        return orjson.loads(payload)
     try:
         value = orjson.loads(payload)
     except (orjson.JSONDecodeError, TypeError) as exc:
@@ -1259,8 +1284,8 @@ def _decode_attributes(payload: str) -> dict[str, object]:
 
 
 def decode_candidate_attributes(payload: str) -> dict[str, object]:
-    """Decode the final bounded candidate attribute envelope for read adapters."""
-    return _decode_attributes(payload)
+    """Decode trusted server-side torrent attributes without filtering them."""
+    return _decode_attributes(payload, trusted=True)
 
 
 def _safe_attribute_value(
@@ -1340,7 +1365,14 @@ def _fingerprint(value: str, field: str) -> str:
     return value
 
 
-def _candidate_identity(identity: str) -> tuple[str, str]:
+def _candidate_identity(
+    identity: str,
+    *,
+    trusted: bool = False,
+) -> tuple[str, str]:
+    if trusted:
+        scheme, value = identity.split(":", 1)
+        return scheme, value
     if not isinstance(identity, str) or ":" not in identity:
         raise ValueError("candidate identity is invalid")
     scheme, value = identity.split(":", 1)
@@ -1366,8 +1398,7 @@ def _candidate_identity_evidence(
     if candidate.candidate_id.startswith(("btih:", "nm1:")):
         identities[candidate.candidate_id] = None
     for identity in candidate.identities:
-        scheme, value = _candidate_identity(identity)
-        identities[f"{scheme}:{value}"] = None
+        identities[identity] = None
     for locator in candidate.locators:
         if isinstance(locator, TorrentLocator):
             identities[f"btih:{locator.info_hash.lower()}"] = None
@@ -1378,10 +1409,7 @@ def _candidate_identity_evidence(
 
 def _identity_lock_id(scheme: str, value: str) -> int:
     digest = hashlib.sha256(
-        b"comet-candidate-identity-lock-v1\0"
-        + scheme.encode("ascii")
-        + b"\0"
-        + value.encode("ascii")
+        b"comet-candidate-identity-lock-v1\0" + scheme.encode() + b"\0" + value.encode()
     ).digest()
     return int.from_bytes(digest[:8], "big", signed=True)
 

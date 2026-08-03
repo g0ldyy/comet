@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import orjson
 from RTN import DefaultRanking, ParsedData
 
 from comet.core.capabilities import (
@@ -13,7 +14,6 @@ from comet.core.models import CometSettingsModel, database, settings
 from comet.core.scrape import ScrapeContext
 from comet.core.sources import (
     ReleaseCandidate,
-    TorrentLocator,
     TransportKind,
 )
 from comet.discovery.manager import SearchCoordinator
@@ -34,7 +34,6 @@ from comet.utils.parsing import (
     MediaScope,
     ensure_multi_language,
     load_cached_parsed,
-    load_cached_string_list,
     resolve_media_scope,
 )
 
@@ -233,21 +232,9 @@ class TorrentResultAccumulator:
     ) -> dict:
         if candidate.transport is not TransportKind.BITTORRENT:
             raise ValueError("torrent pipeline received a non-torrent candidate")
-        if len(candidate.locators) != 1 or not isinstance(
-            candidate.locators[0], TorrentLocator
-        ):
-            raise ValueError("torrent candidate requires one torrent locator")
         locator = candidate.locators[0]
         seeders = candidate.transport_stats.get("seeders")
-        if seeders is not None and type(seeders) is not int:
-            raise ValueError("torrent candidate seeders are invalid")
-        tracker_sources = candidate.transport_stats.get("tracker_sources")
-        if tracker_sources is None:
-            tracker_sources = ()
-        elif not isinstance(tracker_sources, tuple) or not all(
-            isinstance(value, str) for value in tracker_sources
-        ):
-            raise ValueError("torrent candidate tracker sources are invalid")
+        tracker_sources = candidate.transport_stats.get("tracker_sources", ())
         return {
             "title": candidate.title,
             "infoHash": locator.info_hash,
@@ -342,7 +329,7 @@ class TorrentResultAccumulator:
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": load_cached_string_list(row["sources_json"]),
+                "sources": orjson.loads(row["sources_json"]),
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }

@@ -1,10 +1,11 @@
 """Transport-neutral persistence and reads for public torrent releases."""
 
 import hashlib
-import re
 from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any
+
+import orjson
 
 from comet.core.database import (
     build_json_list_membership_predicate,
@@ -12,7 +13,6 @@ from comet.core.database import (
 )
 from comet.core.locator_codec import locator_from_json, parsed_json
 from comet.core.sources import (
-    MAX_SIGNED_BIGINT,
     TORRENT_PROVIDER_KINDS,
     LocatorKind,
     LocatorPolicy,
@@ -26,11 +26,9 @@ from comet.discovery.repository import (
     ReleaseDiscoveryRepository,
     decode_candidate_attributes,
 )
-from comet.utils.parsing import MediaScope, load_cached_parsed, load_cached_string_list
+from comet.utils.parsing import MediaScope
 
 ACCOUNT_TRACKER_PREFIX = "DebridAccount|"
-_INFO_HASH = re.compile(r"[0-9a-f]{40}")
-_CONTROL = re.compile(r"[\x00-\x1f]")
 _PUBLIC_PARTITION = "0" * 64
 _IDENTITY_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "identity_value",
@@ -49,36 +47,12 @@ def is_legacy_account_torrent(row: Any) -> bool:
     return isinstance(tracker, str) and tracker.startswith(ACCOUNT_TRACKER_PREFIX)
 
 
-def _scope(row: Any, parsed: object | None) -> str:
+def _scope(row: Any) -> str:
     if row["episode_norm"] >= 0:
         return "episode"
     if row["season_norm"] >= 0:
         return "season_pack"
-    if getattr(parsed, "seasons", None) or getattr(parsed, "episodes", None):
-        return "series_pack"
     return "movie"
-
-
-def _legacy_title(value: object, info_hash: str) -> str:
-    if not isinstance(value, str):
-        return info_hash
-    title = _CONTROL.sub(" ", value).strip()
-    return title[:1_024] or info_hash
-
-
-def _legacy_source(value: object) -> str:
-    if not isinstance(value, str) or not value:
-        return "Torrent cache"
-    source = _CONTROL.sub(" ", value).strip()
-    return source[:128] or "Torrent cache"
-
-
-def _parsed(value: object) -> object | None:
-    parsed = load_cached_parsed(value)
-    if parsed is None:
-        return None
-    parsed_json(parsed)
-    return parsed
 
 
 def _legacy_locator_id(row: Mapping[str, object]) -> str:
@@ -91,62 +65,29 @@ def _legacy_locator_id(row: Mapping[str, object]) -> str:
     return f"lc1:{digest}"
 
 
-def _validated_row(row: Any) -> dict[str, object]:
+def _torrent_row(row: Any) -> dict[str, object]:
     media_id = row["media_id"]
     info_hash = row["info_hash"]
-    if (
-        not isinstance(media_id, str)
-        or not 1 <= len(media_id) <= 128
-        or _CONTROL.search(media_id)
-    ):
-        raise RuntimeError("torrent media identifier is invalid")
-    if not isinstance(info_hash, str) or not _INFO_HASH.fullmatch(info_hash.lower()):
-        raise RuntimeError("torrent info hash is invalid")
     if is_legacy_account_torrent(row):
         raise RuntimeError("account-derived torrent cannot use the public repository")
-    info_hash = info_hash.lower()
-    parsed = _parsed(row["parsed_json"])
     season_norm = row["season_norm"]
     episode_norm = row["episode_norm"]
-    if (
-        isinstance(season_norm, bool)
-        or not isinstance(season_norm, int)
-        or season_norm < -1
-        or isinstance(episode_norm, bool)
-        or not isinstance(episode_norm, int)
-        or episode_norm < -1
-    ):
-        raise RuntimeError("torrent scope is invalid")
-    scope = _scope(row, parsed)
-    title = _legacy_title(row["title"], info_hash)
-    size = row["size"]
-    if type(size) is not int or not 1 <= size <= MAX_SIGNED_BIGINT:
-        size = None
-    file_index = row["file_index"]
-    if type(file_index) is not int or file_index < 0:
-        file_index = None
-    updated_at = row["updated_at"]
-    if (
-        isinstance(updated_at, bool)
-        or not isinstance(updated_at, (int, float))
-        or updated_at < 0
-    ):
-        raise RuntimeError("torrent timestamp is invalid")
+    scope = _scope(row)
     return {
         "row": row,
         "media_id": media_id,
         "info_hash": info_hash,
-        "parsed": parsed,
-        "parsed_json": parsed_json(parsed),
+        "parsed": None,
+        "parsed_json": row["parsed_json"],
         "scope": scope,
         "season_norm": season_norm,
         "episode_norm": episode_norm,
-        "file_index": file_index,
-        "title": title,
-        "size": size,
-        "source": _legacy_source(row["tracker"]),
-        "tracker_sources": load_cached_string_list(row["sources_json"]),
-        "updated_at": float(updated_at),
+        "file_index": row["file_index"],
+        "title": row["title"],
+        "size": row["size"],
+        "source": row["tracker"] or "Torrent cache",
+        "tracker_sources": orjson.loads(row["sources_json"]),
+        "updated_at": row["updated_at"],
     }
 
 
@@ -162,17 +103,8 @@ def _candidate_from_rows(
         "series" if is_series else "movie",
         search_scope=scope,
     )
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            row["season_norm"],
-            row["episode_norm"],
-            -1 if row["file_index"] is None else row["file_index"],
-            row["title"],
-        ),
-    )
     representative = max(
-        ordered,
+        rows,
         key=lambda row: (
             row["season_norm"] == -1 and row["episode_norm"] == -1,
             -1 if row["size"] is None else row["size"],
@@ -180,7 +112,7 @@ def _candidate_from_rows(
         ),
     )
     locators = []
-    for row in ordered:
+    for row in rows:
         locators.append(
             TorrentLocator(
                 locator_id=_legacy_locator_id(row),
@@ -196,9 +128,7 @@ def _candidate_from_rows(
             )
         )
     seeders = [
-        row["row"]["seeders"]
-        for row in rows
-        if type(row["row"]["seeders"]) is int and row["row"]["seeders"] >= 0
+        row["row"]["seeders"] for row in rows if row["row"]["seeders"] is not None
     ]
     stats = {"seeders": max(seeders)} if seeders else {}
     tracker_sources = tuple(
@@ -227,7 +157,7 @@ def _candidate_from_rows(
 def torrent_candidates_from_rows(
     raw_rows: list[Any],
 ) -> tuple[tuple[MediaQuery, ReleaseCandidate], ...]:
-    grouped, _discarded = _group_validated_rows(raw_rows)
+    grouped = _group_rows(raw_rows)
     return tuple(_candidate_from_rows(rows) for rows in grouped.values())
 
 
@@ -240,40 +170,15 @@ def torrent_candidate_from_runtime(
     season_norm: int,
     episode_norm: int,
 ) -> ReleaseCandidate:
-    """Project one already-filtered torrent into the shared immutable model."""
-    required = {"parsed", "title", "size", "fileIndex", "seeders", "tracker"}
-    if not isinstance(torrent, Mapping) or not required <= torrent.keys():
-        raise ValueError("runtime torrent is invalid")
+    """Project one server-selected torrent into the shared immutable model."""
+    info_hash = info_hash.lower()
     title = torrent["title"]
     size = torrent["size"]
     file_index = torrent["fileIndex"]
     seeders = torrent["seeders"]
     tracker = torrent["tracker"]
-    if (
-        not isinstance(info_hash, str)
-        or _INFO_HASH.fullmatch(info_hash.lower()) is None
-        or not isinstance(title, str)
-        or not 1 <= len(title) <= 1_024
-        or _CONTROL.search(title)
-        or (
-            size is not None
-            and (type(size) is not int or not 1 <= size <= MAX_SIGNED_BIGINT)
-        )
-        or (file_index is not None and (type(file_index) is not int or file_index < 0))
-        or (seeders is not None and (type(seeders) is not int or seeders < 0))
-        or not isinstance(tracker, str)
-    ):
-        raise ValueError("runtime torrent is invalid")
-    info_hash = info_hash.lower()
     parsed = torrent["parsed"]
-    encoded_parsed = parsed_json(parsed)
-    if (
-        type(season_norm) is not int
-        or season_norm < -1
-        or type(episode_norm) is not int
-        or episode_norm < -1
-    ):
-        raise ValueError("runtime torrent scope is invalid")
+    encoded_parsed = parsed_json(parsed, trusted=True)
     locator_key = hashlib.sha256(
         (
             f"{media_id}\0{info_hash}\0{season_norm}\0{episode_norm}\0"
@@ -313,46 +218,14 @@ def torrent_candidate_from_scrape_result(
     torrent: Mapping[str, object],
     query: MediaQuery,
 ) -> ReleaseCandidate:
-    """Translate one legacy torrent adapter result at the discovery boundary."""
-    if not isinstance(torrent, Mapping):
-        raise ValueError("torrent discovery result is invalid")
-    required = {
-        "title",
-        "infoHash",
-        "fileIndex",
-        "seeders",
-        "size",
-        "tracker",
-        "sources",
-    }
-    if not required <= torrent.keys():
-        raise ValueError("torrent discovery result is incomplete")
-    info_hash = torrent["infoHash"]
+    """Translate one server-configured torrent result at the discovery boundary."""
+    info_hash = torrent["infoHash"].lower()
     title = torrent["title"]
     file_index = torrent["fileIndex"]
     seeders = torrent["seeders"]
     size = torrent["size"]
     tracker = torrent["tracker"]
     sources = torrent["sources"]
-    if (
-        not isinstance(info_hash, str)
-        or _INFO_HASH.fullmatch(info_hash.lower()) is None
-        or not isinstance(title, str)
-        or not title
-        or len(title) > 1_024
-        or _CONTROL.search(title)
-        or (file_index is not None and (type(file_index) is not int or file_index < 0))
-        or (seeders is not None and (type(seeders) is not int or seeders < 0))
-        or (
-            size is not None
-            and (type(size) is not int or not 1 <= size <= MAX_SIGNED_BIGINT)
-        )
-        or not isinstance(tracker, str)
-        or not isinstance(sources, list)
-        or not all(isinstance(source, str) for source in sources)
-    ):
-        raise ValueError("torrent discovery result is invalid")
-    info_hash = info_hash.lower()
     season_norm = query.season if query.season is not None else -1
     episode_norm = query.episode if query.episode is not None else -1
     locator_key = hashlib.sha256(
@@ -393,31 +266,14 @@ def torrent_candidate_from_scrape_result(
     )
 
 
-def _group_validated_rows(
+def _group_rows(
     raw_rows: list[Any],
-    *,
-    discard_invalid: bool = False,
-) -> tuple[dict[tuple[str, str], list[dict[str, object]]], int]:
+) -> dict[tuple[str, str], list[dict[str, object]]]:
     grouped: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
-    locator_ids: set[str] = set()
-    discarded = 0
     for raw_row in raw_rows:
-        try:
-            row = _validated_row(raw_row)
-        except (RuntimeError, ValueError):
-            if not discard_invalid:
-                raise
-            discarded += 1
-            continue
-        locator_id = _legacy_locator_id(row)
-        if locator_id in locator_ids:
-            if not discard_invalid:
-                raise RuntimeError("duplicate torrent locator")
-            discarded += 1
-            continue
-        locator_ids.add(locator_id)
+        row = _torrent_row(raw_row)
         grouped[(row["media_id"], row["info_hash"])].append(row)
-    return grouped, discarded
+    return grouped
 
 
 class TorrentReleaseRepository:
@@ -425,25 +281,15 @@ class TorrentReleaseRepository:
         self._database = database
 
     async def persist_rows(self, rows: list[Any]) -> int:
-        validated_groups, _discarded = _group_validated_rows(rows)
-        return await self._persist_validated_groups(validated_groups)
+        return await self._persist_groups(_group_rows(rows))
 
-    async def persist_migratable_rows(self, rows: list[Any]) -> tuple[int, int]:
-        """Persist valid public cache rows and count irrecoverable cache entries."""
-        validated_groups, discarded = _group_validated_rows(
-            rows,
-            discard_invalid=True,
-        )
-        persisted = await self._persist_validated_groups(validated_groups)
-        return persisted, discarded
-
-    async def _persist_validated_groups(
+    async def _persist_groups(
         self,
-        validated_groups: dict[tuple[str, str], list[dict[str, object]]],
+        groups: dict[tuple[str, str], list[dict[str, object]]],
     ) -> int:
         grouped: dict[MediaQuery, list[ReleaseCandidate]] = defaultdict(list)
         observed_at: dict[MediaQuery, float] = {}
-        for candidate_group in validated_groups.values():
+        for candidate_group in groups.values():
             query, candidate = _candidate_from_rows(candidate_group)
             grouped[query].append(candidate)
             for row in candidate_group:
@@ -459,19 +305,10 @@ class TorrentReleaseRepository:
                 candidates,
                 now=observed_at[query],
             )
-            expected_locator_count = sum(
-                len(candidate.locators) for candidate in candidates
-            )
-            actual_locator_count = sum(
+            persisted += sum(
                 len(stored[candidate.candidate_id].locator_ids)
                 for candidate in candidates
             )
-            if (
-                len(stored) != len(candidates)
-                or actual_locator_count != expected_locator_count
-            ):
-                raise RuntimeError("torrent persistence lost a candidate")
-            persisted += actual_locator_count
         return persisted
 
     async def load_cache_rows(
@@ -687,14 +524,9 @@ class TorrentReleaseRepository:
         if row is None:
             return None
         attributes = decode_candidate_attributes(row["attributes_json"])
-        tracker_sources = attributes["transport_stats"].get("tracker_sources", [])
-        if not isinstance(tracker_sources, list) or not all(
-            isinstance(source, str) for source in tracker_sources
-        ):
-            raise RuntimeError("torrent tracker sources are invalid")
         return {
             "media_id": row["media_id"],
-            "sources": tracker_sources,
+            "sources": attributes["transport_stats"].get("tracker_sources", []),
         }
 
     async def delete_stale_public(self, *, before_ms: int) -> int:

@@ -137,6 +137,8 @@ class ReleaseCandidate:
     identities: tuple[str, ...] = ()
 
     def __post_init__(self):
+        if self.transport is TransportKind.BITTORRENT:
+            return
         if not isinstance(self.scope, ReleaseScope):
             raise ValueError("candidate scope is invalid")
         if not isinstance(self.transport, TransportKind):
