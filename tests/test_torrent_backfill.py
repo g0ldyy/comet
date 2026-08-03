@@ -63,6 +63,13 @@ class PostgresLegacyTorrentBackfillSqlTests(unittest.TestCase):
             legacy_cte,
         )
 
+    def test_preserves_legacy_null_escapes_without_jsonb_translation(self):
+        self.assertIn(
+            "source_documents.sources_json::json",
+            _POSTGRES_IMPORT_SQL,
+        )
+        self.assertNotIn("sources_json::jsonb", _POSTGRES_IMPORT_SQL)
+
 
 class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

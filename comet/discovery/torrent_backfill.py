@@ -93,12 +93,13 @@ _POSTGRES_IMPORT_SQL = f"""
         SELECT
             source_documents.media_id,
             source_documents.info_hash,
-            JSONB_AGG(
-                DISTINCT tracker_source.value ORDER BY tracker_source.value
-            ) AS tracker_sources
+            '[' || STRING_AGG(
+                DISTINCT tracker_source.value::text,
+                ',' ORDER BY tracker_source.value::text
+            ) || ']' AS tracker_sources_json
         FROM source_documents
-        CROSS JOIN LATERAL JSONB_ARRAY_ELEMENTS_TEXT(
-            source_documents.sources_json::jsonb
+        CROSS JOIN LATERAL JSON_ARRAY_ELEMENTS(
+            source_documents.sources_json::json
         ) AS tracker_source(value)
         GROUP BY source_documents.media_id, source_documents.info_hash
     ),
@@ -130,23 +131,27 @@ _POSTGRES_IMPORT_SQL = f"""
             representatives.title,
             representatives.size,
             '{{}}' AS parsed_json,
-            JSONB_BUILD_OBJECT(
-                'source', COALESCE(
+            '{{"source":'
+            || TO_JSON(
+                COALESCE(
                     NULLIF(representatives.tracker, ''),
                     'Torrent cache'
-                ),
-                'transport_stats',
-                    JSONB_STRIP_NULLS(
-                        JSONB_BUILD_OBJECT('seeders', grouped.seeders)
-                    )
-                    || CASE
-                        WHEN grouped_sources.tracker_sources IS NULL
-                        THEN '{{}}'::jsonb
-                        ELSE JSONB_BUILD_OBJECT(
-                            'tracker_sources', grouped_sources.tracker_sources
-                        )
-                    END
-            )::text AS attributes_json,
+                )
+            )::text
+            || ',"transport_stats":{{'
+            || CONCAT_WS(
+                ',',
+                CASE
+                    WHEN grouped.seeders IS NULL THEN NULL
+                    ELSE '"seeders":' || grouped.seeders::text
+                END,
+                CASE
+                    WHEN grouped_sources.tracker_sources_json IS NULL THEN NULL
+                    ELSE '"tracker_sources":'
+                        || grouped_sources.tracker_sources_json
+                END
+            )
+            || '}}}}' AS attributes_json,
             grouped.now_ms
         FROM grouped
         JOIN representatives USING (media_id, info_hash)
