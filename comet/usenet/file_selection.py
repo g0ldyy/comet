@@ -31,6 +31,11 @@ _EPISODE_ABSOLUTE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SAMPLE_RE = re.compile(
+    r"(?:^|[\\/._\-\s])(?:sample|proof)(?:[\\/._\-\s]|$)", re.IGNORECASE
+)
+_SAMPLE_MIN_RELEASE_SHARE_DENOMINATOR = 20
+
 _ARCHIVE_VOLUME_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(.+)\.part([0-9]+)\.rar"), "rar_part"),
     (re.compile(r"(.+)\.r([0-9]{2})"), "rar_legacy"),
@@ -595,6 +600,23 @@ def select_asset(
     if len(matches) != 1:
         raise FileSelectionError("file_selection_ambiguous")
     return matches[0]
+
+
+def eligible_video_assets(
+    assets: Sequence[UsenetAsset],
+) -> tuple[UsenetAsset, ...]:
+    videos = tuple(asset for asset in assets if asset.kind == "video")
+    features = tuple(
+        asset for asset in videos if _SAMPLE_RE.search(asset.relative_path) is None
+    )
+    if features:
+        return features
+    release_bytes = sum(asset.declared_bytes for asset in assets)
+    return tuple(
+        asset
+        for asset in videos
+        if asset.declared_bytes * _SAMPLE_MIN_RELEASE_SHARE_DENOMINATOR >= release_bytes
+    )
 
 
 def select_remote_video_file[RemoteFileT](

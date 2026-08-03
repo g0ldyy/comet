@@ -642,7 +642,7 @@ where
                     continuation_seen = split_after;
                 }
                 0x7b if main_seen => {
-                    if flags & !0x000f != 0 || flags & 0x8000 != 0 {
+                    if flags & !0x400f != 0 {
                         return Err("archive_header_invalid");
                     }
                     let mut cursor = 7usize;
@@ -691,7 +691,7 @@ fn parse_rar4_file(header: &[u8], flags: u16) -> Result<ParsedFile, &'static str
     if header.len() < 32
         || flags & 0x8000 == 0
         || flags & !0xdfff != 0
-        || flags & (0x0004 | 0x0008 | 0x0010 | 0x0200 | 0x0400 | 0x0800 | 0x1000) != 0
+        || flags & (0x0004 | 0x0008 | 0x0010 | 0x0400 | 0x0800) != 0
         || flags & 0x00e0 == 0x00e0
     {
         return Err("archive_direct_unsupported");
@@ -732,8 +732,11 @@ fn parse_rar4_file(header: &[u8], flags: u16) -> Result<ParsedFile, &'static str
         .ok_or("archive_header_invalid")?;
     let raw_name = header
         .get(cursor..name_end)
-        .filter(|_| name_end == header.len())
         .ok_or("archive_header_incomplete")?;
+    let raw_name = raw_name
+        .split(|byte| *byte == 0)
+        .next()
+        .expect("split always yields one item");
     let raw_name = std::str::from_utf8(raw_name).map_err(|_| "archive_path_invalid")?;
     Ok(ParsedFile {
         relative_path: normalize_archive_path(raw_name)?,
@@ -937,7 +940,7 @@ mod tests {
         for file in files {
             bytes.extend_from_slice(file);
         }
-        bytes.extend(rar4_block(0x7b, u16::from(next), &[], &[]));
+        bytes.extend(rar4_block(0x7b, 0x4000 | u16::from(next), &[], &[]));
         bytes
     }
 
@@ -1162,6 +1165,30 @@ mod tests {
         assert_eq!(
             &second[members[0].ranges[1].offset as usize..][..4],
             b"MORE"
+        );
+
+        let metadata = {
+            let raw_name = b"Movie.mkv\0unicode-name";
+            let mut body = Vec::new();
+            body.extend_from_slice(&4_u32.to_le_bytes());
+            body.extend_from_slice(&4_u32.to_le_bytes());
+            body.push(2);
+            body.extend_from_slice(&crc32fast::hash(b"DATA").to_le_bytes());
+            body.extend_from_slice(&0_u32.to_le_bytes());
+            body.push(15);
+            body.push(0x30);
+            body.extend_from_slice(&(raw_name.len() as u16).to_le_bytes());
+            body.extend_from_slice(&0_u32.to_le_bytes());
+            body.extend_from_slice(raw_name);
+            body.extend_from_slice(&[0x10, 0, 0, 0, 0]);
+            rar4_volume(true, &[rar4_block(0x74, 0x9200, &body, b"DATA")], false)
+        };
+        assert_eq!(
+            parse4(&[&metadata])
+                .expect("RAR4 unicode name and extended time")
+                .remove(0)
+                .relative_path,
+            "Movie.mkv"
         );
 
         let compressed = rar4_volume(

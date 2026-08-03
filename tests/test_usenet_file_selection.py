@@ -7,6 +7,7 @@ from comet.usenet.file_selection import (
     catalog_archive_members,
     catalog_archive_volume_groups,
     catalog_engine_source_assets,
+    eligible_video_assets,
     catalog_nested_archive_members,
     catalog_par2_assets,
     catalog_par2_source_assets,
@@ -193,6 +194,43 @@ def test_archive_volume_group_supports_large_real_world_rar_sets():
     assert len(selected.volumes) == 99
     assert selected.volumes[0].relative_path == "Movie.2024.part001.rar"
     assert selected.volumes[-1].relative_path == "Movie.2024.part099.rar"
+
+
+def test_small_sample_does_not_hide_archive_feature():
+    assets = catalog_engine_source_assets(
+        ARTIFACT,
+        [
+            _asset("Movie.2024-sample.mkv", 250, index=0, kind="video"),
+            _asset("Movie.2024.rar", 10_000, index=1, kind="archive"),
+            _asset("Movie.2024.r00", 10_000, index=2, kind="archive"),
+        ],
+    )
+
+    assert eligible_video_assets(assets) == ()
+
+
+def test_feature_videos_take_priority_over_samples():
+    assets = catalog_engine_source_assets(
+        ARTIFACT,
+        [
+            _asset("Movie.2024-proof.mkv", 500, index=0, kind="video"),
+            _asset("Movie.2024.mkv", 100, index=1, kind="video"),
+        ],
+    )
+
+    assert eligible_video_assets(assets) == (assets[1],)
+
+
+def test_plausible_standalone_sample_remains_playable():
+    assets = catalog_engine_source_assets(
+        ARTIFACT,
+        [
+            _asset("Movie.2024.sample.mkv", 100, index=0, kind="video"),
+            _asset("Movie.2024.par2", 1, index=1, kind="par2"),
+        ],
+    )
+
+    assert eligible_video_assets(assets) == (assets[0],)
 
 
 def test_archive_volume_group_accepts_non_padded_numeric_parts():

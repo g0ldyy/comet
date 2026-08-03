@@ -56,6 +56,7 @@ from comet.usenet.file_selection import (
     catalog_nested_archive_members,
     catalog_par2_assets,
     catalog_par2_source_assets,
+    eligible_video_assets,
     select_archive_volume_group,
     select_archive_volume_groups,
     select_asset,
@@ -1066,7 +1067,7 @@ async def prepare_native_usenet(
         "sha256",
     ).hex()
     materialized_artifacts: list[MaterializedArtifact] = []
-    direct_assets = tuple(asset for asset in source_assets if asset.kind == "video")
+    direct_assets = eligible_video_assets(source_assets)
     if direct_assets:
         selected_asset = await asyncio.to_thread(
             select_asset,

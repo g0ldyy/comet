@@ -44,6 +44,7 @@ from comet.usenet.file_selection import (
     catalog_archive_members,
     catalog_engine_source_assets,
     catalog_nested_archive_members,
+    eligible_video_assets,
     select_archive_volume_group,
     select_asset,
 )
@@ -406,7 +407,7 @@ async def _probe_document(
                 "head_map": head_map,
             }
         raise RuntimeError("par2_catalog_unavailable")
-    direct = tuple(asset for asset in assets if asset.kind == "video")
+    direct = eligible_video_assets(assets)
     if direct:
         selected = select_asset(direct, (0,))
         try:
