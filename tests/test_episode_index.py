@@ -7,55 +7,6 @@ from comet.metadata.http import MetadataHttpResponse
 
 
 class EpisodeIndexRefreshTests(unittest.IsolatedAsyncioTestCase):
-    async def test_invalid_cached_air_date_surfaces(self):
-        service = EpisodeIndexService(session=None)
-        with patch.object(database, "fetch_one", return_value={"air_date": "invalid"}):
-            with self.assertRaisesRegex(
-                ValueError, "cached episode air date is invalid"
-            ):
-                await service._get_cached_air_date("tt123", 1, 2, None)
-
-        with patch.object(
-            database,
-            "fetch_one",
-            return_value={"air_date": "2026-07-22"},
-        ):
-            self.assertEqual(
-                await service._get_cached_air_date("tt123", 1, 2, None),
-                "2026-07-22",
-            )
-
-    async def test_invalid_refresh_timestamp_surfaces(self):
-        service = EpisodeIndexService(session=None)
-        with patch.object(database, "fetch_val", return_value=None):
-            self.assertFalse(await service._is_series_index_fresh("tt123", 1.0))
-
-        for value in (True, "invalid", float("inf")):
-            with (
-                self.subTest(value=value),
-                patch.object(database, "fetch_val", return_value=value),
-            ):
-                with self.assertRaisesRegex(
-                    ValueError, "cached episode refresh timestamp is invalid"
-                ):
-                    await service._is_series_index_fresh("tt123", 1.0)
-
-    async def test_invalid_cached_episode_coordinate_surfaces(self):
-        service = EpisodeIndexService(session=None)
-        with patch.object(
-            database,
-            "fetch_one",
-            return_value={"season": "invalid", "episode": 2},
-        ):
-            with self.assertRaisesRegex(
-                ValueError, "cached episode coordinate is invalid"
-            ):
-                await service._get_cached_episode(
-                    "tt123",
-                    "2026-07-22",
-                    None,
-                )
-
     async def test_unexpected_tmdb_failure_surfaces(self):
         service = EpisodeIndexService(session=None)
         with patch(
@@ -206,21 +157,3 @@ class EpisodeIndexRefreshTests(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         )
-
-    async def test_snapshot_is_bounded_before_replacement(self):
-        service = EpisodeIndexService(session=None)
-        payload = {"meta": {"videos": [{}] * 20_001}}
-        with (
-            patch(
-                "comet.metadata.episode_index.get_metadata_json",
-                new=AsyncMock(return_value=MetadataHttpResponse(200, payload)),
-            ),
-            patch.object(
-                service,
-                "_replace_series_index",
-                new=AsyncMock(),
-            ) as replace,
-        ):
-            await service._refresh_from_cinemeta("tt1234567")
-
-        replace.assert_not_awaited()

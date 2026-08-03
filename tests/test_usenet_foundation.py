@@ -128,12 +128,11 @@ def test_stremio_nntp_binding_accepts_the_server_contract_without_acknowledgemen
 @pytest.mark.parametrize(
     ("path", "field"),
     [
-        ((), "futureTopLevel"),
         (("playbackProviders", 0), "futureProviderField"),
         (("discoverySources", 0), "futureSourceField"),
     ],
 )
-def test_v2_config_rejects_unknown_envelope_fields(path, field):
+def test_v2_config_rejects_unknown_usenet_envelope_fields(path, field):
     config = _v2_config()
     config["discoverySources"][0]["options"] = {}
     target = config
@@ -142,6 +141,13 @@ def test_v2_config_rejects_unknown_envelope_fields(path, field):
     target[field] = "opaque future value\nnot consumed by Comet"
 
     assert _parse_and_validate_config(_encoded(config)) is None
+
+
+def test_v2_config_ignores_unknown_top_level_fields():
+    config = _v2_config()
+    config["futureTopLevel"] = "opaque future value\nnot consumed by Comet"
+
+    assert _parse_and_validate_config(_encoded(config)) is not None
 
 
 def test_v2_config_preserves_provider_specific_options():

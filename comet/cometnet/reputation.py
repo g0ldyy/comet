@@ -83,8 +83,6 @@ class PeerReputation:
 
     def add_valid_contribution(self, count: int = 1) -> None:
         """Add valid contribution(s) and update reputation."""
-        if type(count) is not int or count <= 0:
-            raise ValueError("count must be a positive integer")
         self.valid_contributions += count
         self._adjust_reputation(
             settings.COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION * count
@@ -92,8 +90,6 @@ class PeerReputation:
 
     def add_invalid_contribution(self, count: int = 1) -> None:
         """Add invalid contribution(s) and update reputation."""
-        if type(count) is not int or count <= 0:
-            raise ValueError("count must be a positive integer")
         self.invalid_contributions += count
         self._adjust_reputation(
             -settings.COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION * count
@@ -242,12 +238,6 @@ class ReputationStore:
         Remove peers that haven't been seen in a while.
         Does not remove blacklisted peers.
         """
-        if (
-            type(max_age_days) not in (int, float)
-            or not math.isfinite(max_age_days)
-            or max_age_days <= 0
-        ):
-            raise ValueError("max_age_days must be a finite positive number")
         cutoff = time.time() - (max_age_days * 86400)
         to_remove = [
             node_id

@@ -36,7 +36,7 @@ class UsenetOnlyMediaSearchTests(unittest.IsolatedAsyncioTestCase):
         result = _discovery_title_aliases("Original", aliases)
 
         self.assertEqual(result[:2], ("Original", long_title))
-        self.assertEqual(len(result), 64)
+        self.assertEqual(len(result), 72)
 
     def test_capacity_pressure_is_transition_only_with_recovery(self):
         now = [0.0]

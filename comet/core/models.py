@@ -1,4 +1,3 @@
-import math
 import os
 import re
 import secrets
@@ -7,7 +6,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
-from urllib.parse import unquote_to_bytes, urlsplit
+from urllib.parse import urlsplit
 
 import RTN
 from databases import Database
@@ -37,11 +36,6 @@ from RTN.models import (
 )
 from sqlalchemy.engine import URL, make_url
 
-from comet.core.build_metadata import (
-    normalize_branch,
-    normalize_build_date,
-    normalize_commit,
-)
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.operator_settings import (
     LiveSettings,
@@ -49,20 +43,16 @@ from comet.core.operator_settings import (
     effective_settings_payload,
     validate_effective_setting_keys,
 )
-from comet.core.scrape import normalize_scraper_timeout_selector
+from comet.core.scrape import ScraperMode
 from comet.core.server_settings import ServerSettings
 from comet.core.sources import USENET_PLAYBACK_PROVIDER_KINDS
 from comet.usenet.nntp_config import parse_instance_servers, parse_personal_servers
 from comet.usenet.stremio_nntp_config import validate_handoff_config
-from comet.utils.parsing import parse_url_scrape_mode
-from comet.utils.proxy import SUPPORTED_PROXY_SCHEMES
 
 _comet_fk_enabled = False
 _SQLITE_BUSY_TIMEOUT_MS = 30000
 _MAX_PERSISTED_TOKEN_BYTES = 4_096
 _PUBLIC_API_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")
-_MAX_DATABASE_URL_BYTES = 4_096
-_MAX_DATABASE_REPLICAS = 64
 VALID_DEBRID_SERVICES = (
     "realdebrid",
     "alldebrid",
@@ -74,7 +64,6 @@ VALID_DEBRID_SERVICES = (
     "offcloud",
     "pikpak",
 )
-_POSTGRES_DRIVERS = frozenset({"postgres", "postgresql", "postgresql+asyncpg"})
 _OPERATOR_CREDENTIAL_FIELDS = (
     "PROMETHEUS_AUTH_TOKEN",
     "PROMETHEUS_QUERY_TOKEN",
@@ -90,26 +79,6 @@ _OPERATOR_CREDENTIAL_FIELDS = (
     "COMETNET_KEY_PASSWORD",
     "COMETNET_NETWORK_PASSWORD",
 )
-_SCRAPER_PROXY_FIELDS = (
-    "AIOSTREAMS_PROXY_URL",
-    "ANIMETOSHO_PROXY_URL",
-    "BITMAGNET_PROXY_URL",
-    "COMET_PROXY_URL",
-    "DEBRIDIO_PROXY_URL",
-    "DMM_PROXY_URL",
-    "JACKETT_PROXY_URL",
-    "JACKETTIO_PROXY_URL",
-    "MEDIAFUSION_PROXY_URL",
-    "NEKOBT_PROXY_URL",
-    "NYAA_PROXY_URL",
-    "PEERFLIX_PROXY_URL",
-    "PROWLARR_PROXY_URL",
-    "SEADEX_PROXY_URL",
-    "STREMTHRU_PROXY_URL",
-    "TORRENTIO_PROXY_URL",
-    "TORRENTSDB_PROXY_URL",
-    "ZILEAN_PROXY_URL",
-)
 _SCRAPER_URL_FIELDS = (
     "INDEXER_MANAGER_URL",
     "JACKETT_URL",
@@ -123,36 +92,6 @@ _SCRAPER_URL_FIELDS = (
     "AIOSTREAMS_URL",
     "JACKETTIO_URL",
 )
-_OPTIONAL_URL_FIELDS = frozenset(
-    {
-        "AIOSTREAMS_URL",
-        "JACKETTIO_URL",
-        "PUBLIC_BASE_URL",
-        "PROMETHEUS_QUERY_URL",
-        "USENET_EXPORT_BASE_URL",
-    }
-)
-_SCRAPER_ENDPOINT_REQUIREMENTS = {
-    "SCRAPE_AIOSTREAMS": "AIOSTREAMS_URL",
-    "SCRAPE_BITMAGNET": "BITMAGNET_URL",
-    "SCRAPE_COMET": "COMET_URL",
-    "SCRAPE_JACKETT": "JACKETT_URL",
-    "SCRAPE_JACKETTIO": "JACKETTIO_URL",
-    "SCRAPE_MEDIAFUSION": "MEDIAFUSION_URL",
-    "SCRAPE_PROWLARR": "PROWLARR_URL",
-    "SCRAPE_STREMTHRU": "STREMTHRU_SCRAPE_URL",
-    "SCRAPE_TORRENTIO": "TORRENTIO_URL",
-    "SCRAPE_ZILEAN": "ZILEAN_URL",
-}
-_SCRAPER_CREDENTIAL_REQUIREMENTS = {
-    "SCRAPE_JACKETT": ("JACKETT_API_KEY",),
-    "SCRAPE_PROWLARR": ("PROWLARR_API_KEY",),
-    "SCRAPE_DEBRIDIO": (
-        "DEBRIDIO_API_KEY",
-        "DEBRIDIO_PROVIDER",
-        "DEBRIDIO_PROVIDER_KEY",
-    ),
-}
 
 
 def _generate_secret() -> str:
@@ -178,121 +117,8 @@ def _bounded_path(value: object, *, field: str) -> str:
 
 
 def _parse_postgres_url(value: object) -> URL:
-    if type(value) is not str or not value or value != value.strip():
-        raise ValueError("database URL must be a bounded PostgreSQL URL")
-    try:
-        if len(value.encode("utf-8")) > _MAX_DATABASE_URL_BYTES:
-            raise ValueError
-    except (UnicodeEncodeError, ValueError):
-        raise ValueError("database URL must be a bounded PostgreSQL URL") from None
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        raise ValueError("database URL must be a bounded PostgreSQL URL")
-
     candidate = value if "://" in value else f"postgresql://{value}"
-    try:
-        parsed = make_url(candidate)
-        port = parsed.port
-    except (TypeError, ValueError):
-        raise ValueError("database URL must be a valid PostgreSQL URL") from None
-    if parsed.drivername not in _POSTGRES_DRIVERS:
-        raise ValueError("database URL must use PostgreSQL")
-    socket_host = parsed.query.get("host")
-    if (
-        (not parsed.host and not socket_host)
-        or not parsed.database
-        or (port is not None and not 1 <= port <= 65_535)
-    ):
-        raise ValueError("database URL requires a host and database name")
-    for component in (
-        parsed.username,
-        parsed.password,
-        parsed.host,
-        parsed.database,
-        socket_host,
-    ):
-        if isinstance(component, str) and (
-            not component
-            or any(
-                ord(character) < 32 or ord(character) == 127 for character in component
-            )
-        ):
-            raise ValueError("database URL contains an invalid component")
-    return parsed
-
-
-def _canonical_postgres_url(value: str) -> str:
-    return _parse_postgres_url(value).render_as_string(hide_password=False)
-
-
-def _normalize_http_url(value: object) -> str:
-    if type(value) is not str or not value or value != value.strip():
-        raise ValueError("configured URL must be a bounded HTTP(S) URL")
-    try:
-        if len(value.encode("utf-8")) > 4_096:
-            raise ValueError
-    except (UnicodeEncodeError, ValueError):
-        raise ValueError("configured URL must be a bounded HTTP(S) URL") from None
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        raise ValueError("configured URL must be a bounded HTTP(S) URL")
-    parsed = urlsplit(value)
-    try:
-        port = parsed.port
-    except ValueError:
-        raise ValueError("configured URL has an invalid port") from None
-    host = parsed.hostname
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not host
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.fragment
-        or (port is not None and not 1 <= port <= 65_535)
-        or not host.isascii()
-        or any(character.isspace() or ord(character) < 33 for character in host)
-    ):
-        raise ValueError("configured URL must be a bounded HTTP(S) URL")
-    return value.rstrip("/")
-
-
-def _normalize_websocket_url(value: object) -> str:
-    if type(value) is not str or not value or value != value.strip():
-        raise ValueError("configured peer URL must be a bounded WebSocket URL")
-    try:
-        if len(value.encode("utf-8")) > 4_096:
-            raise ValueError
-        parsed = urlsplit(value)
-        port = parsed.port
-    except (UnicodeEncodeError, ValueError):
-        raise ValueError(
-            "configured peer URL must be a bounded WebSocket URL"
-        ) from None
-    host = parsed.hostname
-    if (
-        parsed.scheme not in {"ws", "wss"}
-        or not host
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-        or (port is not None and not 1 <= port <= 65_535)
-        or not host.isascii()
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        or any(character.isspace() or ord(character) < 33 for character in host)
-    ):
-        raise ValueError("configured peer URL must be a bounded WebSocket URL")
-    return value
-
-
-def _normalize_cometnet_pool_id(value: object) -> str:
-    if (
-        type(value) is not str
-        or value != value.strip().lower()
-        or not 2 <= len(value) <= 64
-        or not value.isascii()
-        or not value.replace("-", "").replace("_", "").isalnum()
-    ):
-        raise ValueError("CometNet pool IDs must use canonical bounded text")
-    return value
+    return make_url(candidate)
 
 
 def _bounded_credential(value: object) -> str:
@@ -320,246 +146,6 @@ def _is_bounded_opaque_credential(value: object, maximum_bytes: int) -> bool:
         character.isspace() or ord(character) < 33 or ord(character) == 127
         for character in value
     )
-
-
-def _bounded_display_text(
-    value: object,
-    *,
-    field: str,
-    maximum_bytes: int,
-) -> str:
-    if type(value) is not str or not value or value != value.strip():
-        raise ValueError(f"{field} must be bounded display text")
-    try:
-        size = len(value.encode("utf-8"))
-    except UnicodeEncodeError:
-        raise ValueError(f"{field} must be valid UTF-8") from None
-    if size > maximum_bytes or any(
-        ord(character) < 32 or ord(character) == 127 for character in value
-    ):
-        raise ValueError(f"{field} must be bounded display text")
-    return value
-
-
-def _normalize_optional_text(value: object) -> object:
-    if value is None:
-        return None
-    if value == "":
-        return None
-    return value
-
-
-def _normalize_proxy_url(value: object) -> str:
-    if type(value) is not str or not value or value != value.strip():
-        raise ValueError("proxy URL must use a supported HTTP or SOCKS scheme")
-    try:
-        if len(value.encode("utf-8")) > 4_096:
-            raise ValueError
-        parsed = urlsplit(value)
-        port = parsed.port
-        for credential in (parsed.username, parsed.password):
-            if credential is None:
-                continue
-            if re.search(r"%(?![0-9A-Fa-f]{2})", credential):
-                raise ValueError
-            _bounded_credential(unquote_to_bytes(credential).decode("utf-8"))
-    except (UnicodeEncodeError, ValueError):
-        raise ValueError(
-            "proxy URL must use a supported HTTP or SOCKS scheme"
-        ) from None
-    host = parsed.hostname
-    if (
-        parsed.scheme not in SUPPORTED_PROXY_SCHEMES
-        or not host
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
-        or (port is not None and not 1 <= port <= 65_535)
-        or not host.isascii()
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        or any(character.isspace() or ord(character) < 33 for character in host)
-    ):
-        raise ValueError("proxy URL must use a supported HTTP or SOCKS scheme")
-    return value.rstrip("/")
-
-
-def _normalize_scraper_url(value: object) -> str:
-    if type(value) is not str or value != value.strip():
-        raise ValueError("scraper URL must be a bounded HTTP(S) URL")
-    base_url, mode = parse_url_scrape_mode(value)
-    normalized = _normalize_http_url(base_url)
-    return normalized if mode == "both" else f"{normalized}:{mode}"
-
-
-_SCRAPER_MODE_FIELDS = (
-    "INDEXER_MANAGER_MODE",
-    "SCRAPE_JACKETT",
-    "SCRAPE_PROWLARR",
-    "SCRAPE_COMET",
-    "SCRAPE_NYAA",
-    "SCRAPE_ANIMETOSHO",
-    "SCRAPE_SEADEX",
-    "SCRAPE_NEKOBT",
-    "SCRAPE_ZILEAN",
-    "SCRAPE_STREMTHRU",
-    "SCRAPE_DMM",
-    "SCRAPE_BITMAGNET",
-    "SCRAPE_TORRENTIO",
-    "SCRAPE_MEDIAFUSION",
-    "SCRAPE_AIOSTREAMS",
-    "SCRAPE_JACKETTIO",
-    "SCRAPE_DEBRIDIO",
-    "SCRAPE_TORRENTSDB",
-    "SCRAPE_PEERFLIX",
-)
-_POSITIVE_WORK_COUNT_FIELDS = (
-    "EXECUTOR_MAX_WORKERS",
-    "DATABASE_BATCH_SIZE",
-    "NYAA_MAX_CONCURRENT_PAGES",
-    "ANIMETOSHO_MAX_CONCURRENT_PAGES",
-    "DMM_INGEST_CONCURRENT_WORKERS",
-    "DMM_INGEST_BATCH_SIZE",
-    "BITMAGNET_MAX_CONCURRENT_PAGES",
-    "BACKGROUND_SCRAPER_CONCURRENT_WORKERS",
-    "FILTER_PARSE_CACHE_SHARDS",
-)
-_SCRAPE_TIMEOUT_FIELDS = (
-    "LIVE_SCRAPE_TIMEOUT",
-    "BACKGROUND_SCRAPE_TIMEOUT",
-)
-_NONNEGATIVE_HTTP_OPERATION_FIELDS = (
-    "MEMORY_TRIM_INTERVAL",
-    "RATELIMIT_MAX_RETRIES",
-    "HTTP_CLIENT_TTL_DNS_CACHE",
-    "HTTP_CACHE_STREAMS_TTL",
-    "HTTP_CACHE_STALE_WHILE_REVALIDATE",
-    "HTTP_CACHE_MANIFEST_TTL",
-    "HTTP_CACHE_CONFIGURE_TTL",
-)
-_POSITIVE_HTTP_OPERATION_FIELDS = (
-    "RATELIMIT_RETRY_BASE_DELAY",
-    "HTTP_CLIENT_LIMIT",
-    "HTTP_CLIENT_LIMIT_PER_HOST",
-    "HTTP_CLIENT_KEEPALIVE_TIMEOUT",
-    "HTTP_CLIENT_TIMEOUT_TOTAL",
-)
-_GENERAL_INTEGER_OPERATION_BOUNDS = {
-    "DATABASE_STARTUP_CLEANUP_INTERVAL": (-1, 31_536_000),
-    "METADATA_CACHE_TTL": (0, 315_360_000),
-    "TORRENT_CACHE_TTL": (-1, 315_360_000),
-    "LIVE_TORRENT_CACHE_TTL": (-1, 315_360_000),
-    "DEBRID_CACHE_TTL": (0, 315_360_000),
-    "METRICS_CACHE_TTL": (0, 31_536_000),
-    "SCRAPE_LOCK_TTL": (1, 86_400),
-    "INDEXER_MANAGER_TIMEOUT": (1, 3_600),
-    "INDEXER_MANAGER_UPDATE_INTERVAL": (1, 31_536_000),
-    "INDEXER_MANAGER_WAIT_TIMEOUT": (1, 3_600),
-    "GET_TORRENT_TIMEOUT": (1, 3_600),
-    "MAGNET_RESOLVE_TIMEOUT": (1, 3_600),
-    "CATALOG_TIMEOUT": (1, 3_600),
-    "DMM_INGEST_INTERVAL": (1, 31_536_000),
-    "BITMAGNET_MAX_OFFSET": (0, 1_000_000),
-    "PROXY_DEBRID_STREAM_INACTIVITY_THRESHOLD": (0, 31_536_000),
-    "DEBRID_ACCOUNT_SCRAPE_REFRESH_INTERVAL": (1, 31_536_000),
-    "DEBRID_ACCOUNT_SCRAPE_CACHE_TTL": (1, 315_360_000),
-    "DEBRID_ACCOUNT_SCRAPE_MAX_SNAPSHOT_ITEMS": (1, 100_000),
-    "DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS": (1, 100_000),
-    "ANIME_MAPPING_REFRESH_INTERVAL": (0, 31_536_000),
-    "FILTER_PARSE_CACHE_SIZE": (0, 1_000_000),
-}
-_GENERAL_OPERATION_MAXIMA = {
-    "EXECUTOR_MAX_WORKERS": 256,
-    "NYAA_MAX_CONCURRENT_PAGES": 64,
-    "ANIMETOSHO_MAX_CONCURRENT_PAGES": 64,
-    "DMM_INGEST_CONCURRENT_WORKERS": 64,
-    "DMM_INGEST_BATCH_SIZE": 10_000,
-    "BITMAGNET_MAX_CONCURRENT_PAGES": 64,
-    "BACKGROUND_SCRAPER_CONCURRENT_WORKERS": 64,
-    "FILTER_PARSE_CACHE_SHARDS": 64,
-    "LIVE_SCRAPE_TIMEOUT": 3_600,
-    "BACKGROUND_SCRAPE_TIMEOUT": 3_600,
-    "MEMORY_TRIM_INTERVAL": 31_536_000,
-    "RATELIMIT_RETRY_BASE_DELAY": 3_600,
-    "HTTP_CLIENT_LIMIT": 100_000,
-    "HTTP_CLIENT_LIMIT_PER_HOST": 100_000,
-    "HTTP_CLIENT_TTL_DNS_CACHE": 31_536_000,
-    "HTTP_CLIENT_KEEPALIVE_TIMEOUT": 3_600,
-    "HTTP_CLIENT_TIMEOUT_TOTAL": 3_600,
-    "HTTP_CACHE_STREAMS_TTL": 315_360_000,
-    "HTTP_CACHE_STALE_WHILE_REVALIDATE": 315_360_000,
-    "HTTP_CACHE_MANIFEST_TTL": 315_360_000,
-    "HTTP_CACHE_CONFIGURE_TTL": 315_360_000,
-}
-_BACKGROUND_INTEGER_OPERATION_BOUNDS = {
-    "BACKGROUND_SCRAPER_INTERVAL": (1, 31_536_000),
-    "BACKGROUND_SCRAPER_MAX_MOVIES_PER_RUN": (0, 10_000),
-    "BACKGROUND_SCRAPER_MAX_SERIES_PER_RUN": (0, 10_000),
-    "BACKGROUND_SCRAPER_SUCCESS_TTL": (0, 315_360_000),
-    "BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF": (1, 31_536_000),
-    "BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF": (1, 315_360_000),
-    "BACKGROUND_SCRAPER_MAX_RETRIES": (-1, 100),
-    "BACKGROUND_SCRAPER_RUN_TIME_BUDGET": (0, 604_800),
-    "BACKGROUND_SCRAPER_DISCOVERY_MULTIPLIER": (1, 100),
-    "BACKGROUND_SCRAPER_MAX_EPISODES_PER_SERIES_PER_RUN": (0, 10_000),
-    "BACKGROUND_SCRAPER_EPISODE_REFRESH_TTL": (0, 315_360_000),
-    "BACKGROUND_SCRAPER_DEMAND_LOOKBACK": (0, 315_360_000),
-    "BACKGROUND_SCRAPER_DEFER_COOLDOWN": (0, 31_536_000),
-    "BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK": (0, 10_000_000),
-    "BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK": (0, 10_000_000),
-    "BACKGROUND_SCRAPER_QUEUE_HARD_CAP": (0, 10_000_000),
-    "BACKGROUND_SCRAPER_ALERT_QUEUE_AGE": (0, 315_360_000),
-    "BACKGROUND_SCRAPER_RUN_RETENTION_DAYS": (0, 3_650),
-}
-_BACKGROUND_FLOAT_OPERATION_BOUNDS = {
-    "BACKGROUND_SCRAPER_MIN_PRIORITY_SCORE": (0.0, 1_000_000.0),
-    "BACKGROUND_SCRAPER_PRIORITY_DECAY_ON_MISS": (0.0, 1.0),
-    "BACKGROUND_SCRAPER_ALERT_FAIL_RATE": (0.0, 1.0),
-}
-_COMETNET_INTEGER_OPERATION_BOUNDS = {
-    "COMETNET_LISTEN_PORT": (1, 65_535),
-    "COMETNET_HTTP_PORT": (1, 65_535),
-    "COMETNET_MAX_PEERS": (1, 1_000),
-    "COMETNET_MIN_PEERS": (1, 1_000),
-    "COMETNET_TIME_CHECK_TOLERANCE": (0, 86_400),
-    "COMETNET_TIME_CHECK_TIMEOUT": (1, 300),
-    "COMETNET_REACHABILITY_RETRIES": (1, 100),
-    "COMETNET_REACHABILITY_RETRY_DELAY": (0, 3_600),
-    "COMETNET_REACHABILITY_TIMEOUT": (1, 300),
-    "COMETNET_UPNP_LEASE_DURATION": (1, 604_800),
-    "COMETNET_STATE_SAVE_INTERVAL": (1, 86_400),
-    "COMETNET_GOSSIP_FANOUT": (1, 1_000),
-    "COMETNET_GOSSIP_MESSAGE_TTL": (1, 64),
-    "COMETNET_GOSSIP_MAX_TORRENTS_PER_MESSAGE": (1, 10_000),
-    "COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE": (0, 86_400),
-    "COMETNET_GOSSIP_VALIDATION_PAST_TOLERANCE": (0, 604_800),
-    "COMETNET_GOSSIP_TORRENT_MAX_AGE": (1, 315_360_000),
-    "COMETNET_PEX_BATCH_SIZE": (1, 1_000),
-    "COMETNET_PEER_CONNECT_BACKOFF_MAX": (1, 86_400),
-    "COMETNET_PEER_MAX_FAILURES": (1, 100),
-    "COMETNET_PEER_CLEANUP_AGE": (1, 315_360_000),
-    "COMETNET_TRANSPORT_MAX_MESSAGE_SIZE": (1, 67_108_864),
-    "COMETNET_TRANSPORT_MAX_CONNECTIONS_PER_IP": (1, 1_000),
-    "COMETNET_TRANSPORT_RATE_LIMIT_COUNT": (1, 1_000_000),
-}
-_COMETNET_FLOAT_OPERATION_BOUNDS = {
-    "COMETNET_GOSSIP_INTERVAL": (0.001, 3_600.0),
-    "COMETNET_TRANSPORT_PING_INTERVAL": (0.001, 86_400.0),
-    "COMETNET_TRANSPORT_CONNECTION_TIMEOUT": (0.001, 3_600.0),
-    "COMETNET_TRANSPORT_MAX_LATENCY_MS": (0.001, 3_600_000.0),
-    "COMETNET_TRANSPORT_RATE_LIMIT_WINDOW": (0.001, 3_600.0),
-}
-_COMETNET_REPUTATION_FIELDS = (
-    "COMETNET_REPUTATION_INITIAL",
-    "COMETNET_REPUTATION_MIN",
-    "COMETNET_REPUTATION_MAX",
-    "COMETNET_REPUTATION_THRESHOLD_UNTRUSTED",
-    "COMETNET_REPUTATION_THRESHOLD_TRUSTED",
-    "COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION",
-    "COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY",
-    "COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY",
-    "COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION",
-    "COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE",
-)
 
 
 def set_comet_foreign_keys_enabled(enabled: bool) -> None:
@@ -655,11 +241,11 @@ class AppSettings(ServerSettings):
     INDEXER_INCLUDE_CANONICAL_TITLE: bool = True
     INDEXER_INCLUDE_ORIGINAL_TITLE: bool = True
     INDEXER_LANGUAGES: list[str] = Field(default_factory=list)
-    SCRAPE_JACKETT: bool | str = False
+    SCRAPE_JACKETT: ScraperMode = False
     JACKETT_URL: str | None = "http://127.0.0.1:9117"
     JACKETT_API_KEY: str | None = None
     JACKETT_INDEXERS: list[str] = Field(default_factory=list)
-    SCRAPE_PROWLARR: bool | str = False
+    SCRAPE_PROWLARR: ScraperMode = False
     PROWLARR_URL: str | None = "http://127.0.0.1:9696"
     PROWLARR_API_KEY: str | None = None
     PROWLARR_INDEXERS: list[str] = Field(default_factory=list)
@@ -667,50 +253,50 @@ class AppSettings(ServerSettings):
     MAGNET_RESOLVE_TIMEOUT: int = 60
     CATALOG_TIMEOUT: int = 30
     DOWNLOAD_TORRENT_FILES: bool = False
-    SCRAPE_COMET: bool | str = False
+    SCRAPE_COMET: ScraperMode = False
     COMET_URL: str | list[str] = "https://comet.feels.legal"
     COMET_CLEAN_TRACKER: bool = False
-    SCRAPE_NYAA: bool | str = False
+    SCRAPE_NYAA: ScraperMode = False
     NYAA_ANIME_ONLY: bool = True
     NYAA_MAX_CONCURRENT_PAGES: int = 5
-    SCRAPE_ANIMETOSHO: bool | str = False
+    SCRAPE_ANIMETOSHO: ScraperMode = False
     SCRAPE_ANIMETOSHO_USENET: bool = False
     ANIMETOSHO_ANIME_ONLY: bool = True
     ANIMETOSHO_MAX_CONCURRENT_PAGES: int = 10
-    SCRAPE_SEADEX: bool | str = False
+    SCRAPE_SEADEX: ScraperMode = False
     SEADEX_ANIME_ONLY: bool = True
-    SCRAPE_NEKOBT: bool | str = False
+    SCRAPE_NEKOBT: ScraperMode = False
     NEKOBT_ANIME_ONLY: bool = True
-    SCRAPE_ZILEAN: bool | str = False
+    SCRAPE_ZILEAN: ScraperMode = False
     ZILEAN_URL: str | list[str] = "https://zileanfortheweebs.midnightignite.me"
-    SCRAPE_STREMTHRU: bool | str = False
+    SCRAPE_STREMTHRU: ScraperMode = False
     STREMTHRU_SCRAPE_URL: str | list[str] = "https://stremthru.13377001.xyz"
-    SCRAPE_DMM: bool | str = False
+    SCRAPE_DMM: ScraperMode = False
     DMM_INGEST_ENABLED: bool = False
     DMM_INGEST_INTERVAL: int = 86400
     DMM_INGEST_CONCURRENT_WORKERS: int = 4
     DMM_INGEST_BATCH_SIZE: int = 100
-    SCRAPE_BITMAGNET: bool | str = False
+    SCRAPE_BITMAGNET: ScraperMode = False
     BITMAGNET_URL: str | list[str] = "https://bitmagnetfortheweebs.midnightignite.me"
     BITMAGNET_MAX_CONCURRENT_PAGES: int = 5
     BITMAGNET_MAX_OFFSET: int = 15000
-    SCRAPE_TORRENTIO: bool | str = False
+    SCRAPE_TORRENTIO: ScraperMode = False
     TORRENTIO_URL: str | list[str] = "https://torrentio.strem.fun"
-    SCRAPE_MEDIAFUSION: bool | str = False
+    SCRAPE_MEDIAFUSION: ScraperMode = False
     MEDIAFUSION_URL: str | list[str] = "https://mediafusion.elfhosted.com"
     MEDIAFUSION_API_PASSWORD: str | list[str] | None = None
     MEDIAFUSION_LIVE_SEARCH: bool = True
-    SCRAPE_AIOSTREAMS: bool | str = False
+    SCRAPE_AIOSTREAMS: ScraperMode = False
     AIOSTREAMS_URL: str | list[str] | None = None
     AIOSTREAMS_USER_UUID_AND_PASSWORD: str | list[str] | None = None
-    SCRAPE_JACKETTIO: bool | str = False
+    SCRAPE_JACKETTIO: ScraperMode = False
     JACKETTIO_URL: str | list[str] | None = None
-    SCRAPE_DEBRIDIO: bool | str = False
+    SCRAPE_DEBRIDIO: ScraperMode = False
     DEBRIDIO_API_KEY: str | None = None
     DEBRIDIO_PROVIDER: str | None = None
     DEBRIDIO_PROVIDER_KEY: str | None = None
-    SCRAPE_TORRENTSDB: bool | str = False
-    SCRAPE_PEERFLIX: bool | str = False
+    SCRAPE_TORRENTSDB: ScraperMode = False
+    SCRAPE_PEERFLIX: ScraperMode = False
     CUSTOM_HEADER_HTML: str | None = None
     PROXY_DEBRID_STREAM: bool = False
     PROXY_DEBRID_STREAM_PASSWORD: str | None = Field(default_factory=_generate_secret)
@@ -973,425 +559,6 @@ class AppSettings(ServerSettings):
                 )
         return values
 
-    @field_validator(*_SCRAPER_MODE_FIELDS, mode="before")
-    def validate_scraper_mode(cls, value):
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized == "false":
-                return False
-            if normalized in {"true", "both"}:
-                return True
-            if normalized in {"live", "background"}:
-                return normalized
-        raise ValueError("scraper mode must be false, true, both, live, or background")
-
-    @field_validator(*_POSITIVE_WORK_COUNT_FIELDS)
-    def validate_positive_work_count(cls, value):
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ValueError("work count must be a positive integer")
-        return value
-
-    @field_validator("RUNTIME_INSTANCE_ALIAS")
-    @classmethod
-    def validate_runtime_instance_alias(cls, value):
-        if value is None:
-            return None
-        if (
-            type(value) is not str
-            or not value
-            or value != value.strip()
-            or len(value.encode("utf-8")) > 96
-            or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        ):
-            raise ValueError("RUNTIME_INSTANCE_ALIAS must be bounded display text")
-        return value
-
-    @field_validator("RUNTIME_HEARTBEAT_INTERVAL")
-    @classmethod
-    def validate_runtime_heartbeat_interval(cls, value):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or not 2 <= value <= 60
-        ):
-            raise ValueError(
-                "RUNTIME_HEARTBEAT_INTERVAL must be between 2 and 60 seconds"
-            )
-        return float(value)
-
-    @field_validator("RUNTIME_STALE_SECONDS")
-    @classmethod
-    def validate_runtime_stale_seconds(cls, value):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or not 15 <= value <= 3600
-        ):
-            raise ValueError("RUNTIME_STALE_SECONDS must be between 15 and 3600")
-        return value
-
-    @field_validator("DATABASE_BATCH_SIZE")
-    def validate_database_batch_size(cls, value):
-        if value > 100_000:
-            raise ValueError("DATABASE_BATCH_SIZE must be at most 100000")
-        return value
-
-    @field_validator(*_GENERAL_INTEGER_OPERATION_BOUNDS, mode="before")
-    def reject_boolean_general_integer_operations(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("operational integer values cannot be booleans")
-        return value
-
-    @field_validator(*_GENERAL_INTEGER_OPERATION_BOUNDS)
-    def validate_general_integer_operation(cls, value, info):
-        minimum, maximum = _GENERAL_INTEGER_OPERATION_BOUNDS[info.field_name]
-        if not minimum <= value <= maximum:
-            raise ValueError(
-                f"{info.field_name} must be between {minimum} and {maximum}"
-            )
-        return value
-
-    @field_validator("PROXY_DEBRID_STREAM_MAX_CONNECTIONS", mode="before")
-    def reject_boolean_proxy_connection_limit(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("proxy connection limit cannot be a boolean")
-        return value
-
-    @field_validator("PROXY_DEBRID_STREAM_MAX_CONNECTIONS")
-    def validate_proxy_connection_limit(cls, value):
-        if value != -1 and not 1 <= value <= 100_000:
-            raise ValueError(
-                "PROXY_DEBRID_STREAM_MAX_CONNECTIONS must be -1 or between 1 and 100000"
-            )
-        return value
-
-    @field_validator(
-        "DEBRID_CACHE_CHECK_RATIO",
-        "DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT",
-        mode="before",
-    )
-    def reject_boolean_general_float_operations(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("operational floating-point values cannot be booleans")
-        return value
-
-    @field_validator("DEBRID_CACHE_CHECK_RATIO")
-    def validate_debrid_cache_check_ratio(cls, value):
-        if not math.isfinite(value) or not 0 <= value <= 1:
-            raise ValueError("DEBRID_CACHE_CHECK_RATIO must be between zero and one")
-        return value
-
-    @field_validator("DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT")
-    def validate_debrid_account_warm_timeout(cls, value):
-        if not math.isfinite(value) or not 0 <= value <= 300:
-            raise ValueError(
-                "DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT must be between 0 and 300"
-            )
-        return value
-
-    @field_validator(
-        *_BACKGROUND_INTEGER_OPERATION_BOUNDS,
-        *_BACKGROUND_FLOAT_OPERATION_BOUNDS,
-        mode="before",
-    )
-    def reject_boolean_background_operations(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("background operational values cannot be booleans")
-        return value
-
-    @field_validator(*_BACKGROUND_INTEGER_OPERATION_BOUNDS)
-    def validate_background_integer_operation(cls, value, info):
-        minimum, maximum = _BACKGROUND_INTEGER_OPERATION_BOUNDS[info.field_name]
-        if not minimum <= value <= maximum:
-            raise ValueError(
-                f"{info.field_name} must be between {minimum} and {maximum}"
-            )
-        return value
-
-    @field_validator(*_BACKGROUND_FLOAT_OPERATION_BOUNDS)
-    def validate_background_float_operation(cls, value, info):
-        minimum, maximum = _BACKGROUND_FLOAT_OPERATION_BOUNDS[info.field_name]
-        if not math.isfinite(value) or not minimum <= value <= maximum:
-            raise ValueError(
-                f"{info.field_name} must be finite and between {minimum} and {maximum}"
-            )
-        return value
-
-    @staticmethod
-    def _normalize_scrape_timeout(value) -> float:
-        if isinstance(value, bool):
-            raise ValueError(
-                "scrape timeouts must be finite numbers greater than zero "
-                "and at most 3600"
-            )
-        try:
-            normalized = float(value)
-        except (TypeError, ValueError):
-            raise ValueError(
-                "scrape timeouts must be finite numbers greater than zero "
-                "and at most 3600"
-            ) from None
-        if not math.isfinite(normalized) or not 0 < normalized <= 3_600:
-            raise ValueError(
-                "scrape timeouts must be finite numbers greater than zero "
-                "and at most 3600"
-            )
-        return normalized
-
-    @field_validator(*_SCRAPE_TIMEOUT_FIELDS, mode="before")
-    def validate_scrape_timeout(cls, value):
-        return cls._normalize_scrape_timeout(value)
-
-    @field_validator("SCRAPER_TIMEOUT_OVERRIDES", mode="before")
-    def normalize_scraper_timeout_overrides(cls, value):
-        if not isinstance(value, dict):
-            raise ValueError("SCRAPER_TIMEOUT_OVERRIDES must be a JSON object")
-        if len(value) > 64:
-            raise ValueError(
-                "SCRAPER_TIMEOUT_OVERRIDES may contain at most 64 selectors"
-            )
-
-        normalized = {}
-        for selector, timeout in value.items():
-            normalized_selector = normalize_scraper_timeout_selector(selector)
-            normalized[normalized_selector] = cls._normalize_scrape_timeout(timeout)
-        return normalized
-
-    @field_validator(*_POSITIVE_WORK_COUNT_FIELDS, mode="before")
-    def reject_boolean_operational_numbers(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("operational numeric values cannot be booleans")
-        return value
-
-    @field_validator(
-        *_COMETNET_INTEGER_OPERATION_BOUNDS,
-        *_COMETNET_FLOAT_OPERATION_BOUNDS,
-        *_COMETNET_REPUTATION_FIELDS,
-        mode="before",
-    )
-    def reject_boolean_cometnet_operations(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("CometNet operational values cannot be booleans")
-        return value
-
-    @field_validator(*_COMETNET_INTEGER_OPERATION_BOUNDS)
-    def validate_cometnet_integer_operation(cls, value, info):
-        minimum, maximum = _COMETNET_INTEGER_OPERATION_BOUNDS[info.field_name]
-        if not minimum <= value <= maximum:
-            raise ValueError(
-                f"{info.field_name} must be between {minimum} and {maximum}"
-            )
-        return value
-
-    @field_validator(*_COMETNET_FLOAT_OPERATION_BOUNDS)
-    def validate_cometnet_float_operation(cls, value, info):
-        minimum, maximum = _COMETNET_FLOAT_OPERATION_BOUNDS[info.field_name]
-        if not math.isfinite(value) or not minimum <= value <= maximum:
-            raise ValueError(
-                f"{info.field_name} must be finite and between {minimum} and {maximum}"
-            )
-        return value
-
-    @field_validator(*_COMETNET_REPUTATION_FIELDS)
-    def validate_cometnet_reputation_value(cls, value):
-        if not math.isfinite(value) or not -1e9 <= value <= 1e9:
-            raise ValueError("CometNet reputation values must be finite and bounded")
-        return value
-
-    @field_validator(
-        "COMETNET_REPUTATION_BONUS_VALID_CONTRIBUTION",
-        "COMETNET_REPUTATION_BONUS_PER_DAY_ANCIENNETY",
-        "COMETNET_REPUTATION_BONUS_MAX_ANCIENNETY",
-        "COMETNET_REPUTATION_PENALTY_INVALID_CONTRIBUTION",
-        "COMETNET_REPUTATION_PENALTY_INVALID_SIGNATURE",
-    )
-    def validate_nonnegative_cometnet_reputation_delta(cls, value):
-        if value < 0:
-            raise ValueError(
-                "CometNet reputation bonuses and penalties cannot be negative"
-            )
-        return value
-
-    @field_validator(
-        *_NONNEGATIVE_HTTP_OPERATION_FIELDS,
-        *_POSITIVE_HTTP_OPERATION_FIELDS,
-        mode="before",
-    )
-    def reject_boolean_http_operation_values(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("HTTP operational numeric values cannot be booleans")
-        return value
-
-    @field_validator(*_NONNEGATIVE_HTTP_OPERATION_FIELDS)
-    def validate_nonnegative_http_operation_value(cls, value):
-        if not math.isfinite(value) or value < 0:
-            raise ValueError("HTTP operational values must be finite and non-negative")
-        return value
-
-    @field_validator(*_POSITIVE_HTTP_OPERATION_FIELDS)
-    def validate_positive_http_operation_value(cls, value):
-        if not math.isfinite(value) or value <= 0:
-            raise ValueError(
-                "HTTP operational values must be finite and greater than zero"
-            )
-        return value
-
-    @field_validator("RATELIMIT_MAX_RETRIES")
-    def validate_rate_limit_retry_count(cls, value):
-        if value > 20:
-            raise ValueError("RATELIMIT_MAX_RETRIES cannot exceed 20")
-        return value
-
-    @field_validator(*_GENERAL_OPERATION_MAXIMA)
-    def validate_general_operation_maximum(cls, value, info):
-        maximum = _GENERAL_OPERATION_MAXIMA[info.field_name]
-        if value > maximum:
-            raise ValueError(f"{info.field_name} cannot exceed {maximum}")
-        return value
-
-    @field_validator(
-        "ADMIN_DASHBOARD_SESSION_TTL",
-        "CONFIGURE_PAGE_SESSION_TTL",
-        mode="before",
-    )
-    def reject_boolean_session_ttls(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("session TTLs cannot be booleans")
-        return value
-
-    @field_validator("ADMIN_DASHBOARD_SESSION_TTL", "CONFIGURE_PAGE_SESSION_TTL")
-    def validate_session_ttls(cls, value):
-        if not 60 <= value <= 31_536_000:
-            raise ValueError("session TTLs must be between 60 and 31536000 seconds")
-        return value
-
-    @field_validator("ADMIN_DASHBOARD_PASSWORD", "CONFIGURE_PAGE_PASSWORD")
-    def validate_dashboard_passwords(cls, value):
-        if value is None:
-            return None
-        return _bounded_credential(value)
-
-    @field_validator(
-        "CONFIGURE_PAGE_PASSWORD",
-        "PUBLIC_API_TOKEN",
-        "PUBLIC_API_TOKEN_FILE",
-        "PROMETHEUS_AUTH_TOKEN",
-        "PROMETHEUS_AUTH_TOKEN_FILE",
-        "PROMETHEUS_QUERY_TOKEN",
-        "COMET_CAPABILITY_SECRET",
-        "COMET_CAPABILITY_SECRET_FILE",
-        *_OPERATOR_CREDENTIAL_FIELDS,
-        mode="before",
-    )
-    def normalize_optional_secrets(cls, v):
-        if v is None:
-            return None
-        if type(v) is not str:
-            raise ValueError("configured secrets must be strings")
-        return None if v == "" else v
-
-    @field_validator(*_OPERATOR_CREDENTIAL_FIELDS)
-    def validate_operator_credential(cls, value):
-        if value is None:
-            return None
-        return _bounded_credential(value)
-
-    @field_validator(
-        "GLOBAL_PROXY_URL",
-        "USER_PROVIDED_PROXY_URL",
-        *_SCRAPER_PROXY_FIELDS,
-        mode="before",
-    )
-    def normalize_optional_proxy_urls(cls, value):
-        return _normalize_optional_text(value)
-
-    @field_validator(
-        "GLOBAL_PROXY_URL", "USER_PROVIDED_PROXY_URL", *_SCRAPER_PROXY_FIELDS
-    )
-    def validate_proxy_urls(cls, value):
-        if value is None:
-            return None
-        return _normalize_proxy_url(value)
-
-    @field_validator("PROXY_ETHOS", mode="before")
-    def validate_proxy_ethos(cls, value):
-        if type(value) is not str:
-            raise ValueError("PROXY_ETHOS must be always, on_failure, or never")
-        normalized = value.strip().lower()
-        if normalized not in {"always", "on_failure", "never"}:
-            raise ValueError("PROXY_ETHOS must be always, on_failure, or never")
-        return normalized
-
-    @field_validator("PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE")
-    def validate_proxy_default_debrid_service(cls, value):
-        if value not in VALID_DEBRID_SERVICES:
-            raise ValueError(
-                "PROXY_DEBRID_STREAM_DEBRID_DEFAULT_SERVICE is unsupported"
-            )
-        return value
-
-    @field_validator("PROMETHEUS_AUTH_TOKEN")
-    def validate_prometheus_auth_token(cls, value):
-        if value is not None and (
-            not value.isascii()
-            or any(ord(character) < 33 or ord(character) == 127 for character in value)
-        ):
-            raise ValueError("PROMETHEUS_AUTH_TOKEN must contain visible ASCII")
-        return value
-
-    @field_validator(
-        "MEDIAFUSION_API_PASSWORD",
-        "AIOSTREAMS_USER_UUID_AND_PASSWORD",
-        mode="before",
-    )
-    def validate_scraper_credential_lists(cls, value):
-        if value is None:
-            return None
-        values = value if isinstance(value, list) else [value]
-        if len(values) > 64:
-            raise ValueError("scraper credential lists may contain at most 64 values")
-        normalized = []
-        for credential in values:
-            if credential is None or credential == "":
-                normalized.append("")
-                continue
-            normalized.append(_bounded_credential(credential))
-        return normalized if isinstance(value, list) else normalized[0]
-
-    @field_validator("DEBRIDIO_PROVIDER")
-    def validate_debridio_provider(cls, value):
-        if value is None:
-            return None
-        if (
-            type(value) is not str
-            or not 1 <= len(value) <= 64
-            or not value.isascii()
-            or re.fullmatch(r"[A-Za-z0-9_-]+", value) is None
-        ):
-            raise ValueError("DEBRIDIO_PROVIDER must be a bounded identifier")
-        return value
-
-    @field_validator("PUBLIC_API_TOKEN")
-    def validate_public_api_token(cls, value):
-        if value is None:
-            return None
-        if _PUBLIC_API_TOKEN_PATTERN.fullmatch(value) is None:
-            raise ValueError("PUBLIC_API_TOKEN must be 1-256 URL-safe ASCII characters")
-        return value
-
-    @field_validator(
-        "PUBLIC_API_TOKEN_FILE",
-        "PROMETHEUS_AUTH_TOKEN_FILE",
-        "COMET_CAPABILITY_SECRET_FILE",
-    )
-    def validate_secret_file_path(cls, value):
-        if value is None:
-            return None
-        return _bounded_path(value, field="secret file path")
-
     @field_validator("USENET_PRIVATE_UPSTREAM_ORIGINS")
     def validate_usenet_private_upstream_origins(cls, value):
         if len(value) > 64:
@@ -1600,135 +767,6 @@ class AppSettings(ServerSettings):
                 )
         return self
 
-    @model_validator(mode="after")
-    def validate_general_operation_relationships(self):
-        if (
-            self.DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS
-            > self.DEBRID_ACCOUNT_SCRAPE_MAX_SNAPSHOT_ITEMS
-        ):
-            raise ValueError(
-                "DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS cannot exceed "
-                "DEBRID_ACCOUNT_SCRAPE_MAX_SNAPSHOT_ITEMS"
-            )
-        fields = self.__dict__
-        for scraper_field, url_field in _SCRAPER_ENDPOINT_REQUIREMENTS.items():
-            if (
-                self.is_any_context_enabled(fields[scraper_field])
-                and not fields[url_field]
-            ):
-                raise ValueError(f"{scraper_field} requires {url_field}")
-        for (
-            scraper_field,
-            credential_fields,
-        ) in _SCRAPER_CREDENTIAL_REQUIREMENTS.items():
-            if not self.is_any_context_enabled(fields[scraper_field]):
-                continue
-            missing = [field for field in credential_fields if not fields[field]]
-            if missing:
-                raise ValueError(f"{scraper_field} requires {', '.join(missing)}")
-        for url_field, credential_field in (
-            ("MEDIAFUSION_URL", "MEDIAFUSION_API_PASSWORD"),
-            ("AIOSTREAMS_URL", "AIOSTREAMS_USER_UUID_AND_PASSWORD"),
-        ):
-            urls = fields[url_field]
-            credentials = fields[credential_field]
-            if isinstance(credentials, list) and len(credentials) != (
-                len(urls) if isinstance(urls, list) else 1
-            ):
-                raise ValueError(
-                    f"{credential_field} must contain one value per {url_field}"
-                )
-        return self
-
-    @model_validator(mode="after")
-    def validate_background_operation_relationships(self):
-        if (
-            self.BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF
-            > self.BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF
-        ):
-            raise ValueError(
-                "BACKGROUND_SCRAPER_FAILURE_BASE_BACKOFF cannot exceed "
-                "BACKGROUND_SCRAPER_FAILURE_MAX_BACKOFF"
-            )
-
-        low = self.BACKGROUND_SCRAPER_QUEUE_LOW_WATERMARK
-        high = self.BACKGROUND_SCRAPER_QUEUE_HIGH_WATERMARK
-        hard = self.BACKGROUND_SCRAPER_QUEUE_HARD_CAP
-        if (low, high, hard) != (0, 0, 0) and not 0 < low < high <= hard:
-            raise ValueError(
-                "background queue limits must all be zero or satisfy "
-                "0 < low < high <= hard"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_cometnet_relationships(self):
-        if self.COMETNET_LISTEN_PORT == self.COMETNET_HTTP_PORT:
-            raise ValueError("CometNet WebSocket and HTTP ports must be distinct")
-        if self.COMETNET_MIN_PEERS > self.COMETNET_MAX_PEERS:
-            raise ValueError("COMETNET_MIN_PEERS cannot exceed COMETNET_MAX_PEERS")
-        if self.COMETNET_GOSSIP_FANOUT > self.COMETNET_MAX_PEERS:
-            raise ValueError("COMETNET_GOSSIP_FANOUT cannot exceed COMETNET_MAX_PEERS")
-        if self.COMETNET_PEX_BATCH_SIZE > self.COMETNET_MAX_PEERS:
-            raise ValueError("COMETNET_PEX_BATCH_SIZE cannot exceed COMETNET_MAX_PEERS")
-        if not (
-            self.COMETNET_REPUTATION_MIN
-            <= self.COMETNET_REPUTATION_INITIAL
-            <= self.COMETNET_REPUTATION_MAX
-        ):
-            raise ValueError("CometNet initial reputation must be within its range")
-        if not (
-            self.COMETNET_REPUTATION_MIN
-            <= self.COMETNET_REPUTATION_THRESHOLD_UNTRUSTED
-            < self.COMETNET_REPUTATION_THRESHOLD_TRUSTED
-            <= self.COMETNET_REPUTATION_MAX
-        ):
-            raise ValueError(
-                "CometNet reputation thresholds must be ordered within its range"
-            )
-        if self.COMETNET_PRIVATE_NETWORK and (
-            self.COMETNET_NETWORK_ID is None or self.COMETNET_NETWORK_PASSWORD is None
-        ):
-            raise ValueError(
-                "private CometNet requires COMETNET_NETWORK_ID and "
-                "COMETNET_NETWORK_PASSWORD"
-            )
-        if (
-            self.COMETNET_ENABLED
-            and self.COMETNET_RELAY_URL is None
-            and not self.COMETNET_PRIVATE_NETWORK
-            and not self.COMETNET_ALLOW_PRIVATE_PEX
-            and self.COMETNET_ADVERTISE_URL is None
-            and not self.COMETNET_UPNP_ENABLED
-        ):
-            raise ValueError(
-                "public CometNet requires an advertise URL, UPnP, "
-                "or an explicitly private peer mode"
-            )
-        return self
-
-    @field_validator("PROMETHEUS_PATH")
-    def validate_prometheus_path(cls, value):
-        if (
-            type(value) is not str
-            or not value.startswith("/")
-            or value.startswith("//")
-            or value == "/"
-            or any(character.isspace() for character in value)
-            or "{" in value
-            or "}" in value
-            or "?" in value
-            or "#" in value
-        ):
-            raise ValueError(
-                "PROMETHEUS_PATH must be a static absolute path other than '/'"
-            )
-        return value.rstrip("/")
-
-    @field_validator("PROMETHEUS_MULTIPROC_DIR")
-    def validate_prometheus_multiproc_dir(cls, value):
-        return _bounded_path(value, field="PROMETHEUS_MULTIPROC_DIR")
-
     @field_validator(
         "COMET_USENET_ENGINE_BINARY",
         "USENET_RUNTIME_DIR",
@@ -1738,20 +776,95 @@ class AppSettings(ServerSettings):
     def validate_usenet_directory(cls, value):
         return _bounded_path(value, field="Usenet directory")
 
-    @field_validator("COMETNET_KEYS_DIR", "COMETNET_POOLS_DIR")
-    def validate_optional_cometnet_directory(cls, value):
+    @field_validator("EXECUTOR_MAX_WORKERS", mode="before")
+    def normalize_executor_workers(cls, value):
+        if value is None or value == "" or str(value).lower() == "none":
+            return 1
+        return value
+
+    @field_validator(
+        "CONFIGURE_PAGE_PASSWORD",
+        "PUBLIC_API_TOKEN",
+        "PUBLIC_API_TOKEN_FILE",
+        "PROMETHEUS_AUTH_TOKEN",
+        "PROMETHEUS_AUTH_TOKEN_FILE",
+        "PROMETHEUS_QUERY_TOKEN",
+        "COMET_CAPABILITY_SECRET",
+        "COMET_CAPABILITY_SECRET_FILE",
+        *_OPERATOR_CREDENTIAL_FIELDS,
+        mode="before",
+    )
+    def normalize_optional_secrets(cls, value):
         if value is None:
             return None
-        return _bounded_path(value, field="CometNet directory")
+        normalized = str(value).strip()
+        return None if not normalized or normalized.lower() == "none" else normalized
 
-    @field_validator("COMETNET_BOOTSTRAP_NODES", "COMETNET_MANUAL_PEERS", mode="before")
-    def validate_cometnet_peer_lists(cls, value):
-        if type(value) is not list:
-            raise ValueError("CometNet peer lists must be JSON arrays")
-        if len(value) > 64:
-            raise ValueError("CometNet peer lists may contain at most 64 URLs")
-        normalized = [_normalize_websocket_url(url) for url in value]
-        return list(dict.fromkeys(normalized))
+    @field_validator("PUBLIC_API_TOKEN")
+    def validate_public_api_token(cls, value):
+        if value is not None and _PUBLIC_API_TOKEN_PATTERN.fullmatch(value) is None:
+            raise ValueError("PUBLIC_API_TOKEN must be URL-safe ASCII")
+        return value
+
+    @field_validator(
+        "PUBLIC_API_TOKEN_FILE",
+        "PROMETHEUS_AUTH_TOKEN_FILE",
+        "COMET_CAPABILITY_SECRET_FILE",
+    )
+    def validate_secret_file_path(cls, value):
+        return None if value is None else _bounded_path(value, field="secret file path")
+
+    @field_validator("INDEXER_MANAGER_TYPE")
+    def set_indexer_manager_type(cls, value):
+        if value is not None and value.lower() == "none":
+            return None
+        return value
+
+    @field_validator("DATABASE_TYPE", mode="before")
+    def normalize_database_type(cls, value):
+        if value is None:
+            return value
+        normalized = str(value).strip().lower()
+        if normalized in {
+            "postgres",
+            "postgresql",
+            "postgresql+asyncpg",
+            "pgsql",
+            "psql",
+        }:
+            return "postgresql"
+        if normalized in {"sqlite", "sqlite3"}:
+            return "sqlite"
+        return normalized
+
+    @field_validator("DATABASE_URL", "DATABASE_PATH", mode="before")
+    def normalize_optional_database_location(cls, value):
+        return None if value is None or value == "" else value
+
+    @field_validator(
+        "INDEXER_MANAGER_INDEXERS", "JACKETT_INDEXERS", "PROWLARR_INDEXERS"
+    )
+    def normalize_indexer_names(cls, value):
+        return [normalize_indexer_name(indexer) for indexer in value]
+
+    @field_validator("INDEXER_LANGUAGES")
+    def normalize_indexer_languages(cls, value):
+        return list(dict.fromkeys(language.strip().lower() for language in value))
+
+    @field_validator(
+        *_SCRAPER_URL_FIELDS,
+        "STREMTHRU_URL",
+        "PUBLIC_BASE_URL",
+        "PROMETHEUS_QUERY_URL",
+        "USENET_EXPORT_BASE_URL",
+        "TORRENT_DISABLED_STREAM_URL",
+    )
+    def normalize_urls(cls, value):
+        if isinstance(value, str):
+            return value.rstrip("/")
+        if isinstance(value, list):
+            return [url.rstrip("/") for url in value]
+        return value
 
     @field_validator(
         "COMETNET_ADVERTISE_URL",
@@ -1761,320 +874,7 @@ class AppSettings(ServerSettings):
         mode="before",
     )
     def normalize_optional_cometnet_text(cls, value):
-        if value is None:
-            return None
-        if value == "":
-            return None
-        return value
-
-    @field_validator("COMETNET_ADVERTISE_URL")
-    def validate_cometnet_advertise_url(cls, value):
-        if value is None:
-            return None
-        return _normalize_websocket_url(value)
-
-    @field_validator("COMETNET_RELAY_URL")
-    def validate_cometnet_relay_url(cls, value):
-        if value is None:
-            return None
-        normalized = _normalize_http_url(value)
-        if urlsplit(normalized).query:
-            raise ValueError("COMETNET_RELAY_URL cannot contain a query")
-        return normalized
-
-    @field_validator("COMETNET_CONTRIBUTION_MODE", mode="before")
-    def validate_cometnet_contribution_mode(cls, value):
-        if type(value) is not str:
-            raise ValueError("COMETNET_CONTRIBUTION_MODE must be a supported mode")
-        normalized = value.strip().lower()
-        if normalized not in {"full", "consumer", "source", "leech"}:
-            raise ValueError("COMETNET_CONTRIBUTION_MODE must be a supported mode")
-        return normalized
-
-    @field_validator("COMETNET_TRUSTED_POOLS", mode="before")
-    def validate_cometnet_pool_lists(cls, value):
-        if type(value) is not list:
-            raise ValueError("CometNet pool lists must be JSON arrays")
-        if len(value) > 64:
-            raise ValueError("CometNet pool lists may contain at most 64 IDs")
-        normalized = [_normalize_cometnet_pool_id(pool_id) for pool_id in value]
-        return list(dict.fromkeys(normalized))
-
-    @field_validator("COMETNET_NETWORK_ID")
-    def validate_cometnet_network_id(cls, value):
-        if value is None:
-            return None
-        if (
-            type(value) is not str
-            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", value) is None
-        ):
-            raise ValueError("COMETNET_NETWORK_ID must be a bounded identifier")
-        return value
-
-    @field_validator("COMETNET_NODE_ALIAS")
-    def validate_cometnet_node_alias(cls, value):
-        if value is None:
-            return None
-        if type(value) is not str or not value or value != value.strip():
-            raise ValueError("COMETNET_NODE_ALIAS must be bounded display text")
-        try:
-            size = len(value.encode("utf-8"))
-        except UnicodeEncodeError:
-            raise ValueError("COMETNET_NODE_ALIAS must be valid UTF-8") from None
-        if size > 128 or any(
-            ord(character) < 32 or ord(character) == 127 for character in value
-        ):
-            raise ValueError("COMETNET_NODE_ALIAS must be bounded display text")
-        return value
-
-    @field_validator("ADDON_ID")
-    def validate_addon_id(cls, value):
-        if (
-            type(value) is not str
-            or not 1 <= len(value) <= 128
-            or not value.isascii()
-            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) is None
-        ):
-            raise ValueError("ADDON_ID must be a bounded ASCII identifier")
-        return value
-
-    @field_validator("ADDON_NAME")
-    def validate_addon_name(cls, value):
-        return _bounded_display_text(
-            value,
-            field="ADDON_NAME",
-            maximum_bytes=256,
-        )
-
-    @field_validator("COMET_COMMIT_HASH", "COMET_BUILD_DATE", mode="before")
-    def normalize_optional_build_metadata(cls, value):
-        return _normalize_optional_text(value)
-
-    @field_validator("COMET_COMMIT_HASH")
-    def validate_build_commit(cls, value):
-        if value is None:
-            return None
-        if (normalized := normalize_commit(value)) is None:
-            raise ValueError(
-                "COMET_COMMIT_HASH must be a 7-to-40 character hexadecimal Git SHA"
-            )
-        return normalized
-
-    @field_validator("COMET_BUILD_DATE")
-    def validate_build_date(cls, value):
-        if value is None:
-            return None
-        if normalize_build_date(value) is None:
-            raise ValueError("COMET_BUILD_DATE must be a timezone-aware ISO date")
-        return value
-
-    @field_validator("COMET_BRANCH", mode="before")
-    def validate_build_branch(cls, value):
-        if value is None or value == "":
-            return "main"
-        if normalize_branch(value) is None:
-            raise ValueError("COMET_BRANCH must be a bounded Git branch name")
-        return value
-
-    @field_validator(
-        "TORRENT_DISABLED_STREAM_NAME",
-        "TORRENT_DISABLED_STREAM_DESCRIPTION",
-    )
-    def validate_disabled_stream_text(cls, value, info):
-        if value is None:
-            return None
-        return _bounded_display_text(
-            value,
-            field=info.field_name,
-            maximum_bytes=(
-                256 if info.field_name == "TORRENT_DISABLED_STREAM_NAME" else 1_024
-            ),
-        )
-
-    @field_validator("CUSTOM_HEADER_HTML", mode="before")
-    def normalize_custom_header_html(cls, value):
-        return _normalize_optional_text(value)
-
-    @field_validator("CUSTOM_HEADER_HTML")
-    def validate_custom_header_html(cls, value):
-        if value is None:
-            return None
-        if type(value) is not str:
-            raise ValueError("CUSTOM_HEADER_HTML must be bounded UTF-8")
-        try:
-            size = len(value.encode("utf-8"))
-        except UnicodeEncodeError:
-            raise ValueError("CUSTOM_HEADER_HTML must be bounded UTF-8") from None
-        if size > 262_144 or "\x00" in value:
-            raise ValueError("CUSTOM_HEADER_HTML must be bounded UTF-8")
-        return value
-
-    @field_validator("INDEXER_MANAGER_TYPE", mode="before")
-    def normalize_indexer_manager_type(cls, value):
-        if value is None:
-            return None
-        if type(value) is not str:
-            raise ValueError("INDEXER_MANAGER_TYPE must be jackett or prowlarr")
-        normalized = value.strip().lower()
-        if not normalized or normalized == "none":
-            return None
-        if normalized not in {"jackett", "prowlarr"}:
-            raise ValueError("INDEXER_MANAGER_TYPE must be jackett or prowlarr")
-        return normalized
-
-    @field_validator("DATABASE_TYPE", mode="before")
-    def normalize_database_type(cls, v):
-        value = str(v).strip().lower()
-        if value in {"postgres", "postgresql", "postgresql+asyncpg", "pgsql", "psql"}:
-            return "postgresql"
-        if value in {"sqlite", "sqlite3"}:
-            return "sqlite"
-        raise ValueError("DATABASE_TYPE must be sqlite or postgresql")
-
-    @field_validator("DATABASE_URL", mode="before")
-    def normalize_database_url(cls, value):
-        if value is None or value == "":
-            return None
-        if type(value) is not str:
-            raise ValueError("DATABASE_URL must be a string")
-        return value
-
-    @field_validator("DATABASE_PATH", mode="before")
-    def validate_database_path(cls, value):
-        if value is None or value == "":
-            return None
-        path = _bounded_path(value, field="DATABASE_PATH")
-        if path == ":memory:":
-            raise ValueError("DATABASE_PATH must reference a persistent file")
-        return path
-
-    @field_validator("DATABASE_READ_REPLICA_URLS")
-    def validate_database_replica_urls(cls, value):
-        if len(value) > _MAX_DATABASE_REPLICAS:
-            raise ValueError(
-                f"DATABASE_READ_REPLICA_URLS may contain at most {_MAX_DATABASE_REPLICAS} URLs"
-            )
-        normalized = []
-        seen = set()
-        for replica in value:
-            canonical = _canonical_postgres_url(replica)
-            if canonical not in seen:
-                seen.add(canonical)
-                normalized.append(replica)
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_database_configuration(self):
-        if self.DATABASE_TYPE == "sqlite":
-            if self.DATABASE_PATH is None:
-                raise ValueError("SQLite requires DATABASE_PATH")
-            if self.DATABASE_READ_REPLICA_URLS:
-                raise ValueError("SQLite does not support read replicas")
-        elif self.DATABASE_URL is None:
-            raise ValueError("PostgreSQL requires DATABASE_URL")
-        else:
-            _parse_postgres_url(self.DATABASE_URL)
-        return self
-
-    @field_validator(
-        "INDEXER_MANAGER_INDEXERS", "JACKETT_INDEXERS", "PROWLARR_INDEXERS"
-    )
-    def indexer_manager_indexers_normalization(cls, v, values):
-        if len(v) > 64:
-            raise ValueError("indexer lists may contain at most 64 entries")
-        normalized = []
-        seen = set()
-        for indexer in v:
-            if not isinstance(indexer, str):
-                raise ValueError("indexer names must be strings")
-            indexer = normalize_indexer_name(indexer)
-            try:
-                size = len(indexer.encode("utf-8"))
-            except UnicodeEncodeError:
-                raise ValueError("indexer names must be valid UTF-8") from None
-            if (
-                not indexer
-                or size > 128
-                or any(
-                    ord(character) < 32 or ord(character) == 127
-                    for character in indexer
-                )
-            ):
-                raise ValueError("indexer names must be bounded text")
-            if indexer not in seen:
-                seen.add(indexer)
-                normalized.append(indexer)
-        return normalized
-
-    @field_validator("INDEXER_LANGUAGES")
-    def normalize_indexer_languages(cls, value):
-        if len(value) > 32:
-            raise ValueError("INDEXER_LANGUAGES may contain at most 32 entries")
-        languages = []
-        seen = set()
-        for language in value:
-            if (
-                not isinstance(language, str)
-                or len(normalized := language.strip().lower()) != 2
-                or not normalized.isascii()
-                or not normalized.isalpha()
-            ):
-                raise ValueError(
-                    "INDEXER_LANGUAGES entries must be ISO 639-1 language codes"
-                )
-            if normalized not in seen:
-                seen.add(normalized)
-                languages.append(normalized)
-        return languages
-
-    @field_validator(*_OPTIONAL_URL_FIELDS, mode="before")
-    def normalize_optional_urls(cls, value):
-        return _normalize_optional_text(value)
-
-    @field_validator(*_SCRAPER_URL_FIELDS)
-    def normalize_scraper_urls(cls, value):
-        if isinstance(value, str):
-            return _normalize_scraper_url(value)
-        if isinstance(value, list):
-            if len(value) > 64:
-                raise ValueError("configured URL lists may contain at most 64 entries")
-            normalized = []
-            for url in value:
-                url = _normalize_scraper_url(url)
-                if url not in normalized:
-                    normalized.append(url)
-            return normalized
-        return value
-
-    @field_validator(
-        "STREMTHRU_URL",
-        "PUBLIC_BASE_URL",
-        "PROMETHEUS_QUERY_URL",
-        "USENET_EXPORT_BASE_URL",
-    )
-    def normalize_service_urls(cls, value):
-        if value is None:
-            return None
-        return _normalize_http_url(value)
-
-    @field_validator(
-        "PUBLIC_BASE_URL",
-        "PROMETHEUS_QUERY_URL",
-        "USENET_EXPORT_BASE_URL",
-    )
-    def validate_service_base_urls(cls, value):
-        if value is None:
-            return None
-        parsed = urlsplit(value)
-        if parsed.query:
-            raise ValueError("service base URLs cannot contain a query")
-        return value
-
-    @field_validator("TORRENT_DISABLED_STREAM_URL")
-    def validate_disabled_stream_url(cls, value):
-        if value is None:
-            return None
-        return _normalize_http_url(value)
+        return None if value is None or value == "" else value
 
     def is_scraper_enabled(self, scraper_setting: bool | str, context: str):
         return scraper_setting is True or scraper_setting == context
@@ -2455,18 +1255,7 @@ class DebridServiceEntry(BaseModel):
             raise ValueError(f"Invalid debrid service: {v}")
         return v
 
-    @field_validator("apiKey")
-    def validate_api_key(cls, value):
-        value = _validate_config_secret(value, "debrid apiKey")
-        if not value:
-            raise ValueError("debrid apiKey is required")
-        return value
 
-
-PLAYBACK_PROVIDER_KINDS = USENET_PLAYBACK_PROVIDER_KINDS | {
-    "direct_torrent",
-    *VALID_DEBRID_SERVICES,
-}
 USER_USENET_DISCOVERY_SOURCE_KINDS = (
     "newznab",
     "nzbhydra2",
@@ -2474,16 +1263,6 @@ USER_USENET_DISCOVERY_SOURCE_KINDS = (
     "easynews",
     "stremio_addon",
 )
-ACCOUNT_KINDS = {
-    *VALID_DEBRID_SERVICES,
-    "altmount",
-    "easynews",
-    "indexer",
-    "nntp",
-    "nzbdav",
-    "stremio_addon",
-    "stremthru_newz",
-}
 _PROVIDER_ACCOUNT_KINDS = {
     **{kind: kind for kind in VALID_DEBRID_SERVICES},
     "altmount": "altmount",
@@ -2500,20 +1279,6 @@ _SOURCE_ACCOUNT_KINDS = {
     "prowlarr_usenet": "indexer",
     "stremio_addon": "stremio_addon",
 }
-
-
-def _validate_config_secret(value: object, description: str) -> str:
-    if type(value) is not str:
-        raise ValueError(f"{description} must be bounded text")
-    try:
-        size = len(value.encode("utf-8"))
-    except UnicodeEncodeError:
-        raise ValueError(f"{description} must be valid UTF-8") from None
-    if size > 4_096 or any(
-        ord(character) < 32 or ord(character) == 127 for character in value
-    ):
-        raise ValueError(f"{description} must be bounded text")
-    return value
 
 
 def _validate_config_account_id(value: object, description: str) -> str:
@@ -2555,40 +1320,20 @@ class PlaybackProviderEntry(BaseModel):
     accountId: str | None = None
     options: dict = Field(default_factory=dict)
 
-    @field_validator("configurationId")
-    def validate_configuration_id(cls, value):
-        if not isinstance(value, str):
-            raise ValueError("provider configurationId must be a UUID")
-        try:
-            parsed = uuid.UUID(value)
-        except ValueError as exc:
-            raise ValueError("provider configurationId must be a UUID") from exc
-        if str(parsed) != value:
-            raise ValueError("provider configurationId must be a canonical UUID")
-        return value
-
-    @field_validator("accountId")
-    def validate_account_identifier(cls, value):
-        if value is None:
-            return None
-        return _validate_config_account_id(value, "provider accountId")
-
-    @field_validator("displayName")
-    def validate_display_name(cls, value):
-        return _validate_config_display_name(value, "provider displayName")
-
-    @field_validator("kind")
-    def validate_kind(cls, value):
-        if value not in PLAYBACK_PROVIDER_KINDS:
-            raise ValueError("invalid playback provider kind")
-        return value
-
     @model_validator(mode="after")
     def validate_usenet_provider_options(self):
-        if not isinstance(self.options, dict):
-            raise ValueError("provider options must be an object")
-        if not self.enabled:
+        if not self.enabled or self.kind not in USENET_PLAYBACK_PROVIDER_KINDS:
             return self
+        try:
+            if str(uuid.UUID(self.configurationId)) != self.configurationId:
+                raise ValueError
+        except ValueError as exc:
+            raise ValueError(
+                "provider configurationId must be a canonical UUID"
+            ) from exc
+        _validate_config_display_name(self.displayName, "provider displayName")
+        if self.accountId is not None:
+            _validate_config_account_id(self.accountId, "provider accountId")
         if self.kind == "stremio_nntp" and self.accountId is None:
             try:
                 validate_handoff_config(self.options)
@@ -2679,26 +1424,6 @@ class DiscoverySourceEntry(BaseModel):
         return self
 
 
-_V2_CONFIG_FIELDS = {
-    "schemaVersion",
-    "enabledTransports",
-    "discoverySources",
-    "playbackProviders",
-    "accounts",
-    "nativeAccessToken",
-    "cachedOnly",
-    "removeTrash",
-    "resultFormat",
-    "maxResultsPerResolution",
-    "maxSize",
-    "scrapeDebridAccountTorrents",
-    "debridStreamProxyPassword",
-    "languages",
-    "resolutions",
-    "options",
-}
-
-
 class ConfigModel(BaseModel):
     model_config = ConfigDict(validate_default=True)
 
@@ -2748,95 +1473,19 @@ class ConfigModel(BaseModel):
         }
         return normalized
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_v2_closed_shape(cls, value):
-        if not isinstance(value, dict) or value.get("schemaVersion", 1) != 2:
-            return value
-        if type(value.get("schemaVersion")) is not int:
-            raise ValueError("schemaVersion must be an integer")
-        unexpected = value.keys() - _V2_CONFIG_FIELDS
-        if unexpected:
-            raise ValueError("schema version 2 contains unsupported fields")
-        if "enabledTransports" not in value:
-            raise ValueError("schema version 2 requires enabledTransports")
-        for name in ("enabledTransports", "discoverySources", "playbackProviders"):
-            if name in value and type(value[name]) is not list:
-                raise ValueError(f"{name} must be a list")
-        if "accounts" in value and type(value["accounts"]) is not dict:
-            raise ValueError("accounts must be an object")
-        for name in ("discoverySources", "playbackProviders"):
-            if len(value.get(name) or ()) > 64:
-                raise ValueError(f"{name} may contain at most 64 entries")
-        if len(value.get("accounts") or {}) > 64:
-            raise ValueError("accounts may contain at most 64 entries")
-        for name in (
-            "cachedOnly",
-            "removeTrash",
-            "scrapeDebridAccountTorrents",
-        ):
-            if name in value and type(value[name]) is not bool:
-                raise ValueError(f"{name} must be a boolean")
-        return value
-
     @field_validator("schemaVersion", mode="before")
     def validate_schema_version(cls, value):
         if type(value) is not int or value not in {1, 2}:
             raise ValueError("unsupported configuration schema version")
         return value
 
-    @field_validator("maxResultsPerResolution", mode="before")
+    @field_validator("maxResultsPerResolution")
     def check_max_results_per_resolution(cls, v):
-        if type(v) is not int or not 0 <= v <= 1_000:
-            raise ValueError("maxResultsPerResolution must be between 0 and 1000")
-        return v
+        return max(v, 0)
 
-    @field_validator("maxSize", mode="before")
+    @field_validator("maxSize")
     def check_max_size(cls, v):
-        if (
-            type(v) not in (int, float)
-            or not math.isfinite(v)
-            or not 0 <= v <= 2**63 - 1
-        ):
-            raise ValueError("maxSize must be a finite signed-64-bit byte count")
-        return float(v)
-
-    @field_validator("resultFormat", mode="before")
-    def validate_result_format(cls, value):
-        allowed = {
-            "all",
-            "title",
-            "video_info",
-            "audio_info",
-            "quality_info",
-            "release_group",
-            "seeders",
-            "size",
-            "tracker",
-            "languages",
-        }
-        if (
-            type(value) is not list
-            or not 1 <= len(value) <= 64
-            or any(type(item) is not str or item not in allowed for item in value)
-        ):
-            raise ValueError("resultFormat must contain supported fields")
-        return list(dict.fromkeys(value))
-
-    @field_validator("enabledTransports")
-    def validate_enabled_transports(cls, value):
-        if value is None:
-            return None
-        if any(transport not in {"bittorrent", "usenet"} for transport in value):
-            raise ValueError("enabledTransports contains an unsupported transport")
-        return list(dict.fromkeys(value))
-
-    @field_validator(
-        "debridApiKey",
-        "debridStreamProxyPassword",
-    )
-    def validate_legacy_config_secrets(cls, value, info):
-        return _validate_config_secret(value, info.field_name)
+        return max(float(v), 0)
 
     @field_validator("debridService")
     def check_debrid_service(cls, v):
@@ -2848,79 +1497,40 @@ class ConfigModel(BaseModel):
     def validate_debrid_services(cls, v):
         if v is None:
             return []
-        if type(v) is not list or len(v) > 64:
-            raise ValueError("debridServices must be a bounded list")
         return v
-
-    @field_validator("debridServices")
-    def validate_unique_debrid_services(cls, value):
-        if len(value) != len({entry.service for entry in value}):
-            raise ValueError("debrid services must be unique")
-        return value
 
     @model_validator(mode="after")
     def validate_v2_configuration(self):
         if self.schemaVersion == 1:
-            if self.debridService != "torrent" and not self.debridApiKey:
-                raise ValueError("debrid apiKey is required")
             return self
-        providers = self.playbackProviders or []
-        provider_ids = [provider.configurationId for provider in providers]
-        if len(provider_ids) != len(set(provider_ids)):
-            raise ValueError("playback provider identifiers must be unique")
-        playback_services = [
-            provider.kind
-            for provider in providers
-            if provider.kind == "direct_torrent"
-            or provider.kind in VALID_DEBRID_SERVICES
-        ]
-        if len(playback_services) != len(set(playback_services)):
-            raise ValueError("playback services must be unique")
-        source_ids = [source.configurationId for source in self.discoverySources or []]
-        if len(source_ids) != len(set(source_ids)):
-            raise ValueError("discovery source identifiers must be unique")
-        accounts = self.accounts or {}
-        for account_id, account in accounts.items():
-            if not isinstance(account, dict):
-                raise ValueError("account envelope is invalid")
-            _validate_config_account_id(account_id, "account ID")
-            account_kind = account.get("kind")
-            if account_kind not in ACCOUNT_KINDS:
-                raise ValueError("account kind is invalid")
 
-        for entry, expected in (
+        providers = [
+            provider
+            for provider in self.playbackProviders or ()
+            if provider.enabled and provider.kind in USENET_PLAYBACK_PROVIDER_KINDS
+        ]
+        sources = [source for source in self.discoverySources or () if source.enabled]
+        accounts = self.accounts or {}
+
+        entries = (
             *(
                 (provider, _PROVIDER_ACCOUNT_KINDS.get(provider.kind))
                 for provider in providers
             ),
-            *(
-                (source, _SOURCE_ACCOUNT_KINDS.get(source.kind))
-                for source in self.discoverySources or []
-            ),
-        ):
-            account_id = entry.accountId
-            if account_id is None:
+            *((source, _SOURCE_ACCOUNT_KINDS.get(source.kind)) for source in sources),
+        )
+        for entry, expected_kind in entries:
+            if entry.accountId is None:
                 continue
-            if expected is None:
-                raise ValueError("this binding cannot reference an account")
-            account = accounts.get(account_id)
+            account = accounts.get(entry.accountId)
             if account is None:
-                raise ValueError("account reference is unavailable")
-            if account["kind"] != expected:
-                raise ValueError("account kind does not match its binding")
+                raise ValueError("Usenet account reference is unavailable")
+            _validate_config_account_id(entry.accountId, "Usenet account ID")
+            if account.get("kind") != expected_kind:
+                raise ValueError("Usenet account kind does not match its binding")
+
         for provider in providers:
-            if provider.enabled and provider.kind in VALID_DEBRID_SERVICES:
-                if provider.accountId is None:
-                    raise ValueError("debrid provider requires an account")
-                api_key = accounts[provider.accountId].get("apiKey")
-                _validate_config_secret(api_key, "debrid apiKey")
-                if not api_key:
-                    raise ValueError("debrid apiKey is required")
-            if (
-                not provider.enabled
-                or provider.kind != "stremio_nntp"
-                or provider.accountId is None
-            ):
+            if provider.kind != "stremio_nntp" or provider.accountId is None:
                 continue
             merged_options = {
                 key: value
@@ -2932,6 +1542,7 @@ class ConfigModel(BaseModel):
                 validate_handoff_config(merged_options)
             except ValueError as exc:
                 raise ValueError("Stremio NNTP options are invalid") from exc
+
         if self.nativeAccessToken is not None and not _is_bounded_opaque_credential(
             self.nativeAccessToken, 256
         ):

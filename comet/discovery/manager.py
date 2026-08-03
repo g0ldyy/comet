@@ -6,7 +6,6 @@ import time
 import weakref
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
-from itertools import islice
 from typing import TypeVar
 
 from comet.core.capabilities import CapabilityPlan
@@ -16,7 +15,6 @@ from comet.discovery.base import DiscoveryAdapter
 from comet.discovery.capabilities import DiscoveryBranchFingerprint
 from comet.discovery.coverage import SearchCoverageRepository, query_fingerprint
 from comet.discovery.models import (
-    MAX_DISCOVERY_CANDIDATES,
     DiscoveryBatch,
     DiscoveryContext,
     MediaQuery,
@@ -25,23 +23,7 @@ from comet.discovery.repository import ReleaseDiscoveryRepository
 from comet.observability import log
 from comet.services.lock import DistributedLock
 
-MAX_DISCOVERY_DIAGNOSTICS = 64
-MAX_DISCOVERY_DIAGNOSTIC_BYTES = 512
 _T = TypeVar("_T")
-
-
-def _bounded_diagnostic(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        size = len(value.encode("utf-8"))
-    except UnicodeEncodeError:
-        return None
-    if not 1 <= size <= MAX_DISCOVERY_DIAGNOSTIC_BYTES or any(
-        ord(character) < 32 or ord(character) == 127 for character in value
-    ):
-        return None
-    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,24 +101,6 @@ class SearchCoordinator:
         empty_ttl: float = 30.0,
         retry_ttl: float = 60.0,
     ):
-        if (
-            isinstance(hard_timeout, bool)
-            or not isinstance(hard_timeout, (int, float))
-            or not 0 < hard_timeout <= 60
-        ):
-            raise ValueError("discovery deadline is invalid")
-        if (
-            isinstance(fresh_ttl, bool)
-            or isinstance(retry_ttl, bool)
-            or not isinstance(fresh_ttl, (int, float))
-            or isinstance(empty_ttl, bool)
-            or not isinstance(retry_ttl, (int, float))
-            or not isinstance(empty_ttl, (int, float))
-            or not 1 <= fresh_ttl <= 86_400
-            or not 1 <= empty_ttl <= fresh_ttl
-            or not 1 <= retry_ttl <= fresh_ttl
-        ):
-            raise ValueError("discovery cache TTLs are invalid")
         self._adapters = dict(adapters)
         self._hard_timeout = float(hard_timeout)
         self._database = database
@@ -166,11 +130,6 @@ class SearchCoordinator:
             for source in capability_plan.discovery
             if source.display_name
         }
-        if any(
-            source.configuration_id not in self._adapters
-            for source in capability_plan.discovery
-        ):
-            raise ValueError("planned discovery adapter is unavailable")
         scheduled: list[_ScheduledSearch] = []
         for source in capability_plan.discovery:
             adapter = self._adapters[source.configuration_id]
@@ -256,13 +215,6 @@ class SearchCoordinator:
                     failure_exception = exc
                 if failure_exception is not None:
                     failure_outcome = "failed"
-                elif any(
-                    candidate.transport not in capability_plan.transports
-                    for candidate in response.candidates
-                ):
-                    raise ValueError(
-                        "discovery adapter returned a candidate outside its plan"
-                    )
                 else:
                     had_inflight = had_inflight or response.inflight
             if failure_outcome is not None:
@@ -284,14 +236,9 @@ class SearchCoordinator:
                 duration_ms=(loop.time() - source.started) * 1000,
             )
             for diagnostic in response.diagnostics:
-                bounded = _bounded_diagnostic(diagnostic)
-                if bounded is not None and bounded not in diagnostics:
-                    diagnostics.append(bounded)
-                if len(diagnostics) == MAX_DISCOVERY_DIAGNOSTICS:
-                    break
+                if diagnostic not in diagnostics:
+                    diagnostics.append(diagnostic)
             for candidate in response.candidates:
-                if len(candidates) == MAX_DISCOVERY_CANDIDATES:
-                    break
                 if any(
                     capability_plan.compatible_providers(locator)
                     for locator in candidate.locators
@@ -580,8 +527,6 @@ class SearchCoordinator:
                 return DiscoveryBatch(inflight=True)
             async with asyncio.timeout(remaining):
                 response = await lock.run(refresh())
-            if not isinstance(response, DiscoveryBatch):
-                raise ValueError("discovery adapter returned an invalid batch")
             if branch not in response.coverage:
                 await coverage_repository.record_failure(
                     query,
@@ -591,14 +536,9 @@ class SearchCoordinator:
                 return DiscoveryBatch(diagnostics=response.diagnostics)
             branch_transport = TransportKind(branch)
             branch_candidates = tuple(
-                islice(
-                    (
-                        candidate
-                        for candidate in response.candidates
-                        if candidate.transport is branch_transport
-                    ),
-                    MAX_DISCOVERY_CANDIDATES,
-                )
+                candidate
+                for candidate in response.candidates
+                if candidate.transport is branch_transport
             )
             await repository.persist_success(
                 query,
@@ -643,15 +583,9 @@ class SearchCoordinator:
             await lock.release()
 
     async def _normalize_batch(self, response: DiscoveryBatch) -> DiscoveryBatch:
-        if not isinstance(response, DiscoveryBatch):
-            raise ValueError("discovery adapter returned an invalid batch")
         if self._candidate_normalizer is None or not response.candidates:
             return response
         candidates = await self._candidate_normalizer(response.candidates)
-        if not isinstance(candidates, tuple) or any(
-            not isinstance(candidate, ReleaseCandidate) for candidate in candidates
-        ):
-            raise ValueError("discovery candidate normalizer returned an invalid batch")
         return replace(response, candidates=candidates)
 
 

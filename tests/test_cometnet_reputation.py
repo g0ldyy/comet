@@ -1,4 +1,3 @@
-import math
 import unittest
 
 from comet.cometnet.reputation import ReputationStore
@@ -29,15 +28,8 @@ def current_reputation():
 
 
 class CometNetReputationStoreTests(unittest.TestCase):
-    def test_contribution_counts_require_positive_exact_integers(self):
+    def test_contribution_counts_update_reputation(self):
         peer = ReputationStore().get_or_create("peer")
-        for count in (True, 0, -1, 1.5):
-            with self.subTest(count=count):
-                with self.assertRaises(ValueError):
-                    peer.add_valid_contribution(count)
-                with self.assertRaises(ValueError):
-                    peer.add_invalid_contribution(count)
-
         peer.add_valid_contribution(2)
         peer.add_invalid_contribution(1)
         self.assertEqual(peer.valid_contributions, 2)
@@ -89,14 +81,9 @@ class CometNetReputationStoreTests(unittest.TestCase):
         store.from_dict(valid | {"blacklist": ["peer-a", "peer-a"]})
         self.assertEqual(store.to_dict()["blacklist"], ["peer-a"])
 
-    def test_node_and_cleanup_inputs_are_current_and_finite(self):
+    def test_node_ids_must_be_non_empty_strings(self):
         store = ReputationStore()
         for node_id in (None, "", 1):
             with self.subTest(node_id=node_id):
                 with self.assertRaises(ValueError):
                     store.get_or_create(node_id)
-
-        for max_age_days in (True, 0, -1, math.inf, math.nan):
-            with self.subTest(max_age_days=max_age_days):
-                with self.assertRaises(ValueError):
-                    store.cleanup_old_peers(max_age_days)

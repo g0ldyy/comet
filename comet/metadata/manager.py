@@ -1,5 +1,4 @@
 import asyncio
-import math
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -92,7 +91,6 @@ _CACHE_UPSERT_QUERY = """
 """
 
 _ALIAS_FAILURE_RETRY_DELAY = 300
-_MAX_CACHED_ALIASES_JSON_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,21 +189,12 @@ class MetadataScraper:
 
     @staticmethod
     def _load_cached_aliases(aliases_json) -> dict:
-        if isinstance(aliases_json, str):
-            aliases_json = aliases_json.encode("utf-8")
-        if not isinstance(aliases_json, bytes):
-            raise ValueError("cached aliases must be encoded JSON")
-        if len(aliases_json) > _MAX_CACHED_ALIASES_JSON_BYTES:
-            raise ValueError("cached aliases exceed the storage limit")
         return normalize_aliases(orjson.loads(aliases_json))
 
     @staticmethod
     def _is_fresh(timestamp, current_time: float) -> bool:
-        return (
-            not isinstance(timestamp, bool)
-            and isinstance(timestamp, (int, float))
-            and math.isfinite(timestamp)
-            and timestamp >= (current_time - settings.METADATA_CACHE_TTL)
+        return timestamp is not None and timestamp >= (
+            current_time - settings.METADATA_CACHE_TTL
         )
 
     def _build_cache_entry(
@@ -216,12 +205,10 @@ class MetadataScraper:
         current_time: float,
     ) -> _CacheEntry:
         metadata = None
-        title = metadata_text(row["title"])
-        if title is not None and self._is_fresh(
-            row["metadata_updated_at"], current_time
-        ):
-            year = metadata_year(row["year"])
-            year_end = metadata_year(row["year_end"])
+        title = row["title"]
+        if title and self._is_fresh(row["metadata_updated_at"], current_time):
+            year = row["year"]
+            year_end = row["year_end"]
             if year is not None and year_end is not None and year_end < year:
                 year_end = None
             metadata = {
@@ -431,8 +418,6 @@ class MetadataScraper:
         if not metadata:
             return None
 
-        if not isinstance(metadata, (tuple, list)) or len(metadata) != 3:
-            return None
         title, year, year_end = metadata
         return self._normalize_metadata_dict(
             {
@@ -446,11 +431,11 @@ class MetadataScraper:
 
     @staticmethod
     def _normalize_metadata_dict(
-        metadata: object,
+        metadata: dict | None,
         season: int | None,
         episode: int | None,
     ) -> dict | None:
-        if not isinstance(metadata, dict):
+        if metadata is None:
             return None
         title = metadata_text(metadata.get("title"))
         if title is None:

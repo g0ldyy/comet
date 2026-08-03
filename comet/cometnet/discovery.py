@@ -62,41 +62,17 @@ def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
     return canonical, len(canonical) != len(peers)
 
 
-def validate_discovery_configuration(
-    manual_peers: object,
-    bootstrap_nodes: object,
-    min_peers: object,
-    max_peers: object,
+def resolve_discovery_configuration(
+    manual_peers: list[str] | None,
+    bootstrap_nodes: list[str] | None,
+    min_peers: int | None,
+    max_peers: int | None,
 ) -> tuple[list[str], list[str], int, int]:
-    """Validate the single current discovery configuration shape."""
-
-    def addresses(value: object, name: str) -> list[str]:
-        if value is None:
-            return []
-        if type(value) is not list or any(
-            type(address) is not str
-            or not address
-            or address != address.strip()
-            or not address.startswith(("ws://", "wss://"))
-            for address in value
-        ):
-            raise ValueError(f"{name} must be a list of canonical WebSocket URLs")
-        return list(dict.fromkeys(value))
-
-    resolved_min = settings.COMETNET_MIN_PEERS if min_peers is None else min_peers
-    resolved_max = settings.COMETNET_MAX_PEERS if max_peers is None else max_peers
-    if type(resolved_min) is not int or resolved_min <= 0:
-        raise ValueError("min_peers must be a positive integer")
-    if type(resolved_max) is not int or resolved_max <= 0:
-        raise ValueError("max_peers must be a positive integer")
-    if resolved_min > resolved_max:
-        raise ValueError("min_peers cannot exceed max_peers")
-
     return (
-        addresses(manual_peers, "manual_peers"),
-        addresses(bootstrap_nodes, "bootstrap_nodes"),
-        resolved_min,
-        resolved_max,
+        list(dict.fromkeys([] if manual_peers is None else manual_peers)),
+        list(dict.fromkeys([] if bootstrap_nodes is None else bootstrap_nodes)),
+        settings.COMETNET_MIN_PEERS if min_peers is None else min_peers,
+        settings.COMETNET_MAX_PEERS if max_peers is None else max_peers,
     )
 
 
@@ -156,7 +132,7 @@ class DiscoveryService:
             self.bootstrap_nodes,
             self.min_peers,
             self.max_peers,
-        ) = validate_discovery_configuration(
+        ) = resolve_discovery_configuration(
             manual_peers, bootstrap_nodes, min_peers, max_peers
         )
 
@@ -278,8 +254,6 @@ class DiscoveryService:
         """Get a list of peers to share via PEX."""
         if max_peers is None:
             max_peers = settings.COMETNET_PEX_BATCH_SIZE
-        if type(max_peers) is not int or max_peers <= 0:
-            raise ValueError("max_peers must be a positive integer")
         connected_ids = set(
             self._get_connected_ids() if self._get_connected_ids else []
         )

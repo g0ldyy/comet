@@ -365,19 +365,13 @@ class TorrentResultAccumulator:
                 continue
 
             info_hash = row["info_hash"]
-            try:
-                sources = orjson.loads(row["sources_json"])
-            except (orjson.JSONDecodeError, TypeError):
-                sources = []
-            if not isinstance(sources, list):
-                sources = []
             self.torrents[info_hash] = {
                 "fileIndex": row["file_index"],
                 "title": row["title"],
                 "seeders": row["seeders"],
                 "size": row["size"],
                 "tracker": row["tracker"],
-                "sources": [source for source in sources if isinstance(source, str)],
+                "sources": orjson.loads(row["sources_json"]),
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
@@ -451,19 +445,14 @@ class TorrentResultAccumulator:
         if len(torrents) == 0:
             return
 
-        new_torrents = []
-        for torrent in torrents:
-            if not isinstance(torrent, dict):
-                continue
-            info_hash = torrent.get("infoHash")
-            title = torrent.get("title")
-            if not isinstance(info_hash, str) or not isinstance(title, str):
-                continue
-            identity = (info_hash, title)
-            if identity in self.seen_hashes:
-                continue
-            self.seen_hashes.add(identity)
-            new_torrents.append(torrent)
+        new_torrents = [
+            torrent
+            for torrent in torrents
+            if (torrent["infoHash"], torrent["title"]) not in self.seen_hashes
+        ]
+        self.seen_hashes.update(
+            (torrent["infoHash"], torrent["title"]) for torrent in new_torrents
+        )
 
         if not new_torrents:
             return
@@ -471,7 +460,7 @@ class TorrentResultAccumulator:
         unparsed_torrents = []
         for torrent in new_torrents:
             parsed = torrent.get("parsed")
-            if not isinstance(parsed, ParsedData):
+            if parsed is None:
                 unparsed_torrents.append(torrent)
                 continue
             parsed = parsed.model_copy(deep=True)

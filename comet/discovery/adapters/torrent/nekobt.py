@@ -3,7 +3,6 @@ from comet.discovery.torrent_base import (
     TorrentDiscoveryAdapter,
     deduplicate_torrents,
     gather_concurrently,
-    parse_valid_items,
 )
 from comet.discovery.torrent_models import ScrapeRequest
 from comet.services.torrent_manager import extract_trackers_from_magnet
@@ -20,38 +19,18 @@ class NekoBTScraper(TorrentDiscoveryAdapter):
         super().__init__(manager, session)
 
     def _parse_torrent(self, item: dict) -> dict:
-        if not isinstance(item, dict):
-            raise ValueError("NekoBT result is not an object")
-
-        info_hash = item.get("infohash")
-        title = item.get("title") or item.get("auto_title")
-        magnet = item.get("magnet") or item.get("private_magnet")
-        if (
-            not isinstance(info_hash, str)
-            or not info_hash
-            or not isinstance(title, str)
-            or not title
-        ):
-            raise ValueError("NekoBT result is incomplete")
-
-        try:
-            if isinstance(item["seeders"], bool) or isinstance(item["filesize"], bool):
-                raise ValueError
-            seeders = int(item["seeders"])
-            size = int(item["filesize"])
-        except (KeyError, TypeError, ValueError):
-            raise ValueError("NekoBT result has invalid numeric fields") from None
+        info_hash = item["infohash"]
+        title = item["title"] or item["auto_title"]
+        magnet = item["magnet"] or item.get("private_magnet")
 
         return {
             "title": title,
             "infoHash": info_hash,
             "fileIndex": None,
-            "seeders": seeders,
-            "size": size,
+            "seeders": int(item["seeders"]),
+            "size": int(item["filesize"]),
             "tracker": "NekoBT",
-            "sources": (
-                extract_trackers_from_magnet(magnet) if isinstance(magnet, str) else []
-            ),
+            "sources": extract_trackers_from_magnet(magnet),
         }
 
     async def _fetch_page(self, params: dict) -> tuple[list[dict], bool, str | None]:
@@ -60,33 +39,19 @@ class NekoBTScraper(TorrentDiscoveryAdapter):
                 raise RuntimeError(f"NekoBT returned HTTP {resp.status}")
             payload = await resp.json()
 
-        if not isinstance(payload, dict):
-            raise ValueError("NekoBT response is not an object")
         if payload.get("error"):
             raise RuntimeError("NekoBT returned an error")
 
-        data = payload.get("data")
-        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-            raise ValueError("NekoBT response is missing its results")
+        data = payload["data"]
         results = data["results"]
 
         recommended = data.get("recommended_media")
         similar = data.get("similar_media")
-        media_id = None
-        if isinstance(recommended, dict) and isinstance(recommended.get("id"), str):
-            media_id = recommended["id"]
-        elif (
-            isinstance(similar, list)
-            and similar
-            and isinstance(similar[0], dict)
-            and isinstance(similar[0].get("id"), str)
-        ):
-            media_id = similar[0]["id"]
+        media_id = (
+            recommended["id"] if recommended else similar[0]["id"] if similar else None
+        )
 
-        more = data.get("more")
-        if not isinstance(more, bool):
-            raise ValueError("NekoBT response has an invalid pagination flag")
-        return parse_valid_items(results, self._parse_torrent), more, media_id
+        return [self._parse_torrent(item) for item in results], data["more"], media_id
 
     async def _fetch_all(self, base_params: dict) -> tuple[list[dict], str | None]:
         params = {**base_params, "limit": PAGE_LIMIT, "offset": 0}

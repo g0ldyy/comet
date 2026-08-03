@@ -48,20 +48,9 @@ class StremthruScraper(TorrentDiscoveryAdapter):
                     info_hash = attr_value
                 elif attr_name == "indexername" and attr_value:
                     indexer_name = attr_value
-            if (
-                not isinstance(title, str)
-                or not title
-                or not isinstance(info_hash, str)
-                or not info_hash
-            ):
+            if info_hash is None:
                 continue
             info_hash = normalize_info_hash(info_hash)
-            try:
-                if len(info_hash) != 40:
-                    continue
-                int(info_hash, 16)
-            except ValueError:
-                continue
             tracker = "StremThru" + (f"|{indexer_name}" if indexer_name else "")
             torrents.append(
                 {

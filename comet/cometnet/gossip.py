@@ -183,9 +183,6 @@ class GossipEngine:
 
         valid_list = []
         for metadata in metadata_list:
-            if not metadata.imdb_id:
-                continue
-
             # Sign the torrent with our identity
             metadata.contributor_id = self.identity.node_id
             metadata.contributor_public_key = self.identity.public_key_hex
@@ -274,11 +271,6 @@ class GossipEngine:
         torrents_to_verify = []
 
         for torrent in announce.torrents:
-            # Skip torrents with invalid size (0) without penalizing the peer
-            if torrent.size == 0:
-                self.stats["invalid_messages"] += 1
-                continue
-
             # Check if we already have this torrent
             # Never re-propagate unverified metadata for an existing hash.
             if torrent.info_hash in existing_hashes:
@@ -395,44 +387,14 @@ class GossipEngine:
             await self._disconnect_peer(sender_id)
 
     def _validate_torrent(self, torrent: TorrentMetadata) -> bool:
-        """
-        Validate a torrent's metadata.
-
-        Returns True if the torrent is valid.
-        """
-        # Basic validation (Pydantic already does field-level validation)
-        try:
-            # Verify info_hash format
-            if len(torrent.info_hash) != 40:
-                return False
-            int(torrent.info_hash, 16)
-
-            # Title should be non-empty
-            if not torrent.title or len(torrent.title) < 1:
-                return False
-
-            # Size should be positive
-            if torrent.size <= 0:
-                return False
-
-            # Tracker should be non-empty
-            if not torrent.tracker:
-                return False
-
-            # Local storage requires a media identifier for persistence.
-            if not torrent.imdb_id:
-                return False
-
-            # Timestamp should be reasonable
-            now = time.time()
-            if (
-                torrent.updated_at
-                > now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
-            ):  # Future tolerance
-                return False
-            return torrent.updated_at >= now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE
-        except (ValueError, TypeError):
-            return False
+        """Apply the time window and storage semantics not encoded in the wire type."""
+        now = time.time()
+        return (
+            bool(torrent.title and torrent.tracker)
+            and torrent.updated_at
+            <= now + settings.COMETNET_GOSSIP_VALIDATION_FUTURE_TOLERANCE
+            and torrent.updated_at >= now - settings.COMETNET_GOSSIP_TORRENT_MAX_AGE
+        )
 
     async def _repropagate(
         self,
@@ -452,7 +414,6 @@ class GossipEngine:
             exclude.update(visited_history)
 
         peers = self._get_random_peers(self.fanout, exclude)
-
         if not peers:
             return 0
 

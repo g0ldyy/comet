@@ -1002,11 +1002,6 @@ class PoolStore:
         if not manifest.is_admin(identity.public_key_hex):
             raise PermissionError("Only admins can create invites")
 
-        if expires_in is not None and (type(expires_in) is not int or expires_in <= 0):
-            raise ValueError("expires_in must be a positive integer or None")
-        if max_uses is not None and (type(max_uses) is not int or max_uses <= 0):
-            raise ValueError("max_uses must be a positive integer or None")
-
         invite = PoolInvite(
             pool_id=pool_id,
             created_by=identity.public_key_hex,
@@ -1341,13 +1336,6 @@ class PoolStore:
         Returns:
             True if contribution was recorded in at least one pool, False if member not found
         """
-        if type(contributor_public_key) is not str or not contributor_public_key:
-            raise ValueError("contributor_public_key must be a non-empty string")
-        if pool_id is not None and (type(pool_id) is not str or not pool_id):
-            raise ValueError("pool_id must be a non-empty string or None")
-        if type(count) is not int or count <= 0:
-            raise ValueError("count must be a positive integer")
-
         async with self._mutation_lock:
             contribution_time = time.time()
 

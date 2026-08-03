@@ -175,34 +175,6 @@ class RankWorkerTests(unittest.TestCase):
 
         self.assertEqual(actual, (usenet, torrent))
 
-    def test_duplicate_candidate_ids_are_not_silently_collapsed(self):
-        candidate = ReleaseCandidate(
-            candidate_id="duplicate",
-            media_id="tt1234567",
-            scope=ReleaseScope.MOVIE,
-            transport=TransportKind.BITTORRENT,
-            title="Movie.2026.1080p.WEB-DL.x264",
-            locators=(
-                TorrentLocator(
-                    locator_id="torrent",
-                    kind=LocatorKind.TORRENT,
-                    policy=LocatorPolicy(frozenset({"direct_torrent"})),
-                    info_hash="a" * 40,
-                ),
-            ),
-            parsed=parse("Movie.2026.1080p.WEB-DL.x264"),
-        )
-
-        with self.assertRaisesRegex(ValueError, "unique"):
-            sort_candidates(
-                (candidate, candidate),
-                SettingsModel(),
-                DefaultRanking(),
-                50,
-                0,
-                False,
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,7 +18,6 @@ import bencodepy
 from bencodepy import BencodeDecodeError
 from demagnetize.core import Demagnetizer
 from demagnetize.errors import DemagnetizeError
-from pydantic import ValidationError
 from RTN import parse
 from torf import Magnet, MagnetError
 
@@ -74,15 +73,7 @@ def _dedupe_strings(values: list[str]) -> list[str]:
 
 
 def _normalize_sources(sources) -> list[str]:
-    if isinstance(sources, list):
-        values = sources
-    elif isinstance(sources, tuple):
-        values = list(sources)
-    else:
-        return []
-    return _dedupe_strings(
-        [source for source in values if isinstance(source, str) and source]
-    )
+    return [] if sources is None else _dedupe_strings(list(sources))
 
 
 def _get_cached_normalized_sources(
@@ -498,23 +489,18 @@ def _build_torrent_update_from_source(
     from_cometnet: bool,
     sources_cache: dict[int, list[str]] | None = None,
     parsed_cache: dict[int, dict] | None = None,
-) -> "_TorrentUpdate | None":
-    info_hash = _normalize_valid_info_hash(source.get("info_hash"))
-    title = source.get("title")
-    if info_hash is None or not isinstance(title, str) or not title:
-        return None
-
+) -> "_TorrentUpdate":
     file_index = source.get("index")
     if file_index is None:
         file_index = source.get("file_index")
 
     return _construct_torrent_update(
         media_id=media_id,
-        info_hash=info_hash,
+        info_hash=normalize_info_hash(source["info_hash"]),
         season=source.get("season"),
         episode=source.get("episode"),
         file_index=file_index,
-        title=title,
+        title=source["title"],
         seeders=source.get("seeders"),
         size=source.get("size"),
         tracker=source.get("tracker"),
@@ -585,24 +571,21 @@ class _TorrentUpdate:
     episode_norm: int = field(init=False)
     row_key: tuple[str, str, int, int] = field(init=False)
 
-    def to_broadcast_metadata(self, updated_at: float) -> TorrentMetadata | None:
-        try:
-            return _construct_torrent_metadata(
-                info_hash=self.info_hash,
-                title=self.title,
-                size=self.size,
-                tracker=self.tracker or "",
-                imdb_id=self.media_id,
-                file_index=self.file_index,
-                seeders=self.seeders,
-                season=self.season,
-                episode=self.episode,
-                sources=self.sources,
-                parsed=self.parsed,
-                updated_at=updated_at,
-            )
-        except ValidationError:
-            return None
+    def to_broadcast_metadata(self, updated_at: float) -> TorrentMetadata:
+        return _construct_torrent_metadata(
+            info_hash=self.info_hash,
+            title=self.title,
+            size=self.size,
+            tracker=self.tracker or "",
+            imdb_id=self.media_id,
+            file_index=self.file_index,
+            seeders=self.seeders,
+            season=self.season,
+            episode=self.episode,
+            sources=self.sources,
+            parsed=self.parsed,
+            updated_at=updated_at,
+        )
 
 
 def _iter_resolved_torrent_updates(
@@ -720,15 +703,7 @@ def _end_queue_wait(waiters: int, event: asyncio.Event) -> int:
 
 
 def _normalize_unique_info_hashes(info_hashes: Iterable[str]) -> tuple[str, ...]:
-    unique_hashes = []
-    seen_hashes = set()
-    for info_hash in info_hashes:
-        normalized_info_hash = _normalize_valid_info_hash(info_hash)
-        if normalized_info_hash is None or normalized_info_hash in seen_hashes:
-            continue
-        seen_hashes.add(normalized_info_hash)
-        unique_hashes.append(normalized_info_hash)
-    return tuple(unique_hashes)
+    return tuple(dict.fromkeys(normalize_info_hash(value) for value in info_hashes))
 
 
 async def check_torrents_exist(info_hashes: list[str]) -> set[str]:
@@ -1102,8 +1077,8 @@ class TorrentUpdateQueue:
                 name=f"torrent-{kind}-worker",
             )
 
-    async def _enqueue_prepared_item(self, item: _TorrentUpdate | None):
-        if self._stopping or item is None:
+    async def _enqueue_prepared_item(self, item: _TorrentUpdate):
+        if self._stopping:
             return
 
         await self._ensure_task("persistence", self._process_queue)
@@ -1188,10 +1163,9 @@ class TorrentUpdateQueue:
             return
 
         metadata_batch = [
-            metadata
+            item.to_broadcast_metadata(updated_at)
             for item in batch_items
             if not item.from_cometnet
-            and (metadata := item.to_broadcast_metadata(updated_at)) is not None
         ]
         if not metadata_batch:
             return

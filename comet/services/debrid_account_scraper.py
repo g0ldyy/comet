@@ -102,8 +102,6 @@ def _should_force_requested_episode_scope(
 
 
 async def _fetch_all_magnets(client: StremThru, max_items: int):
-    if isinstance(max_items, bool) or not isinstance(max_items, int) or max_items < 1:
-        raise ValueError("account snapshot limit is invalid")
     limit = 500
     items_by_id = {}
     offset = 0
@@ -113,8 +111,6 @@ async def _fetch_all_magnets(client: StremThru, max_items: int):
         items, total_items = await client.list_magnets(limit=page_limit, offset=offset)
 
         if not items:
-            if offset < total_items:
-                raise ValueError("account magnet pagination stopped early")
             return list(items_by_id.values())
 
         for item in items:
@@ -123,8 +119,8 @@ async def _fetch_all_magnets(client: StremThru, max_items: int):
         offset += len(items)
         if offset >= total_items:
             break
-        if len(items) != page_limit:
-            raise ValueError("account magnet page is incomplete")
+        if len(items) < page_limit:
+            break
 
     return list(items_by_id.values())
 

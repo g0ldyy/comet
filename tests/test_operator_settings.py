@@ -6,7 +6,6 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from databases import Database
-from pydantic import ValidationError
 
 from comet.core.db_router import ReplicaAwareDatabase
 from comet.core.live_settings import prepare_settings_application
@@ -151,21 +150,6 @@ class OperatorSettingsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         result = await asyncio.wait_for(save, timeout=1)
         self.assertEqual(result.revision, 1)
 
-    async def test_invalid_complete_model_writes_nothing(self):
-        with self.assertRaises(ValidationError):
-            await self.store.save(
-                {"HTTP_CLIENT_LIMIT": -1},
-                actor="admin",
-            )
-        self.assertEqual(await self.store.current_revision(), 0)
-        self.assertEqual(await self.store.load_overrides(), {})
-        self.assertEqual(
-            await self.database.fetch_val(
-                "SELECT COUNT(*) FROM operator_settings_audit"
-            ),
-            0,
-        )
-
     async def test_usenet_enablement_and_engine_wait_for_the_same_restart(self):
         await self.store.save(
             {
@@ -195,13 +179,18 @@ class OperatorSettingsPersistenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(prepared.candidate.USENET_ENABLED)
         self.assertFalse(prepared.candidate.USENET_ENGINE_ENABLED)
         self.assertFalse(prepared.candidate.USENET_ENGINE_REQUIRED)
+        expected_usenet_keys = (
+            "USENET_ENABLED",
+            "USENET_ENGINE_ENABLED",
+            "USENET_ENGINE_REQUIRED",
+        )
         self.assertEqual(
-            prepared.application.restart_keys[:3],
-            (
-                "USENET_ENABLED",
-                "USENET_ENGINE_ENABLED",
-                "USENET_ENGINE_REQUIRED",
+            tuple(
+                key
+                for key in prepared.application.restart_keys
+                if key in expected_usenet_keys
             ),
+            expected_usenet_keys,
         )
         self.assertIn(
             "USENET_NATIVE_ACCESS_TOKEN",

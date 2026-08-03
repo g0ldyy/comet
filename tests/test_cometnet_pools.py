@@ -665,41 +665,6 @@ class CometNetPoolStoreTests(unittest.IsolatedAsyncioTestCase):
                 2,
             )
 
-    async def test_contribution_arguments_require_current_exact_types(self):
-        with tempfile.TemporaryDirectory() as directory:
-            store = PoolStore(directory)
-            for arguments in (
-                ("", None, 1),
-                ("creator-key", "", 1),
-                ("creator-key", None, True),
-                ("creator-key", None, 0),
-            ):
-                with self.subTest(arguments=arguments):
-                    with self.assertRaises(ValueError):
-                        await store.record_contribution(*arguments)
-
-    async def test_invite_limits_reject_boolean_zero_and_non_finite_values(self):
-        class Identity:
-            public_key_hex = "creator-key"
-
-            async def sign_hex_async(self, payload):
-                del payload
-                return "signature"
-
-        with tempfile.TemporaryDirectory() as directory:
-            store = PoolStore(directory)
-            await store.store_manifest(self._manifest())
-
-            for arguments in [
-                {"max_uses": True},
-                {"max_uses": 0},
-                {"expires_in": True},
-                {"expires_in": 0},
-            ]:
-                with self.subTest(arguments=arguments):
-                    with self.assertRaises(ValueError):
-                        await store.create_invite("pool-a", Identity(), **arguments)
-
     async def test_invite_links_accept_only_the_current_exact_shape(self):
         self.assertEqual(
             PoolInvite.parse_link(

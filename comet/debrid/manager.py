@@ -62,8 +62,6 @@ def build_playback_media_id(
     season: int | None,
     episode: int | None,
 ) -> str:
-    if media_type not in {"movie", "series"}:
-        raise ValueError("media type must be movie or series")
     is_imdb = media_only_id.startswith("tt")
     if media_type == "movie":
         return media_only_id if is_imdb else f"kitsu:{media_only_id}"

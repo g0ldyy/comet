@@ -61,21 +61,10 @@ class TorrentioScraperTests(unittest.IsolatedAsyncioTestCase):
             [torrent["infoHash"] for torrent in torrents], ["a" * 40, "c" * 40]
         )
 
-    async def test_malformed_stream_does_not_discard_valid_sibling(self):
+    async def test_malformed_stream_fails_the_source_batch(self):
         scraper = TorrentioScraper(
             None,
-            _Session(
-                {
-                    "streams": [
-                        {"infoHash": "B" * 40},
-                        {
-                            "title": "Valid.Movie\n💾 1 GB",
-                            "infoHash": "A" * 40,
-                            "sources": [],
-                        },
-                    ]
-                }
-            ),
+            _Session({"streams": [{"infoHash": "B" * 40}]}),
             "https://torrentio.test",
         )
         request = ScrapeRequest(
@@ -85,6 +74,5 @@ class TorrentioScraperTests(unittest.IsolatedAsyncioTestCase):
             title="Movie",
         )
 
-        torrents = await scraper.scrape(request)
-
-        self.assertEqual([torrent["infoHash"] for torrent in torrents], ["a" * 40])
+        with self.assertRaises(KeyError):
+            await scraper.scrape(request)

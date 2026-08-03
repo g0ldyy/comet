@@ -5,7 +5,6 @@ _sqlite_transaction_start = SQLiteTransaction.start
 
 async def _start_transaction(self, is_root, extra_options):
     if is_root and extra_options.get("sqlite_begin_immediate", False):
-        assert self._connection._connection is not None
         self._is_root = True
         async with self._connection._connection.execute("BEGIN IMMEDIATE") as cursor:
             await cursor.close()

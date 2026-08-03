@@ -1,4 +1,3 @@
-import math
 import re
 import secrets
 import time
@@ -43,12 +42,8 @@ RETURNING config_b64
 
 
 async def create_setup_code(ttl_seconds: int = KODI_SETUP_CODE_TTL_SECONDS):
-    if type(ttl_seconds) is not int or ttl_seconds <= 0:
-        raise ValueError("Kodi setup code TTL must be a positive integer")
     now = time.time()
     expires_at = now + ttl_seconds
-    if not math.isfinite(expires_at):
-        raise ValueError("Kodi setup code expiration must be finite")
 
     for _ in range(KODI_SETUP_MAX_GENERATION_ATTEMPTS):
         code = secrets.token_hex(KODI_SETUP_CODE_BYTES)
@@ -92,7 +87,4 @@ async def consume_b64config_for_setup_code(code: str):
     )
     if row is None:
         return None
-    candidate = dict(row)
-    if type(candidate.get("config_b64")) is not str:
-        raise ValueError("consumed Kodi setup code has an invalid schema")
-    return candidate["config_b64"]
+    return row["config_b64"]

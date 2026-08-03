@@ -1,20 +1,18 @@
 import asyncio
-import re
-from datetime import datetime
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote
 
 import aiohttp
 import orjson
 from RTN import normalize_title, parse, title_match
 
 from comet.core.execution import get_executor
-from comet.core.models import VALID_DEBRID_SERVICES, settings
-from comet.core.provider_json import (
-    ProviderJsonError,
-    is_success_status,
-)
-from comet.core.sources import MAX_SIGNED_BIGINT
+from comet.core.models import settings
+from comet.core.provider_json import is_success_status
 from comet.debrid.exceptions import DebridAuthError, DebridLinkGenerationError
+from comet.debrid.file_selection import (
+    is_auxiliary_video,
+    select_best_availability_files,
+)
 from comet.debrid.link_cache import valid_download_url
 from comet.metadata.episode_index import EpisodeIndexService
 from comet.services.debrid_cache import schedule_cache_availability
@@ -33,71 +31,6 @@ _REQUEST_TIMEOUT = aiohttp.ClientTimeout(
     sock_connect=5,
     sock_read=15,
 )
-_MAX_CHECK_HASHES = 5_000
-_MAX_MAGNET_FILES = 2_048
-_INFO_HASH = re.compile(r"[0-9a-f]{40}")
-_ERROR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
-
-
-def _bounded_text(
-    value: object,
-    maximum_bytes: int,
-    *,
-    allow_empty: bool = False,
-) -> bool:
-    if not isinstance(value, str) or (not value and not allow_empty):
-        return False
-    try:
-        size = len(value.encode("utf-8"))
-    except UnicodeEncodeError:
-        return False
-    return size <= maximum_bytes and not any(
-        ord(character) < 32 or ord(character) == 127 for character in value
-    )
-
-
-def _stremthru_base_url(value: object) -> str:
-    if (
-        not _bounded_text(value, 1024)
-        or "\\" in value
-        or any(character.isspace() for character in value)
-    ):
-        raise ValueError("StremThru URL is invalid")
-    try:
-        parsed = urlsplit(value)
-        _ = parsed.port
-    except (TypeError, ValueError):
-        raise ValueError("StremThru URL is invalid") from None
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or "@" in parsed.netloc
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("StremThru URL is invalid")
-    return urlunsplit(
-        (
-            parsed.scheme,
-            parsed.netloc.lower(),
-            parsed.path.rstrip("/"),
-            "",
-            "",
-        )
-    )
-
-
-def _safe_error_code(value: object) -> str | None:
-    return value if isinstance(value, str) and _ERROR_CODE.fullmatch(value) else None
-
-
-def _valid_added_at(value: object) -> bool:
-    if not _bounded_text(value, 64):
-        return False
-    try:
-        return datetime.fromisoformat(value).tzinfo is not None
-    except (TypeError, ValueError, OverflowError):
-        return False
 
 
 def batch_parse(filenames):
@@ -113,56 +46,19 @@ def _prepare_cached_torrents(responses, *, is_offcloud: bool):
     seen_hashes = set()
 
     for response in responses:
-        if not isinstance(response, dict):
-            raise ValueError("invalid instant availability response")
-        data = response.get("data")
-        if not isinstance(data, dict):
-            raise ValueError("invalid instant availability response")
-        items = data.get("items")
-        if not isinstance(items, list) or len(items) > 500:
-            raise ValueError("invalid instant availability response")
-
-        for torrent in items:
-            if not isinstance(torrent, dict):
-                continue
-            info_hash = torrent.get("hash")
-            if (
-                not isinstance(info_hash, str)
-                or _INFO_HASH.fullmatch(info_hash) is None
-            ):
-                continue
+        for torrent in response["data"]["items"]:
+            info_hash = torrent["hash"]
             if info_hash in seen_hashes:
                 continue
 
             prepared_files = []
             if not is_offcloud:
-                torrent_files = torrent.get("files")
-                if (
-                    not isinstance(torrent_files, list)
-                    or len(torrent_files) > _MAX_MAGNET_FILES
-                ):
-                    continue
-
-                for file in torrent_files:
-                    if not isinstance(file, dict):
-                        continue
-                    name = file.get("name")
-                    index = file.get("index")
-                    size = file.get("size")
-                    if (
-                        isinstance(index, bool)
-                        or not isinstance(index, int)
-                        or not -1 <= index <= MAX_SIGNED_BIGINT
-                        or isinstance(size, bool)
-                        or not isinstance(size, int)
-                        or not -1 <= size <= MAX_SIGNED_BIGINT
-                    ):
-                        continue
+                for file in torrent["files"]:
+                    name = file["name"]
+                    index = file["index"]
                     if name == "" and index == -1 and file.get("path") == "":
                         # StremThru can include a store-specific cache marker next
                         # to richer file metadata learned from another source.
-                        continue
-                    if not _bounded_text(name, 2_048):
                         continue
                     filename = name.rsplit("/", 1)[-1]
                     if not is_video(filename):
@@ -193,19 +89,8 @@ class StremThru:
         ip: str,
     ):
         store, token = self.parse_store_creds(token)
-        if (
-            store not in VALID_DEBRID_SERVICES
-            or not _bounded_text(token, 2_048)
-            or not _bounded_text(ip, 64, allow_empty=True)
-            or any(
-                value is not None and not _bounded_text(value, 256, allow_empty=True)
-                for value in (video_id, media_only_id)
-            )
-        ):
-            raise ValueError("StremThru credentials or request context are invalid")
-
         self.session = session
-        self.base_url = f"{_stremthru_base_url(settings.STREMTHRU_URL)}/v0/store"
+        self.base_url = f"{settings.STREMTHRU_URL.rstrip('/')}/v0/store"
         self.store_name = store
         self.store_token = token
         self.client_ip = ip
@@ -214,8 +99,6 @@ class StremThru:
 
     @staticmethod
     def parse_store_creds(token: str) -> tuple[str, str]:
-        if not isinstance(token, str):
-            return "", ""
         store, separator, credential = token.partition(":")
         return (store, credential) if separator else (store, "")
 
@@ -230,14 +113,11 @@ class StremThru:
 
     @staticmethod
     def _extract_upstream_error_code(upstream_error: dict | None) -> str | None:
-        if not isinstance(upstream_error, dict):
-            return None
-        return _safe_error_code(
-            upstream_error.get("code") or upstream_error.get("error")
-        )
+        upstream_error = upstream_error or {}
+        return upstream_error.get("code") or upstream_error.get("error")
 
     def _requested_episode_scope(self) -> tuple[str | None, int | None, int | None]:
-        if not isinstance(self.sid, str) or ":" not in self.sid:
+        if not self.sid or ":" not in self.sid:
             return None, None, None
         try:
             series_id, season, episode = parse_media_id("series", self.sid)
@@ -268,7 +148,7 @@ class StremThru:
         target_air_date: str | None = None,
     ) -> tuple[bool, int | None, int | None, str | None]:
         is_episode_request = (
-            isinstance(series_id, str)
+            series_id is not None
             and series_id.startswith("tt")
             and season is not None
             and episode is not None
@@ -303,13 +183,10 @@ class StremThru:
             ) as response:
                 status = response.status
                 data = orjson.loads(await response.read())
-                if not isinstance(data, dict):
-                    raise ProviderJsonError("invalid StremThru response")
         except (
             aiohttp.ClientError,
             TimeoutError,
             orjson.JSONDecodeError,
-            ProviderJsonError,
         ):
             raise DebridLinkGenerationError(
                 self.store_name,
@@ -333,15 +210,15 @@ class StremThru:
             action=action,
         )
         error = data.get("error")
-        if isinstance(error, dict):
+        if error:
             upstream = error.get("__upstream_cause__")
             raise DebridLinkGenerationError(
                 self.store_name,
                 f"{self.store_name}: Failed to {action}.",
-                error_code=_safe_error_code(error.get("code")),
+                error_code=error.get("code"),
                 upstream_error_code=self._extract_upstream_error_code(upstream),
             )
-        if error or not 200 <= status < 300:
+        if not 200 <= status < 300:
             raise DebridLinkGenerationError(
                 self.store_name,
                 f"{self.store_name}: Failed to {action}.",
@@ -361,22 +238,13 @@ class StremThru:
                 self.store_name,
                 f"{self.store_name}: Failed to check account status.",
             ) from None
-        if not is_success_status(status) or not isinstance(user.get("data"), dict):
+        if not is_success_status(status) or not user.get("data"):
             raise DebridAuthError(
                 self.store_name,
                 f"{self.store_name}: Invalid API key.\nPlease check your configuration.",
             )
 
     async def get_instant(self, magnets: list):
-        if (
-            not isinstance(magnets, list)
-            or not 1 <= len(magnets) <= 500
-            or any(
-                not isinstance(value, str) or _INFO_HASH.fullmatch(value) is None
-                for value in magnets
-            )
-        ):
-            raise ValueError("StremThru magnet check is invalid")
         status, payload = await self._request_store_json(
             "GET",
             "/magnets/check",
@@ -395,15 +263,6 @@ class StremThru:
         return payload
 
     async def list_magnets(self, limit: int = 500, offset: int = 0):
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= 500
-            or isinstance(offset, bool)
-            or not isinstance(offset, int)
-            or not 0 <= offset <= MAX_SIGNED_BIGINT
-        ):
-            raise ValueError("StremThru magnet page is invalid")
         status, payload = await self._request_store_json(
             "GET",
             "/magnets",
@@ -419,52 +278,8 @@ class StremThru:
                 self.store_name,
                 f"{self.store_name}: Failed to list account magnets.",
             )
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise ValueError("invalid magnet page")
-        items, total_items = data.get("items"), data.get("total_items")
-        if (
-            not isinstance(items, list)
-            or len(items) > limit
-            or isinstance(total_items, bool)
-            or not isinstance(total_items, int)
-            or not 0 <= total_items <= MAX_SIGNED_BIGINT
-            or total_items < offset + len(items)
-        ):
-            raise ValueError("invalid magnet page")
-        validated = []
-        for item in items:
-            if not isinstance(item, dict):
-                raise ValueError("invalid magnet row")
-            magnet_id = item.get("id")
-            info_hash = item.get("hash")
-            name = item.get("name")
-            size = item.get("size")
-            status_value = item.get("status")
-            added_at = item.get("added_at")
-            if (
-                not _bounded_text(magnet_id, 512)
-                or not isinstance(info_hash, str)
-                or _INFO_HASH.fullmatch(info_hash) is None
-                or not _bounded_text(name, 2_048, allow_empty=True)
-                or isinstance(size, bool)
-                or not isinstance(size, int)
-                or not 0 <= size <= MAX_SIGNED_BIGINT
-                or not _bounded_text(status_value, 128)
-                or not _valid_added_at(added_at)
-            ):
-                raise ValueError("invalid magnet row")
-            validated.append(
-                {
-                    "id": magnet_id,
-                    "hash": info_hash,
-                    "name": name,
-                    "size": size,
-                    "status": status_value,
-                    "added_at": added_at,
-                }
-            )
-        return validated, total_items
+        data = payload["data"]
+        return data["items"], data["total_items"]
 
     async def get_availability(
         self,
@@ -474,18 +289,9 @@ class StremThru:
         sources_map: dict,
         target_air_date: str | None = None,
     ):
-        if not isinstance(torrent_hashes, list):
-            raise ValueError("StremThru availability input is invalid")
         if not torrent_hashes:
             return []
-        if any(
-            not isinstance(value, str) or _INFO_HASH.fullmatch(value) is None
-            for value in torrent_hashes
-        ):
-            raise ValueError("StremThru availability input is invalid")
         torrent_hashes = list(dict.fromkeys(torrent_hashes))
-        if len(torrent_hashes) > _MAX_CHECK_HASHES:
-            raise ValueError("StremThru availability input is invalid")
         await self.check_premium()
 
         chunk_size = 500
@@ -506,7 +312,7 @@ class StremThru:
                 responses,
                 is_offcloud=is_offcloud,
             )
-        except ValueError:
+        except (AttributeError, KeyError, TypeError, ValueError):
             raise DebridLinkGenerationError(
                 self.store_name,
                 f"{self.store_name}: Invalid instant availability response.",
@@ -585,18 +391,11 @@ class StremThru:
                     season = parsed_season
                     episode = parsed_episode
 
-                index = file.get("index")
-                if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-                    index = None
-                size = file.get("size")
-                if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-                    size = None
-
                 file_info = {
                     "info_hash": info_hash,
-                    "index": index,
+                    "index": file["index"],
                     "title": filename,
-                    "size": size,
+                    "size": file["size"],
                     "season": season,
                     "episode": episode,
                     "parsed": filename_parsed,
@@ -606,9 +405,12 @@ class StremThru:
                 }
 
                 files.append(file_info)
-                await torrent_update_queue.add_torrent_info(
-                    file_info, self.media_only_id
-                )
+
+        files = select_best_availability_files(files)
+        for file_info in files:
+            if is_auxiliary_video(file_info["parsed"]):
+                continue
+            await torrent_update_queue.add_torrent_info(file_info, self.media_only_id)
         return files
 
     async def generate_download_link(
@@ -634,41 +436,6 @@ class StremThru:
         6. Index match from original selection (+25)
         7. Fallback: largest video file (+file_size as tiebreaker)
         """
-        if (
-            not isinstance(hash, str)
-            or _INFO_HASH.fullmatch(hash) is None
-            or not isinstance(index, str)
-            or (
-                index != "n"
-                and (
-                    not index.isascii()
-                    or not index.isdecimal()
-                    or len(index) > 19
-                    or int(index) > MAX_SIGNED_BIGINT
-                )
-            )
-            or not _bounded_text(name, 2_048)
-            or not _bounded_text(torrent_name, 2_048)
-            or any(
-                value is not None
-                and (
-                    isinstance(value, bool)
-                    or not isinstance(value, int)
-                    or not 0 <= value <= MAX_SIGNED_BIGINT
-                )
-                for value in (season, episode)
-            )
-            or sources is not None
-            and (
-                not isinstance(sources, list)
-                or len(sources) > 64
-                or any(not _bounded_text(source, 2_048) for source in sources)
-            )
-        ):
-            raise DebridLinkGenerationError(
-                self.store_name,
-                f"{self.store_name}: Invalid playback request.",
-            )
         try:
             magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name)}"
 
@@ -683,11 +450,8 @@ class StremThru:
                 params={"client_ip": self.client_ip},
             )
 
-            magnet_data = magnet.get("data")
-            if not isinstance(magnet_data, dict):
-                raise ValueError("invalid magnet response")
-            debrid_files = magnet_data.get("files")
-            if not isinstance(debrid_files, list) or not debrid_files:
+            debrid_files = magnet["data"]["files"]
+            if not debrid_files:
                 raise DebridLinkGenerationError(
                     self.store_name,
                     f"{self.store_name}: Media is not cached yet.",
@@ -696,46 +460,17 @@ class StremThru:
 
             name = unquote(name)
             torrent_name = unquote(torrent_name)
-            if not _bounded_text(name, 2_048) or not _bounded_text(
-                torrent_name,
-                2_048,
-            ):
-                raise ValueError("invalid decoded playback title")
-
-            aliases = aliases if isinstance(aliases, dict) else {}
+            aliases = aliases or {}
             ez_aliases_normalized = frozenset(
                 normalized
-                for alias in (
-                    aliases.get("ez", [])[:128]
-                    if isinstance(aliases.get("ez"), list)
-                    else ()
-                )
-                if isinstance(alias, str) and (normalized := normalize_title(alias))
+                for alias in aliases.get("ez", [])
+                if (normalized := normalize_title(alias))
             )
-
-            if len(debrid_files) > _MAX_MAGNET_FILES:
-                raise ValueError("invalid magnet files")
 
             video_files = []
             filenames_to_parse = []
             for file in debrid_files:
-                if not isinstance(file, dict):
-                    raise ValueError("invalid magnet file")
-                filename = file.get("name")
-                file_index = file.get("index")
-                file_size = file.get("size")
-                file_link = file.get("link")
-                if (
-                    not _bounded_text(filename, 2_048)
-                    or isinstance(file_index, bool)
-                    or not isinstance(file_index, int)
-                    or not -1 <= file_index <= MAX_SIGNED_BIGINT
-                    or isinstance(file_size, bool)
-                    or not isinstance(file_size, int)
-                    or not -1 <= file_size <= MAX_SIGNED_BIGINT
-                    or (file_link is not None and not _bounded_text(file_link, 8_192))
-                ):
-                    raise ValueError("invalid magnet file")
+                filename = file["name"]
                 if not is_video(filename):
                     continue
 
@@ -747,8 +482,9 @@ class StremThru:
 
             loop = asyncio.get_running_loop()
             parsed_results = await loop.run_in_executor(
-                get_executor(), batch_parse, filenames_to_parse
+                get_executor(), batch_parse, [*filenames_to_parse, torrent_name]
             )
+            release_parsed = parsed_results.pop()
 
             scored_files = []
             (
@@ -765,6 +501,8 @@ class StremThru:
                 strict=True,
             ):
                 if parsed is None:
+                    continue
+                if is_auxiliary_video(parsed, release_parsed):
                     continue
                 file_index = file["index"] if file.get("index", -1) != -1 else None
                 file_size = file["size"] if file.get("size", -1) != -1 else 0
@@ -857,7 +595,11 @@ class StremThru:
                         f"{self.store_name}: No file matched requested episode.",
                         upstream_error_code="EPISODE_MATCH_NOT_FOUND",
                     )
-                return
+                raise DebridLinkGenerationError(
+                    self.store_name,
+                    f"{self.store_name}: Media is not cached yet.",
+                    upstream_error_code="MEDIA_NOT_CACHED_YET",
+                )
 
             # Sort by score descending
             scored_files.sort(key=lambda x: x["score"], reverse=True)
@@ -908,12 +650,7 @@ class StremThru:
                 params={"client_ip": self.client_ip},
             )
 
-            link_data = link.get("data")
-            link_url = (
-                valid_download_url(link_data.get("link"))
-                if isinstance(link_data, dict)
-                else None
-            )
+            link_url = valid_download_url(link["data"]["link"])
             if link_url is None:
                 raise DebridLinkGenerationError(
                     self.store_name,
@@ -923,7 +660,7 @@ class StremThru:
             return link_url
         except DebridLinkGenerationError:
             raise
-        except ValueError:
+        except (AttributeError, KeyError, TypeError, ValueError):
             raise DebridLinkGenerationError(
                 self.store_name,
                 f"{self.store_name}: Failed to generate download link.",

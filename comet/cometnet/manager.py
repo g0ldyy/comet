@@ -19,7 +19,7 @@ from comet.cometnet.discovery import (
     DiscoveryService,
     canonicalize_persisted_peers,
     is_valid_peer_address,
-    validate_discovery_configuration,
+    resolve_discovery_configuration,
 )
 from comet.cometnet.gossip import GossipEngine
 from comet.cometnet.interface import CometNetBackend
@@ -94,7 +94,7 @@ class CometNetService(CometNetBackend):
             self.bootstrap_nodes,
             self.min_peers,
             self.max_peers,
-        ) = validate_discovery_configuration(
+        ) = resolve_discovery_configuration(
             manual_peers, bootstrap_nodes, min_peers, max_peers
         )
         self.keys_dir = Path(keys_dir) if keys_dir else Path("data/cometnet")

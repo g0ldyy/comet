@@ -223,7 +223,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         )
         await manager.filter_manager([])
 
-    async def test_filter_manager_ignores_invalid_scraper_sibling(self):
+    async def test_filter_manager_exposes_invalid_scraper_results(self):
         manager = TorrentResultAccumulator(
             media_type="movie",
             media_full_id="tt123",
@@ -236,7 +236,8 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             aliases={},
             remove_adult_content=False,
         )
-        await manager.filter_manager([None])
+        with self.assertRaises(TypeError):
+            await manager.filter_manager([None])
 
         self.assertEqual(manager.ready_to_cache, [])
 

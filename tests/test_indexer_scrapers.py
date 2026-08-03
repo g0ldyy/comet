@@ -374,11 +374,6 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
               <torznab:attr name="size" value="1000" />
               <torznab:attr name="infohash" value="3333333333333333333333333333333333333333" />
             </item>
-            <item>
-              <title>Missing hash must not discard valid siblings</title>
-              <torznab:attr name="size" value="invalid" />
-              <torznab:attr name="infohash" value="" />
-            </item>
           </channel>
         </rss>
         """

@@ -102,7 +102,7 @@ class LoggingContractTests(unittest.TestCase):
     def test_invalid_configuration_log_explains_cross_field_failure(self):
         self.configure("normal")
         try:
-            AppSettings(_env_file=None, COMETNET_ENABLED=True)
+            AppSettings(_env_file=None, USENET_ENGINE_ENABLED=True)
         except ValidationError as error:
             records = self.render(
                 lambda captured_error=error: configuration_invalid(
@@ -110,11 +110,11 @@ class LoggingContractTests(unittest.TestCase):
                 )
             )
         else:
-            self.fail("invalid CometNet topology was accepted")
+            self.fail("invalid Usenet topology was accepted")
 
         payload = json.loads(records[0])
         self.assertEqual(payload["event"], "config.invalid")
-        self.assertIn("public CometNet requires", payload["details"])
+        self.assertIn("require USENET_ENABLED", payload["details"])
 
     def test_invalid_configuration_preserves_loader_failure_diagnostic(self):
         self.configure("normal")

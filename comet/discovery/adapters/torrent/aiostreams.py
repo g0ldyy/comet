@@ -2,7 +2,7 @@ import base64
 from functools import cache
 
 from comet.core.provider_json import is_success_status
-from comet.discovery.torrent_base import TorrentDiscoveryAdapter, parse_valid_items
+from comet.discovery.torrent_base import TorrentDiscoveryAdapter
 from comet.discovery.torrent_models import ScrapeRequest
 
 
@@ -32,24 +32,13 @@ class AiostreamsScraper(TorrentDiscoveryAdapter):
 
     @staticmethod
     def _parse_stream(torrent):
-        if not isinstance(torrent, dict):
-            raise ValueError("AIOStreams result is invalid")
-
-        title = torrent.get("filename")
-        info_hash = torrent.get("infoHash")
+        title = torrent["filename"]
+        info_hash = torrent["infoHash"]
         sources = torrent.get("sources", [])
-        if (
-            not isinstance(title, str)
-            or not title
-            or not isinstance(info_hash, str)
-            or not info_hash
-            or not isinstance(sources, list)
-        ):
-            raise ValueError("AIOStreams result is invalid")
 
         tracker = "AIOStreams"
         indexer = torrent.get("indexer")
-        if isinstance(indexer, str) and indexer:
+        if indexer:
             tracker += f"|{indexer}"
 
         return {
@@ -71,9 +60,4 @@ class AiostreamsScraper(TorrentDiscoveryAdapter):
             if not is_success_status(response.status):
                 raise RuntimeError(f"HTTP {response.status}")
             results = await response.json()
-        if not isinstance(results, dict) or not isinstance(results.get("data"), dict):
-            raise ValueError("AIOStreams response is invalid")
-        streams = results["data"].get("results")
-        if not isinstance(streams, list):
-            raise ValueError("AIOStreams response is invalid")
-        return parse_valid_items(streams, self._parse_stream)
+        return [self._parse_stream(stream) for stream in results["data"]["results"]]

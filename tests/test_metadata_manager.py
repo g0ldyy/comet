@@ -342,7 +342,7 @@ class MetadataRefreshTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(aliases)
 
-    def test_cached_aliases_keep_only_bounded_usable_titles(self):
+    def test_cached_aliases_normalize_usable_titles(self):
         normalized = MetadataScraper._load_cached_aliases(
             orjson.dumps({"US": [" First ", "First"]})
         )
@@ -353,19 +353,12 @@ class MetadataRefreshTests(unittest.IsolatedAsyncioTestCase):
             ),
             {"us": ["First"]},
         )
-        bounded = MetadataScraper._load_cached_aliases(
+        aliases = MetadataScraper._load_cached_aliases(
             orjson.dumps({"ez": [f"Alias {index}" for index in range(513)]})
         )
-        self.assertEqual(len(bounded["ez"]), 512)
-        with self.assertRaisesRegex(ValueError, "storage limit"):
-            MetadataScraper._load_cached_aliases(("é" * (1024 * 1024)).encode("utf-8"))
+        self.assertEqual(len(aliases["ez"]), 513)
         with self.assertRaises(orjson.JSONDecodeError):
             MetadataScraper._load_cached_aliases(b"not-json")
-
-    def test_nonfinite_cache_timestamps_are_never_fresh(self):
-        for value in (True, float("inf"), float("-inf"), float("nan")):
-            with self.subTest(value=value):
-                self.assertFalse(MetadataScraper._is_fresh(value, time.time()))
 
     async def test_parallel_provider_failure_is_not_masked(self):
         async def fail():

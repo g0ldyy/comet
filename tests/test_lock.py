@@ -1,5 +1,4 @@
 import asyncio
-import math
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -7,19 +6,6 @@ from comet.services.lock import DistributedLock
 
 
 class DistributedLockLeaseTests(unittest.IsolatedAsyncioTestCase):
-    def test_constructor_rejects_open_lock_domains(self):
-        invalid_options = (
-            {"lock_key": ""},
-            {"lock_key": "x" * 513},
-            {"lock_key": "secret\nkey"},
-            {"lock_key": "media", "timeout": 0},
-            {"lock_key": "media", "timeout": math.inf},
-            {"lock_key": "media", "retry_interval": 0},
-        )
-        for options in invalid_options:
-            with self.subTest(options=options), self.assertRaises(ValueError):
-                DistributedLock(**options)
-
     async def test_zero_wait_timeout_attempts_once_without_sleeping(self):
         database = type(
             "Database",

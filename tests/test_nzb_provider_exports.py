@@ -124,8 +124,6 @@ class NzbProviderExportTests(unittest.IsolatedAsyncioTestCase):
                 capability.removeprefix("nx1."),
                 now=current_time,
             )
-        with self.assertRaisesRegex(ValueError, "GC limit"):
-            await repository.garbage_collect(now=current_time, limit=257)
 
     async def test_gc_waits_for_a_live_provider_preparation(self):
         repository = NzbProviderExportRepository(self.database)

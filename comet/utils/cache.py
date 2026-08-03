@@ -50,12 +50,6 @@ def _parse_entity_tag_list(value: str) -> list[str] | None:
     return tags or None
 
 
-def _validate_cache_seconds(seconds: int) -> int:
-    if type(seconds) is not int or seconds < 0:
-        raise ValueError("cache durations must be non-negative integers")
-    return seconds
-
-
 class CacheControl:
     def __init__(self):
         self._directives = []
@@ -86,22 +80,22 @@ class CacheControl:
 
     def max_age(self, seconds: int):
         """Maximum time response is considered fresh (browser cache)."""
-        self._max_age = _validate_cache_seconds(seconds)
+        self._max_age = seconds
         return self
 
     def s_maxage(self, seconds: int):
         """Maximum time response is fresh for shared caches (CDN/proxy)."""
-        self._s_maxage = _validate_cache_seconds(seconds)
+        self._s_maxage = seconds
         return self
 
     def stale_while_revalidate(self, seconds: int):
         """Serve stale while revalidating in background."""
-        self._stale_while_revalidate = _validate_cache_seconds(seconds)
+        self._stale_while_revalidate = seconds
         return self
 
     def stale_if_error(self, seconds: int):
         """Serve stale if origin returns error."""
-        self._stale_if_error = _validate_cache_seconds(seconds)
+        self._stale_if_error = seconds
         return self
 
     def build(self):

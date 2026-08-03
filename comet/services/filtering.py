@@ -32,9 +32,7 @@ _FILTER_MESSAGES = {
 }
 
 
-def _filter_debug_text(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
+def _filter_debug_text(value: str) -> str | None:
     sanitized = "".join(
         " " if unicodedata.category(character) in {"Cc", "Cf"} else character
         for character in value
@@ -402,11 +400,7 @@ def filter_release_records(
                 if lang not in ("neutral", "en"):
                     country_aliases[scrubbed_t] = lang
     for record in records:
-        if not isinstance(record, dict):
-            continue
-        release_title = record.get("title")
-        if not isinstance(release_title, str):
-            continue
+        release_title = record["title"]
 
         if release_title == "":
             _log_filter_decision(
@@ -502,8 +496,7 @@ def filter_release_candidates(
 ) -> tuple[ReleaseCandidate, ...]:
     """Parse and media-match transport-neutral discovery candidates."""
     records = [
-        {"title": candidate.title, "candidate": candidate}
-        for candidate in candidates
+        {"title": candidate.title, "candidate": candidate} for candidate in candidates
     ]
     filtered = filter_release_records(
         records,

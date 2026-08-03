@@ -1,4 +1,3 @@
-import re
 import time
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -13,8 +12,6 @@ from comet.utils.year import parse_year, parse_year_range
 _IMDB_SUGGESTION_URL = "https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
 _CINEMETA_META_URL = "https://v3-cinemeta.strem.io/meta/{media_type}/{id}.json"
 _CINEMETA_MEDIA_TYPES = ("movie", "series")
-_IMDB_ID = re.compile(r"tt[0-9]{7,10}")
-_MAX_TITLE_QUERY_BYTES = 512
 _MOVIE_TYPES = frozenset(
     {
         "feature",
@@ -93,13 +90,6 @@ async def _cached_title_match(query_key: str) -> ImdbTitleMatch | None:
     imdb_id = row["imdb_id"]
     media_type = row["media_type"]
     year = row["year"]
-    if (
-        not isinstance(imdb_id, str)
-        or _IMDB_ID.fullmatch(imdb_id) is None
-        or media_type not in _CINEMETA_MEDIA_TYPES
-        or (year is not None and metadata_year(year) is None)
-    ):
-        raise ValueError("cached IMDb title match is invalid")
     return ImdbTitleMatch(imdb_id, media_type, year)
 
 
@@ -119,7 +109,7 @@ async def _store_title_match(query_key: str, match: ImdbTitleMatch) -> None:
 def _suggestion_media_type(element: dict) -> str | None:
     for key in ("qid", "q"):
         raw_value = element.get(key)
-        if not isinstance(raw_value, str):
+        if not raw_value:
             continue
         normalized = "".join(
             character for character in raw_value.lower() if character.isalnum()
@@ -136,15 +126,12 @@ def _extract_title_match(
     media_type: str | None = None,
     year: int | None = None,
 ) -> ImdbTitleMatch | None:
-    if not isinstance(payload.get("d"), list):
-        return None
-
     nearest_match = None
-    for element in payload["d"]:
-        if not isinstance(element, dict):
+    for element in payload.get("d") or []:
+        if element is None:
             continue
         imdb_id = element.get("id")
-        if not isinstance(imdb_id, str) or _IMDB_ID.fullmatch(imdb_id) is None:
+        if not imdb_id:
             continue
         candidate_type = _suggestion_media_type(element)
         if candidate_type is None or (
@@ -169,7 +156,7 @@ async def resolve_imdb_title(
     media_type: str | None = None,
     year: int | None = None,
 ) -> ImdbTitleMatch | None:
-    normalized_query = metadata_text(query, maximum=_MAX_TITLE_QUERY_BYTES)
+    normalized_query = metadata_text(query)
     if (
         normalized_query is None
         or media_type not in (None, *_CINEMETA_MEDIA_TYPES)
@@ -200,19 +187,11 @@ def _extract_imdb_metadata(
     payload: dict,
     expected_id: str | None = None,
 ) -> tuple[str | None, int | None, int | None]:
-    elements = payload.get("d")
-    if not isinstance(elements, list):
-        return None, None, None
-
-    for element in elements:
-        if not isinstance(element, dict):
+    for element in payload.get("d") or []:
+        if element is None:
             continue
         item_id = element.get("id")
-        if (
-            not isinstance(item_id, str)
-            or _IMDB_ID.fullmatch(item_id) is None
-            or (expected_id is not None and item_id != expected_id)
-        ):
+        if expected_id is not None and item_id != expected_id:
             continue
 
         title = metadata_text(element.get("l"))
@@ -233,7 +212,7 @@ def _extract_cinemeta_metadata(
     payload: dict,
 ) -> tuple[str | None, int | None, int | None]:
     meta = payload.get("meta")
-    if not isinstance(meta, dict):
+    if meta is None:
         return None, None, None
     title = metadata_text(meta.get("name"))
     if title is None:
@@ -262,8 +241,6 @@ def _iter_cinemeta_media_types(media_type: str | None):
 async def _get_cinemeta_metadata(
     session: aiohttp.ClientSession, id: str, media_type: str | None
 ) -> tuple[str | None, int | None, int | None]:
-    if not isinstance(id, str) or _IMDB_ID.fullmatch(id) is None:
-        return None, None, None
     last_error = None
     for candidate_type in _iter_cinemeta_media_types(media_type):
         url = _CINEMETA_META_URL.format(media_type=candidate_type, id=id)
@@ -291,8 +268,6 @@ async def _get_cinemeta_metadata(
 async def get_imdb_metadata(
     session: aiohttp.ClientSession, id: str, media_type: str | None = None
 ):
-    if not isinstance(id, str) or _IMDB_ID.fullmatch(id) is None:
-        return None, None, None
     try:
         response = await get_metadata_json(
             session,

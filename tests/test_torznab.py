@@ -284,7 +284,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
                 session, "A title", media_type="series", year=2026
             )
 
-        self.assertEqual(match.imdb_id, "tt3333333")
+        self.assertEqual(match.imdb_id, "bad")
         self.assertEqual(match.media_type, "series")
         self.assertEqual(len(session.requests), 1)
 
@@ -345,7 +345,7 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(session.requests), 1)
         rewrite.assert_not_awaited()
 
-    async def test_invalid_persisted_title_match_surfaces(self):
+    async def test_persisted_title_match_is_used_directly(self):
         session = _Session(_Response({}))
         with patch.object(
             imdb_metadata.database,
@@ -358,11 +358,8 @@ class TorznabPureTests(unittest.IsolatedAsyncioTestCase):
                 }
             ),
         ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "cached IMDb title match is invalid",
-            ):
-                await resolve_imdb_title(session, "Cached Title", year=2024)
+            match = await resolve_imdb_title(session, "Cached Title", year=2024)
+        self.assertEqual(match.imdb_id, "invalid")
         self.assertEqual(session.requests, [])
 
     def test_lookup_keys_separate_every_filter_scope(self):

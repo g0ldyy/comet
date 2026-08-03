@@ -93,7 +93,7 @@ class StremThruAvailabilityTests(unittest.TestCase):
             filenames,
         )
 
-    def test_malformed_file_does_not_discard_a_valid_sibling(self):
+    def test_malformed_file_exposes_the_provider_payload(self):
         responses = [
             {
                 "data": {
@@ -114,13 +114,8 @@ class StremThruAvailabilityTests(unittest.TestCase):
             }
         ]
 
-        torrents, filenames = _prepare_cached_torrents(
-            responses,
-            is_offcloud=False,
-        )
-
-        self.assertEqual(filenames, ["Movie.mkv"])
-        self.assertEqual(len(torrents), 1)
+        with self.assertRaises(KeyError):
+            _prepare_cached_torrents(responses, is_offcloud=False)
 
     def test_store_cache_marker_is_ignored_without_losing_real_files(self):
         responses = [
@@ -203,7 +198,7 @@ class StremThruAvailabilityTests(unittest.TestCase):
 
 
 class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
-    async def test_malformed_instant_payload_becomes_an_isolated_provider_error(self):
+    async def test_empty_instant_items_are_passed_through(self):
         client = StremThru(None, None, None, "debridlink:token", "")
         client.check_premium = AsyncMock()
         client.get_instant = AsyncMock(
@@ -214,11 +209,49 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        with self.assertRaisesRegex(
-            DebridLinkGenerationError,
-            "Invalid instant availability response",
-        ):
-            await client.get_availability(["a" * 40], {}, {}, {})
+        self.assertEqual(
+            await client.get_availability(["a" * 40], {}, {}, {}),
+            [],
+        )
+
+    async def test_availability_selects_feature_instead_of_last_sample(self):
+        info_hash = "a" * 40
+        client = StremThru(None, "tt1234567", "tt1234567", "torbox:token", "")
+        client.check_premium = AsyncMock()
+        client.get_instant = AsyncMock(
+            return_value={
+                "data": {
+                    "items": [
+                        {
+                            "hash": info_hash,
+                            "files": [
+                                {
+                                    "index": 1,
+                                    "name": "Movie.2026.2160p.WEB-DL-GROUP.mkv",
+                                    "size": 19_000,
+                                },
+                                {
+                                    "index": 11,
+                                    "name": "Sample.mkv",
+                                    "size": 300,
+                                },
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+
+        with patch(
+            "comet.debrid.stremthru.torrent_update_queue.add_torrent_info",
+            new=AsyncMock(),
+        ) as enqueue:
+            files = await client.get_availability([info_hash], {}, {}, {})
+
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]["index"], 1)
+        self.assertEqual(files[0]["title"], "Movie.2026.2160p.WEB-DL-GROUP.mkv")
+        enqueue.assert_awaited_once_with(files[0], "tt1234567")
 
     async def test_store_json_response_closes_after_complete_payload_read(self):
         response = _ResponseContext({"data": {"value": "complete"}})
@@ -292,7 +325,7 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
         response = _ResponseContext({"data": None})
         client = StremThru(_Session(response), None, None, "realdebrid:token", "")
 
-        with self.assertRaisesRegex(ValueError, "invalid magnet page"):
+        with self.assertRaises(TypeError):
             await client.list_magnets()
         self.assertTrue(response.exited)
 
@@ -331,6 +364,7 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
                     "size": 42,
                     "status": "cached",
                     "added_at": "2026-07-28T12:00:00+00:00",
+                    "future": "ignored",
                 }
             ],
         )
@@ -368,14 +402,13 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(items[0]["status"], "Provider-New-State")
 
-    async def test_invalid_instant_hash_is_rejected_before_network(self):
+    async def test_instant_hash_is_forwarded_without_revalidation(self):
         session = _Session(_ResponseContext({}))
         client = StremThru(session, None, None, "realdebrid:token", "")
 
-        with self.assertRaises(ValueError):
-            await client.get_instant(["A" * 40])
+        self.assertEqual(await client.get_instant(["A" * 40]), {})
 
-        self.assertFalse(session.calls)
+        self.assertEqual(len(session.calls), 1)
 
     async def test_store_error_keeps_only_bounded_codes(self):
         client = StremThru(
@@ -410,17 +443,15 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("secret-bearing", str(raised.exception))
         self.assertFalse(hasattr(raised.exception, "payload"))
 
-    def test_configuration_rejects_ambiguous_origins_and_control_credentials(self):
-        with (
-            patch(
-                "comet.debrid.stremthru.settings.STREMTHRU_URL",
-                "https://user@stremthru.example",
-            ),
-            self.assertRaises(ValueError),
+    def test_configuration_is_not_revalidated_at_runtime(self):
+        with patch(
+            "comet.debrid.stremthru.settings.STREMTHRU_URL",
+            "https://user@stremthru.example",
         ):
-            StremThru(None, None, None, "realdebrid:token", "")
-        with self.assertRaises(ValueError):
-            StremThru(None, None, None, "realdebrid:bad\nkey", "")
+            client = StremThru(None, None, None, "realdebrid:bad\nkey", "")
+
+        self.assertEqual(client.base_url, "https://user@stremthru.example/v0/store")
+        self.assertEqual(client.store_token, "bad\nkey")
 
     async def test_download_generation_accepts_native_sentinel_and_additive_fields(
         self,
@@ -488,6 +519,36 @@ class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
                 "generate download link",
             ),
         )
+
+    async def test_download_generation_rejects_sample_for_feature_release(self):
+        client = StremThru(None, None, None, "torbox:token", "")
+        client._post_store_json = AsyncMock(
+            return_value={
+                "data": {
+                    "files": [
+                        {
+                            "index": 11,
+                            "name": "Sample.mkv",
+                            "size": 300,
+                            "link": "provider-sample-link",
+                        }
+                    ]
+                }
+            }
+        )
+
+        with self.assertRaises(DebridLinkGenerationError) as raised:
+            await client.generate_download_link(
+                "a" * 40,
+                "11",
+                "Sample.mkv",
+                "Movie.2026.2160p.WEB-DL-GROUP",
+                None,
+                None,
+            )
+
+        self.assertEqual(raised.exception.upstream_error_code, "MEDIA_NOT_CACHED_YET")
+        client._post_store_json.assert_awaited_once()
 
     async def test_unexpected_link_error_is_not_hidden(self):
         client = StremThru(None, None, None, "realdebrid:token", "")

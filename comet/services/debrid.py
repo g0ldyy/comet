@@ -3,6 +3,7 @@ import time
 from RTN import ParsedData
 
 from comet.debrid.exceptions import DebridAuthError
+from comet.debrid.file_selection import select_best_availability_files
 from comet.debrid.manager import retrieve_debrid_availability
 from comet.observability import metrics
 from comet.services.debrid_cache import (
@@ -22,13 +23,7 @@ class DebridService:
 
     @staticmethod
     def _coerce_file_index(value):
-        if value is None:
-            return None
-        if type(value) is int:
-            return value
-        if isinstance(value, str) and value.isascii() and value.isdecimal():
-            return int(value)
-        raise ValueError("cached debrid file index is invalid")
+        return None if value is None else int(value)
 
     @staticmethod
     def _backfill_attr(merged: ParsedData, original: ParsedData, attr: str):
@@ -80,21 +75,26 @@ class DebridService:
         file_index,
         title: str | None,
         size: int | None,
-        parsed: ParsedData | str | bytes | None,
+        parsed: ParsedData | None,
     ) -> dict:
         update = {}
+        original_parsed = torrent.get("parsed")
+        metadata_is_downgrade = (
+            parsed is not None
+            and parsed.trash
+            and isinstance(original_parsed, ParsedData)
+            and not original_parsed.trash
+        )
 
-        if parsed is not None and not isinstance(parsed, ParsedData):
-            parsed = load_cached_parsed(parsed)
-        if parsed is not None:
-            merged_parsed = cls._merge_parsed(torrent.get("parsed"), parsed)
+        if parsed is not None and not metadata_is_downgrade:
+            merged_parsed = cls._merge_parsed(original_parsed, parsed)
             if merged_parsed is not None:
                 update["parsed"] = merged_parsed
 
         file_index = cls._coerce_file_index(file_index)
         if file_index is not None:
             update["fileIndex"] = file_index
-        if title is not None:
+        if title is not None and not metadata_is_downgrade:
             update["title"] = title
         if size is not None:
             update["size"] = size
@@ -149,6 +149,7 @@ class DebridService:
                     len(availability) if "availability" in locals() else 0,
                 )
 
+        availability = select_best_availability_files(availability, torrents)
         if len(availability) == 0:
             return set(), {}
 
@@ -232,31 +233,42 @@ class DebridService:
                 len(rows),
             )
 
+        if media_scope.is_aggregate:
+            return {row["info_hash"] for row in rows}, {}
+
+        rows = select_best_availability_files(
+            (
+                {
+                    "info_hash": row["info_hash"],
+                    "index": row["file_index"],
+                    "title": row["title"],
+                    "size": row["size"],
+                    "season": season,
+                    "episode": episode,
+                    "parsed": load_cached_parsed(row["parsed"]),
+                }
+                for row in rows
+            ),
+            torrents,
+        )
+
         cached_hashes = set()
         torrent_updates = {}
         for row in rows:
-            try:
-                info_hash = row["info_hash"]
-            except (KeyError, TypeError):
-                continue
-            if not isinstance(info_hash, str):
-                continue
+            info_hash = row["info_hash"]
             cached_hashes.add(info_hash)
             if torrents is not None and not media_scope.is_aggregate:
                 torrent = torrents.get(info_hash)
                 if torrent is None:
                     continue
 
-                try:
-                    update = self._build_torrent_update(
-                        torrent,
-                        file_index=row["file_index"],
-                        title=row["title"],
-                        size=row["size"],
-                        parsed=row["parsed"],
-                    )
-                except (TypeError, ValueError):
-                    continue
+                update = self._build_torrent_update(
+                    torrent,
+                    file_index=row["index"],
+                    title=row["title"],
+                    size=row["size"],
+                    parsed=row["parsed"],
+                )
                 if update:
                     torrent_updates[info_hash] = update
 
@@ -275,26 +287,33 @@ class DebridService:
             return
 
         rows = await get_cached_availability_any_service(info_hashes, season, episode)
+        rows = select_best_availability_files(
+            (
+                {
+                    "info_hash": row["info_hash"],
+                    "index": row["file_index"],
+                    "title": row["title"],
+                    "size": row["size"],
+                    "season": season,
+                    "episode": episode,
+                    "parsed": load_cached_parsed(row["parsed"]),
+                }
+                for row in rows
+            ),
+            torrents,
+        )
 
         for row in rows:
-            try:
-                info_hash = row["info_hash"]
-            except (KeyError, TypeError):
-                continue
-            if not isinstance(info_hash, str):
-                continue
+            info_hash = row["info_hash"]
             torrent = torrents.get(info_hash)
             if torrent is None:
                 continue
 
-            try:
-                update = cls._build_torrent_update(
-                    torrent,
-                    file_index=row["file_index"],
-                    title=row["title"],
-                    size=row["size"],
-                    parsed=row["parsed"],
-                )
-            except (TypeError, ValueError):
-                continue
+            update = cls._build_torrent_update(
+                torrent,
+                file_index=row["index"],
+                title=row["title"],
+                size=row["size"],
+                parsed=row["parsed"],
+            )
             torrent.update(update)

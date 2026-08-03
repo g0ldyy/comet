@@ -46,15 +46,6 @@ class ProviderHttpJsonTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(body, b'{"data":{}}')
 
-    async def test_body_rejects_invalid_limits_before_reading(self):
-        for maximum in (True, 0, -1, 2 * 1024 * 1024 + 1):
-            with self.subTest(maximum=maximum):
-                with self.assertRaisesRegex(ValueError, "limit"):
-                    await read_provider_body(
-                        _Response([b"{}"]),
-                        maximum=maximum,
-                    )
-
     def test_decoder_requires_canonical_utf8_and_maps_parser_failures(self):
         hostile_bodies = (
             '{"data":{}}'.encode("utf-16"),

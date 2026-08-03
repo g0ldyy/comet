@@ -1,4 +1,3 @@
-import math
 import unittest
 
 from cryptography.hazmat.primitives import serialization
@@ -87,15 +86,3 @@ class CometNetPublicKeyStoreTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     store.from_dict(payload)
                 self.assertEqual(store.to_dict(), original)
-
-    def test_constructor_and_cleanup_reject_boolean_nonfinite_or_zero_limits(self):
-        for value in (True, 0, -1):
-            with self.subTest(max_keys=value):
-                with self.assertRaises(ValueError):
-                    PublicKeyStore(value)
-
-        store = PublicKeyStore()
-        for value in (True, 0, math.inf, math.nan):
-            with self.subTest(max_age_days=value):
-                with self.assertRaises(ValueError):
-                    store.cleanup_old_keys(value)

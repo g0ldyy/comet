@@ -60,12 +60,11 @@ def _normalize_v2_torrent_providers(
     """Resolve canonical v2 torrent providers from their account envelopes."""
     if "bittorrent" not in (config.get("enabledTransports") or ()):
         return [], False
-    accounts = config.get("accounts")
-    accounts = accounts if isinstance(accounts, dict) else {}
+    accounts = config.get("accounts") or {}
     normalized = []
     direct_enabled = False
     for provider in config.get("playbackProviders") or ():
-        if not isinstance(provider, dict) or not provider.get("enabled"):
+        if not provider.get("enabled"):
             continue
         kind = provider.get("kind")
         if kind not in TORRENT_PROVIDER_KINDS:
@@ -74,13 +73,7 @@ def _normalize_v2_torrent_providers(
             direct_enabled = True
             continue
         account_id = provider.get("accountId")
-        credential = (
-            api_credential(accounts.get(account_id))
-            if isinstance(account_id, str)
-            else None
-        )
-        if not isinstance(credential, str) or not credential:
-            raise ValueError("enabled debrid provider has no account credential")
+        credential = api_credential(accounts.get(account_id)) or ""
         normalized.append(
             {
                 "configurationId": provider["configurationId"],
@@ -112,12 +105,6 @@ def _reject_nonfinite_json_constant(_value):
 def normalize_validated_config(validated_config: dict) -> dict:
     """Build the runtime representation shared by every configuration entrypoint."""
     options = _DEFAULT_OPTIONS | (validated_config["options"] or {})
-    if (
-        type(options["allow_english_in_languages"]) is not bool
-        or type(options["remove_unknown_languages"]) is not bool
-    ):
-        raise ValueError("configuration options are invalid")
-
     validated_config["options"] = {
         "allow_english_in_languages": options["allow_english_in_languages"],
         "remove_unknown_languages": options["remove_unknown_languages"],
@@ -165,8 +152,6 @@ def normalize_validated_config(validated_config: dict) -> dict:
 
 @lru_cache(maxsize=512)
 def _parse_and_validate_config(b64config: str):
-    if not isinstance(b64config, str):
-        return None
     try:
         encoded_size = len(b64config.encode("ascii"))
     except UnicodeEncodeError:

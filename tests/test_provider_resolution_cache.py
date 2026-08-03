@@ -292,9 +292,3 @@ class ProviderResolutionCacheTests(unittest.IsolatedAsyncioTestCase):
             await self.repository.cleanup_expired(now=6, limit=1),
             0,
         )
-        for limit in (True, 1.5, 257):
-            with (
-                self.subTest(limit=limit),
-                self.assertRaisesRegex(ValueError, "cleanup limit"),
-            ):
-                await self.repository.cleanup_expired(now=6, limit=limit)

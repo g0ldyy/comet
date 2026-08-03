@@ -45,8 +45,6 @@ class PublicKeyStore:
     """
 
     def __init__(self, max_keys: int = 10000):
-        if type(max_keys) is not int or max_keys <= 0:
-            raise ValueError("max_keys must be a positive integer")
         self.max_keys = max_keys
         self._keys: OrderedDict[str, PeerKey] = OrderedDict()
 
@@ -179,12 +177,6 @@ class PublicKeyStore:
 
     def cleanup_old_keys(self, max_age_days: float = 30.0) -> int:
         """Remove keys that haven't been seen in a while."""
-        if (
-            type(max_age_days) not in (int, float)
-            or not math.isfinite(max_age_days)
-            or max_age_days <= 0
-        ):
-            raise ValueError("max_age_days must be a finite positive number")
         cutoff = time.time() - (max_age_days * 86400)
         to_remove = [
             node_id for node_id, key in self._keys.items() if key.last_seen < cutoff
@@ -219,8 +211,6 @@ class PublicKeyStore:
     @classmethod
     def validate_persisted(cls, data: object, *, max_keys: int = 10000) -> None:
         """Validate a complete persisted candidate without publishing it."""
-        if type(max_keys) is not int or max_keys <= 0:
-            raise ValueError("max_keys must be a positive integer")
         if type(data) is not dict or "keys" not in data:
             raise ValueError("keystore does not match the current schema")
         if type(data["keys"]) is not dict:

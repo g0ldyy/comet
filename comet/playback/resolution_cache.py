@@ -429,8 +429,6 @@ class ProviderResolutionCacheRepository:
         now: float | None = None,
         limit: int = _MAX_GC_BATCH,
     ) -> int:
-        if type(limit) is not int or not 1 <= limit <= _MAX_GC_BATCH:
-            raise ValueError("provider resolution cleanup limit is invalid")
         now_ms = _milliseconds(time.time() if now is None else now)
         rows = await self._database.fetch_all(
             """

@@ -24,7 +24,7 @@ class KitsuMetadataTests(unittest.TestCase):
         payload = {
             "data": {
                 "attributes": {
-                    "canonicalTitle": ["invalid"],
+                    "canonicalTitle": None,
                     "titles": {"en": None, "en_jp": "English", "ja_jp": "Japanese"},
                     "startDate": "2025-01-01",
                     "endDate": "2024-01-01",

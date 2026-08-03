@@ -90,10 +90,6 @@ class MigrationContext:
     table_exists_cache: dict[str, bool] = field(default_factory=dict)
     table_columns_cache: dict[str, set[str]] = field(default_factory=dict)
 
-    def __post_init__(self):
-        if self.is_sqlite == self.is_postgres:
-            raise ValueError("migration context requires exactly one database backend")
-
 
 async def run_schema_migrations(
     database,

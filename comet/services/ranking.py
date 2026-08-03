@@ -69,8 +69,6 @@ def sort_candidates(
     """Rank one mixed transport-neutral batch with deterministic candidate ties."""
     ordered = tuple(candidates)
     by_id = {candidate.candidate_id: candidate for candidate in ordered}
-    if len(by_id) != len(ordered):
-        raise ValueError("ranking candidates must be unique")
     ranked_ids = rank_release_records(
         {
             candidate.candidate_id: {

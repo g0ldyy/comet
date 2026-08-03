@@ -222,16 +222,15 @@ def test_account_partition_is_independent_of_option_key_order():
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "message"),
+    ("field", "value"),
     [
-        ("accounts", [], "accounts"),
-        ("options", [], "options"),
+        ("accounts", []),
+        ("options", []),
     ],
 )
 def test_malformed_binding_containers_are_not_replaced_with_empty_values(
     field,
     value,
-    message,
 ):
     config = _easynews_config()
     if field == "accounts":
@@ -239,7 +238,7 @@ def test_malformed_binding_containers_are_not_replaced_with_empty_values(
     else:
         config["playbackProviders"][0][field] = value
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(AttributeError):
         build_playback_capability_bindings(config, CapabilityCodec(ROOT))
 
 

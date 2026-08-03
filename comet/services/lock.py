@@ -1,5 +1,4 @@
 import asyncio
-import math
 import time
 import uuid
 from collections.abc import Awaitable
@@ -20,25 +19,6 @@ _ACQUIRE_OR_REFRESH_LOCK_QUERY = """
     RETURNING 1
 """
 _T = TypeVar("_T")
-_MAX_LOCK_KEY_BYTES = 512
-_MAX_LOCK_SECONDS = 86_400
-
-
-def _bounded_seconds(
-    value: object,
-    *,
-    label: str,
-    allow_zero: bool,
-) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value < (0 if allow_zero else 0.001)
-        or value > _MAX_LOCK_SECONDS
-    ):
-        raise ValueError(f"{label} is invalid")
-    return float(value)
 
 
 class DistributedLock:
@@ -57,36 +37,14 @@ class DistributedLock:
             timeout: Lock lifetime in seconds (None = uses SCRAPE_LOCK_TTL)
             retry_interval: Interval between acquisition attempts in seconds
         """
-        try:
-            lock_key_size = len(lock_key.encode("utf-8"))
-        except (AttributeError, UnicodeEncodeError):
-            lock_key_size = -1
-        if not 1 <= lock_key_size <= _MAX_LOCK_KEY_BYTES or any(
-            ord(character) < 32 or ord(character) == 127 for character in lock_key
-        ):
-            raise ValueError("distributed lock key is invalid")
         self.lock_key = lock_key
-        self.timeout = _bounded_seconds(
-            settings.SCRAPE_LOCK_TTL if timeout is None else timeout,
-            label="distributed lock timeout",
-            allow_zero=False,
-        )
-        self.retry_interval = _bounded_seconds(
-            retry_interval,
-            label="distributed lock retry interval",
-            allow_zero=False,
-        )
+        self.timeout = settings.SCRAPE_LOCK_TTL if timeout is None else timeout
+        self.retry_interval = retry_interval
         self.database = default_database if database is None else database
         self.instance_id = str(uuid.uuid4())
         self.acquired = False
 
     async def acquire(self, wait_timeout: float | None = None):
-        if wait_timeout is not None:
-            wait_timeout = _bounded_seconds(
-                wait_timeout,
-                label="distributed lock wait timeout",
-                allow_zero=True,
-            )
         deadline = None if wait_timeout is None else time.monotonic() + wait_timeout
 
         while True:

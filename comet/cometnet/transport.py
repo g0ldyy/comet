@@ -213,14 +213,6 @@ class ConnectionManager:
         advertise_url: str | None = None,
         keystore=None,  # Optional PublicKeyStore for storing peer keys
     ):
-        if type(listen_port) is not int or not 1 <= listen_port <= 65535:
-            raise ValueError("listen_port must be an integer between 1 and 65535")
-        if type(max_peers) is not int or max_peers <= 0:
-            raise ValueError("max_peers must be a positive integer")
-        if advertise_url is not None and (
-            type(advertise_url) is not str or not advertise_url
-        ):
-            raise ValueError("advertise_url must be a non-empty string or None")
         self.identity = identity
         self.listen_port = listen_port
         self.max_peers = max_peers

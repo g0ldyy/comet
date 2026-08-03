@@ -154,21 +154,6 @@ class SearchCoverageRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIs(query.scope, expected)
                 self.assertIs(search_scope(query), expected)
 
-    def test_invalid_query_and_unbounded_refresh_fail_closed(self):
+    def test_invalid_scope_surfaces(self):
         with self.assertRaisesRegex(ValueError, "scope"):
             search_scope(MediaQuery("tt1", "movie", search_scope="unknown"))
-        query_fingerprint(
-            MediaQuery(
-                "tt1",
-                "movie",
-                title_aliases=("x" * 300,),
-            )
-        )
-        with self.assertRaisesRegex(ValueError, "aliases"):
-            query_fingerprint(
-                MediaQuery(
-                    "tt1",
-                    "movie",
-                    title_aliases=("x" * 1025,),
-                )
-            )

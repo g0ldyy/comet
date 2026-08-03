@@ -17,13 +17,9 @@ class LZString:
             return ""
         if input_str == "":
             return None
-        if (
-            type(input_str) is not str
-            or len(input_str) > _MAX_COMPRESSED_CHARACTERS
-            or type(maximum) is not int
-            or not 1 <= maximum <= _MAX_DECOMPRESSED_CHARACTERS
-        ):
+        if type(input_str) is not str or len(input_str) > _MAX_COMPRESSED_CHARACTERS:
             return None
+        maximum = min(maximum, _MAX_DECOMPRESSED_CHARACTERS)
 
         input_str = input_str.replace(" ", "+")
 

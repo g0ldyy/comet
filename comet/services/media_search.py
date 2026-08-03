@@ -33,7 +33,7 @@ from comet.discovery.capabilities import (
     record_discovery_capability_failure,
 )
 from comet.discovery.manager import DiscoveryResult
-from comet.discovery.models import MAX_TITLE_ALIASES, MediaQuery
+from comet.discovery.models import MediaQuery
 from comet.discovery.torrent_repository import torrent_candidate_from_runtime
 from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.filter import release_filter
@@ -236,9 +236,7 @@ def _discovery_title_aliases(
     title: str,
     aliases: Mapping[str, list[str]],
 ) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(chain((title,), chain.from_iterable(aliases.values()))))[
-        :MAX_TITLE_ALIASES
-    ]
+    return tuple(dict.fromkeys(chain((title,), chain.from_iterable(aliases.values()))))
 
 
 async def _search_configured_sources(
@@ -436,9 +434,10 @@ async def _filter_and_rank_discovery_candidates(
             aliases=aliases,
             content_id=content_id,
         )
-        candidates = tuple(
-            candidate for candidate in candidates if candidate.parsed is not None
-        ) + normalized_legacy
+        candidates = (
+            tuple(candidate for candidate in candidates if candidate.parsed is not None)
+            + normalized_legacy
+        )
     filtered = apply_release_candidate_policy(
         candidates,
         remove_adult_content=remove_adult_content,
@@ -666,10 +665,10 @@ def group_debrid_entries_by_service(
         service = entry["service"]
         credential = (service, entry["apiKey"])
         configuration_id = entry.get("configurationId")
-        if not isinstance(configuration_id, str) and credential in seen_credentials:
+        if configuration_id is None and credential in seen_credentials:
             continue
         seen_credentials.add(credential)
-        key = configuration_id if isinstance(configuration_id, str) else service
+        key = service if configuration_id is None else configuration_id
         service_entries.setdefault((key, service), []).append(entry)
     return [
         (key, service, entries) for (key, service), entries in service_entries.items()

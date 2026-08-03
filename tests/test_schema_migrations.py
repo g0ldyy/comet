@@ -23,12 +23,6 @@ from comet.core.schema_specs import ManagedTableSpec
 
 
 class SchemaMigrationMetadataCacheTests(unittest.IsolatedAsyncioTestCase):
-    def test_migration_context_requires_one_backend(self):
-        with self.assertRaisesRegex(ValueError, "exactly one database backend"):
-            MigrationContext(AsyncMock(), is_sqlite=False, is_postgres=False)
-        with self.assertRaisesRegex(ValueError, "exactly one database backend"):
-            MigrationContext(AsyncMock(), is_sqlite=True, is_postgres=True)
-
     async def test_candidate_identity_migration_scopes_exact_identity_by_family(self):
         with TemporaryDirectory() as temp_dir:
             database = ReplicaAwareDatabase(

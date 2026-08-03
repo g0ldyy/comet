@@ -34,12 +34,8 @@ class RenewableArtifactLease:
         heartbeat_seconds: float = READER_HEARTBEAT_SECONDS,
     ):
         identity_field = self._LEASE_IDENTITIES.get(table_name)
-        if (
-            identity_field is None
-            or lease_seconds <= 0
-            or not 0 < heartbeat_seconds < lease_seconds
-        ):
-            raise ValueError("invalid artifact lease timing")
+        if identity_field is None:
+            raise ValueError("unsupported artifact lease table")
         self._database = database
         self._table_name = table_name
         self._identity_field = identity_field

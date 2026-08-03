@@ -415,12 +415,6 @@ class PlaybackPreparationRepository:
         limit: int = _MAX_GC_BATCH,
     ) -> int:
         """Delete only expired capabilities in one bounded primary query."""
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= _MAX_GC_BATCH
-        ):
-            raise ValueError("invalid playback preparation GC limit")
         current_time = time.time() if now is None else now
         async with self._database.transaction():
             rows = await self._database.fetch_all(

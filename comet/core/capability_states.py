@@ -3,7 +3,6 @@
 import asyncio
 import hashlib
 import hmac
-import math
 import time
 import weakref
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -17,13 +16,8 @@ _VALIDATION_TIMEOUT_SECONDS = 15.0
 _VALIDATION_CONCURRENCY = 4
 _REFRESH_CONCURRENCY = 2
 _MAX_REFRESH_TASKS = 64
-_MAX_BINDINGS = 64
 _LOCK_RETRY_SECONDS = 0.05
 _TERMINAL_STATES = frozenset({"auth_failed", "plan_incompatible"})
-_FAILURE_STATES = frozenset(
-    {"transiently_unreachable", "auth_failed", "plan_incompatible"}
-)
-_MAX_FINGERPRINT_CBOR_BYTES = 64 * 1024
 _REFRESH_TASKS: set[asyncio.Task] = set()
 _REFRESH_KEYS: set[tuple[int, str]] = set()
 _REFRESH_SEMAPHORES: weakref.WeakKeyDictionary[
@@ -49,14 +43,6 @@ class CapabilityBinding:
     schema_version: int
     validator_version: str
 
-    def __post_init__(self) -> None:
-        _validate_binding(
-            self.binding_fingerprint,
-            self.binding_kind,
-            self.schema_version,
-            self.validator_version,
-        )
-
 
 @dataclass(frozen=True)
 class CapabilityValidationOutcome:
@@ -80,7 +66,7 @@ class CapabilityStateRepository:
         *,
         now: float | None = None,
     ) -> EffectiveCapabilityState:
-        fingerprint = _fingerprint(binding_fingerprint)
+        fingerprint = binding_fingerprint
         observed_at = time.time() if now is None else _timestamp(now)
         row = await self._database.fetch_one(
             """
@@ -190,23 +176,6 @@ class CapabilityStateRepository:
         retry_after: float | None = None,
         now: float | None = None,
     ) -> None:
-        if state not in _FAILURE_STATES:
-            raise ValueError("capability failure state is invalid")
-        if error_code is not None and (
-            not isinstance(error_code, str)
-            or not 1 <= len(error_code) <= 64
-            or not all(
-                character.isascii() and (character.isalnum() or character == "_")
-                for character in error_code
-            )
-        ):
-            raise ValueError("capability error code is invalid")
-        if retry_after is not None and (
-            isinstance(retry_after, bool)
-            or not isinstance(retry_after, (int, float))
-            or not 0 <= retry_after <= LAST_KNOWN_GOOD_TTL_SECONDS
-        ):
-            raise ValueError("capability retry-after is invalid")
         values = _binding_values(binding, now)
         values.update(
             {
@@ -437,10 +406,6 @@ class CapabilityStateRepository:
         now: float | None,
     ) -> None:
         if outcome.state == "valid":
-            if outcome.error_code is not None or outcome.retry_after is not None:
-                raise ValueError(
-                    "valid capability outcome cannot contain failure metadata"
-                )
             await self.record_success(
                 binding,
                 now=now,
@@ -478,14 +443,7 @@ async def shutdown_capability_refreshes() -> None:
 def _unique_bindings(
     bindings: Sequence[CapabilityBinding],
 ) -> dict[str, CapabilityBinding]:
-    unique = {}
-    for binding in bindings:
-        previous = unique.setdefault(binding.binding_fingerprint, binding)
-        if previous != binding:
-            raise ValueError("capability binding metadata conflicts")
-    if len(unique) > _MAX_BINDINGS:
-        raise ValueError("too many capability bindings")
-    return unique
+    return {binding.binding_fingerprint: binding for binding in bindings}
 
 
 @asynccontextmanager
@@ -528,15 +486,6 @@ def binding_fingerprint(
     instance_capability_version: str,
 ) -> str:
     """Derive the exact partitioned key without persisting its inputs."""
-    if not isinstance(partition_key, bytes) or len(partition_key) != 32:
-        raise ValueError("capability partition key is invalid")
-    _validate_binding(
-        "0" * 64,
-        binding_kind,
-        schema_version,
-        instance_capability_version,
-    )
-    _fingerprint(credential_fingerprint)
     payload = deterministic_cbor(
         [
             binding_kind,
@@ -565,8 +514,6 @@ def deterministic_cbor(value: object) -> bytes:
 
 
 def _encode_deterministic_cbor(value: object, encoded: bytearray, depth: int) -> None:
-    if depth > 16:
-        raise ValueError("capability fingerprint value is too deeply nested")
     if value is None:
         chunk = b"\xf6"
     elif value is False:
@@ -579,28 +526,18 @@ def _encode_deterministic_cbor(value: object, encoded: bytearray, depth: int) ->
         else:
             chunk = _cbor_major(1, -1 - value)
     elif isinstance(value, bytes):
-        if len(value) > _MAX_FINGERPRINT_CBOR_BYTES:
-            raise ValueError("capability fingerprint bytes are too large")
         chunk = _cbor_major(2, len(value)) + value
     elif isinstance(value, str):
-        if len(value) > _MAX_FINGERPRINT_CBOR_BYTES:
-            raise ValueError("capability fingerprint text is too large")
         utf8 = value.encode("utf-8")
         chunk = _cbor_major(3, len(utf8)) + utf8
     elif isinstance(value, (list, tuple)):
-        if len(value) > 256:
-            raise ValueError("capability fingerprint array is too large")
         _append_cbor(encoded, _cbor_major(4, len(value)))
         for item in value:
             _encode_deterministic_cbor(item, encoded, depth + 1)
         return
     elif isinstance(value, Mapping):
-        if len(value) > 256:
-            raise ValueError("capability fingerprint map is too large")
         encoded_items = []
         for key, item in value.items():
-            if not isinstance(key, str):
-                raise ValueError("capability fingerprint map keys must be text")
             encoded_key = _deterministic_cbor(key, depth + 1)
             encoded_items.append((encoded_key, item))
         encoded_items.sort(key=lambda item: item[0])
@@ -615,8 +552,6 @@ def _encode_deterministic_cbor(value: object, encoded: bytearray, depth: int) ->
 
 
 def _append_cbor(encoded: bytearray, chunk: bytes) -> None:
-    if len(encoded) + len(chunk) > _MAX_FINGERPRINT_CBOR_BYTES:
-        raise ValueError("capability binding options exceed the fingerprint budget")
     encoded.extend(chunk)
 
 
@@ -634,44 +569,8 @@ def _cbor_major(major: int, value: int) -> bytes:
     raise ValueError("capability fingerprint integer is out of range")
 
 
-def _fingerprint(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(character not in "0123456789abcdef" for character in value)
-    ):
-        raise ValueError("capability binding fingerprint is invalid")
-    return value
-
-
 def _timestamp(value: object) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value < 0
-    ):
-        raise ValueError("capability observation time is invalid")
     return float(value)
-
-
-def _validate_binding(
-    binding_fingerprint: str,
-    binding_kind: str,
-    schema_version: int,
-    validator_version: str,
-) -> None:
-    if (
-        not isinstance(binding_kind, str)
-        or not 1 <= len(binding_kind) <= 64
-        or isinstance(schema_version, bool)
-        or not isinstance(schema_version, int)
-        or not 1 <= schema_version <= 65_535
-        or not isinstance(validator_version, str)
-        or not 1 <= len(validator_version) <= 64
-    ):
-        raise ValueError("capability binding metadata is invalid")
-    _fingerprint(binding_fingerprint)
 
 
 def _binding_values(

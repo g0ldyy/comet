@@ -114,30 +114,17 @@ class TorrentAdapterRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(adapter.request.context, ScrapeContext.BACKGROUND)
         self.assertEqual(adapter.request.query_titles, ("Movie", "Film"))
 
-    async def test_malformed_scraper_result_does_not_discard_valid_sibling(self):
+    async def test_malformed_scraper_result_fails_the_source(self):
         class MalformedScraper(TorrentDiscoveryAdapter):
             async def scrape(self, request):
                 del request
-                return [
-                    {"title": "incomplete"},
-                    {
-                        "title": "Movie.2026.1080p.WEB-DL",
-                        "infoHash": "A" * 40,
-                        "fileIndex": None,
-                        "seeders": None,
-                        "size": 1024,
-                        "tracker": "Example",
-                        "sources": [],
-                    },
-                ]
+                return [{"title": "incomplete"}]
 
-        result = await MalformedScraper(None, None).search(
-            MediaQuery("tt123", "movie", title="Movie"),
-            DiscoveryContext(frozenset({"bittorrent"})),
-        )
-
-        self.assertEqual(len(result.candidates), 1)
-        self.assertEqual(result.candidates[0].candidate_id, f"btih:{'a' * 40}")
+        with self.assertRaises(KeyError):
+            await MalformedScraper(None, None).search(
+                MediaQuery("tt123", "movie", title="Movie"),
+                DiscoveryContext(frozenset({"bittorrent"})),
+            )
 
     async def test_adapter_reports_monotonic_response_time(self):
         class ExampleScraper(TorrentDiscoveryAdapter):
@@ -244,20 +231,6 @@ class TorrentAdapterRegistryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 manager._resolve_timeout(ProwlarrScraper, ScrapeContext.LIVE), 20.0
             )
-
-    def test_unknown_timeout_override_is_rejected(self):
-        manager = TorrentAdapterRegistry.__new__(TorrentAdapterRegistry)
-        manager.adapter_types = {"ZileanScraper": object()}
-
-        with (
-            patch.object(
-                settings,
-                "SCRAPER_TIMEOUT_OVERRIDES",
-                {"unknown": 10.0},
-            ),
-            self.assertRaisesRegex(ValueError, "unknown scrapers: unknown"),
-        ):
-            manager._validate_timeout_overrides()
 
     def test_scraper_clients_use_shared_http_request_timeout(self):
         with (

@@ -102,8 +102,6 @@ class ReleaseDiscoveryRepository:
             discovery_configuration_id,
             "discovery configuration",
         )
-        if not isinstance(public_visibility, bool):
-            raise ValueError("public visibility flag is invalid")
         owner = _partition(owner_configuration_partition, "owner")
         stored_owner = _PUBLIC_PARTITION.hex() if public_visibility else owner
         account = (
@@ -264,11 +262,6 @@ class ReleaseDiscoveryRepository:
         candidate_batch = tuple(candidates)
         if not candidate_batch:
             return {}
-        if any(
-            candidate.transport is not TransportKind.BITTORRENT
-            for candidate in candidate_batch
-        ):
-            raise ValueError("legacy torrent batch contains another transport")
         scope = search_scope(query)
         observed_at = time.time() if now is None else _timestamp(now)
         observed_at_ms = int(observed_at * 1_000)
@@ -982,14 +975,10 @@ class ReleaseDiscoveryRepository:
             for row in rows:
                 source_id = row["redirected_candidate_id"]
                 target_id = row["canonical_candidate_id"]
-                if (
-                    target_id == source_id
-                    or row["chained_candidate_id"] is not None
-                ):
+                if target_id == source_id or row["chained_candidate_id"] is not None:
                     raise RuntimeError("candidate redirect cycle or chain detected")
                 if (
-                    row["target_visibility_partition"]
-                    != row["visibility_partition"]
+                    row["target_visibility_partition"] != row["visibility_partition"]
                     or row["target_transport"] != row["transport"]
                 ):
                     raise RuntimeError("candidate redirect crosses candidate family")
@@ -1163,8 +1152,6 @@ class ReleaseDiscoveryRepository:
         public_visibility: bool = False,
         now: float | None = None,
     ) -> tuple[ReleaseCandidate, ...]:
-        if not isinstance(public_visibility, bool):
-            raise ValueError("public visibility flag is invalid")
         owner = _partition(owner_configuration_partition, "owner")
         account = (
             _partition(account_partition, "account")
@@ -1257,15 +1244,12 @@ class ReleaseDiscoveryRepository:
         )
         grouped: dict[str, tuple[object, list]] = {}
         for row in rows:
-            try:
-                locator = locator_from_json(
-                    row["locator_id"],
-                    row["locator_kind"],
-                    row["locator_json"],
-                    row["policy_json"],
-                )
-            except (TypeError, ValueError):
-                continue
+            locator = locator_from_json(
+                row["locator_id"],
+                row["locator_kind"],
+                row["locator_json"],
+                row["policy_json"],
+            )
             candidate_id = row["candidate_id"]
             entry = grouped.get(candidate_id)
             if entry is None:
@@ -1274,27 +1258,24 @@ class ReleaseDiscoveryRepository:
             entry[1].append(locator)
         result = []
         for candidate_id, (row, locators) in grouped.items():
-            try:
-                transport = TransportKind(row["transport"])
-                attributes = _decode_attributes(
-                    row["attributes_json"],
-                    trusted=transport is TransportKind.BITTORRENT,
-                )
-                candidate = ReleaseCandidate(
-                    candidate_id=candidate_id,
-                    media_id=row["media_id"],
-                    scope=ReleaseScope(row["scope"]),
-                    transport=transport,
-                    title=row["title"],
-                    locators=tuple(locators),
-                    size=row["byte_size"],
-                    published_at_ms=row["published_at_ms"],
-                    source=attributes["source"],
-                    parsed=load_cached_parsed(row["parsed_json"]),
-                    transport_stats=attributes["transport_stats"],
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
+            transport = TransportKind(row["transport"])
+            attributes = _decode_attributes(
+                row["attributes_json"],
+                trusted=transport is TransportKind.BITTORRENT,
+            )
+            candidate = ReleaseCandidate(
+                candidate_id=candidate_id,
+                media_id=row["media_id"],
+                scope=ReleaseScope(row["scope"]),
+                transport=transport,
+                title=row["title"],
+                locators=tuple(locators),
+                size=row["byte_size"],
+                published_at_ms=row["published_at_ms"],
+                source=attributes["source"],
+                parsed=load_cached_parsed(row["parsed_json"]),
+                transport_stats=attributes["transport_stats"],
+            )
             result.append(candidate)
         return tuple(result)
 
@@ -1306,12 +1287,6 @@ def _candidate_values(
     visibility: str,
     observed_at_ms: int,
 ) -> dict[str, object]:
-    if not isinstance(candidate, ReleaseCandidate):
-        raise ValueError("invalid release candidate")
-    if candidate.media_id != query.media_id:
-        raise ValueError("candidate media does not match discovery query")
-    if candidate.scope is not scope:
-        raise ValueError("candidate scope does not match discovery query")
     if candidate.transport is not TransportKind.BITTORRENT:
         if (
             not isinstance(candidate.candidate_id, str)
@@ -1530,7 +1505,6 @@ def _has_canonical_torrent_identity(
 ) -> bool:
     if (
         candidate.transport is not TransportKind.BITTORRENT
-        or not isinstance(release_key, str)
         or release_key != candidate.candidate_id
         or not release_key.startswith("btih:")
     ):
@@ -1572,13 +1546,6 @@ def _manual_candidate_id(value: str) -> str:
 
 
 def _timestamp(value: float) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value < 0
-    ):
-        raise ValueError("discovery timestamp is invalid")
     return float(value)
 
 
@@ -1598,8 +1565,6 @@ def _content_key(
 
 
 def _uuid7(unix_ms: int) -> str:
-    if not 0 <= unix_ms < 2**48:
-        raise ValueError("UUIDv7 timestamp is out of range")
     value = (
         (unix_ms << 80)
         | (0x7 << 76)

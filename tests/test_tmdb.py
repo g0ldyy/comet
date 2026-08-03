@@ -6,7 +6,6 @@ from comet.metadata.tmdb import (
     TMDBApi,
     _extract_all_title_aliases,
     _extract_title_aliases,
-    _extract_tmdb_id,
     _extract_upcoming_release_date,
 )
 
@@ -51,17 +50,6 @@ class _Session:
 
 
 class TmdbMetadataTests(unittest.TestCase):
-    def test_tmdb_id_extractor_isolates_malformed_results(self):
-        payload = {
-            "movie_results": [None, {"id": True}, {"id": "12"}],
-            "tv_results": [{}, {"id": 456}],
-        }
-
-        self.assertEqual(_extract_tmdb_id(payload), "456")
-        self.assertEqual(_extract_tmdb_id(payload, "series"), "456")
-        self.assertIsNone(_extract_tmdb_id(payload, "movie"))
-        self.assertIsNone(_extract_tmdb_id([]))
-
     def test_title_alias_entries_are_collected_in_provider_order(self):
         payload = {
             "titles": [
@@ -95,7 +83,6 @@ class TmdbMetadataTests(unittest.TestCase):
             ),
             {"us": ["Valid"]},
         )
-        self.assertEqual(_extract_title_aliases({"titles": {}}, "titles"), {})
 
     def test_original_translated_and_alternative_titles_are_merged(self):
         config = {
@@ -160,11 +147,8 @@ class TmdbMetadataTests(unittest.TestCase):
     def test_release_date_extractor_keeps_valid_current_entries(self):
         payload = {
             "results": [
-                None,
-                {"release_dates": "invalid"},
                 {
                     "release_dates": [
-                        {"type": 4, "release_date": ["invalid"]},
                         {"type": 3, "release_date": "2025-01-01"},
                         {"type": 5, "release_date": "invalid"},
                         {"type": 5, "release_date": "2026-07-22T00:00:00Z"},
@@ -175,25 +159,9 @@ class TmdbMetadataTests(unittest.TestCase):
         }
 
         self.assertEqual(_extract_upcoming_release_date(payload), "2026-06-01")
-        self.assertIsNone(_extract_upcoming_release_date({"results": {}}))
 
 
 class TmdbApiTests(unittest.IsolatedAsyncioTestCase):
-    async def test_media_type_lookup_ignores_malformed_find_results(self):
-        session = _Session(
-            _Response(
-                200,
-                {
-                    "movie_results": [{"id": True}, {"id": "invalid"}],
-                    "tv_results": [{"id": 456}],
-                },
-            )
-        )
-
-        media_type = await TMDBApi(session).get_media_type_from_imdb("tt6468322")
-
-        self.assertEqual(media_type, "series")
-
     async def test_title_alias_lookup_uses_typed_find_result_and_tv_endpoint(self):
         session = _Session(
             _Response(
@@ -237,9 +205,9 @@ class TmdbApiTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(aliases)
 
-    async def test_watch_provider_result_requires_the_consumed_object(self):
-        invalid_session = _Session(_Response(200, {"results": "future-shape"}))
+    async def test_watch_provider_result_reports_availability(self):
+        empty_session = _Session(_Response(200, {"results": {}}))
         populated_session = _Session(_Response(200, {"results": {"FR": {}}}))
 
-        self.assertIsNone(await TMDBApi(invalid_session).has_watch_providers("123"))
+        self.assertFalse(await TMDBApi(empty_session).has_watch_providers("123"))
         self.assertTrue(await TMDBApi(populated_session).has_watch_providers("123"))

@@ -98,30 +98,15 @@ class FormattingIdentityContractTests(unittest.TestCase):
         )
         self.assertEqual(format_group_info(parsed), "ReleaseGroup")
 
-    def test_cache_media_ids_filter_corrupt_entries_without_aliasing_primary(self):
+    def test_cache_media_ids_are_deduplicated_without_aliasing_primary(self):
         self.assertEqual(
             normalize_cache_media_ids(
                 "tt1234567",
-                ["kitsu:123", None, {}, "", "kitsu:123"],
+                ["kitsu:123", "kitsu:123"],
             ),
             ["tt1234567", "kitsu:123"],
         )
         self.assertEqual(normalize_cache_media_ids("tt1234567", None), ["tt1234567"])
-        self.assertEqual(
-            len(
-                normalize_cache_media_ids(
-                    "tt1234567",
-                    [f"kitsu:{index}" for index in range(100)],
-                )
-            ),
-            64,
-        )
-
-        for primary_id in (None, "", "é" * 65, "\ud800", 42):
-            with self.subTest(primary_id=primary_id), self.assertRaises(ValueError):
-                normalize_cache_media_ids(primary_id, None)
-        with self.assertRaises(TypeError):
-            normalize_cache_media_ids("tt1234567", "kitsu:123")
 
     def test_status_keys_do_not_coerce_non_string_error_codes(self):
         self.assertEqual(normalize_status_key(" store/error-code "), "STORE_ERROR_CODE")

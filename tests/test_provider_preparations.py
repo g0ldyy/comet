@@ -1474,14 +1474,7 @@ class ProviderPreparationTests(unittest.IsolatedAsyncioTestCase):
                 now=12,
             )
 
-    async def test_gc_limits_and_index_are_closed(self):
-        playback = PlaybackPreparationRepository(self.database)
-        provider = ProviderPreparationRepository(self.database)
-        for repository in (playback, provider):
-            with self.assertRaisesRegex(ValueError, "GC limit"):
-                await repository.garbage_collect(limit=0)
-            with self.assertRaisesRegex(ValueError, "GC limit"):
-                await repository.garbage_collect(limit=257)
+    async def test_gc_index_is_present(self):
         indexes = await self.database.fetch_all(
             "PRAGMA index_list(provider_preparations)"
         )

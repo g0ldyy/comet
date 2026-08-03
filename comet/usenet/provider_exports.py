@@ -241,12 +241,6 @@ class NzbProviderExportRepository:
         limit: int = _MAX_GC_BATCH,
     ) -> tuple[int, int]:
         """Revoke idle exports and delete only those with no live preparation."""
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= _MAX_GC_BATCH
-        ):
-            raise ValueError("invalid provider export GC limit")
         current_time = time.time() if now is None else now
         cutoff = current_time - _EXPORT_IDLE_TTL_SECONDS
         stale = await self._database.fetch_all(

@@ -65,21 +65,10 @@ class ZileanScraperTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([torrent["size"] for torrent in torrents], [100, None, 200])
 
-    async def test_malformed_result_does_not_discard_valid_sibling(self):
+    async def test_malformed_result_fails_the_source_batch(self):
         scraper = ZileanScraper(
             None,
-            _Session(
-                _Response(
-                    [
-                        {"raw_title": "Movie", "size": 100},
-                        {
-                            "raw_title": "Valid.Movie",
-                            "info_hash": "A" * 40,
-                            "size": 200,
-                        },
-                    ]
-                )
-            ),
+            _Session(_Response([{"raw_title": "Movie", "size": 100}])),
             "https://zilean.test",
         )
         request = ScrapeRequest(
@@ -89,9 +78,8 @@ class ZileanScraperTests(unittest.IsolatedAsyncioTestCase):
             title="Movie",
         )
 
-        torrents = await scraper.scrape(request)
-
-        self.assertEqual([torrent["infoHash"] for torrent in torrents], ["a" * 40])
+        with self.assertRaises(KeyError):
+            await scraper.scrape(request)
 
     async def test_series_request_omits_only_missing_filters(self):
         cases = (

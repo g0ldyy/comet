@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import socket
 import time
 import uuid
@@ -14,7 +13,6 @@ from typing import Any, Literal
 
 import orjson
 
-_INSTANCE_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 RuntimeRole = Literal[
     "supervisor",
     "web_master",
@@ -49,20 +47,13 @@ class RuntimeIdentity:
         if instance_id is None:
             instance_id = uuid.uuid4().hex
             os.environ["COMET_RUNTIME_INSTANCE_ID"] = instance_id
-        if _INSTANCE_PATTERN.fullmatch(instance_id) is None:
-            raise ValueError("runtime instance ID is invalid")
 
         raw_started_at = os.environ.get("COMET_RUNTIME_STARTED_AT")
         if raw_started_at is None:
             started_at = time.time()
             os.environ["COMET_RUNTIME_STARTED_AT"] = str(started_at)
         else:
-            try:
-                started_at = float(raw_started_at)
-            except ValueError:
-                raise ValueError("runtime start time is invalid") from None
-            if not 0 < started_at <= time.time() + 60:
-                raise ValueError("runtime start time is invalid")
+            started_at = float(raw_started_at)
 
         return cls(
             instance_id=instance_id,

@@ -118,12 +118,6 @@ class ProviderPreparationRepository:
         limit: int = _MAX_GC_BATCH,
     ) -> int:
         """Delete terminal ledgers only after every playback capability expires."""
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= _MAX_GC_BATCH
-        ):
-            raise ValueError("invalid provider preparation GC limit")
         current_time = time.time() if now is None else now
         params = {"now": current_time, "limit": limit}
         rows = await self._database.fetch_all(

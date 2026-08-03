@@ -24,36 +24,16 @@ class SeaDexScraper(TorrentDiscoveryAdapter):
             if not is_success_status(response.status):
                 raise RuntimeError(f"HTTP {response.status}")
             data = await response.json()
-        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
-            raise ValueError("SeaDex response is invalid")
         for item in data["items"]:
-            if not isinstance(item, dict) or not isinstance(item.get("expand"), dict):
-                continue
             torrent_items = item["expand"].get("trs", [])
-            if not isinstance(torrent_items, list):
-                continue
             for torrent in torrent_items:
-                if not isinstance(torrent, dict):
-                    continue
                 info_hash = torrent.get("infoHash")
-                if info_hash == "<redacted>":
+                if not info_hash or info_hash == "<redacted>":
                     continue
-                files = torrent.get("files")
-                if (
-                    not isinstance(info_hash, str)
-                    or not info_hash
-                    or not isinstance(files, list)
-                ):
-                    continue
-                for idx, file in enumerate(files):
-                    if not isinstance(file, dict):
-                        continue
-                    name = file.get("name")
-                    if not isinstance(name, str) or not name or "length" not in file:
-                        continue
+                for idx, file in enumerate(torrent.get("files", [])):
                     torrents.append(
                         {
-                            "title": name,
+                            "title": file["name"],
                             "infoHash": info_hash,
                             "fileIndex": idx,
                             "seeders": None,

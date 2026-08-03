@@ -19,23 +19,12 @@ def _reject_constant(_value):
     raise ProviderJsonError("invalid JSON constant")
 
 
-def _maximum(value: object) -> int:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 1 <= value <= MAX_PROVIDER_JSON_BYTES
-    ):
-        raise ValueError("provider JSON limit is invalid")
-    return value
-
-
 async def read_provider_body(
     response,
     *,
     maximum: int = MAX_PROVIDER_JSON_BYTES,
 ) -> bytes:
     """Read one bounded provider body."""
-    maximum = _maximum(maximum)
     try:
         return await read_bounded_body(response, maximum)
     except ValueError as exc:
@@ -48,8 +37,7 @@ def decode_provider_json(
     maximum: int = MAX_PROVIDER_JSON_BYTES,
 ) -> dict:
     """Decode one already-read bounded JSON object."""
-    maximum = _maximum(maximum)
-    if not isinstance(body, bytes) or not body or len(body) > maximum:
+    if not body or len(body) > maximum:
         raise ProviderJsonError("invalid provider body")
     try:
         text = body.decode("utf-8")

@@ -1,5 +1,3 @@
-import math
-import re
 import time
 from datetime import date
 
@@ -11,8 +9,6 @@ from comet.metadata.tmdb import TMDBApi
 from comet.metadata.validation import episode_coordinate
 
 _CINEMETA_SERIES_META_URL = "https://v3-cinemeta.strem.io/meta/series/{series_id}.json"
-_IMDB_ID = re.compile(r"tt[0-9]{7,10}")
-_MAX_EPISODE_INDEX_ROWS = 20_000
 
 _TARGET_EPISODE_AIR_DATE_QUERY = """
     SELECT air_date
@@ -85,7 +81,7 @@ _DELETE_SERIES_EPISODE_INDEX_QUERY = """
 
 
 def _normalize_air_date(raw_value) -> str | None:
-    if not isinstance(raw_value, str) or not raw_value:
+    if not raw_value:
         return None
 
     candidate = raw_value.strip().split("T", 1)[0]
@@ -118,10 +114,7 @@ class EpisodeIndexService:
         )
         if row is None:
             return None
-        air_date = row["air_date"]
-        if _normalize_air_date(air_date) != air_date:
-            raise ValueError("cached episode air date is invalid")
-        return air_date
+        return row["air_date"]
 
     async def _get_cached_episode(
         self,
@@ -139,11 +132,7 @@ class EpisodeIndexService:
         )
         if row is None:
             return None
-        season = episode_coordinate(row["season"])
-        episode = episode_coordinate(row["episode"])
-        if season is None or episode is None:
-            raise ValueError("cached episode coordinate is invalid")
-        return season, episode
+        return row["season"], row["episode"]
 
     async def _is_series_index_fresh(
         self, series_id: str, min_timestamp: float
@@ -154,13 +143,7 @@ class EpisodeIndexService:
         )
         if last_refreshed is None:
             return False
-        if (
-            isinstance(last_refreshed, bool)
-            or not isinstance(last_refreshed, (int, float))
-            or not math.isfinite(last_refreshed)
-        ):
-            raise ValueError("cached episode refresh timestamp is invalid")
-        return last_refreshed >= min_timestamp
+        return float(last_refreshed) >= min_timestamp
 
     async def _upsert_series_air_dates(self, rows: list[dict]) -> None:
         if not rows:
@@ -204,18 +187,13 @@ class EpisodeIndexService:
             return
 
         meta = response.payload.get("meta")
-        if not isinstance(meta, dict):
+        if meta is None:
             return
-        videos = meta.get("videos")
-        if not isinstance(videos, list) or len(videos) > _MAX_EPISODE_INDEX_ROWS:
-            return
+        videos = meta.get("videos") or []
 
         updated_at = time.time()
         unique_rows: dict[tuple[int, int], dict] = {}
         for video in videos:
-            if not isinstance(video, dict):
-                continue
-
             season_int = episode_coordinate(video.get("season"))
             episode_int = episode_coordinate(video.get("episode", video.get("number")))
             if season_int is None or episode_int is None:
@@ -286,12 +264,7 @@ class EpisodeIndexService:
     ) -> str | None:
         season_value = episode_coordinate(season)
         episode_value = episode_coordinate(episode)
-        if (
-            not isinstance(series_id, str)
-            or _IMDB_ID.fullmatch(series_id) is None
-            or season_value is None
-            or episode_value is None
-        ):
+        if season_value is None or episode_value is None:
             return None
         season = season_value
         episode = episode_value
@@ -326,11 +299,7 @@ class EpisodeIndexService:
         air_date: str,
     ) -> tuple[int, int] | None:
         normalized_air_date = _normalize_air_date(air_date)
-        if (
-            not isinstance(series_id, str)
-            or _IMDB_ID.fullmatch(series_id) is None
-            or normalized_air_date is None
-        ):
+        if normalized_air_date is None:
             return None
 
         min_timestamp = time.time() - settings.METADATA_CACHE_TTL

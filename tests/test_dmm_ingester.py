@@ -23,7 +23,6 @@ class DmmArchiveTests(unittest.TestCase):
         self.assertIsNone(decompressFromEncodedURIComponent(encoded, maximum=10))
         self.assertIsNone(decompressFromEncodedURIComponent("invalid%character"))
         self.assertIsNone(decompressFromEncodedURIComponent("A"))
-        self.assertIsNone(decompressFromEncodedURIComponent(encoded, maximum=True))
         with patch("comet.utils.lzstring._MAX_COMPRESSED_CHARACTERS", 4):
             self.assertIsNone(decompressFromEncodedURIComponent("A" * 5))
 

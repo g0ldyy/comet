@@ -39,21 +39,23 @@ def build_playback_providers(
     if config.get("schemaVersion") != 2:
         return {}
     user_session = session if user_session is None else user_session
-    accounts = config.get("accounts")
-    accounts = accounts if isinstance(accounts, Mapping) else {}
+    accounts = config.get("accounts") or {}
+    debrid_entries = {
+        (binding["configurationId"], binding["service"]): binding
+        for binding in config.get("_debridEntries") or ()
+        if binding.get("configurationId") is not None
+    }
     result = {}
     for entry in config.get("playbackProviders") or []:
-        if not isinstance(entry, Mapping) or not entry.get("enabled"):
+        if not entry["enabled"]:
             continue
-        configuration_id = entry.get("configurationId")
-        if not isinstance(configuration_id, str) or not configuration_id:
-            continue
+        configuration_id = entry["configurationId"]
         if (
             eligible_configuration_ids is not None
             and configuration_id not in eligible_configuration_ids
         ):
             continue
-        kind = entry.get("kind")
+        kind = entry["kind"]
         options = resolve_capability_options(entry, accounts)
         if kind == "stremio_nntp":
             result[configuration_id] = StremioNntpProvider()
@@ -70,7 +72,7 @@ def build_playback_providers(
         elif kind == "torbox_usenet":
             api_key = _api_credential(options)
             account_id = entry.get("accountId")
-            if api_key is None and isinstance(account_id, str):
+            if api_key is None and account_id is not None:
                 api_key = _api_credential(accounts.get(account_id))
             if api_key is None:
                 continue
@@ -97,7 +99,7 @@ def build_playback_providers(
         elif kind == "easynews":
             credentials = _easynews_credentials(options)
             account_id = entry.get("accountId")
-            if credentials is None and isinstance(account_id, str):
+            if credentials is None and account_id is not None:
                 credentials = _easynews_credentials(accounts.get(account_id))
             if credentials is None:
                 continue
@@ -126,16 +128,7 @@ def build_playback_providers(
                 )
             result[configuration_id] = provider
         elif kind in TORRENT_PROVIDER_KINDS and kind != "direct_torrent":
-            binding = next(
-                (
-                    binding
-                    for binding in config.get("_debridEntries") or ()
-                    if isinstance(binding, Mapping)
-                    and binding.get("configurationId") == configuration_id
-                    and binding.get("service") == kind
-                ),
-                None,
-            )
+            binding = debrid_entries.get((configuration_id, kind))
             if binding is None:
                 continue
             result[configuration_id] = TorrentDebridProvider(

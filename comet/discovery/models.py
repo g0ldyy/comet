@@ -4,10 +4,6 @@ from dataclasses import dataclass, field
 from comet.core.scrape import ScrapeContext
 from comet.core.sources import ReleaseCandidate, ReleaseScope
 
-MAX_TITLE_ALIASES = 64
-MAX_TITLE_ALIAS_BYTES = 1024
-MAX_DISCOVERY_CANDIDATES = 10_000
-
 
 @dataclass(frozen=True)
 class MediaQuery:

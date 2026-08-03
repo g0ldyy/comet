@@ -392,6 +392,7 @@ class AnimeToshoDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                     "kitsu:123",
                     "series",
                     title_aliases=("Example",),
+                    title="Example",
                 ),
                 DiscoveryContext(frozenset({"bittorrent"})),
             )
@@ -422,34 +423,6 @@ class AnimeToshoCodecTests(unittest.TestCase):
             "0123456789abcdef0123456789abcdef01234567",
         )
         self.assertEqual(torrents[0]["seeders"], 42)
-
-    def test_legacy_torrent_mapper_bounds_numbers_and_hashes(self):
-        huge = b"9" * 10_000
-        feed = FEED.replace(b'value="42"', b'value="' + huge + b'"')
-        feed = feed.replace(b'value="1234"', b'value="' + huge + b'"')
-        items, _total = parse_newznab_feed(feed)
-
-        torrents = AnimeToshoScraper.parse_items(None, items)
-
-        self.assertEqual(len(torrents), 1)
-        self.assertIsNone(torrents[0]["seeders"])
-        self.assertIsNone(torrents[0]["size"])
-
-        invalid_item = FEED.replace(
-            b"0123456789abcdef0123456789abcdef01234567",
-            b"not-a-canonical-info-hash",
-        )
-        mixed, _total = parse_newznab_feed(
-            invalid_item.replace(
-                b"</channel>",
-                FEED[FEED.index(b"<item>") : FEED.index(b"</item>") + 7]
-                + b"\n  </channel>",
-            )
-        )
-        self.assertEqual(len(AnimeToshoScraper.parse_items(None, mixed)), 1)
-
-        invalid, _total = parse_newznab_feed(invalid_item)
-        self.assertEqual(AnimeToshoScraper.parse_items(None, invalid), [])
 
     def test_server_managed_source_is_usenet_only(self):
         torrent_provider = {

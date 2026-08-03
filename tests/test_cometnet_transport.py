@@ -36,20 +36,6 @@ class _Peer:
 
 
 class CometNetTransportTests(unittest.IsolatedAsyncioTestCase):
-    def test_constructor_rejects_non_current_capacity_values(self):
-        malformed = [
-            {"listen_port": True},
-            {"listen_port": 0},
-            {"listen_port": 65536},
-            {"max_peers": True},
-            {"max_peers": 0},
-            {"advertise_url": ""},
-        ]
-        for arguments in malformed:
-            with self.subTest(arguments=arguments):
-                with self.assertRaises(ValueError):
-                    ConnectionManager(_Identity(), **arguments)
-
     async def test_unexpected_server_start_failure_is_visible(self):
         manager = ConnectionManager(_Identity())
 

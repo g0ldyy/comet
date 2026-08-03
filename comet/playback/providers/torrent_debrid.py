@@ -89,19 +89,12 @@ class TorrentDebridProvider:
                         Actionability.NONE,
                         code="plan_incompatible",
                     )
-                payload = await read_provider_json(response)
+                await read_provider_json(response)
         except (aiohttp.ClientError, TimeoutError, ProviderJsonError):
             return ProviderStatus(
                 Readiness.RETRYABLE_FAILURE,
                 Actionability.NONE,
                 code="validation_unavailable",
-            )
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            return ProviderStatus(
-                Readiness.TERMINAL_FAILURE,
-                Actionability.NONE,
-                code="plan_incompatible",
             )
         return ProviderStatus(
             Readiness.READY,

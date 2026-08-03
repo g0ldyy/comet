@@ -13,10 +13,6 @@ class PresentationGroup:
     resolution: str
     candidates: tuple[ReleaseCandidate, ...]
 
-    def __post_init__(self):
-        if not self.candidates:
-            raise ValueError("presentation group requires a candidate")
-
 
 def _normalized_text(value: str | None) -> str | None:
     if value is None:
@@ -88,9 +84,6 @@ def build_presentation_groups(
     daily_date: str | None = None,
 ) -> tuple[PresentationGroup, ...]:
     """Group equivalent releases without merging candidates or provider evidence."""
-    if len({candidate.candidate_id for candidate in candidates}) != len(candidates):
-        raise ValueError("presentation candidates must be unique")
-
     buckets: dict[tuple[object, ...], list[ReleaseCandidate]] = defaultdict(list)
     singleton_keys: dict[str, tuple[object, ...]] = {}
     for candidate in candidates:

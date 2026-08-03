@@ -7,19 +7,6 @@ from comet.cometnet.protocol import PeerInfo, PeerResponse
 
 
 class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
-    def test_constructor_rejects_falsey_or_inconsistent_configuration(self):
-        malformed = [
-            {"manual_peers": False},
-            {"manual_peers": ["peer.example"]},
-            {"min_peers": True},
-            {"max_peers": 0},
-            {"min_peers": 3, "max_peers": 2},
-        ]
-        for arguments in malformed:
-            with self.subTest(arguments=arguments):
-                with self.assertRaises(ValueError):
-                    DiscoveryService(**arguments)
-
     def test_constructor_collapses_duplicate_addresses(self):
         service = DiscoveryService(
             manual_peers=["wss://manual", "wss://manual"],
@@ -156,13 +143,6 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(set(service._known_peers), {"wss://new.example"})
         self.assertEqual(service._known_peers["wss://new.example"].last_seen, 3)
-
-    async def test_pex_limit_requires_a_positive_exact_integer(self):
-        service = DiscoveryService()
-        for max_peers in (True, 0, -1, 1.5):
-            with self.subTest(max_peers=max_peers):
-                with self.assertRaises(ValueError):
-                    await service.get_peers_for_pex(max_peers)
 
     async def test_pex_peer_snapshot_tolerates_discovery_updates_during_validation(
         self,

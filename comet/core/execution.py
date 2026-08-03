@@ -67,8 +67,6 @@ def setup_executor(
 
     if app_executor is not None:
         return
-    if type(max_workers) is not int or not 1 <= max_workers <= 64:
-        raise ValueError("executor worker count is invalid")
     _max_workers = max_workers
     _executor_config = (max_workers, log_profile, log_format, no_color)
     app_executor = _create_executor(

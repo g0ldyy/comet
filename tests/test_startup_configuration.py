@@ -6,7 +6,6 @@ from comet.core.models import AppSettings
 from comet.observability.logging import LoggingSettings, configure
 from comet.observability.startup import (
     log_cometnet_standalone_configuration,
-    log_runtime_starting,
     log_startup_configuration,
 )
 
@@ -162,17 +161,6 @@ class StartupConfigurationTests(unittest.TestCase):
             self.generated_secrets(warning),
             {"COMETNET_API_KEY": configured.COMETNET_API_KEY},
         )
-
-    def test_runtime_start_event_uses_validated_build_revision(self):
-        configured = AppSettings(
-            _env_file=None,
-            COMET_COMMIT_HASH="A" * 40,
-        )
-
-        with patch("comet.observability.startup.log.info") as info:
-            log_runtime_starting(configured)
-
-        self.assertEqual(info.call_args.kwargs["build_revision"], "a" * 40)
 
     def test_full_startup_summary_satisfies_the_strict_log_contract(self):
         configured = AppSettings(

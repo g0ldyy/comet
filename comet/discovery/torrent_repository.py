@@ -1,7 +1,6 @@
 """Transport-neutral persistence and reads for public torrent releases."""
 
 import hashlib
-import re
 from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any
@@ -222,12 +221,6 @@ def torrent_candidate_from_scrape_result(
     """Translate one server-configured torrent result at the discovery boundary."""
     info_hash = torrent["infoHash"].lower()
     title = torrent["title"]
-    if (
-        re.fullmatch(r"[0-9a-f]{40}", info_hash) is None
-        or not isinstance(title, str)
-        or not title
-    ):
-        raise ValueError("torrent scrape result is invalid")
     file_index = torrent["fileIndex"]
     seeders = torrent["seeders"]
     size = torrent["size"]
@@ -235,8 +228,6 @@ def torrent_candidate_from_scrape_result(
     sources = torrent["sources"]
     parsed = torrent.get("parsed")
     encoded_parsed = parsed_json(parsed, trusted=True)
-    if not isinstance(sources, (list, tuple)):
-        raise ValueError("torrent scrape result sources are invalid")
     season_norm = query.season if query.season is not None else -1
     episode_norm = query.episode if query.episode is not None else -1
     locator_key = hashlib.sha256(
@@ -547,8 +538,6 @@ class TorrentReleaseRepository:
 
     async def delete_stale_public(self, *, before_ms: int) -> int:
         """Delete unreferenced public torrent candidates in bounded batches."""
-        if type(before_ms) is not int or before_ms < 0:
-            raise ValueError("torrent cache cutoff is invalid")
         deleted = 0
         while True:
             rows = await self._database.fetch_all(

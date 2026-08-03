@@ -66,12 +66,6 @@ class RenderedReleaseRepository:
         limit: int = _MAX_GC_BATCH,
     ) -> tuple[int, int]:
         """Remove expired rendered IDs without erasing mutation authority."""
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= _MAX_GC_BATCH
-        ):
-            raise ValueError("invalid rendered release GC limit")
         current_time = time.time() if now is None else now
         cutoff = current_time - _RENDERED_RELEASE_RETENTION_SECONDS
         locators = await self._database.fetch_all(
@@ -272,8 +266,6 @@ class RenderedReleaseRepository:
             )
             for row in returned:
                 resolved[row["external_candidate_id"]] = row["candidate_id"]
-        if len(resolved) != len(rows):  # pragma: no cover - database corruption
-            raise ValueError("rendered release candidate disappeared")
         return resolved
 
     async def _upsert_locators(
@@ -311,8 +303,6 @@ class RenderedReleaseRepository:
                 resolved[(row["candidate_id"], row["external_locator_id"])] = row[
                     "locator_id"
                 ]
-        if len(resolved) != len(rows):  # pragma: no cover - database corruption
-            raise ValueError("rendered release locator disappeared")
         return resolved
 
     async def resolve_intent(
@@ -360,10 +350,7 @@ class RenderedReleaseRepository:
             row = by_id.get(locator_id)
             if row is None:
                 raise ValueError("playback locator is unavailable")
-            try:
-                locators.append(self._resolved_locator(row))
-            except ValueError as exc:
-                raise ValueError("playback locator is corrupt") from exc
+            locators.append(self._resolved_locator(row))
         return ResolvedPlaybackIntent(
             candidate_id,
             candidate["transport"],
@@ -553,26 +540,18 @@ class RenderedReleaseRepository:
 
     @staticmethod
     def _resolved_locator(row) -> dict:
-        try:
-            locator = locator_from_json(
-                row["locator_id"],
-                row["locator_kind"],
-                row["locator_json"],
-                row["policy_json"],
-            )
-            return {
-                "locator_id": locator.locator_id,
-                "kind": locator.kind.value,
-                "payload": orjson.loads(locator_json(locator)),
-                "policy": orjson.loads(policy_json(locator)),
-            }
-        except (
-            KeyError,
-            TypeError,
-            orjson.JSONDecodeError,
-            ValueError,
-        ) as exc:
-            raise ValueError("invalid persisted locator") from exc
+        locator = locator_from_json(
+            row["locator_id"],
+            row["locator_kind"],
+            row["locator_json"],
+            row["policy_json"],
+        )
+        return {
+            "locator_id": locator.locator_id,
+            "kind": locator.kind.value,
+            "payload": orjson.loads(locator_json(locator)),
+            "policy": orjson.loads(policy_json(locator)),
+        }
 
     @staticmethod
     def authorize_intent(

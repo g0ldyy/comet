@@ -62,20 +62,6 @@ class ProviderStatus:
     code: str | None = None
     auth_failed: bool = False
 
-    def __post_init__(self):
-        if (
-            self.readiness is Readiness.TERMINAL_FAILURE
-            and self.actionability is not Actionability.NONE
-        ):
-            raise ValueError("terminal provider failures cannot be actionable")
-        if (
-            self.readiness is Readiness.REQUIRES_PREPARE
-            and self.actionability is not Actionability.REMOTE_PREPARE
-        ):
-            raise ValueError("requires_prepare must use remote_prepare actionability")
-        if self.auth_failed and self.readiness is not Readiness.TERMINAL_FAILURE:
-            raise ValueError("authentication failures must be terminal")
-
 
 @dataclass(frozen=True, slots=True)
 class ProviderDescriptor:

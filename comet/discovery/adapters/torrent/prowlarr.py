@@ -89,7 +89,7 @@ class ProwlarrScraper(TorrentDiscoveryAdapter):
         if result.get("infoHash"):
             base_torrent["infoHash"] = result["infoHash"].lower()
             guid = result.get("guid")
-            if isinstance(guid, str) and guid.startswith("magnet:"):
+            if guid and guid.startswith("magnet:"):
                 base_torrent["sources"] = extract_trackers_from_magnet(guid)
 
                 await add_torrent_queue.add_torrent(
@@ -128,8 +128,6 @@ class ProwlarrScraper(TorrentDiscoveryAdapter):
             if not is_success_status(response.status):
                 raise RuntimeError(f"HTTP {response.status}")
             data = decode_indexer_json(await response.read())
-            if not isinstance(data, list) or len(data) > 10_000:
-                raise ValueError("response payload is not a list")
             return data
 
     async def scrape(self, request: ScrapeRequest):

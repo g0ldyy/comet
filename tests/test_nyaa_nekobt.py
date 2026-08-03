@@ -65,7 +65,7 @@ class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
             ["a" * 40, "c" * 40],
         )
 
-    async def test_nekobt_malformed_results_do_not_discard_valid_siblings(self):
+    async def test_nekobt_exposes_a_malformed_result(self):
         payload = {
             "error": False,
             "data": {
@@ -94,14 +94,8 @@ class NyaaNekoBTTests(unittest.IsolatedAsyncioTestCase):
         }
         scraper = NekoBTScraper(None, _Session(payload))
 
-        torrents, more, media_id = await scraper._fetch_page({})
-
-        self.assertEqual(
-            [torrent["infoHash"] for torrent in torrents],
-            ["a" * 40, "c" * 40],
-        )
-        self.assertFalse(more)
-        self.assertIsNone(media_id)
+        with self.assertRaises(TypeError):
+            await scraper._fetch_page({})
 
     async def test_nekobt_propagates_transport_failures(self):
         scraper = NekoBTScraper(None, _FailingSession())

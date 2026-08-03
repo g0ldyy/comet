@@ -79,33 +79,6 @@ class BootstrapSettings(BaseSettings):
             return "postgresql"
         raise ValueError("DATABASE_TYPE must be sqlite or postgresql")
 
-    @field_validator("DATABASE_PATH")
-    @classmethod
-    def validate_database_path(cls, value: str) -> str:
-        if (
-            not value
-            or value != value.strip()
-            or "\x00" in value
-            or len(value.encode("utf-8")) > 4096
-            or value == ":memory:"
-        ):
-            raise ValueError("DATABASE_PATH must be a bounded filesystem path")
-        return value
-
-    @field_validator("DATABASE_URL")
-    @classmethod
-    def validate_database_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if (
-            not value
-            or value != value.strip()
-            or any(character in value for character in "\r\n\x00")
-            or len(value.encode("utf-8")) > 4096
-        ):
-            raise ValueError("DATABASE_URL must be a bounded PostgreSQL URL")
-        return value
-
 
 class _GeneratedSecretInputs(BaseSettings):
     """Deployment inputs needed before the complete settings model is imported."""

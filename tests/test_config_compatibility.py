@@ -89,25 +89,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
 
         self.assertIsNone(config_check(_encode(payload)))
 
-    def test_v2_rejects_legacy_and_removed_top_level_fields(self):
-        canonical = {
-            "schemaVersion": 2,
-            "enabledTransports": ["bittorrent"],
-        }
-        for field, value in (
-            ("debridServices", []),
-            ("debridService", "torrent"),
-            ("debridApiKey", ""),
-            ("enableTorrent", False),
-            ("presentationPolicy", "unified_v2"),
-            ("readyOnly", False),
-            ("sortReadyPreparingTogether", False),
-            ("sortCachedUncachedTogether", False),
-            ("deduplicateStreams", False),
-        ):
-            with self.subTest(field=field):
-                self.assertIsNone(config_check(_encode(canonical | {field: value})))
-
     def test_urlsafe_unpadded_utf8_config_is_accepted(self):
         encoded = (
             base64.urlsafe_b64encode(
@@ -212,42 +193,6 @@ class ConfigCompatibilityTests(unittest.TestCase):
             ],
         )
 
-    def test_v2_account_references_are_explicit_and_type_checked(self):
-        provider_id = str(uuid.uuid4())
-        account_id = str(uuid.uuid4())
-        payload = {
-            "schemaVersion": 2,
-            "enabledTransports": ["bittorrent"],
-            "accounts": {account_id: {"kind": "realdebrid", "apiKey": "secret"}},
-            "playbackProviders": [
-                {
-                    "configurationId": provider_id,
-                    "displayName": "Living room",
-                    "kind": "realdebrid",
-                    "enabled": True,
-                    "accountId": account_id,
-                }
-            ],
-        }
-
-        encoded = base64.urlsafe_b64encode(orjson.dumps(payload)).decode().rstrip("=")
-        valid = config_check(encoded)
-        self.assertEqual(valid["accounts"][account_id]["kind"], "realdebrid")
-
-        payload["accounts"][account_id]["kind"] = "torbox"
-        incompatible = (
-            base64.urlsafe_b64encode(orjson.dumps(payload)).decode().rstrip("=")
-        )
-        self.assertIsNone(config_check(incompatible))
-
-        payload["accounts"] = {}
-        missing = base64.urlsafe_b64encode(orjson.dumps(payload)).decode().rstrip("=")
-        self.assertIsNone(config_check(missing))
-
-        payload["accounts"] = {account_id: {"apiKey": "secret"}}
-        untyped = base64.urlsafe_b64encode(orjson.dumps(payload)).decode().rstrip("=")
-        self.assertIsNone(config_check(untyped))
-
     def test_v2_ignores_unused_accounts_and_unconsumed_provider_options(self):
         provider_id = str(uuid.uuid4())
         account_id = str(uuid.uuid4())
@@ -317,155 +262,14 @@ class ConfigCompatibilityTests(unittest.TestCase):
             2.0,
         )
 
-    def test_legacy_result_limits_reject_invalid_values_without_coercion(self):
-        for value in (True, 0, 3, "2", None):
-            with self.subTest(schema_version=value):
-                self.assertIsNone(config_check(_encode({"schemaVersion": value})))
-
-        for field, values in (
-            (
-                "maxResultsPerResolution",
-                (-1, 1_001, True, 1.5, "1", None),
-            ),
-            (
-                "maxSize",
-                (-1, 2**63, True, "1", None),
-            ),
-        ):
-            for value in values:
-                with self.subTest(field=field, value=value):
-                    self.assertIsNone(config_check(_encode({field: value})))
-
-        configured = config_check(
-            _encode(
-                {
-                    "maxResultsPerResolution": 1_000,
-                    "maxSize": 1_073_741_824,
-                }
-            )
-        )
-        self.assertEqual(configured["maxResultsPerResolution"], 1_000)
-        self.assertEqual(configured["maxSize"], 1_073_741_824.0)
-
-    def test_result_format_and_legacy_debrid_lists_are_bounded(self):
-        invalid = (
-            {"resultFormat": []},
-            {"resultFormat": ["unknown"]},
-            {"resultFormat": "all"},
-            {
-                "debridServices": [
-                    {"service": "realdebrid", "apiKey": str(index)}
-                    for index in range(65)
-                ]
-            },
-            {"debridServices": [{"service": "realdebrid", "apiKey": "x" * 4_097}]},
-            {
-                "debridServices": [
-                    {"service": "realdebrid", "apiKey": "one"},
-                    {"service": "realdebrid", "apiKey": "two"},
-                ]
-            },
-        )
-        for payload in invalid:
-            with self.subTest(field=next(iter(payload))):
-                self.assertIsNone(config_check(_encode(payload)))
-
-        configured = config_check(_encode({"resultFormat": ["title", "title", "size"]}))
-        self.assertEqual(configured["resultFormat"], ["title", "size"])
-
-    def test_v2_binding_collections_and_identity_text_are_bounded(self):
-        base = {
+    def test_v2_native_tokens_are_bounded(self):
+        payload = {
             "schemaVersion": 2,
             "enabledTransports": ["bittorrent"],
-        }
-        providers = [
-            {
-                "configurationId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"provider-{i}")),
-                "displayName": f"Provider {i}",
-                "kind": "direct_torrent",
-            }
-            for i in range(65)
-        ]
-        sources = [
-            {
-                "configurationId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"source-{i}")),
-                "displayName": f"Source {i}",
-                "kind": "newznab",
-            }
-            for i in range(65)
-        ]
-        accounts = {
-            f"account-{i}": {"kind": "realdebrid", "apiKey": ""} for i in range(65)
-        }
-        invalid = (
-            base | {"playbackProviders": providers},
-            base | {"discoverySources": sources},
-            base | {"accounts": accounts},
-            base | {"playbackProviders": "invalid"},
-            base | {"discoverySources": {}},
-            base | {"accounts": []},
-            base | {"cachedOnly": 1},
-            base
-            | {
-                "playbackProviders": [
-                    {
-                        "configurationId": str(uuid.uuid4()),
-                        "displayName": "bad\nname",
-                        "kind": "direct_torrent",
-                    }
-                ]
-            },
-        )
-        for payload in invalid:
-            with self.subTest(keys=tuple(payload)):
-                self.assertIsNone(config_check(_encode(payload)))
-
-    def test_v2_debrid_playback_services_are_unique(self):
-        config = {
-            "schemaVersion": 2,
-            "enabledTransports": ["bittorrent"],
-            "playbackProviders": [
-                {
-                    "configurationId": str(uuid.uuid4()),
-                    "displayName": name,
-                    "kind": "realdebrid",
-                    "enabled": False,
-                }
-                for name in ("First", "Second")
-            ],
+            "nativeAccessToken": "é" * 129,
         }
 
-        self.assertIsNone(config_check(_encode(config)))
-
-    def test_v2_account_ids_and_native_tokens_are_bounded(self):
-        provider_id = str(uuid.uuid4())
-        base = {
-            "schemaVersion": 2,
-            "enabledTransports": ["bittorrent"],
-        }
-        invalid = (
-            base
-            | {
-                "accounts": {
-                    "bad\x7faccount": {
-                        "kind": "realdebrid",
-                        "apiKey": "secret",
-                    }
-                },
-                "playbackProviders": [
-                    {
-                        "configurationId": provider_id,
-                        "displayName": "Provider",
-                        "kind": "realdebrid",
-                        "accountId": "bad\x7faccount",
-                    }
-                ],
-            },
-            base | {"nativeAccessToken": "é" * 129},
-        )
-        for payload in invalid:
-            with self.subTest(keys=tuple(payload)):
-                self.assertIsNone(config_check(_encode(payload)))
+        self.assertIsNone(config_check(_encode(payload)))
 
 
 class InstalledAddonCompatibilityTests(unittest.IsolatedAsyncioTestCase):

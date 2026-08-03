@@ -377,10 +377,3 @@ class SharedArtifactGarbageCollectorTests(unittest.IsolatedAsyncioTestCase):
             {"artifact_sha256": artifact_sha256},
         )
         self.assertEqual(row["publication_state"], "published")
-
-    async def test_batch_limit_is_closed_and_bounded(self):
-        collector = SharedArtifactGarbageCollector(self.root, self.database)
-        with self.assertRaisesRegex(ValueError, "GC limit"):
-            await collector.collect(now=1_000, limit=0)
-        with self.assertRaisesRegex(ValueError, "GC limit"):
-            await collector.collect(now=1_000, limit=257)

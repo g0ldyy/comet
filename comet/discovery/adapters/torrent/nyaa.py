@@ -50,9 +50,6 @@ def extract_torrent_data(html_content: str):
         except (TypeError, ValueError):
             continue
         info_hash = normalize_info_hash(info_hash_match.group(1))
-        if re.fullmatch(r"[0-9a-f]{40}", info_hash) is None:
-            continue
-
         torrents.append(
             {
                 "title": html.unescape(title_match.group(1)),

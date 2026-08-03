@@ -52,7 +52,7 @@ class CinemetaSchemaTests(unittest.IsolatedAsyncioTestCase):
             [0, 3],
         )
 
-    def test_series_episodes_require_positive_numeric_coordinates(self):
+    def test_series_episodes_normalize_positive_coordinates(self):
         payload = {
             "meta": {
                 "videos": [
@@ -71,6 +71,7 @@ class CinemetaSchemaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             _extract_series_episodes(payload),
             [
+                {"season": 1, "episode": 1},
                 {"season": 1, "episode": 4},
                 {"season": 2, "episode": 3},
                 {"season": 3, "episode": 5},

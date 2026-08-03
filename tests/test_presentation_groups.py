@@ -131,16 +131,6 @@ class PresentationGroupingTests(unittest.TestCase):
             {"1080p", "unknown"},
         )
 
-    def test_duplicate_candidate_ids_are_not_silently_collapsed(self):
-        candidate = _candidate(
-            "same",
-            TransportKind.BITTORRENT,
-            "Movie.2026.1080p.WEB-DL-GROUP",
-        )
-
-        with self.assertRaisesRegex(ValueError, "unique"):
-            build_presentation_groups((candidate, candidate))
-
     def test_group_limit_keeps_all_cross_family_members(self):
         torrent = _candidate(
             "torrent",

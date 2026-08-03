@@ -347,11 +347,10 @@ class ApiV1Tests(unittest.IsolatedAsyncioTestCase):
                 }
             },
         )
-        self.assertEqual(missing_key.status_code, 422)
-        self.assertEqual(missing_key.json()["error"]["code"], "validation_failed")
-        self.assertIn(
-            "debrid apiKey is required",
-            [detail["message"] for detail in missing_key.json()["error"]["details"]],
+        self.assertEqual(missing_key.status_code, 200)
+        self.assertEqual(
+            missing_key.json()["data"]["debridServices"],
+            [{"service": "realdebrid", "apiKey": ""}],
         )
 
         disabled = await self.client.post(

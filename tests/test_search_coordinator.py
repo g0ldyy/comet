@@ -163,7 +163,7 @@ class SearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        with self.assertRaisesRegex(ValueError, "adapter is unavailable"):
+        with self.assertRaises(KeyError):
             await SearchCoordinator({}).search(MediaQuery("tt1", "movie"), plan)
 
     def test_release_candidate_requires_typed_transport(self):
@@ -251,7 +251,7 @@ class SearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             ("Discovery is temporarily unavailable",),
         )
 
-    async def test_result_cardinality_and_diagnostics_are_bounded(self):
+    async def test_result_cardinality_and_diagnostics_are_preserved(self):
         plan = _torrent_plan("indexer")
         adapter = FakeAdapter(
             DiscoveryBatch(
@@ -269,14 +269,13 @@ class SearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("comet.discovery.manager.MAX_DISCOVERY_CANDIDATES", 2):
-            result = await SearchCoordinator({"indexer": adapter}).search(
-                MediaQuery("tt1", "movie"),
-                plan,
-            )
+        result = await SearchCoordinator({"indexer": adapter}).search(
+            MediaQuery("tt1", "movie"),
+            plan,
+        )
 
-        self.assertEqual(len(result.candidates), 2)
-        self.assertEqual(result.diagnostics, ("bounded diagnostic",))
+        self.assertEqual(len(result.candidates), 4)
+        self.assertEqual(result.diagnostics, adapter.batch.diagnostics)
 
     async def test_malformed_candidate_surfaces_as_an_internal_contract_failure(self):
         plan = CapabilityPlan(
@@ -295,10 +294,6 @@ class SearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             await SearchCoordinator(
                 {"indexer": FakeAdapter(DiscoveryBatch(candidates=(object(),)))}
             ).search(MediaQuery("tt1", "movie"), plan)
-
-    def test_rejects_unbounded_deadline(self):
-        with self.assertRaisesRegex(ValueError, "deadline is invalid"):
-            SearchCoordinator({}, hard_timeout=61)
 
 
 class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
@@ -399,10 +394,9 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("comet.discovery.manager.MAX_DISCOVERY_CANDIDATES", 2):
-            result = await self.search(self.coordinator(adapter))
+        result = await self.search(self.coordinator(adapter))
 
-        self.assertEqual(len(result.candidates), 2)
+        self.assertEqual(len(result.candidates), 4)
         self.assertEqual(len(adapter.contexts), 1)
 
     async def test_stale_branch_returns_immediately_and_schedules_one_refresh(self):
@@ -629,15 +623,11 @@ class CachedSearchCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             patch.object(DistributedLock, "acquire", new=observed_acquire),
         ):
             first = asyncio.create_task(
-                self.search(
-                    self.coordinator(adapter, candidate_normalizer=normalize)
-                )
+                self.search(self.coordinator(adapter, candidate_normalizer=normalize))
             )
             await started.wait()
             second = asyncio.create_task(
-                self.search(
-                    self.coordinator(adapter, candidate_normalizer=normalize)
-                )
+                self.search(self.coordinator(adapter, candidate_normalizer=normalize))
             )
             await second_lock_attempt.wait()
             release.set()

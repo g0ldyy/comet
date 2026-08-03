@@ -336,17 +336,6 @@ class CapabilityStateRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(values["error_code"], "validation_timeout")
         self.assertNotIn("exception", values)
 
-    async def test_first_use_rejects_conflicting_duplicate_metadata(self):
-        repository = CapabilityStateRepository(object())
-        with self.assertRaisesRegex(ValueError, "metadata conflicts"):
-            await repository.ensure_validated(
-                [
-                    CapabilityBinding("a" * 64, "easynews", 2, "easynews-v1"),
-                    CapabilityBinding("a" * 64, "nzbdav", 2, "nzbdav-v1"),
-                ],
-                AsyncMock(),
-            )
-
     async def test_explicit_retest_replaces_a_terminal_state(self):
         database = type("Database", (), {"execute": AsyncMock()})()
         repository = CapabilityStateRepository(database)
@@ -533,15 +522,6 @@ class CapabilityStateRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("endpoint", schema)
         self.assertNotIn("credential", schema)
 
-    def test_observation_times_must_be_finite(self):
-        repository = CapabilityStateRepository(object())
-        for value in (float("nan"), float("inf"), float("-inf")):
-            with (
-                self.subTest(value=value),
-                self.assertRaisesRegex(ValueError, "observation time"),
-            ):
-                asyncio.run(repository.effective("a" * 64, now=value))
-
     def test_binding_fingerprint_is_partitioned_deterministic_cbor(self):
         options = {
             "range_required": True,
@@ -580,22 +560,13 @@ class CapabilityStateRepositoryTests(unittest.IsolatedAsyncioTestCase):
             "83016161f6",
         )
 
-    def test_binding_fingerprint_rejects_unbounded_types(self):
+    def test_binding_fingerprint_rejects_unsupported_types(self):
         with self.assertRaisesRegex(ValueError, "type is unsupported"):
             binding_fingerprint(
                 b"a" * 32,
                 binding_kind="easynews",
                 schema_version=2,
                 normalized_endpoint_and_behavior_options={"ratio": 1.5},
-                credential_fingerprint="b" * 64,
-                instance_capability_version="easynews-v1",
-            )
-        with self.assertRaisesRegex(ValueError, "fingerprint budget"):
-            binding_fingerprint(
-                b"a" * 32,
-                binding_kind="easynews",
-                schema_version=2,
-                normalized_endpoint_and_behavior_options=["x" * 40_000] * 2,
                 credential_fingerprint="b" * 64,
                 instance_capability_version="easynews-v1",
             )

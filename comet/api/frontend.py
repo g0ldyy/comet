@@ -142,9 +142,6 @@ def _public_document_metadata(
     *,
     indexable: bool,
 ) -> str:
-    if public_base_url is None:
-        raise ValueError("public frontend metadata requires its public base URL")
-
     canonical_url = escape(f"{public_base_url.rstrip('/')}/configure", quote=True)
     image_url = escape(
         f"{public_base_url.rstrip('/')}{_SOCIAL_IMAGE_PATH}",

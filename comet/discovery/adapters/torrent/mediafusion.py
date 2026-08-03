@@ -4,7 +4,7 @@ from functools import cache
 
 from comet.core.models import settings
 from comet.core.provider_json import is_success_status
-from comet.discovery.torrent_base import TorrentDiscoveryAdapter, parse_valid_items
+from comet.discovery.torrent_base import TorrentDiscoveryAdapter
 from comet.discovery.torrent_models import ScrapeRequest
 
 
@@ -40,26 +40,13 @@ class MediaFusionScraper(TorrentDiscoveryAdapter):
 
     @staticmethod
     def _parse_stream(torrent):
-        if not isinstance(torrent, dict):
-            raise ValueError("MediaFusion result is invalid")
-
-        title_full = torrent.get("description")
-        info_hash = torrent.get("infoHash")
-        behavior_hints = torrent.get("behaviorHints")
+        title_full = torrent["description"]
+        info_hash = torrent["infoHash"]
+        behavior_hints = torrent.get("behaviorHints", {})
         sources = torrent.get("sources", [])
-        if (
-            not isinstance(title_full, str)
-            or not title_full
-            or not isinstance(info_hash, str)
-            or not info_hash
-            or not isinstance(sources, list)
-        ):
-            raise ValueError("MediaFusion result is invalid")
 
         lines = title_full.split("\n")
         title = lines[0].removeprefix("📂 ").removesuffix("/")
-        if not title:
-            raise ValueError("MediaFusion result is invalid")
         seeders = None
         if len(lines) > 1 and "👤 " in lines[1]:
             try:
@@ -74,11 +61,7 @@ class MediaFusionScraper(TorrentDiscoveryAdapter):
             "fileIndex": torrent.get("fileIdx"),
             "seeders": seeders,
             # This is the selected video size, not the pack size.
-            "size": (
-                behavior_hints.get("videoSize")
-                if isinstance(behavior_hints, dict)
-                else None
-            ),
+            "size": behavior_hints.get("videoSize"),
             "tracker": f"MediaFusion|{tracker}",
             "sources": sources,
         }
@@ -91,8 +74,4 @@ class MediaFusionScraper(TorrentDiscoveryAdapter):
             if not is_success_status(response.status):
                 raise RuntimeError(f"HTTP {response.status}")
             results = await response.json()
-        if not isinstance(results, dict) or not isinstance(
-            results.get("streams"), list
-        ):
-            raise ValueError("MediaFusion response is invalid")
-        return parse_valid_items(results["streams"], self._parse_stream)
+        return [self._parse_stream(stream) for stream in results["streams"]]

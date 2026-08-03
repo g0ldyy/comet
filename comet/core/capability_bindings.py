@@ -26,7 +26,6 @@ from comet.core.sources import (
 from comet.playback.base import ProviderStatus, Readiness
 from comet.playback.tokens import CapabilityCodec
 
-_MAX_CREDENTIAL_MATERIAL_BYTES = 64 * 1024
 _CREDENTIAL_KEYS = {
     "altmount": frozenset({"apiKey"}),
     "comet_native_usenet": frozenset({"nativeAccessToken", "password", "username"}),
@@ -75,27 +74,20 @@ def build_playback_capability_bindings(
         return ()
     versions = instance_capability_versions or {}
     instance_credentials = instance_credential_material or {}
-    accounts = config.get("accounts")
-    if accounts is None:
-        accounts = {}
-    elif not isinstance(accounts, Mapping):
-        raise ValueError("capability accounts are invalid")
+    raw_accounts = config.get("accounts")
+    accounts = {} if raw_accounts is None else dict(raw_accounts.items())
     configured_transports = config.get("enabledTransports")
     enabled_transports = (
         set(configured_transports) if configured_transports is not None else None
     )
     bindings = []
     for entry in config.get("playbackProviders") or ():
-        if (
-            not isinstance(entry, Mapping)
-            or not entry.get("enabled")
-            or entry.get("kind") not in CAPABILITY_VALIDATED_PLAYBACK_PROVIDER_KINDS
+        if not entry.get("enabled") or (
+            entry.get("kind") not in CAPABILITY_VALIDATED_PLAYBACK_PROVIDER_KINDS
         ):
             continue
-        configuration_id = entry.get("configurationId")
-        kind = entry.get("kind")
-        if not isinstance(configuration_id, str) or not isinstance(kind, str):
-            raise ValueError("capability provider binding is invalid")
+        configuration_id = entry["configurationId"]
+        kind = entry["kind"]
         if (
             enabled_transports is not None
             and kind in USENET_PLAYBACK_PROVIDER_KINDS
@@ -117,8 +109,7 @@ def build_playback_capability_bindings(
                 (
                     item
                     for item in config.get("_debridEntries") or ()
-                    if isinstance(item, Mapping)
-                    and item.get("configurationId") == configuration_id
+                    if item.get("configurationId") == configuration_id
                     and item.get("service") == kind
                 ),
                 None,
@@ -142,13 +133,9 @@ def build_playback_capability_bindings(
             )
         instance_material = instance_credentials.get(kind)
         if instance_material is not None:
-            if not isinstance(instance_material, bytes):
-                raise ValueError("instance credential material is invalid")
             credentials.append(("instanceCredentialMaterial", instance_material.hex()))
         credentials.sort(key=lambda item: item[0])
         credential_material = orjson.dumps(credentials)
-        if len(credential_material) > _MAX_CREDENTIAL_MATERIAL_BYTES:
-            raise ValueError("capability credential material is too large")
         credential_fingerprint = codec.provider_credential_fingerprint(
             kind,
             f"binding:{configuration_id}",
@@ -343,15 +330,10 @@ def resolve_capability_options(
     entry: Mapping[str, object],
     accounts: Mapping[str, object],
 ) -> dict[str, object]:
-    options = entry.get("options")
-    if options is None:
-        options = {}
-    elif isinstance(options, Mapping):
-        options = dict(options)
-    else:
-        raise ValueError("capability provider options are invalid")
+    raw_options = entry.get("options")
+    options = {} if raw_options is None else dict(raw_options.items())
     account_id = entry.get("accountId")
-    if isinstance(account_id, str):
+    if account_id is not None:
         for key, value in account_options(accounts.get(account_id)).items():
             options.setdefault(key, value)
     return options
@@ -367,8 +349,6 @@ def separate_capability_credentials(
         normalized = {}
         credentials = []
         for key, nested in value.items():
-            if not isinstance(key, str) or not key:
-                raise ValueError("capability option key is invalid")
             nested_path = f"{path}.{key}" if path else key
             if key in credential_keys:
                 credentials.append((nested_path, nested))

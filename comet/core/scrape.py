@@ -1,7 +1,7 @@
 from enum import StrEnum
+from typing import Annotated
 
-_MAX_SCRAPER_NAME_BYTES = 64
-_MAX_SCRAPER_SELECTOR_BYTES = 80
+from pydantic import BeforeValidator
 
 
 class ScrapeContext(StrEnum):
@@ -9,17 +9,25 @@ class ScrapeContext(StrEnum):
     BACKGROUND = "background"
 
 
-def normalize_scraper_name(name: str) -> str:
-    if type(name) is not str or not name.strip():
-        raise ValueError("scraper name is invalid")
-    name = name.strip()
-    try:
-        if len(name.encode("utf-8")) > _MAX_SCRAPER_NAME_BYTES:
-            raise ValueError
-    except (UnicodeEncodeError, ValueError):
-        raise ValueError("scraper name is invalid") from None
+def normalize_scraper_mode(value: object) -> bool | str:
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"1", "on", "t", "true", "y", "yes"}:
+            return True
+        if normalized in {"0", "f", "false", "n", "no", "off"}:
+            return False
+        if normalized in ScrapeContext:
+            return normalized
+    elif isinstance(value, bool):
+        return value
+    raise ValueError("scraper mode must be true, false, live, or background")
 
-    normalized = name.casefold()
+
+ScraperMode = Annotated[bool | str, BeforeValidator(normalize_scraper_mode)]
+
+
+def normalize_scraper_name(name: str) -> str:
+    normalized = name.strip().casefold()
     if normalized.endswith("scraper"):
         normalized = normalized.removesuffix("scraper")
     if not normalized or not normalized.isascii() or not normalized.isalnum():
@@ -28,15 +36,7 @@ def normalize_scraper_name(name: str) -> str:
 
 
 def normalize_scraper_timeout_selector(selector: str) -> str:
-    if type(selector) is not str or not selector.strip():
-        raise ValueError("scraper timeout selector is invalid")
     selector = selector.strip()
-    try:
-        if len(selector.encode("utf-8")) > _MAX_SCRAPER_SELECTOR_BYTES:
-            raise ValueError
-    except (UnicodeEncodeError, ValueError):
-        raise ValueError("scraper timeout selector is invalid") from None
-
     parts = selector.split(":")
     if len(parts) > 2:
         raise ValueError("scraper timeout selector is invalid")

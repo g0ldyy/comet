@@ -3,7 +3,6 @@ from comet.discovery.torrent_base import (
     TorrentDiscoveryAdapter,
     deduplicate_torrents,
     gather_concurrently,
-    parse_valid_items,
 )
 from comet.discovery.torrent_models import ScrapeRequest
 
@@ -16,25 +15,15 @@ class ZileanScraper(TorrentDiscoveryAdapter):
 
     @staticmethod
     def _parse_result(result):
-        if not isinstance(result, dict):
-            raise ValueError("Zilean result is invalid")
-        title = result.get("raw_title")
-        info_hash = result.get("info_hash")
-        if not isinstance(title, str) or not title:
-            raise ValueError("Zilean result is invalid")
-        if not isinstance(info_hash, str) or not info_hash:
-            raise ValueError("Zilean result is invalid")
+        title = result["raw_title"]
+        info_hash = result["info_hash"]
         raw_size = result.get("size")
-        try:
-            size = None if raw_size is None else int(raw_size)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Zilean result is invalid") from exc
         return {
             "title": title,
             "infoHash": info_hash.lower(),
             "fileIndex": None,
             "seeders": None,
-            "size": size,
+            "size": None if raw_size is None else int(raw_size),
             "tracker": "DMM",
             "sources": [],
         }
@@ -56,14 +45,12 @@ class ZileanScraper(TorrentDiscoveryAdapter):
                 if not is_success_status(response.status):
                     raise RuntimeError(f"HTTP {response.status}")
                 data = await response.json()
-                if not isinstance(data, list):
-                    raise ValueError("response payload is not a list")
                 return data
 
         responses = await gather_concurrently(
             fetch(title) for title in request.query_titles
         )
         for data in responses:
-            torrents.extend(parse_valid_items(data, self._parse_result))
+            torrents.extend(self._parse_result(result) for result in data)
 
         return deduplicate_torrents(torrents)

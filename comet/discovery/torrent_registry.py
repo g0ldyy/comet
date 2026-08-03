@@ -30,7 +30,6 @@ class TorrentAdapterRegistry:
     def __init__(self):
         self.adapter_types: dict[str, type[TorrentDiscoveryAdapter]] = {}
         self.discover_adapters()
-        self._validate_timeout_overrides()
 
     def discover_adapters(self) -> None:
         """Discover the server-configured torrent DiscoveryAdapter classes."""
@@ -51,19 +50,6 @@ class TorrentAdapterRegistry:
                     and obj is not TorrentDiscoveryAdapter
                 ):
                     self.adapter_types[obj.__name__] = obj
-
-    def _validate_timeout_overrides(self) -> None:
-        available = {normalize_scraper_name(name) for name in self.adapter_types}
-        configured = {
-            selector.partition(":")[0]
-            for selector in settings.SCRAPER_TIMEOUT_OVERRIDES
-        }
-        unknown = sorted(configured - available)
-        if unknown:
-            raise ValueError(
-                "SCRAPER_TIMEOUT_OVERRIDES contains unknown scrapers: "
-                + ", ".join(unknown)
-            )
 
     @staticmethod
     def _resolve_timeout(

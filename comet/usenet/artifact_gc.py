@@ -37,23 +37,12 @@ class SharedArtifactGarbageCollector:
         self._artifact_dir = Path(artifact_dir)
         self._database = database
 
-    @staticmethod
-    def _validate_limit(limit: int) -> int:
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= _MAX_GC_BATCH
-        ):
-            raise ValueError("invalid artifact GC limit")
-        return limit
-
     async def collect(
         self,
         *,
         now: float | None = None,
         limit: int = _MAX_GC_BATCH,
     ) -> ArtifactGcResult:
-        limit = self._validate_limit(limit)
         current_time = time.time() if now is None else now
         expired_leases = 0
         for table_name in _LEASE_TABLES:

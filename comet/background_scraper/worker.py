@@ -27,45 +27,6 @@ BACKGROUND_SCRAPER_RUNS_PROJECTION = """
             torrents_found_count AS torrents_found,
             duration_ms, worker_count, last_error
 """
-BACKGROUND_SCRAPER_RUN_FIELDS = frozenset(
-    {
-        "run_id",
-        "started_at",
-        "finished_at",
-        "status",
-        "processed",
-        "success",
-        "failed",
-        "torrents_found",
-        "duration_ms",
-        "worker_count",
-        "last_error",
-    }
-)
-BACKGROUND_SCRAPER_RUN_STATUSES = frozenset(
-    {"running", "completed", "cancelled", "failed"}
-)
-
-
-def _require_nonnegative_int(value, field_name: str) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    return value
-
-
-def _require_finite_timestamp(value, field_name: str) -> float:
-    if type(value) is not float or not math.isfinite(value) or value < 0:
-        raise ValueError(f"{field_name} must be a finite non-negative timestamp")
-    return value
-
-
-def _database_record_dict(row, field_name: str) -> dict:
-    if row is None:
-        raise TypeError(f"{field_name} must be a database record")
-    try:
-        return dict(row)
-    except (TypeError, ValueError) as error:
-        raise TypeError(f"{field_name} must be a database record") from error
 
 
 def _queue_ready_at_sql(table_alias: str) -> str:
@@ -89,58 +50,22 @@ def _queue_ready_at_sql(table_alias: str) -> str:
 
 
 def _serialize_run_row(row) -> dict:
-    candidate = _database_record_dict(row, "background scraper run")
-    if not BACKGROUND_SCRAPER_RUN_FIELDS <= candidate.keys():
-        raise ValueError("background scraper run has an invalid field set")
-
-    run_id = candidate["run_id"]
-    if type(run_id) is not str:
-        raise ValueError("background scraper run_id must be a canonical UUID")
-    try:
-        is_canonical_run_id = str(uuid.UUID(run_id)) == run_id
-    except ValueError:
-        is_canonical_run_id = False
-    if not is_canonical_run_id:
-        raise ValueError("background scraper run_id must be a canonical UUID")
-
-    status = candidate["status"]
-    if type(status) is not str or status not in BACKGROUND_SCRAPER_RUN_STATUSES:
-        raise ValueError("background scraper run has an invalid status")
-
-    started_at = _require_finite_timestamp(candidate["started_at"], "started_at")
-    finished_value = candidate["finished_at"]
-    finished_at = (
-        None
-        if finished_value is None
-        else _require_finite_timestamp(finished_value, "finished_at")
-    )
-    if finished_at is not None and finished_at < started_at:
-        raise ValueError("background scraper run finishes before it starts")
-    if (status == "running") != (finished_at is None):
-        raise ValueError("background scraper run status and finished_at disagree")
-
-    last_error = candidate["last_error"]
-    if last_error is not None and type(last_error) is not str:
-        raise ValueError("background scraper last_error must be a string or null")
-
+    candidate = dict(row)
     return {
-        "run_id": run_id,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "status": status,
-        "processed": _require_nonnegative_int(candidate["processed"], "processed"),
-        "success": _require_nonnegative_int(candidate["success"], "success"),
-        "failed": _require_nonnegative_int(candidate["failed"], "failed"),
-        "torrents_found": _require_nonnegative_int(
-            candidate["torrents_found"], "torrents_found"
-        ),
-        "duration_ms": _require_nonnegative_int(
-            candidate["duration_ms"], "duration_ms"
-        ),
-        "worker_count": _require_nonnegative_int(
-            candidate["worker_count"], "worker_count"
-        ),
-        "last_error": last_error,
+        key: candidate[key]
+        for key in (
+            "run_id",
+            "started_at",
+            "finished_at",
+            "status",
+            "processed",
+            "success",
+            "failed",
+            "torrents_found",
+            "duration_ms",
+            "worker_count",
+            "last_error",
+        )
     }
 
 
@@ -275,33 +200,12 @@ class BackgroundScraperWorker:
             force_primary=True,
         )
 
-        queue_snapshot = _database_record_dict(
-            queue_snapshot, "background scraper queue snapshot"
-        )
-        if (
-            not {
-                "movie_count",
-                "series_count",
-                "oldest_item_ts",
-                "episode_count",
-                "oldest_episode_ts",
-            }
-            <= queue_snapshot.keys()
-        ):
-            raise ValueError("background scraper queue snapshot has an invalid schema")
+        queue_snapshot = dict(queue_snapshot)
 
         oldest_item_value = queue_snapshot["oldest_item_ts"]
         oldest_episode_value = queue_snapshot["oldest_episode_ts"]
-        oldest_item_ts = (
-            None
-            if oldest_item_value is None
-            else _require_finite_timestamp(oldest_item_value, "oldest_item_ts")
-        )
-        oldest_episode_ts = (
-            None
-            if oldest_episode_value is None
-            else _require_finite_timestamp(oldest_episode_value, "oldest_episode_ts")
-        )
+        oldest_item_ts = oldest_item_value
+        oldest_episode_ts = oldest_episode_value
         candidate_timestamps = [
             ts for ts in (oldest_item_ts, oldest_episode_ts) if ts is not None
         ]
@@ -310,15 +214,9 @@ class BackgroundScraperWorker:
             if candidate_timestamps
             else 0.0
         )
-        queue_movies = _require_nonnegative_int(
-            queue_snapshot["movie_count"], "movie_count"
-        )
-        queue_series = _require_nonnegative_int(
-            queue_snapshot["series_count"], "series_count"
-        )
-        queue_episodes = _require_nonnegative_int(
-            queue_snapshot["episode_count"], "episode_count"
-        )
+        queue_movies = queue_snapshot["movie_count"]
+        queue_series = queue_snapshot["series_count"]
+        queue_episodes = queue_snapshot["episode_count"]
         total_queue = queue_movies + queue_series + queue_episodes
 
         snapshot = {
@@ -610,15 +508,9 @@ class BackgroundScraperWorker:
         )
         dead_item_counts = {"movie": 0, "series": 0}
         for row in dead_items_rows:
-            dead_item_row = _database_record_dict(row, "dead item count")
-            if not {"media_type", "count"} <= dead_item_row.keys():
-                raise ValueError("dead item count has an invalid schema")
+            dead_item_row = dict(row)
             media_type = dead_item_row["media_type"]
-            if type(media_type) is not str or media_type not in dead_item_counts:
-                raise ValueError("dead item count has an invalid media_type")
-            dead_item_counts[media_type] = _require_nonnegative_int(
-                dead_item_row["count"], f"dead_{media_type}_count"
-            )
+            dead_item_counts[media_type] = dead_item_row["count"]
         dead_episodes = await database.fetch_val(
             """
             SELECT COUNT(*) FROM background_scraper_episodes
@@ -640,25 +532,10 @@ class BackgroundScraperWorker:
             """,
             {"lookback_24h": lookback_24h},
         )
-        run_agg = _database_record_dict(run_agg, "background scraper run aggregate")
-        if (
-            not {
-                "processed",
-                "success",
-                "failed",
-                "torrents_found",
-                "run_count",
-            }
-            <= run_agg.keys()
-        ):
-            raise ValueError("background scraper run aggregate has an invalid schema")
-        processed_24h = _require_nonnegative_int(run_agg["processed"], "processed_24h")
-        failed_24h = _require_nonnegative_int(run_agg["failed"], "failed_24h")
-        torrents_24h = _require_nonnegative_int(
-            run_agg["torrents_found"], "torrents_found_24h"
-        )
-        _require_nonnegative_int(run_agg["success"], "success_24h")
-        _require_nonnegative_int(run_agg["run_count"], "run_count_24h")
+        run_agg = dict(run_agg)
+        processed_24h = run_agg["processed"]
+        failed_24h = run_agg["failed"]
+        torrents_24h = run_agg["torrents_found"]
         fail_rate_24h = (failed_24h / processed_24h) if processed_24h > 0 else 0.0
         torrents_per_item_24h = (
             (torrents_24h / processed_24h) if processed_24h > 0 else 0.0
@@ -711,9 +588,7 @@ class BackgroundScraperWorker:
             "dead": {
                 "movies": dead_item_counts["movie"],
                 "series": dead_item_counts["series"],
-                "episodes": _require_nonnegative_int(
-                    dead_episodes, "dead_episode_count"
-                ),
+                "episodes": dead_episodes,
             },
             "slo": {
                 "window_seconds": 86400,
@@ -737,8 +612,6 @@ class BackgroundScraperWorker:
         }
 
     async def get_recent_runs(self, limit: int = 20):
-        if type(limit) is not int or not 1 <= limit <= 200:
-            raise ValueError("run limit must be an integer between 1 and 200")
         rows = await database.fetch_all(
             f"""
             SELECT {BACKGROUND_SCRAPER_RUNS_PROJECTION}
@@ -1430,12 +1303,7 @@ class BackgroundScraperWorker:
             )
             if (
                 last_episode_refresh is None
-                or now
-                - _require_finite_timestamp(
-                    last_episode_refresh,
-                    "last_episode_refresh",
-                )
-                >= episode_refresh_ttl
+                or now - last_episode_refresh >= episode_refresh_ttl
             ):
                 should_refresh_episodes = True
 
@@ -1675,23 +1543,17 @@ class BackgroundScraperWorker:
     async def requeue_dead_items(self, store=database):
         now = time.time()
         async with store.transaction():
-            dead_items = _require_nonnegative_int(
-                await store.fetch_val(
-                    """
-                    SELECT COUNT(*) FROM background_scraper_items
-                    WHERE status = 'dead'
-                    """
-                ),
-                "dead_item_count",
+            dead_items = await store.fetch_val(
+                """
+                SELECT COUNT(*) FROM background_scraper_items
+                WHERE status = 'dead'
+                """
             )
-            dead_episodes = _require_nonnegative_int(
-                await store.fetch_val(
-                    """
-                    SELECT COUNT(*) FROM background_scraper_episodes
-                    WHERE status = 'dead'
-                    """
-                ),
-                "dead_episode_count",
+            dead_episodes = await store.fetch_val(
+                """
+                SELECT COUNT(*) FROM background_scraper_episodes
+                WHERE status = 'dead'
+                """
             )
 
             await store.execute(

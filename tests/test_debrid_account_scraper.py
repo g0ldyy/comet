@@ -11,7 +11,7 @@ import comet.services.debrid_account_scraper as account_scraper
 
 
 class DebridAccountSnapshotTests(unittest.IsolatedAsyncioTestCase):
-    async def test_inconsistent_short_page_fails_the_snapshot_scan(self):
+    async def test_short_page_is_consumed_without_revalidation(self):
         client = type(
             "Client",
             (),
@@ -30,8 +30,10 @@ class DebridAccountSnapshotTests(unittest.IsolatedAsyncioTestCase):
             },
         )()
 
-        with self.assertRaisesRegex(ValueError, "page is incomplete"):
-            await account_scraper._fetch_all_magnets(client, 500)
+        self.assertEqual(
+            await account_scraper._fetch_all_magnets(client, 500),
+            [{"id": "one", "hash": "a" * 40}],
+        )
         client.list_magnets.assert_awaited_once_with(limit=500, offset=0)
 
     async def test_snapshot_scan_stops_at_the_operator_item_ceiling(self):

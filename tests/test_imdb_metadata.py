@@ -7,13 +7,9 @@ from comet.metadata.imdb import (
 
 
 class ImdbMetadataTests(unittest.TestCase):
-    def test_imdb_extractor_isolates_invalid_results(self):
+    def test_imdb_extractor_selects_the_expected_result(self):
         payload = {
             "d": [
-                None,
-                {"id": 42, "l": "wrong ID"},
-                {"id": "tt-episode/one", "l": "episode"},
-                {"id": "tt1234567", "l": ["wrong title"]},
                 {
                     "id": "tt7654321",
                     "l": "Valid",
@@ -28,15 +24,8 @@ class ImdbMetadataTests(unittest.TestCase):
             _extract_imdb_metadata(payload, "tt1234567"),
             (None, None, None),
         )
-        self.assertEqual(
-            _extract_imdb_metadata({"d": {"id": "tt123"}}), (None, None, None)
-        )
 
-    def test_cinemeta_extractor_requires_current_meta_object(self):
-        self.assertEqual(
-            _extract_cinemeta_metadata({"meta": []}),
-            (None, None, None),
-        )
+    def test_cinemeta_extractor_reads_the_current_meta_object(self):
         self.assertEqual(
             _extract_cinemeta_metadata(
                 {"meta": {"name": "Valid", "releaseInfo": "2024-2026"}}

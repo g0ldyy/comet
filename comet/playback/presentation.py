@@ -24,15 +24,6 @@ class ProviderOption:
     locators: tuple[Locator, ...]
     cached: bool = False
 
-    def __post_init__(self):
-        if not self.locators or len(self.locators) > 16:
-            raise ValueError("provider options require one to sixteen locators")
-        if self.cached and (
-            self.provider.kind not in TORRENT_PROVIDER_KINDS
-            or self.provider.kind == "direct_torrent"
-        ):
-            raise ValueError("only debrid options can carry a cache hit")
-
 
 def build_provider_options(
     candidates: tuple[ReleaseCandidate, ...], capability_plan: CapabilityPlan
@@ -89,10 +80,6 @@ def select_presentation(
     cache hits are preferred only among equivalent releases; no preparation
     history participates in visibility or ordering.
     """
-    if type(cached_only) is not bool or (
-        type(max_releases_per_resolution) is not int or max_releases_per_resolution < 0
-    ):
-        raise ValueError("presentation settings are invalid")
     candidate_order = {
         candidate.candidate_id: index for index, candidate in enumerate(candidates)
     }
@@ -162,15 +149,12 @@ def issue_provider_option_capability(
     client: str,
 ) -> str:
     """Create a short-lived server playback capability from committed IDs."""
-    try:
-        candidate_id = uuid.UUID(persisted.candidate_id).bytes
-        provider_id = uuid.UUID(option.provider.configuration_id).bytes
-        locator_ids = [
-            uuid.UUID(persisted.locator_ids[locator.locator_id]).bytes
-            for locator in option.locators
-        ]
-    except (KeyError, ValueError, AttributeError) as exc:
-        raise ValueError("provider option has not been committed") from exc
+    candidate_id = uuid.UUID(persisted.candidate_id).bytes
+    provider_id = uuid.UUID(option.provider.configuration_id).bytes
+    locator_ids = [
+        uuid.UUID(persisted.locator_ids[locator.locator_id]).bytes
+        for locator in option.locators
+    ]
     return codec.encode(
         "pi2",
         partition=partition,
@@ -190,19 +174,16 @@ def issue_nzb_handoff_capability(
 ) -> str:
     """Create one reusable lazy handoff from committed NZB transforms."""
     locators = option.locators[:MAX_NZB_HANDOFF_LOCATORS]
-    try:
-        suffix = [
-            uuid.UUID(persisted.candidate_id).bytes,
-            uuid.UUID(option.provider.configuration_id).bytes,
-            [
-                uuid.UUID(persisted.locator_ids[locator.locator_id]).bytes
-                for locator in locators
-            ],
-            selection_intent,
-            "stremio",
-        ]
-    except (KeyError, ValueError, AttributeError) as exc:
-        raise ValueError("provider option has not been committed") from exc
+    suffix = [
+        uuid.UUID(persisted.candidate_id).bytes,
+        uuid.UUID(option.provider.configuration_id).bytes,
+        [
+            uuid.UUID(persisted.locator_ids[locator.locator_id]).bytes
+            for locator in locators
+        ],
+        selection_intent,
+        "stremio",
+    ]
     return codec.encode(
         "ni2",
         partition=partition,

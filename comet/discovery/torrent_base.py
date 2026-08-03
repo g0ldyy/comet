@@ -22,12 +22,8 @@ def deduplicate_torrents(torrents: list[dict]) -> list[dict]:
     unique = []
     seen = set()
     for torrent in torrents:
-        info_hash = torrent.get("infoHash") if isinstance(torrent, dict) else None
-        if not isinstance(info_hash, str):
-            unique.append(torrent)
-            continue
         identity = (
-            info_hash.lower(),
+            torrent["infoHash"].lower(),
             torrent.get("fileIndex"),
         )
         if identity in seen:
@@ -91,14 +87,11 @@ class TorrentDiscoveryAdapter(ABC):
         """Expose every existing torrent source through DiscoveryAdapter."""
         if TransportKind.BITTORRENT.value not in context.branches:
             return DiscoveryBatch()
-        title = query.title
-        if not isinstance(title, str) or not title:
-            title = query.title_aliases[0] if query.title_aliases else query.media_id
         request = ScrapeRequest(
             media_type=query.media_type,
             media_id=query.request_media_id or query.media_id,
             media_only_id=query.media_id,
-            title=title,
+            title=query.title,
             year=query.year,
             year_end=query.year_end,
             season=query.season,
@@ -115,8 +108,6 @@ class TorrentDiscoveryAdapter(ABC):
             else:
                 async with asyncio.timeout(self.discovery_timeout):
                     raw_results = await self.scrape(request)
-            if not isinstance(raw_results, list):
-                raise ValueError("torrent scraper result must be a list")
             result_count = len(raw_results)
         except TimeoutError:
             outcome = "timeout"
@@ -132,15 +123,11 @@ class TorrentDiscoveryAdapter(ABC):
                 time.perf_counter() - started_at,
                 result_count,
             )
-        candidates = []
-        for result in raw_results:
-            try:
-                candidate = torrent_candidate_from_scrape_result(result, query)
-            except (AttributeError, KeyError, TypeError, ValueError):
-                continue
-            candidates.append(candidate)
         return DiscoveryBatch(
-            tuple(candidates),
+            tuple(
+                torrent_candidate_from_scrape_result(result, query)
+                for result in raw_results
+            ),
             coverage=frozenset({TransportKind.BITTORRENT.value}),
         )
 

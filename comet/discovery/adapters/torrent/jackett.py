@@ -125,13 +125,7 @@ class JackettScraper(TorrentDiscoveryAdapter):
             if not is_success_status(response.status):
                 raise RuntimeError(f"HTTP {response.status}")
             data = decode_indexer_json(await response.read())
-            if (
-                not isinstance(data, dict)
-                or not isinstance(data.get("Results"), list)
-                or len(data["Results"]) > 10_000
-            ):
-                raise ValueError("response payload is missing a results list")
-            return data["Results"]
+            return data.get("Results", [])
 
     async def scrape(self, request: ScrapeRequest):
         indexers = active_jackett_indexers()
