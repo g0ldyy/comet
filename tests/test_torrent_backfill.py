@@ -27,7 +27,10 @@ from comet.core.schema_specs import (
 from comet.discovery.repository import (
     LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID,
 )
-from comet.discovery.torrent_backfill import backfill_legacy_torrents
+from comet.discovery.torrent_backfill import (
+    _POSTGRES_IMPORT_SQL,
+    backfill_legacy_torrents,
+)
 from comet.discovery.torrent_repository import TorrentReleaseRepository
 from comet.services import orchestration, torrent_manager
 from comet.services.orchestration import TorrentResultAccumulator
@@ -49,6 +52,16 @@ DEVELOPMENT_MIGRATIONS = (
     "2026072301_media_demand_scrape_coverage",
     "2026072701_imdb_title_lookup",
 )
+
+
+class PostgresLegacyTorrentBackfillSqlTests(unittest.TestCase):
+    def test_promotes_legacy_integer_timestamps_before_millisecond_arithmetic(self):
+        legacy_cte = _POSTGRES_IMPORT_SQL.partition("grouped AS (")[0]
+
+        self.assertIn(
+            "CAST(updated_at AS DOUBLE PRECISION) AS updated_at",
+            legacy_cte,
+        )
 
 
 class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):

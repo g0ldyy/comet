@@ -65,7 +65,8 @@ _POSTGRES_IMPORT_SQL = f"""
     WITH legacy AS MATERIALIZED (
         SELECT media_id, info_hash, season_norm, episode_norm,
                file_index, title, seeders, size, tracker,
-               sources_json, parsed_json, updated_at
+               sources_json, parsed_json,
+               CAST(updated_at AS DOUBLE PRECISION) AS updated_at
         FROM torrents
         WHERE {_POSTGRES_RANGE_PREDICATE}
     ),
