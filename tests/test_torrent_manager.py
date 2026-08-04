@@ -503,6 +503,28 @@ class TorrentPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
         enqueue.assert_not_awaited()
 
+    async def test_queue_skips_metadata_rejected_by_broadcast_contract(self):
+        queue = torrent_manager.TorrentUpdateQueue(batch_size=3, flush_interval=0)
+        backend = Mock(spec=CometNetService)
+        backend.broadcast_torrents = AsyncMock()
+        valid = self._make_update("valid.mkv", 1)
+        missing_size = self._make_update("missing-size.mkv", 2)
+        missing_size.size = None
+        zero_size = self._make_update("zero-size.mkv", 3)
+        zero_size.size = 0
+
+        with patch.object(torrent_manager, "get_active_backend", return_value=backend):
+            await queue._enqueue_broadcast_items(
+                [missing_size, valid, zero_size], updated_at=123.0
+            )
+            await queue._broadcast_queue.join()
+            await queue.stop()
+
+        backend.broadcast_torrents.assert_awaited_once()
+        metadata_batch = backend.broadcast_torrents.await_args.args[0]
+        self.assertEqual([metadata.title for metadata in metadata_batch], ["valid.mkv"])
+        self.assertEqual(metadata_batch[0].size, 1)
+
     def test_retryable_database_errors_use_structured_codes(self):
         locked = sqlite3.OperationalError("opaque")
         locked.sqlite_errorcode = sqlite3.SQLITE_BUSY

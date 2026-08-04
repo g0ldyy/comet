@@ -18,6 +18,7 @@ import bencodepy
 from bencodepy import BencodeDecodeError
 from demagnetize.core import Demagnetizer
 from demagnetize.errors import DemagnetizeError
+from pydantic import ValidationError
 from RTN import parse
 from torf import Magnet, MagnetError
 
@@ -571,21 +572,24 @@ class _TorrentUpdate:
     episode_norm: int = field(init=False)
     row_key: tuple[str, str, int, int] = field(init=False)
 
-    def to_broadcast_metadata(self, updated_at: float) -> TorrentMetadata:
-        return _construct_torrent_metadata(
-            info_hash=self.info_hash,
-            title=self.title,
-            size=self.size,
-            tracker=self.tracker or "",
-            imdb_id=self.media_id,
-            file_index=self.file_index,
-            seeders=self.seeders,
-            season=self.season,
-            episode=self.episode,
-            sources=self.sources,
-            parsed=self.parsed,
-            updated_at=updated_at,
-        )
+    def to_broadcast_metadata(self, updated_at: float) -> TorrentMetadata | None:
+        try:
+            return _construct_torrent_metadata(
+                info_hash=self.info_hash,
+                title=self.title,
+                size=self.size,
+                tracker=self.tracker or "",
+                imdb_id=self.media_id,
+                file_index=self.file_index,
+                seeders=self.seeders,
+                season=self.season,
+                episode=self.episode,
+                sources=self.sources,
+                parsed=self.parsed,
+                updated_at=updated_at,
+            )
+        except ValidationError:
+            return None
 
 
 def _iter_resolved_torrent_updates(
@@ -1163,9 +1167,10 @@ class TorrentUpdateQueue:
             return
 
         metadata_batch = [
-            item.to_broadcast_metadata(updated_at)
+            metadata
             for item in batch_items
             if not item.from_cometnet
+            and (metadata := item.to_broadcast_metadata(updated_at)) is not None
         ]
         if not metadata_batch:
             return
