@@ -270,6 +270,7 @@
       "nativeApiRequired": "Il servizio configurato non espone l’API nativa richiesta.",
       "noCompatiblePlaybackProvider": "Nessun provider di riproduzione valido può leggere i risultati da questa fonte.",
       "personalServersDisabled": "I server NNTP personali sono disabilitati su questa istanza Comet.",
+      "privateUpstreamOriginRequired": "Questo URL HTTP locale non è consentito da Comet.",
       "planIncompatible": "Il piano dell’account non supporta questo provider.",
       "rateLimited": "È stato raggiunto il limite di richieste del provider. Riprova più tardi.",
       "serversRequired": "Aggiungi almeno un server NNTP valido.",

@@ -270,6 +270,7 @@
       "nativeApiRequired": "구성된 서비스가 필요한 네이티브 API를 제공하지 않습니다.",
       "noCompatiblePlaybackProvider": "이 소스의 결과를 읽을 수 있는 유효한 재생 공급자가 없습니다.",
       "personalServersDisabled": "이 Comet 인스턴스에서는 개인 NNTP 서버가 비활성화되어 있습니다.",
+      "privateUpstreamOriginRequired": "Comet에서 이 로컬 HTTP URL을 허용하지 않습니다.",
       "planIncompatible": "계정 요금제가 이 공급자를 지원하지 않습니다.",
       "rateLimited": "공급자의 요청 한도에 도달했습니다. 나중에 다시 시도하세요.",
       "serversRequired": "유효한 NNTP 서버를 하나 이상 추가하세요.",

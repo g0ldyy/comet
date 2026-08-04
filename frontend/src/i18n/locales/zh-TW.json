@@ -270,6 +270,7 @@
       "nativeApiRequired": "已設定的服務未提供所需的原生 API。",
       "noCompatiblePlaybackProvider": "沒有有效的播放供應商能讀取此來源的結果。",
       "personalServersDisabled": "此 Comet 執行個體已停用個人 NNTP 伺服器。",
+      "privateUpstreamOriginRequired": "Comet 不允許此本機 HTTP URL。",
       "planIncompatible": "帳號方案不支援此供應商。",
       "rateLimited": "已達供應商的請求上限。請稍後再試。",
       "serversRequired": "請至少新增一個有效的 NNTP 伺服器。",

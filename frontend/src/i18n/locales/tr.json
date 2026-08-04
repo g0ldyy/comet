@@ -270,6 +270,7 @@
       "nativeApiRequired": "Yapılandırılan hizmet gerekli yerel API’yi sunmuyor.",
       "noCompatiblePlaybackProvider": "Geçerli hiçbir oynatma sağlayıcısı bu kaynaktaki sonuçları okuyamıyor.",
       "personalServersDisabled": "Kişisel NNTP sunucuları bu Comet örneğinde devre dışı.",
+      "privateUpstreamOriginRequired": "Bu yerel HTTP URL’sine Comet tarafından izin verilmiyor.",
       "planIncompatible": "Hesap planı bu sağlayıcıyı desteklemiyor.",
       "rateLimited": "Sağlayıcının istek sınırına ulaşıldı. Daha sonra tekrar deneyin.",
       "serversRequired": "En az bir geçerli NNTP sunucusu ekleyin.",

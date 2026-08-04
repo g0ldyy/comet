@@ -5,7 +5,7 @@ import binascii
 import secrets
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit
 
 import aiohttp
 
@@ -30,6 +30,7 @@ from comet.usenet.easynews import bounded_retry_after
 from comet.usenet.file_selection import FileSelectionError, select_remote_video_file
 from comet.usenet.limits import MAX_NZB_FILES
 from comet.usenet.provider_exports import NzbProviderExportError, export_base_url
+from comet.usenet.upstream import UpstreamUrlError, normalize_upstream_base_url
 
 _TERMINAL_STATUSES = frozenset({"failed", "invalid"})
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10, connect=3, sock_read=5)
@@ -198,48 +199,10 @@ def _authorization(value: object) -> str:
 
 
 def _base_url(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or not value
-        or len(value) > 1024
-        or "\\" in value
-        or any(
-            character.isspace() or ord(character) < 32 or ord(character) == 127
-            for character in value
-        )
-    ):
-        raise ValueError("StremThru base URL is invalid")
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("StremThru base URL is invalid") from exc
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.netloc
-        or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or port == 0
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("StremThru base URL is invalid")
-    normalized = urlunsplit(
-        (parsed.scheme, parsed.netloc.lower(), parsed.path.rstrip("/"), "", "")
+    return normalize_upstream_base_url(
+        value,
+        allowed_http_origins=settings.USENET_PRIVATE_UPSTREAM_ORIGINS,
     )
-    host = parsed.hostname.rstrip(".").lower()
-    authority = f"[{host}]" if ":" in host else host
-    network_origin = (
-        f"{parsed.scheme}://{authority}:"
-        f"{port if port is not None else (443 if parsed.scheme == 'https' else 80)}"
-    )
-    if (
-        parsed.scheme == "http"
-        and network_origin not in settings.USENET_PRIVATE_UPSTREAM_ORIGINS
-    ):
-        raise ValueError("StremThru requires HTTPS or an allowed private origin")
-    return normalized
 
 
 def _provider_export_url(value: object) -> str:
@@ -303,7 +266,15 @@ class StremThruNewzProvider:
         ):
             raise ValueError("StremThru governor is incomplete")
         self._session = session
-        self._options = options(config)
+        self._configuration_error_code: str | None = None
+        try:
+            self._options = options(config)
+        except UpstreamUrlError as exc:
+            self._options = None
+            self._configuration_error_code = exc.code
+        except ValueError:
+            self._options = None
+            self._configuration_error_code = "configuration_required"
         self._governor = governor
         self._governor_scope = governor_scope
 
@@ -345,6 +316,8 @@ class StremThruNewzProvider:
         if self._session is None:
             raise StremThruNewzError(unavailable, retryable=True)
         effective = self._options if effective is None else effective
+        if effective is None:
+            raise StremThruNewzError("configuration_required", terminal=True)
         headers = self._headers(effective)
         request_kwargs = {
             "headers": (
@@ -383,6 +356,8 @@ class StremThruNewzProvider:
 
     def credential_binding(self) -> tuple[str, bytes]:
         """Return the normalized values needed for an HMAC-only account binding."""
+        if self._options is None:
+            raise ValueError("StremThru configuration is unavailable")
         return self._options.base_url, self._options.authorization.encode("ascii")
 
     @staticmethod
@@ -395,13 +370,28 @@ class StremThruNewzProvider:
         }
 
     async def validate_config(self, config: dict) -> ProviderStatus:
-        try:
-            effective = options(config) if config else self._options
-        except ValueError:
+        if config:
+            try:
+                effective = options(config)
+            except UpstreamUrlError as exc:
+                return ProviderStatus(
+                    Readiness.TERMINAL_FAILURE,
+                    Actionability.NONE,
+                    code=exc.code,
+                )
+            except ValueError:
+                return ProviderStatus(
+                    Readiness.TERMINAL_FAILURE,
+                    Actionability.NONE,
+                    code="configuration_required",
+                )
+        else:
+            effective = self._options
+        if effective is None:
             return ProviderStatus(
                 Readiness.TERMINAL_FAILURE,
                 Actionability.NONE,
-                code="configuration_required",
+                code=self._configuration_error_code or "configuration_required",
             )
         try:
             export_base_url()

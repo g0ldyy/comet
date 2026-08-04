@@ -270,6 +270,7 @@
       "nativeApiRequired": "الخدمة المضبوطة لا توفّر واجهة API الأصلية المطلوبة.",
       "noCompatiblePlaybackProvider": "لا يستطيع أي مزوّد تشغيل صالح قراءة نتائج هذا المصدر.",
       "personalServersDisabled": "خوادم NNTP الشخصية معطّلة على مثيل Comet هذا.",
+      "privateUpstreamOriginRequired": "عنوان HTTP المحلي هذا غير مسموح به في Comet.",
       "planIncompatible": "خطة الحساب لا تدعم هذا المزوّد.",
       "rateLimited": "تم بلوغ حد طلبات المزوّد. حاول مرة أخرى لاحقًا.",
       "serversRequired": "أضف خادم NNTP صالحًا واحدًا على الأقل.",

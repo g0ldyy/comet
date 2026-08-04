@@ -270,6 +270,7 @@
       "nativeApiRequired": "配置的服务未提供所需的原生 API。",
       "noCompatiblePlaybackProvider": "没有有效的播放提供商能够读取此来源的结果。",
       "personalServersDisabled": "此 Comet 实例已禁用个人 NNTP 服务器。",
+      "privateUpstreamOriginRequired": "Comet 不允许此本地 HTTP URL。",
       "planIncompatible": "账户套餐不支持此提供商。",
       "rateLimited": "已达到提供商的请求上限。请稍后重试。",
       "serversRequired": "请至少添加一个有效的 NNTP 服务器。",

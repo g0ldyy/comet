@@ -108,6 +108,30 @@ class NzbDavProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(incomplete.code, "validation_incomplete")
         self.assertEqual(valid.readiness, Readiness.REQUIRES_PREPARE)
 
+    async def test_validation_explains_an_unallowlisted_internal_http_origin(self):
+        options = {
+            "internalBaseUrl": "http://nzbdav:3000/",
+            "sabApiKey": "key",
+            "webdavUsername": "user",
+            "webdavPassword": "password",
+        }
+
+        status = await NzbDavProvider(_Session(200, 207)).validate_config(options)
+
+        self.assertEqual(status.code, "private_upstream_origin_required")
+
+    async def test_validation_distinguishes_an_invalid_url_from_missing_fields(self):
+        options = {
+            "internalBaseUrl": "nzbdav:3000",
+            "sabApiKey": "key",
+            "webdavUsername": "user",
+            "webdavPassword": "password",
+        }
+
+        status = await NzbDavProvider(_Session(200, 207)).validate_config(options)
+
+        self.assertEqual(status.code, "configuration_invalid")
+
     async def test_validation_requires_both_configured_sab_categories(self):
         options = {
             "internalBaseUrl": "https://bridge.example",

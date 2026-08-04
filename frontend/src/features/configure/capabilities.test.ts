@@ -8,6 +8,7 @@ const translations: Readonly<Record<string, string>> = {
   "configure.capabilities.credentialsRejected": "Credentials rejected",
   "configure.capabilities.nativeAccessTokenRequired": "Access token required",
   "configure.capabilities.noCompatiblePlaybackProvider": "No playback provider",
+  "configure.capabilities.privateUpstreamOriginRequired": "Allow local HTTP origin",
   "configure.capabilities.temporarilyUnavailable": "Temporarily unavailable",
   "configure.messages.connectionAvailable": "Connection available",
 };
@@ -80,5 +81,17 @@ describe("capability messages", () => {
     };
 
     expect(capabilityFailureMessage(t, response)).toBe("TorBox: Credentials rejected");
+  });
+
+  it("explains when a local HTTP provider needs an operator allowlist entry", () => {
+    expect(
+      capabilityReason(
+        t,
+        result("nzbdav", {
+          error_code: "private_upstream_origin_required",
+          state: "plan_incompatible",
+        }),
+      ),
+    ).toBe("Allow local HTTP origin");
   });
 });

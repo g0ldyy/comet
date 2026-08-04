@@ -6,7 +6,7 @@ import uuid
 import xml.etree.ElementTree as element_tree
 from collections import deque
 from dataclasses import dataclass
-from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import aiohttp
 
@@ -27,7 +27,8 @@ from comet.playback.base import (
 )
 from comet.usenet.file_selection import FileSelectionError, select_remote_video_file
 from comet.usenet.limits import MAX_NZB_METADATA_BYTES
-from comet.usenet.outbound import http_url_with_basic_auth
+from comet.usenet.outbound import configured_http_origin, http_url_with_basic_auth
+from comet.usenet.upstream import UpstreamUrlError, normalize_upstream_base_url
 from comet.utils.http_client import read_bounded_body
 
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
@@ -65,21 +66,6 @@ class NzbDavReconciliation:
     status: str
 
 
-def _network_origin(parsed) -> str:
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("invalid HTTP origin")
-    port = parsed.port
-    if port == 0:
-        raise ValueError("invalid HTTP origin")
-    if port is None:
-        port = 443 if parsed.scheme == "https" else 80
-    host = parsed.hostname or ""
-    if not host or parsed.username is not None or parsed.password is not None:
-        raise ValueError("invalid HTTP origin")
-    authority = f"[{host}]" if ":" in host else host
-    return f"{parsed.scheme}://{authority}:{port}"
-
-
 def _bounded_text(value: object, maximum_bytes: int) -> bool:
     if not isinstance(value, str) or not value:
         return False
@@ -93,34 +79,17 @@ def _bounded_text(value: object, maximum_bytes: int) -> bool:
 
 
 def _base_url(value: object, *, server_reachable: bool) -> str | None:
-    if not _bounded_text(value, 1024):
-        return None
     try:
-        parsed = urlsplit(value)
-        network_origin = _network_origin(parsed)
-    except (TypeError, ValueError):
-        return None
-    if (
-        parsed.query
-        or parsed.fragment
-        or "\\" in value
-        or any(character.isspace() for character in value)
-        or (
-            server_reachable
-            and parsed.scheme == "http"
-            and network_origin not in settings.USENET_PRIVATE_UPSTREAM_ORIGINS
+        return normalize_upstream_base_url(
+            value,
+            allowed_http_origins=(
+                settings.USENET_PRIVATE_UPSTREAM_ORIGINS
+                if server_reachable
+                else None
+            ),
         )
-    ):
+    except UpstreamUrlError:
         return None
-    return urlunsplit(
-        (
-            parsed.scheme,
-            parsed.netloc.lower(),
-            parsed.path.rstrip("/"),
-            "",
-            "",
-        )
-    )
 
 
 def _local_name(value: str) -> str:
@@ -137,7 +106,7 @@ def parse_webdav_entries(
         raise ValueError("invalid NzbDAV WebDAV response")
     root_parts = urlsplit(root_url)
     try:
-        root_origin = _network_origin(root_parts)
+        root_origin = configured_http_origin(root_url)
     except ValueError as exc:
         raise ValueError("invalid NzbDAV WebDAV root") from exc
     if (
@@ -169,7 +138,7 @@ def parse_webdav_entries(
         )
         resolved = urlsplit(urljoin(f"{root_url.rstrip('/')}/", href))
         try:
-            resolved_origin = _network_origin(resolved)
+            resolved_origin = configured_http_origin(resolved.geturl())
         except ValueError as exc:
             raise ValueError(
                 "NzbDAV WebDAV response escapes the completed job"
@@ -296,21 +265,30 @@ class NzbDavProvider:
         return category
 
     @staticmethod
-    def _options(config: dict) -> tuple[str, str, str, str] | None:
+    def _credentials(config: dict) -> tuple[str, str, str] | None:
+        if not isinstance(config, dict):
+            return None
+        values = [
+            config.get(key) for key in ("sabApiKey", "webdavUsername", "webdavPassword")
+        ]
+        if not all(_bounded_text(value, 1024) for value in values):
+            return None
+        if not values[0].isascii() or ":" in values[1]:
+            return None
+        return values[0], values[1], values[2]
+
+    @classmethod
+    def _options(cls, config: dict) -> tuple[str, str, str, str] | None:
         if not isinstance(config, dict):
             return None
         base_url = _base_url(
             config.get("internalBaseUrl"),
             server_reachable=True,
         )
-        values = [
-            config.get(key) for key in ("sabApiKey", "webdavUsername", "webdavPassword")
-        ]
-        if base_url is None or not all(_bounded_text(value, 1024) for value in values):
+        credentials = cls._credentials(config)
+        if base_url is None or credentials is None:
             return None
-        if not values[0].isascii() or ":" in values[1]:
-            return None
-        return base_url, values[0], values[1], values[2]
+        return base_url, *credentials
 
     @staticmethod
     def _stream_base(config: dict, default: str) -> str | None:
@@ -566,7 +544,7 @@ class NzbDavProvider:
         return tuple(entries.values())
 
     async def validate_config(self, config: dict) -> ProviderStatus:
-        options = self._options(config)
+        credentials = self._credentials(config)
         try:
             required_categories = {
                 self._category(config.get("movieCategory"), "movies"),
@@ -574,11 +552,26 @@ class NzbDavProvider:
             }
         except (AttributeError, ValueError):
             required_categories = set()
-        if options is None or not required_categories:
+        if credentials is None or not required_categories:
             return ProviderStatus(
                 Readiness.TERMINAL_FAILURE,
                 Actionability.NONE,
                 code="configuration_required",
+            )
+        try:
+            base_url = normalize_upstream_base_url(
+                config.get("internalBaseUrl"),
+                allowed_http_origins=settings.USENET_PRIVATE_UPSTREAM_ORIGINS,
+            )
+            normalize_upstream_base_url(
+                config.get("streamBaseUrl", base_url),
+                allowed_http_origins=None,
+            )
+        except UpstreamUrlError as exc:
+            return ProviderStatus(
+                Readiness.TERMINAL_FAILURE,
+                Actionability.NONE,
+                code=exc.code,
             )
         if self._session is None:
             return ProviderStatus(
@@ -586,7 +579,7 @@ class NzbDavProvider:
                 Actionability.REMOTE_PREPARE,
                 code="validation_unavailable",
             )
-        base_url, api_key, username, password = options
+        api_key, username, password = credentials
         sab_ok = False
         sab_auth = False
         try:

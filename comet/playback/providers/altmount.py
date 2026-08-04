@@ -2,7 +2,7 @@
 
 import hashlib
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import aiohttp
 
@@ -25,6 +25,7 @@ from comet.playback.base import (
 )
 from comet.usenet.file_selection import matches_episode_path
 from comet.usenet.limits import MAX_NZB_METADATA_BYTES
+from comet.usenet.upstream import UpstreamUrlError, normalize_upstream_base_url
 from comet.utils.parsing import is_video
 
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
@@ -50,21 +51,6 @@ class AltMountSelectedFile:
 @dataclass(frozen=True, slots=True)
 class AltMountStream:
     files: tuple[AltMountRemoteFile, ...]
-
-
-def _network_origin(parsed) -> str:
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("invalid HTTP origin")
-    port = parsed.port
-    if port == 0:
-        raise ValueError("invalid HTTP origin")
-    if port is None:
-        port = 443 if parsed.scheme == "https" else 80
-    host = parsed.hostname or ""
-    if not host or parsed.username is not None or parsed.password is not None:
-        raise ValueError("invalid HTTP origin")
-    authority = f"[{host}]" if ":" in host else host
-    return f"{parsed.scheme}://{authority}:{port}"
 
 
 def _bounded_text(value: object, maximum_bytes: int) -> bool:
@@ -95,38 +81,17 @@ class AltMountProvider:
     def _options(config: dict) -> tuple[str, str] | None:
         if not isinstance(config, dict):
             return None
-        base_url, api_key = config.get("internalBaseUrl"), config.get("apiKey")
-        if not _bounded_text(base_url, 1024) or not _bounded_text(api_key, 1024):
+        api_key = config.get("apiKey")
+        if not _bounded_text(api_key, 1024):
             return None
         try:
-            parsed = urlsplit(base_url)
-            network_origin = _network_origin(parsed)
-        except ValueError:
+            base_url = normalize_upstream_base_url(
+                config.get("internalBaseUrl"),
+                allowed_http_origins=settings.USENET_PRIVATE_UPSTREAM_ORIGINS,
+            )
+        except UpstreamUrlError:
             return None
-        if (
-            parsed.query
-            or parsed.fragment
-            or "\\" in base_url
-            or any(character.isspace() for character in base_url)
-        ):
-            return None
-        if (
-            parsed.scheme == "http"
-            and network_origin not in settings.USENET_PRIVATE_UPSTREAM_ORIGINS
-        ):
-            return None
-        return (
-            urlunsplit(
-                (
-                    parsed.scheme,
-                    parsed.netloc.lower(),
-                    parsed.path.rstrip("/"),
-                    "",
-                    "",
-                )
-            ),
-            api_key,
-        )
+        return base_url, api_key
 
     @classmethod
     def has_valid_options(cls, config: dict) -> bool:
@@ -143,35 +108,13 @@ class AltMountProvider:
 
     @staticmethod
     def _stream_base(config: dict, default: str) -> str | None:
-        stream_base = config.get("streamBaseUrl", default)
-        if not _bounded_text(stream_base, 1024):
-            return None
         try:
-            parsed = urlsplit(stream_base)
-            network_origin = _network_origin(parsed)
-        except ValueError:
-            return None
-        if (
-            parsed.query
-            or parsed.fragment
-            or "\\" in stream_base
-            or any(character.isspace() for character in stream_base)
-        ):
-            return None
-        if (
-            parsed.scheme == "http"
-            and network_origin not in settings.USENET_PRIVATE_UPSTREAM_ORIGINS
-        ):
-            return None
-        return urlunsplit(
-            (
-                parsed.scheme,
-                parsed.netloc.lower(),
-                parsed.path.rstrip("/"),
-                "",
-                "",
+            return normalize_upstream_base_url(
+                config.get("streamBaseUrl", default),
+                allowed_http_origins=None,
             )
-        )
+        except UpstreamUrlError:
+            return None
 
     @classmethod
     def credential_binding(cls, config: dict) -> tuple[str, bytes]:
@@ -268,16 +211,34 @@ class AltMountProvider:
         return f"{stream_base}/api/files/stream?{urlencode({'path': virtual_path, 'download_key': expected_key})}"
 
     async def validate_config(self, config: dict) -> ProviderStatus:
-        options = self._options(config)
         try:
             self.category_for(config)
         except (AttributeError, ValueError):
-            options = None
-        if options is None or self._stream_base(config, options[0]) is None:
             return ProviderStatus(
                 Readiness.TERMINAL_FAILURE,
                 Actionability.NONE,
                 code="configuration_required",
+            )
+        if not isinstance(config, dict) or not _bounded_text(config.get("apiKey"), 1024):
+            return ProviderStatus(
+                Readiness.TERMINAL_FAILURE,
+                Actionability.NONE,
+                code="configuration_required",
+            )
+        try:
+            base_url = normalize_upstream_base_url(
+                config.get("internalBaseUrl"),
+                allowed_http_origins=settings.USENET_PRIVATE_UPSTREAM_ORIGINS,
+            )
+            normalize_upstream_base_url(
+                config.get("streamBaseUrl", base_url),
+                allowed_http_origins=None,
+            )
+        except UpstreamUrlError as exc:
+            return ProviderStatus(
+                Readiness.TERMINAL_FAILURE,
+                Actionability.NONE,
+                code=exc.code,
             )
         if self._session is None:
             return ProviderStatus(
@@ -285,7 +246,7 @@ class AltMountProvider:
                 Actionability.REMOTE_PREPARE,
                 code="validation_unavailable",
             )
-        base_url, api_key = options
+        api_key = config["apiKey"]
         empty_multipart = aiohttp.MultipartWriter("form-data")
         try:
             async with self._session.post(

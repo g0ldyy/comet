@@ -62,7 +62,8 @@ provider-side outage can fail independently.
 - Recheck the exact credentials and provider plan. TorBox Usenet requires
   Usenet access on the account.
 - For a local indexer or bridge, add its exact HTTP(S) origin, including the
-  port, to `USENET_PRIVATE_UPSTREAM_ORIGINS`.
+  port, to `USENET_PRIVATE_UPSTREAM_ORIGINS`. For NzbDAV at
+  `http://nzbdav:3000/`, use `["http://nzbdav:3000"]`.
 - Retry temporary failures; replace credentials for authentication failures.
 
 ## Built-in Usenet Engine Does Not Start

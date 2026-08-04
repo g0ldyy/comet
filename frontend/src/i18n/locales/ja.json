@@ -270,6 +270,7 @@
       "nativeApiRequired": "設定されたサービスが必要なネイティブ API を提供していません。",
       "noCompatiblePlaybackProvider": "このソースの結果を読み取れる有効な再生プロバイダーがありません。",
       "personalServersDisabled": "この Comet インスタンスでは個人用 NNTP サーバーが無効です。",
+      "privateUpstreamOriginRequired": "このローカル HTTP URL は Comet で許可されていません。",
       "planIncompatible": "アカウントのプランがこのプロバイダーに対応していません。",
       "rateLimited": "プロバイダーのリクエスト上限に達しました。後でもう一度お試しください。",
       "serversRequired": "有効な NNTP サーバーを少なくとも 1 台追加してください。",

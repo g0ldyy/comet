@@ -110,7 +110,11 @@ def build_playback_providers(
                 options,
             )
             if database is not None:
-                endpoint, credential_material = provider.credential_binding()
+                try:
+                    endpoint, credential_material = provider.credential_binding()
+                except ValueError:
+                    result[configuration_id] = provider
+                    continue
                 scope = bytes.fromhex(
                     CapabilityCodec(
                         settings.COMET_CAPABILITY_SECRET

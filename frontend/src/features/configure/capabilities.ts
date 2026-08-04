@@ -29,6 +29,7 @@ const errorMessages: Readonly<Record<string, string>> = {
   personal_servers_disabled: "configure.capabilities.personalServersDisabled",
   personal_servers_required: "configure.capabilities.serversRequired",
   plan_incompatible: "configure.capabilities.planIncompatible",
+  private_upstream_origin_required: "configure.capabilities.privateUpstreamOriginRequired",
   provider_caps_incompatible: "configure.capabilities.indexerIncompatible",
   provider_configuration_invalid: "configure.capabilities.configurationInvalid",
   provider_limit_exhausted: "configure.capabilities.rateLimited",

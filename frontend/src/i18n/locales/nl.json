@@ -270,6 +270,7 @@
       "nativeApiRequired": "De geconfigureerde dienst biedt niet de vereiste native API.",
       "noCompatiblePlaybackProvider": "Geen geldige afspeelprovider kan resultaten van deze bron lezen.",
       "personalServersDisabled": "Persoonlijke NNTP-servers zijn uitgeschakeld op deze Comet-instantie.",
+      "privateUpstreamOriginRequired": "Deze lokale HTTP-URL is niet toegestaan door Comet.",
       "planIncompatible": "Het accountabonnement ondersteunt deze provider niet.",
       "rateLimited": "De verzoeklimiet van de provider is bereikt. Probeer het later opnieuw.",
       "serversRequired": "Voeg ten minste één geldige NNTP-server toe.",

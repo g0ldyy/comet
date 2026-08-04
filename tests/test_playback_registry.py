@@ -124,6 +124,29 @@ def test_registry_requires_complete_stremthru_newz_options():
     assert isinstance(providers["newz"], StremThruNewzProvider)
 
 
+def test_registry_retains_invalid_stremthru_for_precise_capability_diagnostics():
+    providers = build_playback_providers(
+        {
+            "schemaVersion": 2,
+            "playbackProviders": [
+                {
+                    "configurationId": "newz",
+                    "kind": "stremthru_newz",
+                    "enabled": True,
+                    "options": {
+                        "baseUrl": "http://stremthru:8080",
+                        "authToken": "user:pass",
+                    },
+                }
+            ],
+        },
+        object(),
+        database=object(),
+    )
+
+    assert isinstance(providers["newz"], StremThruNewzProvider)
+
+
 def test_user_controlled_http_providers_use_the_strict_session():
     regular_session = object()
     user_session = object()

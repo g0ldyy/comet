@@ -195,6 +195,13 @@ class AltMountProviderTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    async def test_validation_explains_an_unallowlisted_internal_http_origin(self):
+        status = await AltMountProvider(_Session(422)).validate_config(
+            {"internalBaseUrl": "http://altmount:8000/", "apiKey": "key"}
+        )
+
+        self.assertEqual(status.code, "private_upstream_origin_required")
+
     def test_ignores_provider_download_key_format(self):
         hostile = (
             "https://altmount.example/api/files/stream?path=folder%2Fvideo.mkv"

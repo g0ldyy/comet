@@ -136,6 +136,16 @@ class StremThruNewzProviderTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
+    async def test_validation_explains_an_unallowlisted_internal_http_origin(self):
+        provider = StremThruNewzProvider(
+            object(),
+            {"baseUrl": "http://stremthru:8080/", "authToken": "user:pass"},
+        )
+
+        status = await provider.validate_config({})
+
+        self.assertEqual(status.code, "private_upstream_origin_required")
+
     def test_options_reject_control_characters_before_url_normalization(self):
         with self.assertRaises(ValueError):
             options({"baseUrl": "https://bridge.example\n", "authToken": "user:pass"})
