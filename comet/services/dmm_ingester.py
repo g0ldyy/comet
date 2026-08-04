@@ -25,14 +25,6 @@ DMM_URL = "https://codeload.github.com/debridmediamanager/hashlists/zip/refs/hea
 TEMP_DIR = "data/dmm_temp"
 LOCK_KEY = "dmm_ingest_lock"
 LOCK_TTL = 60
-_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
-_MAX_ARCHIVE_MEMBERS = 100_000
-_MAX_ARCHIVE_TOTAL_BYTES = 4 * 1024 * 1024 * 1024
-_MAX_ARCHIVE_MEMBER_BYTES = 64 * 1024 * 1024
-_MAX_ARCHIVE_PATH_BYTES = 1_024
-_MAX_HASHLIST_ITEMS = 100_000
-_MAX_FILENAME_BYTES = 1_024
-_MAX_SIGNED_64 = 2**63 - 1
 _INFO_HASH = re.compile(r"[0-9a-fA-F]{40}")
 
 
@@ -148,8 +140,6 @@ class DMMIngester:
                             chunk = await response.content.read(1024 * 1024)
                             if not chunk:
                                 break
-                            if len(chunk) > _MAX_DOWNLOAD_BYTES - downloaded:
-                                raise ValueError("DMM archive download is too large")
                             await f.write(chunk)
                             downloaded += len(chunk)
                     if not downloaded:
@@ -269,10 +259,8 @@ HASHLIST_REGEX = re.compile(r'hashlist#(.*?)"')
 def process_file_sync(file_path):
     try:
         with open(file_path, "rb") as f:
-            raw_content = f.read(_MAX_ARCHIVE_MEMBER_BYTES + 1)
+            raw_content = f.read()
     except OSError:
-        return None
-    if len(raw_content) > _MAX_ARCHIVE_MEMBER_BYTES:
         return None
     try:
         content = raw_content.decode("utf-8")
@@ -284,10 +272,7 @@ def process_file_sync(file_path):
         return []
 
     encoded_data = match.group(1)
-    json_str = decompressFromEncodedURIComponent(
-        encoded_data,
-        maximum=_MAX_ARCHIVE_MEMBER_BYTES,
-    )
+    json_str = decompressFromEncodedURIComponent(encoded_data)
 
     if not json_str:
         return None
@@ -307,8 +292,6 @@ def process_file_sync(file_path):
 
     if not isinstance(items, list):
         return None
-    if len(items) > _MAX_HASHLIST_ITEMS:
-        return None
 
     for item in items:
         if not isinstance(item, dict):
@@ -324,17 +307,15 @@ def process_file_sync(file_path):
             or _INFO_HASH.fullmatch(info_hash) is None
             or not isinstance(size, int)
             or isinstance(size, bool)
-            or not 1 <= size <= _MAX_SIGNED_64
+            or size < 1
         ):
             continue
 
         try:
-            filename_bytes = filename.encode("utf-8")
+            filename.encode("utf-8")
         except UnicodeEncodeError:
             continue
-        if len(filename_bytes) > _MAX_FILENAME_BYTES or any(
-            ord(character) < 32 or ord(character) == 127 for character in filename
-        ):
+        if any(ord(character) < 32 or ord(character) == 127 for character in filename):
             continue
 
         parsed = RTN.parse(filename)
@@ -356,23 +337,19 @@ def extract_zip_sync(zip_path, extract_dir):
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         target = Path(extract_dir).resolve()
         members = zip_ref.infolist()
-        if len(members) > _MAX_ARCHIVE_MEMBERS:
-            raise ValueError("DMM archive has too many members")
         planned = []
         seen = set()
-        total_size = 0
         for member in members:
             member_path = Path(member.filename)
             mode = member.external_attr >> 16
             file_type = stat.S_IFMT(mode)
             try:
-                path_bytes = member.filename.encode("utf-8")
+                member.filename.encode("utf-8")
             except UnicodeEncodeError as exc:
                 raise ValueError("Unsafe DMM archive member") from exc
             destination = (target / member_path).resolve()
             if (
                 not member.filename
-                or len(path_bytes) > _MAX_ARCHIVE_PATH_BYTES
                 or "\\" in member.filename
                 or "\x00" in member.filename
                 or any(
@@ -387,14 +364,11 @@ def extract_zip_sync(zip_path, extract_dir):
                 or member.flag_bits & 0x1
                 or not destination.is_relative_to(target)
                 or destination in seen
-                or not 0 <= member.file_size <= _MAX_ARCHIVE_MEMBER_BYTES
-                or not 0 <= member.compress_size <= _MAX_DOWNLOAD_BYTES
+                or member.file_size < 0
+                or member.compress_size < 0
             ):
                 raise ValueError("Unsafe DMM archive member")
             seen.add(destination)
-            total_size += member.file_size
-            if total_size > _MAX_ARCHIVE_TOTAL_BYTES:
-                raise ValueError("DMM archive is too large")
             planned.append((member, destination))
 
         try:

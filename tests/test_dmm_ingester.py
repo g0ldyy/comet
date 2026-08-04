@@ -14,17 +14,11 @@ from comet.utils.lzstring import decompressFromEncodedURIComponent
 
 
 class DmmArchiveTests(unittest.TestCase):
-    def test_lz_decoder_has_exact_input_and_output_boundaries(self):
+    def test_lz_decoder_handles_valid_and_malformed_inputs(self):
         encoded = "BIUwNmD2AEDukCcwBMg"
-        self.assertEqual(
-            decompressFromEncodedURIComponent(encoded, maximum=11),
-            "Hello world",
-        )
-        self.assertIsNone(decompressFromEncodedURIComponent(encoded, maximum=10))
+        self.assertEqual(decompressFromEncodedURIComponent(encoded), "Hello world")
         self.assertIsNone(decompressFromEncodedURIComponent("invalid%character"))
         self.assertIsNone(decompressFromEncodedURIComponent("A"))
-        with patch("comet.utils.lzstring._MAX_COMPRESSED_CHARACTERS", 4):
-            self.assertIsNone(decompressFromEncodedURIComponent("A" * 5))
 
     def test_hashlist_decode_distinguishes_retryable_failure_from_valid_empty(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -52,10 +46,7 @@ class DmmArchiveTests(unittest.TestCase):
                 return_value="[]",
             ) as decompress:
                 self.assertEqual(process_file_sync(hashlist), [])
-                self.assertEqual(
-                    decompress.call_args.kwargs["maximum"],
-                    64 * 1024 * 1024,
-                )
+                decompress.assert_called_once_with("payload")
 
     def test_hashlist_decode_isolates_malformed_items(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -112,24 +103,17 @@ class DmmArchiveTests(unittest.TestCase):
             ):
                 process_file_sync(path)
 
-    def test_hashlist_decode_bounds_file_and_item_cardinality(self):
+    def test_hashlist_decode_has_no_dmm_specific_size_or_cardinality_cap(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "hashlist.html"
             path.write_text('hashlist#payload"')
             with patch(
-                "comet.services.dmm_ingester._MAX_ARCHIVE_MEMBER_BYTES",
-                8,
-            ):
-                self.assertIsNone(process_file_sync(path))
+                "comet.services.dmm_ingester.decompressFromEncodedURIComponent",
+                return_value="[{}, {}, {}]",
+            ) as decompress:
+                self.assertEqual(process_file_sync(path), [])
 
-            with (
-                patch(
-                    "comet.services.dmm_ingester.decompressFromEncodedURIComponent",
-                    return_value="[{}, {}, {}]",
-                ),
-                patch("comet.services.dmm_ingester._MAX_HASHLIST_ITEMS", 2),
-            ):
-                self.assertIsNone(process_file_sync(path))
+            decompress.assert_called_once_with("payload")
 
     def test_extract_rejects_path_traversal_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -178,7 +162,7 @@ class DmmArchiveTests(unittest.TestCase):
                 0o600,
             )
 
-    def test_extract_accepts_highly_compressible_bounded_member(self):
+    def test_extract_accepts_highly_compressible_member(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive = root / "dmm.zip"
@@ -195,7 +179,7 @@ class DmmArchiveTests(unittest.TestCase):
 
             self.assertEqual((target / "hashlists" / "data.html").read_bytes(), content)
 
-    def test_extract_rejects_oversized_or_duplicate_members_before_writing(self):
+    def test_extract_rejects_duplicate_members_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive = root / "dmm.zip"
@@ -211,25 +195,15 @@ class DmmArchiveTests(unittest.TestCase):
 
             self.assertFalse(target.exists())
 
-            with zipfile.ZipFile(archive, "w") as zip_file:
-                zip_file.writestr("large.html", "12345")
-            with (
-                patch(
-                    "comet.services.dmm_ingester._MAX_ARCHIVE_MEMBER_BYTES",
-                    4,
-                ),
-                self.assertRaisesRegex(ValueError, "Unsafe DMM archive member"),
-            ):
-                extract_zip_sync(archive, target)
-
-            self.assertFalse(target.exists())
-
 
 class DmmDownloadTests(unittest.IsolatedAsyncioTestCase):
-    async def test_download_is_fixed_origin_and_bounded_during_transfer(self):
+    async def test_download_is_fixed_origin_and_streamed_without_size_cap(self):
         class Content:
+            def __init__(self):
+                self.chunks = [b"12345", b""]
+
             async def read(self, _size):
-                return b"12345"
+                return self.chunks.pop(0)
 
         class Response:
             status = 200
@@ -266,7 +240,6 @@ class DmmDownloadTests(unittest.IsolatedAsyncioTestCase):
                     "comet.services.dmm_ingester.TEMP_DIR",
                     str(Path(directory) / "temporary"),
                 ),
-                patch("comet.services.dmm_ingester._MAX_DOWNLOAD_BYTES", 4),
             ):
                 await DMMIngester()._ingest_cycle()
 

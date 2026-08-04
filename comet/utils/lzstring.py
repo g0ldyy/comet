@@ -1,5 +1,3 @@
-_MAX_COMPRESSED_CHARACTERS = 8 * 1024 * 1024
-_MAX_DECOMPRESSED_CHARACTERS = 64 * 1024 * 1024
 _URI_SAFE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$"
 _URI_SAFE_REVERSE = {
     character: index for index, character in enumerate(_URI_SAFE_ALPHABET)
@@ -8,18 +6,13 @@ _URI_SAFE_REVERSE = {
 
 class LZString:
     @staticmethod
-    def decompressFromEncodedURIComponent(
-        input_str,
-        *,
-        maximum: int = _MAX_DECOMPRESSED_CHARACTERS,
-    ):
+    def decompressFromEncodedURIComponent(input_str):
         if input_str is None:
             return ""
         if input_str == "":
             return None
-        if type(input_str) is not str or len(input_str) > _MAX_COMPRESSED_CHARACTERS:
+        if type(input_str) is not str:
             return None
-        maximum = min(maximum, _MAX_DECOMPRESSED_CHARACTERS)
 
         input_str = input_str.replace(" ", "+")
 
@@ -31,17 +24,15 @@ class LZString:
             len(input_data),
             32,
             input_data,
-            maximum=maximum,
         )
 
     @staticmethod
-    def _decompress(length, resetValue, input_data, *, maximum):
+    def _decompress(length, resetValue, input_data):
         dictionary = [0, 1, 2]
         enlargeIn = 4
         dictSize = 4
         numBits = 3
         result = []
-        result_length = 0
 
         data_val = input_data[0]
         position = resetValue
@@ -84,7 +75,6 @@ class LZString:
         dictionary.append(c)
         w = c
         result.append(c)
-        result_length = 1
 
         while True:
             c = read_bits(numBits)
@@ -120,10 +110,7 @@ class LZString:
             else:
                 return None
 
-            if len(entry) > maximum - result_length:
-                return None
             result.append(entry)
-            result_length += len(entry)
 
             dictionary.append(w + entry[0])
             dictSize += 1
