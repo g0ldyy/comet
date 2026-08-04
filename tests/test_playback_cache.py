@@ -16,6 +16,28 @@ from comet.debrid.link_cache import (
 
 
 class PlaybackCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def test_download_link_cache_write_can_run_after_response(self):
+        scheduled = []
+        database = type("Database", (), {"execute": AsyncMock()})()
+
+        await cache_download_link_best_effort(
+            database,
+            add_background_task=lambda *args: scheduled.append(args),
+            debrid_service="realdebrid",
+            account_key_hash="account",
+            info_hash="a" * 40,
+            season=None,
+            episode=None,
+            selection_key="7",
+            client_ip="203.0.113.7",
+            download_url="https://download.test/video",
+        )
+
+        database.execute.assert_not_awaited()
+        self.assertEqual(len(scheduled), 1)
+        await scheduled[0][0](*scheduled[0][1:])
+        database.execute.assert_awaited_once()
+
     async def test_v2_configuration_rejects_the_numeric_legacy_playback_route(self):
         request = Request(
             {

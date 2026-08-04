@@ -1328,7 +1328,7 @@ async def _search_media(
     if use_account_scrape:
         if not account_snapshot_ready:
             await ensure_account_snapshot_ready(session, debrid_entries, ip)
-        await schedule_account_snapshot_refresh(
+        schedule_account_snapshot_refresh(
             add_background_task, session, debrid_entries, ip
         )
         account_torrents = await get_account_torrents_for_media(
@@ -1344,6 +1344,14 @@ async def _search_media(
             remove_adult_content,
             target_air_date=target_air_date,
             reject_unknown_episode_files=reject_unknown_episode_files,
+        )
+
+        await torrent_manager.cache_torrents(
+            [
+                {"infoHash": info_hash, **torrent}
+                for info_hash, torrent in account_torrents.items()
+            ],
+            only_missing=True,
         )
 
         for info_hash, account_torrent in account_torrents.items():

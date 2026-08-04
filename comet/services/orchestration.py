@@ -420,23 +420,45 @@ class TorrentResultAccumulator:
         torrents: list[dict] | None = None,
         *,
         defer: bool = True,
+        only_missing: bool = False,
     ):
         file_infos = []
         for torrent in self.ready_to_cache if torrents is None else torrents:
             self._append_cache_file_infos(file_infos, torrent)
 
+        if not file_infos:
+            return
+
+        if defer and self.cache_task_adder is not None:
+            self.cache_task_adder(
+                self._cache_file_infos,
+                file_infos,
+                only_missing,
+            )
+        else:
+            await self._cache_file_infos(file_infos, only_missing)
+
+    async def _cache_file_infos(
+        self,
+        file_infos: list[dict],
+        only_missing: bool,
+    ) -> None:
+        if only_missing:
+            existing = await TorrentReleaseRepository(database).existing_media_keys(
+                self.media_only_id,
+                tuple(dict.fromkeys(row["info_hash"] for row in file_infos)),
+            )
+            file_infos = [
+                row
+                for row in file_infos
+                if (row["info_hash"], row["season"], row["episode"]) not in existing
+            ]
+
         if file_infos:
-            if defer and self.cache_task_adder is not None:
-                self.cache_task_adder(
-                    torrent_update_queue.add_torrent_infos,
-                    file_infos,
-                    self.media_only_id,
-                )
-            else:
-                await torrent_update_queue.add_torrent_infos(
-                    file_infos,
-                    self.media_only_id,
-                )
+            await torrent_update_queue.add_torrent_infos(
+                file_infos,
+                self.media_only_id,
+            )
 
     async def filter_manager(
         self,

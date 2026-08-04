@@ -125,6 +125,7 @@ async def get_cached_download_link(
 async def cache_download_link_best_effort(
     database,
     *,
+    add_background_task=None,
     debrid_service: str,
     account_key_hash: str,
     info_hash: str,
@@ -144,6 +145,22 @@ async def cache_download_link_best_effort(
         "updated_at": time.time(),
         **build_scope_params(season, episode),
     }
+    if add_background_task is not None:
+        add_background_task(
+            _persist_download_link_best_effort,
+            database,
+            debrid_service,
+            values,
+        )
+        return
+    await _persist_download_link_best_effort(database, debrid_service, values)
+
+
+async def _persist_download_link_best_effort(
+    database,
+    debrid_service: str,
+    values: dict,
+) -> None:
     try:
         await database.execute(_CACHE_DOWNLOAD_LINK_SQL, values)
     except Exception as error:

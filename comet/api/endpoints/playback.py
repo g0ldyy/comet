@@ -1,7 +1,7 @@
 import re
 
 import mediaflow_proxy.utils.http_utils
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Query, Request
 from fastapi.responses import RedirectResponse
 
 from comet.core.config_validation import config_check
@@ -103,6 +103,7 @@ async def playback(
     name: str = Query(max_length=2_048),
     media_id: str | None = Query(default=None, max_length=128),
     media_type: str | None = Query(default=None, max_length=16),
+    background_tasks: BackgroundTasks = None,
 ):
     config = config_check(b64config)
     if config is None:
@@ -247,6 +248,9 @@ async def playback(
 
         await cache_download_link_best_effort(
             database,
+            add_background_task=(
+                background_tasks.add_task if background_tasks is not None else None
+            ),
             debrid_service=debrid_service,
             account_key_hash=account_key_hash,
             info_hash=hash,

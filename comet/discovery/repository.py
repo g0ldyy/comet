@@ -247,18 +247,14 @@ class ReleaseDiscoveryRepository:
             )
         return stored[candidate.candidate_id]
 
-    async def persist_legacy_torrent_batch(
+    async def persist_public_torrent_batch(
         self,
         query: MediaQuery,
         candidates: Iterable[ReleaseCandidate],
         *,
         now: float | None = None,
     ) -> Mapping[str, StoredCandidateIds]:
-        """Import credential-independent legacy cache rows without coverage.
-
-        Account-derived legacy rows are intentionally ineligible because their
-        modern HMAC partition cannot be reconstructed from the stored digest.
-        """
+        """Persist public torrent-cache rows without discovery coverage."""
         candidate_batch = tuple(candidates)
         if not candidate_batch:
             return {}

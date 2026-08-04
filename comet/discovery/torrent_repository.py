@@ -28,7 +28,6 @@ from comet.discovery.repository import (
 )
 from comet.utils.parsing import MediaScope, load_cached_parsed
 
-ACCOUNT_TRACKER_PREFIX = "DebridAccount|"
 _PUBLIC_PARTITION = "0" * 64
 _IDENTITY_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "identity_value",
@@ -40,11 +39,6 @@ _CANDIDATE_MEMBERSHIP_SQL = build_json_list_membership_predicate(
 )
 _EXISTENCE_CHUNK = 4_096
 _GC_CHUNK = 5_000
-
-
-def is_legacy_account_torrent(row: Any) -> bool:
-    tracker = row["tracker"]
-    return isinstance(tracker, str) and tracker.startswith(ACCOUNT_TRACKER_PREFIX)
 
 
 def _scope(row: Any) -> str:
@@ -68,8 +62,6 @@ def _legacy_locator_id(row: Mapping[str, object]) -> str:
 def _torrent_row(row: Any) -> dict[str, object]:
     media_id = row["media_id"]
     info_hash = row["info_hash"]
-    if is_legacy_account_torrent(row):
-        raise RuntimeError("account-derived torrent cannot use the public repository")
     season_norm = row["season_norm"]
     episode_norm = row["episode_norm"]
     scope = _scope(row)
@@ -303,7 +295,7 @@ class TorrentReleaseRepository:
         persisted = 0
         release_repository = ReleaseDiscoveryRepository(self._database)
         for query, candidates in grouped.items():
-            stored = await release_repository.persist_legacy_torrent_batch(
+            stored = await release_repository.persist_public_torrent_batch(
                 query,
                 candidates,
                 now=observed_at[query],

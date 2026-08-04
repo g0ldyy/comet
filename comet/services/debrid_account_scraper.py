@@ -385,12 +385,11 @@ async def trigger_account_snapshot_sync(session, service: str, api_key: str, ip:
     return True
 
 
-async def schedule_account_snapshot_refresh(
-    add_background_task,
+async def _refresh_account_snapshots(
     session,
     debrid_entries: list[dict],
     ip: str,
-):
+) -> None:
     now = time.time()
     accounts = _dedupe_accounts(debrid_entries)
 
@@ -432,8 +431,7 @@ async def schedule_account_snapshot_refresh(
         if not lock_acquired:
             continue
 
-        add_background_task(
-            _sync_task,
+        _schedule_sync_task(
             lock,
             session,
             service,
@@ -441,6 +439,20 @@ async def schedule_account_snapshot_refresh(
             ip,
             account_key_hash,
         )
+
+
+def schedule_account_snapshot_refresh(
+    add_background_task,
+    session,
+    debrid_entries: list[dict],
+    ip: str,
+) -> None:
+    add_background_task(
+        _refresh_account_snapshots,
+        session,
+        debrid_entries,
+        ip,
+    )
 
 
 async def get_account_torrents_for_media(

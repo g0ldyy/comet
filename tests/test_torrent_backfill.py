@@ -143,7 +143,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-    async def test_backfills_only_public_rows_and_is_idempotent(self):
+    async def test_backfills_every_row_and_is_idempotent(self):
         await self._insert(
             media_id="tt1234567",
             info_hash="a" * 40,
@@ -220,16 +220,17 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             [
                 ("tt1234567", "movie", -1, -1, "bittorrent"),
                 ("tt2345678", "series_pack", -1, -1, "bittorrent"),
+                ("tt3456789", "movie", -1, -1, "bittorrent"),
             ],
         )
         self.assertEqual(
             [row["release_key"] for row in candidates],
-            ["btih:" + "a" * 40, "btih:" + "b" * 40],
+            ["btih:" + value * 40 for value in ("a", "b", "c")],
         )
         self.assertTrue(
             all(orjson.loads(row["parsed_json"])["raw_title"] for row in candidates)
         )
-        self.assertEqual(len(locators), 3)
+        self.assertEqual(len(locators), 4)
         self.assertTrue(all(row["locator_kind"] == "torrent" for row in locators))
         self.assertTrue(
             all(
@@ -249,6 +250,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             [
                 ("btih", "a" * 40),
                 ("btih", "b" * 40),
+                ("btih", "c" * 40),
             ],
         )
         episode_two = await TorrentReleaseRepository(self.database).load_cache_rows(
@@ -405,7 +407,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         attributes = orjson.loads(attributes_json)
         self.assertEqual(attributes["transport_stats"]["tracker_sources"], sources)
 
-    async def test_update_writer_uses_only_generic_public_storage(self):
+    async def test_update_writer_uses_generic_public_storage(self):
         public = torrent_manager._construct_torrent_update(
             media_id="tt1234567",
             info_hash="a" * 40,
@@ -430,24 +432,18 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             seeders=0,
             size=2_000_000_000,
             tracker="DebridAccount|realdebrid|digest",
-            sources=["https://credential.invalid/announce"],
+            sources=[],
             parsed=parse("Private.2026.1080p.WEB-DL-GROUP").model_dump(),
             from_cometnet=False,
         )
 
         with patch.object(torrent_manager, "database", self.database):
-            await torrent_manager._execute_batched_upsert(
-                [public],
+            persisted = await torrent_manager._execute_batched_upsert(
+                [public, account],
                 updated_at=20,
             )
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "account-derived torrent cannot use the public repository",
-            ):
-                await torrent_manager._execute_batched_upsert(
-                    [account],
-                    updated_at=20,
-                )
+
+        self.assertEqual(persisted, [public, account])
 
         generic = await TorrentReleaseRepository(self.database).load_cache_rows(
             "tt1234567",
@@ -464,23 +460,33 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             force_primary=True,
         )
 
-        self.assertEqual(len(generic), 1)
-        self.assertEqual(generic[0]["info_hash"], "a" * 40)
-        self.assertEqual(generic[0]["file_index"], 2)
-        self.assertEqual(generic[0]["seeders"], 7)
-        self.assertEqual(generic[0]["sources_json"], '["udp://tracker.example"]')
+        self.assertEqual(
+            {
+                row["info_hash"]: (
+                    row["file_index"],
+                    row["seeders"],
+                    row["tracker"],
+                    row["sources_json"],
+                )
+                for row in generic
+            },
+            {
+                "a" * 40: (2, 7, "Indexer", '["udp://tracker.example"]'),
+                "b" * 40: (3, 0, "DebridAccount|realdebrid|digest", "[]"),
+            },
+        )
         self.assertEqual(legacy, [])
         repository = TorrentReleaseRepository(self.database)
         self.assertEqual(
             await repository.existing_hashes(("a" * 40, "b" * 40)),
-            {"a" * 40},
+            {"a" * 40, "b" * 40},
         )
         self.assertEqual(
             await repository.existing_media_keys(
                 "tt1234567",
                 ("a" * 40, "b" * 40),
             ),
-            {("a" * 40, None, None)},
+            {("a" * 40, None, None), ("b" * 40, None, None)},
         )
         self.assertEqual(
             await repository.find_context("a" * 40),
@@ -492,7 +498,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(torrent_manager, "database", self.database):
             self.assertEqual(
                 await torrent_manager.check_torrents_exist(["a" * 40, "b" * 40]),
-                {"a" * 40},
+                {"a" * 40, "b" * 40},
             )
         with (
             patch.object(
@@ -519,17 +525,20 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             cached_rows = await manager._fetch_cached_rows("tt1234567")
         self.assertEqual(
             {row["info_hash"] for row in cached_rows},
-            {"a" * 40},
+            {"a" * 40, "b" * 40},
         )
         with patch.object(torznab, "database", self.database):
             candidate_row = await torznab._candidate_torrent_row("tt1234567")
-        self.assertEqual(candidate_row["info_hash"], "a" * 40)
+        self.assertIn(candidate_row["info_hash"], {"a" * 40, "b" * 40})
         stored = await self.database.fetch_one(
             """
-            SELECT candidate_id, attributes_json
-            FROM release_candidates
-            LIMIT 1
+            SELECT candidate.candidate_id, candidate.attributes_json
+            FROM release_candidates AS candidate
+            JOIN candidate_identities AS identity
+              ON identity.candidate_id = candidate.candidate_id
+            WHERE identity.identity_value = :info_hash
             """,
+            {"info_hash": "a" * 40},
             force_primary=True,
         )
         attributes = orjson.loads(stored["attributes_json"])
@@ -551,7 +560,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
             {"media_id": "tt1234567", "sources": [None]},
         )
 
-    async def test_final_migration_backfills_public_and_removes_legacy_table(self):
+    async def test_final_migration_backfills_all_and_removes_legacy_table(self):
         await self._insert(
             media_id="tt1234567",
             info_hash="a" * 40,
@@ -579,7 +588,7 @@ class LegacyTorrentBackfillTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(legacy_table)
         self.assertEqual(
             await repository.existing_hashes(("a" * 40, "b" * 40)),
-            {"a" * 40},
+            {"a" * 40, "b" * 40},
         )
 
     async def test_final_migration_does_not_wrap_backfill_in_one_transaction(self):
@@ -869,13 +878,13 @@ class FreshGenericSchemaTests(unittest.IsolatedAsyncioTestCase):
                 )
 
                 self.assertEqual(signature, await self._schema_signature(upgraded))
-                self.assertEqual(candidate_count, 3)
+                self.assertEqual(candidate_count, 4)
                 self.assertEqual(
                     await upgraded.fetch_val(
                         "SELECT COUNT(*) FROM release_candidates",
                         force_primary=True,
                     ),
-                    3,
+                    4,
                 )
                 self.assertEqual(
                     await upgraded.fetch_val(

@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import mediaflow_proxy.utils.http_utils
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 
 from comet.api.endpoints.config import config_check
@@ -257,6 +257,7 @@ async def _serve_torrent_debrid(
     *,
     owner_configuration_partition: bytes,
     client_ip: str,
+    add_background_task=None,
 ) -> Response:
     provider = prepared.resolution.provider
     locator, season, episode = _torrent_debrid_selection(prepared)
@@ -328,6 +329,7 @@ async def _serve_torrent_debrid(
             )
         await cache_download_link_best_effort(
             database,
+            add_background_task=add_background_task,
             **cache_arguments,
             download_url=download_url,
         )
@@ -428,7 +430,7 @@ def _preparation_state_response(
     raise ValueError("invalid playback preparation result")
 
 
-async def _resolved_remote_download_url(prepared) -> str:
+async def _resolved_remote_download_url(prepared, *, add_background_task=None) -> str:
     if prepared.preparation.provider_kind not in {
         "stremthru_newz",
         "torbox_usenet",
@@ -449,6 +451,7 @@ async def _resolved_remote_download_url(prepared) -> str:
     download_url = await remote_download_url(prepared)
     await cache_download_link_best_effort(
         database,
+        add_background_task=add_background_task,
         **cache_arguments,
         download_url=download_url,
     )
@@ -1164,7 +1167,12 @@ async def _close_artifact_reader_leases(artifact_reader_leases: tuple) -> None:
     summary="Signed playback capability",
 )
 @playback_boundary(default_mode="proxy")
-async def playback_v2(request: Request, b64config: str, capability: str):
+async def playback_v2(
+    request: Request,
+    b64config: str,
+    capability: str,
+    background_tasks: BackgroundTasks = None,
+):
     config = config_check(b64config)
     if config is None:
         raise _playback_http_exception(400, "Invalid configuration")
@@ -1218,6 +1226,9 @@ async def playback_v2(request: Request, b64config: str, capability: str):
                 session,
                 owner_configuration_partition=partition,
                 client_ip=client_ip,
+                add_background_task=(
+                    background_tasks.add_task if background_tasks is not None else None
+                ),
             )
         native_session_opened = False
         if prepared.preparation.state == "pending":
@@ -1431,7 +1442,12 @@ async def playback_v2(request: Request, b64config: str, capability: str):
                     headers=headers,
                 )
             )
-        download_url = await _resolved_remote_download_url(prepared)
+        download_url = await _resolved_remote_download_url(
+            prepared,
+            add_background_task=(
+                background_tasks.add_task if background_tasks is not None else None
+            ),
+        )
         if request.method == "GET":
             _log_playback_event(
                 prepared,

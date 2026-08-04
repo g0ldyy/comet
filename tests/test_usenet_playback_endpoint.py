@@ -3,7 +3,7 @@ import base64
 import unittest
 import uuid
 from types import SimpleNamespace
-from unittest.mock import ANY, AsyncMock, call, patch
+from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
@@ -427,6 +427,7 @@ class UsenetPlaybackEndpointTests(unittest.IsolatedAsyncioTestCase):
             },
         )()
         mark_ready = AsyncMock()
+        add_background_task = Mock()
 
         with (
             patch(
@@ -459,6 +460,7 @@ class UsenetPlaybackEndpointTests(unittest.IsolatedAsyncioTestCase):
                 object(),
                 owner_configuration_partition=b"a" * 32,
                 client_ip="127.0.0.1",
+                add_background_task=add_background_task,
             )
 
         self.assertEqual(response.status_code, 307)
@@ -469,6 +471,10 @@ class UsenetPlaybackEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
         provider.generate_download_link.assert_awaited_once()
         cache.assert_awaited_once()
+        self.assertIs(
+            cache.await_args.kwargs["add_background_task"],
+            add_background_task,
+        )
         target = mark_ready.await_args.kwargs["target_ref"]
         self.assertEqual(
             target,

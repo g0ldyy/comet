@@ -335,10 +335,71 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         ) as persist:
             await manager.cache_torrents()
 
-        persist.assert_not_awaited()
-        self.assertEqual(len(scheduled), 1)
-        self.assertIs(scheduled[0][0], persist)
-        self.assertEqual(scheduled[0][2], "tt123")
+            persist.assert_not_awaited()
+            self.assertEqual(len(scheduled), 1)
+            await scheduled[0][0](*scheduled[0][1:])
+
+        persist.assert_awaited_once()
+        self.assertEqual(persist.await_args.args[1], "tt123")
+
+    async def test_account_cache_enqueues_only_missing_public_rows(self):
+        scheduled = []
+        manager = TorrentResultAccumulator(
+            media_type="movie",
+            media_full_id="tt123",
+            media_only_id="tt123",
+            title="Title",
+            year=2024,
+            year_end=None,
+            season=None,
+            episode=None,
+            aliases={},
+            remove_adult_content=False,
+            cache_task_adder=lambda *args: scheduled.append(args),
+        )
+        torrents = [
+            {
+                "infoHash": info_hash,
+                "fileIndex": index,
+                "title": f"Title.2024.{index}.mkv",
+                "size": 100 + index,
+                "seeders": 0,
+                "tracker": "DebridAccount|torbox",
+                "sources": [],
+                "parsed": ParsedData(raw_title=f"Title.2024.{index}.mkv"),
+            }
+            for index, info_hash in enumerate(("a" * 40, "b" * 40))
+        ]
+
+        with (
+            patch(
+                "comet.services.orchestration.TorrentReleaseRepository."
+                "existing_media_keys",
+                new=AsyncMock(return_value={("a" * 40, None, None)}),
+            ) as existing,
+            patch.object(
+                torrent_update_queue,
+                "add_torrent_infos",
+                new=AsyncMock(),
+            ) as persist,
+        ):
+            await manager.cache_torrents(
+                torrents,
+                only_missing=True,
+            )
+
+            existing.assert_not_awaited()
+            persist.assert_not_awaited()
+            self.assertEqual(len(scheduled), 1)
+            await scheduled[0][0](*scheduled[0][1:])
+
+        existing.assert_awaited_once_with("tt123", ("a" * 40, "b" * 40))
+        persist.assert_awaited_once()
+        self.assertEqual(persist.await_args.args[1], "tt123")
+        self.assertEqual(
+            [row["info_hash"] for row in persist.await_args.args[0]],
+            ["b" * 40],
+        )
 
     async def test_cache_media_id_reads_start_concurrently(self):
         manager = TorrentResultAccumulator(

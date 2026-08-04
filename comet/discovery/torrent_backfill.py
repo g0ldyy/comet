@@ -1,4 +1,4 @@
-"""One-way migration of credential-independent legacy torrent cache rows."""
+"""One-way migration of legacy torrent cache rows."""
 
 from dataclasses import dataclass
 
@@ -12,10 +12,7 @@ from comet.core.sources import (
     TorrentLocator,
 )
 from comet.discovery.repository import LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID
-from comet.discovery.torrent_repository import (
-    ACCOUNT_TRACKER_PREFIX,
-    TorrentReleaseRepository,
-)
+from comet.discovery.torrent_repository import TorrentReleaseRepository
 
 _SQLITE_BATCH_SIZE = 5_000
 _POSTGRES_GROUP_BATCH_SIZE = 25_000
@@ -29,9 +26,6 @@ _TORRENT_POLICY_JSON = policy_json(
     )
 )
 
-_POSTGRES_PUBLIC_PREDICATE = """
-    (tracker IS NULL OR substr(tracker, 1, 14) <> :account_prefix)
-"""
 _POSTGRES_AFTER_CURSOR = """
     (
         CAST(:cursor_media_id AS TEXT) IS NULL
@@ -39,8 +33,7 @@ _POSTGRES_AFTER_CURSOR = """
     )
 """
 _POSTGRES_RANGE_PREDICATE = f"""
-    {_POSTGRES_PUBLIC_PREDICATE}
-    AND {_POSTGRES_AFTER_CURSOR}
+    {_POSTGRES_AFTER_CURSOR}
     AND (media_id, info_hash) <= (:end_media_id, :end_info_hash)
 """
 
@@ -48,8 +41,7 @@ _POSTGRES_BOUNDARY_SQL = f"""
     WITH groups AS MATERIALIZED (
         SELECT media_id, info_hash, COUNT(*)::bigint AS row_count
         FROM torrents
-        WHERE {_POSTGRES_PUBLIC_PREDICATE}
-          AND {_POSTGRES_AFTER_CURSOR}
+        WHERE {_POSTGRES_AFTER_CURSOR}
         GROUP BY media_id, info_hash
         ORDER BY media_id, info_hash
         LIMIT :group_batch_size
@@ -330,7 +322,7 @@ class TorrentBackfillResult:
 
 
 async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
-    """Backfill every public legacy row through the optimal backend path."""
+    """Backfill every legacy row through the optimal backend path."""
     backend = make_url(str(database.url)).get_backend_name()
     if backend == "postgresql":
         return await _backfill_postgres(database)
@@ -345,7 +337,6 @@ async def _backfill_postgres(database) -> TorrentBackfillResult:
         boundary = await database.fetch_one(
             _POSTGRES_BOUNDARY_SQL,
             {
-                "account_prefix": ACCOUNT_TRACKER_PREFIX,
                 "cursor_media_id": cursor[0],
                 "cursor_info_hash": cursor[1],
                 "group_batch_size": _POSTGRES_GROUP_BATCH_SIZE,
@@ -355,7 +346,6 @@ async def _backfill_postgres(database) -> TorrentBackfillResult:
         if boundary is None:
             break
         values = {
-            "account_prefix": ACCOUNT_TRACKER_PREFIX,
             "cursor_media_id": cursor[0],
             "cursor_info_hash": cursor[1],
             "end_media_id": boundary["media_id"],
@@ -390,10 +380,6 @@ async def _backfill_sqlite(database) -> TorrentBackfillResult:
                    sources_json, parsed_json, updated_at
             FROM torrents
             WHERE (
-                    tracker IS NULL
-                    OR substr(tracker, 1, 14) <> :account_prefix
-                  )
-              AND (
                     media_id, info_hash, season_norm, episode_norm
                   ) > (
                     :cursor_media_id, :cursor_info_hash,
@@ -403,7 +389,6 @@ async def _backfill_sqlite(database) -> TorrentBackfillResult:
             LIMIT :batch_size
             """,
             {
-                "account_prefix": ACCOUNT_TRACKER_PREFIX,
                 "cursor_media_id": cursor[0],
                 "cursor_info_hash": cursor[1],
                 "cursor_season": cursor[2],
