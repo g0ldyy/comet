@@ -489,11 +489,7 @@ impl RawCompositeRegistry {
             RegisteredComposite {
                 source: Arc::new(source),
                 retained_metadata_bytes,
-                readers: ReaderLeases::new(
-                    MAX_COMPOSITE_READERS,
-                    COMPOSITE_IDLE_TTL,
-                    COMPOSITE_ABSOLUTE_TTL,
-                ),
+                readers: ReaderLeases::new(MAX_COMPOSITE_READERS),
                 created_at: now,
                 last_access: now,
             },
@@ -542,7 +538,7 @@ impl RawCompositeRegistry {
         if expired(entry, now) {
             return Err("raw_composite_busy");
         }
-        let lease_id = entry.readers.open(now).map_err(raw_reader_error)?;
+        let lease_id = entry.readers.open().map_err(raw_reader_error)?;
         entry.last_access = now;
         Ok(lease_id)
     }
@@ -558,10 +554,7 @@ impl RawCompositeRegistry {
             .entries
             .get_mut(identity)
             .ok_or("raw_composite_unavailable")?;
-        let permit = entry
-            .readers
-            .acquire(lease_id, now)
-            .map_err(raw_reader_error)?;
+        let permit = entry.readers.acquire(lease_id).map_err(raw_reader_error)?;
         let prefetch_generation = permit.generation();
         entry.last_access = now;
         Ok(RawCompositeLease {
@@ -582,7 +575,7 @@ impl RawCompositeRegistry {
             .entries
             .get_mut(identity)
             .ok_or("raw_composite_unavailable")?;
-        entry.readers.close(lease_id, now).map_err(raw_reader_error)
+        entry.readers.close(lease_id).map_err(raw_reader_error)
     }
 
     #[cfg(test)]
@@ -604,9 +597,6 @@ impl RawCompositeRegistry {
     }
 
     fn remove_expired(&mut self, now: Instant) {
-        for entry in self.entries.values_mut() {
-            entry.readers.remove_expired(now);
-        }
         let retained_metadata_bytes = &mut self.retained_metadata_bytes;
         self.entries.retain(|_, entry| {
             let keep = entry.readers.is_busy() || !expired(entry, now);
@@ -641,8 +631,9 @@ fn raw_reader_error(error: ReaderLeaseError) -> &'static str {
 }
 
 fn expired(entry: &RegisteredComposite, now: Instant) -> bool {
-    now.duration_since(entry.last_access) >= COMPOSITE_IDLE_TTL
-        || now.duration_since(entry.created_at) >= COMPOSITE_ABSOLUTE_TTL
+    !entry.readers.is_busy()
+        && (now.duration_since(entry.last_access) >= COMPOSITE_IDLE_TTL
+            || now.duration_since(entry.created_at) >= COMPOSITE_ABSOLUTE_TTL)
 }
 
 #[cfg(test)]
@@ -881,5 +872,37 @@ mod tests {
         );
         assert_eq!(registry.remove(&identity, now), Ok(()));
         drop(lease);
+    }
+
+    #[test]
+    fn persistent_reader_keeps_composite_available_past_ttl() {
+        let identity = "f".repeat(64);
+        let now = Instant::now();
+        let mut registry = RawCompositeRegistry::new(super::MIN_COMPOSITE_METADATA_BUDGET_BYTES);
+        registry.insert(source(), now).expect("insert composite");
+        let reader = registry
+            .open_reader(&identity, now)
+            .expect("open persistent reader");
+        let lease = registry
+            .get_with_reader(&identity, &reader, now)
+            .expect("acquire persistent reader");
+        drop(lease);
+
+        let additional_reader = registry
+            .open_reader(&identity, now + super::COMPOSITE_IDLE_TTL)
+            .expect("persistent reader keeps the composite live");
+
+        assert_eq!(
+            registry.close_reader(
+                &identity,
+                &additional_reader,
+                now + super::COMPOSITE_IDLE_TTL,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            registry.close_reader(&identity, &reader, now + super::COMPOSITE_IDLE_TTL),
+            Ok(())
+        );
     }
 }

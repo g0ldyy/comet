@@ -2023,15 +2023,31 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
                 "A" * 22,
                 "session_reader_capacity",
                 EngineNntpError,
+                False,
+            ),
+            (
+                "open_session_reader",
+                "A" * 22,
+                "session_busy",
+                EngineNntpError,
+                True,
             ),
             (
                 "open_raw_composite_reader",
                 "a" * 64,
                 "raw_composite_reader_busy",
                 EngineArchiveError,
+                False,
+            ),
+            (
+                "open_raw_composite_reader",
+                "a" * 64,
+                "raw_composite_busy",
+                EngineArchiveError,
+                True,
             ),
         )
-        for method, identity, code, error_type in cases:
+        for method, identity, code, error_type, source_unavailable in cases:
             with self.subTest(method=method):
                 client = EngineClient("/missing/engine.json")
                 client.request = AsyncMock(
@@ -2053,6 +2069,7 @@ class EngineClientTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertEqual(raised.exception.code, code)
                 self.assertTrue(raised.exception.retryable)
+                self.assertIs(raised.exception.source_unavailable, source_unavailable)
 
     async def test_engine_failure_version_rejects_boolean_alias(self):
         client = EngineClient("/missing/engine.json")

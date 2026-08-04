@@ -1630,7 +1630,7 @@ class UsenetPlaybackEndpointTests(unittest.IsolatedAsyncioTestCase):
             "no-referrer",
         )
 
-    async def test_ready_native_recreates_only_an_expired_replica_local_session(self):
+    async def test_ready_native_recreates_an_expired_replica_local_session(self):
         preparation_id = "22222222-2222-4222-8222-222222222222"
 
         def prepared(identity):
@@ -1666,7 +1666,7 @@ class UsenetPlaybackEndpointTests(unittest.IsolatedAsyncioTestCase):
             {
                 "open_session_reader": AsyncMock(
                     side_effect=[
-                        EngineNntpError("session_unavailable", retryable=True),
+                        EngineNntpError("session_busy", retryable=True),
                         "L" * 22,
                     ]
                 ),

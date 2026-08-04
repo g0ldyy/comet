@@ -213,11 +213,7 @@ impl<T> SessionRegistry<T> {
                 recreation_key: Arc::from(recreation_key),
                 retention: SessionRetention::new(),
                 retained_metadata_bytes,
-                readers: ReaderLeases::new(
-                    MAX_SESSION_READERS,
-                    SESSION_IDLE_TTL,
-                    SESSION_ABSOLUTE_TTL,
-                ),
+                readers: ReaderLeases::new(MAX_SESSION_READERS),
                 created_at: now,
                 last_access: now,
             },
@@ -277,7 +273,7 @@ impl<T> SessionRegistry<T> {
         if expired(entry, now) {
             return Err("session_busy");
         }
-        let lease_id = entry.readers.open(now).map_err(session_reader_error)?;
+        let lease_id = entry.readers.open().map_err(session_reader_error)?;
         entry.last_access = now;
         Ok(lease_id)
     }
@@ -295,7 +291,7 @@ impl<T> SessionRegistry<T> {
             .ok_or("session_unavailable")?;
         let permit = entry
             .readers
-            .acquire(lease_id, now)
+            .acquire(lease_id)
             .map_err(session_reader_error)?;
         let prefetch_generation = permit
             .generation()
@@ -321,10 +317,7 @@ impl<T> SessionRegistry<T> {
             .entries
             .get_mut(identity)
             .ok_or("session_unavailable")?;
-        entry
-            .readers
-            .close(lease_id, now)
-            .map_err(session_reader_error)
+        entry.readers.close(lease_id).map_err(session_reader_error)
     }
 
     #[cfg(test)]
@@ -345,7 +338,6 @@ impl<T> SessionRegistry<T> {
 
     fn remove_expired(&mut self, now: Instant) {
         self.entries.retain(|_, entry| {
-            entry.readers.remove_expired(now);
             let retain =
                 entry.readers.is_busy() || entry.retention.retained() || !expired(entry, now);
             if !retain {
@@ -374,8 +366,9 @@ fn session_reader_error(error: ReaderLeaseError) -> &'static str {
 }
 
 fn expired<T>(entry: &RegisteredSession<T>, now: Instant) -> bool {
-    now.duration_since(entry.last_access) >= SESSION_IDLE_TTL
-        || now.duration_since(entry.created_at) >= SESSION_ABSOLUTE_TTL
+    !entry.readers.is_busy()
+        && (now.duration_since(entry.last_access) >= SESSION_IDLE_TTL
+            || now.duration_since(entry.created_at) >= SESSION_ABSOLUTE_TTL)
 }
 
 impl RandomAccessSession {
@@ -1719,7 +1712,38 @@ mod tests {
     }
 
     #[test]
-    fn abandoned_persistent_reader_expires_and_unblocks_session_gc() {
+    fn persistent_reader_keeps_session_available_past_ttl() {
+        let first = segment(1, 1, 1, 1);
+        let now = Instant::now();
+        let mut registry = SessionRegistry::new(1024 * 1024);
+        registry
+            .insert(
+                RandomAccessSession::new(identity(), vec![posting(1)], &first).unwrap(),
+                "context",
+                recreation_key(),
+                now,
+            )
+            .unwrap();
+        let reader = registry.open_reader(&identity(), now).unwrap();
+        let lease = registry.get_with_reader(&identity(), &reader, now).unwrap();
+        drop(lease);
+
+        let additional_reader = registry
+            .open_reader(&identity(), now + SESSION_IDLE_TTL)
+            .expect("persistent reader keeps the session live");
+
+        assert_eq!(
+            registry.close_reader(&identity(), &additional_reader, now + SESSION_IDLE_TTL),
+            Ok(())
+        );
+        assert_eq!(
+            registry.close_reader(&identity(), &reader, now + SESSION_IDLE_TTL),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn persistent_reader_holds_session_until_closed() {
         let first = segment(1, 1, 1, 1);
         let session = RandomAccessSession::new(identity(), vec![posting(1)], &first).unwrap();
         let now = Instant::now();
@@ -1729,11 +1753,12 @@ mod tests {
             .unwrap();
         let reader = registry.open_reader(&identity(), now).unwrap();
 
-        assert_eq!(registry.len(now + SESSION_IDLE_TTL), 0);
+        assert_eq!(registry.len(now + SESSION_IDLE_TTL), 1);
         assert_eq!(
             registry.close_reader(&identity(), &reader, now + SESSION_IDLE_TTL),
-            Err("session_unavailable")
+            Ok(())
         );
+        assert_eq!(registry.len(now + SESSION_IDLE_TTL), 0);
     }
 
     #[test]

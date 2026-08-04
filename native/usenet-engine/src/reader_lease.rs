@@ -1,7 +1,6 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub enum ReaderLeaseError {
@@ -18,8 +17,6 @@ struct PersistentReader {
     generation_clock: Arc<AtomicU64>,
     prefetch_state: AtomicU64,
     prefetch_target: AtomicUsize,
-    created_at: Instant,
-    last_access: Mutex<Instant>,
 }
 
 enum Release {
@@ -43,22 +40,20 @@ pub struct ReaderPrefetchPermit {
 
 pub struct ReaderLeases {
     readers: Arc<AtomicUsize>,
+    // A persistent lease owns a public response stream. It must remain valid
+    // while that response is paused as well as while a range request is active.
     persistent: HashMap<String, Arc<PersistentReader>>,
     generation_clock: Arc<AtomicU64>,
     maximum: usize,
-    idle_ttl: Duration,
-    absolute_ttl: Duration,
 }
 
 impl ReaderLeases {
-    pub fn new(maximum: usize, idle_ttl: Duration, absolute_ttl: Duration) -> Self {
+    pub fn new(maximum: usize) -> Self {
         Self {
             readers: Arc::new(AtomicUsize::new(0)),
             persistent: HashMap::new(),
             generation_clock: Arc::new(AtomicU64::new(0)),
             maximum,
-            idle_ttl,
-            absolute_ttl,
         }
     }
 
@@ -69,8 +64,7 @@ impl ReaderLeases {
         })
     }
 
-    pub fn open(&mut self, now: Instant) -> Result<String, ReaderLeaseError> {
-        self.remove_expired(now);
+    pub fn open(&mut self) -> Result<String, ReaderLeaseError> {
         let lease_id = loop {
             let candidate = random_lease_id()?;
             if !self.persistent.contains_key(&candidate) {
@@ -98,19 +92,12 @@ impl ReaderLeases {
                 generation_clock: Arc::clone(&self.generation_clock),
                 prefetch_state: AtomicU64::new(0),
                 prefetch_target: AtomicUsize::new(0),
-                created_at: now,
-                last_access: Mutex::new(now),
             }),
         );
         Ok(lease_id)
     }
 
-    pub fn acquire(
-        &mut self,
-        lease_id: &str,
-        now: Instant,
-    ) -> Result<ReaderPermit, ReaderLeaseError> {
-        self.remove_expired(now);
+    pub fn acquire(&mut self, lease_id: &str) -> Result<ReaderPermit, ReaderLeaseError> {
         let reader = Arc::clone(
             self.persistent
                 .get(lease_id)
@@ -120,14 +107,12 @@ impl ReaderLeases {
             .active
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| ReaderLeaseError::Busy)?;
-        *reader.last_access.lock().expect("reader lease lock") = now;
         Ok(ReaderPermit {
             release: Release::Persistent(reader),
         })
     }
 
-    pub fn close(&mut self, lease_id: &str, now: Instant) -> Result<(), ReaderLeaseError> {
-        self.remove_expired(now);
+    pub fn close(&mut self, lease_id: &str) -> Result<(), ReaderLeaseError> {
         let reader = self
             .persistent
             .remove(lease_id)
@@ -139,21 +124,6 @@ impl ReaderLeases {
 
     pub fn is_busy(&self) -> bool {
         self.readers.load(Ordering::Acquire) != 0
-    }
-
-    pub fn remove_expired(&mut self, now: Instant) {
-        self.persistent.retain(|_, reader| {
-            let last_access = *reader.last_access.lock().expect("reader lease lock");
-            let expired = now.duration_since(last_access) >= self.idle_ttl
-                || now.duration_since(reader.created_at) >= self.absolute_ttl;
-            if expired && !reader.active.load(Ordering::Acquire) {
-                reader.closed.store(true, Ordering::Release);
-                self.readers.fetch_sub(1, Ordering::AcqRel);
-                false
-            } else {
-                true
-            }
-        });
     }
 }
 
@@ -280,53 +250,48 @@ pub fn random_lease_id() -> Result<String, ReaderLeaseError> {
 #[cfg(test)]
 mod tests {
     use super::ReaderLeases;
-    use std::time::{Duration, Instant};
-
     #[test]
     fn newer_readers_cancel_only_obsolete_prefetch_generations() {
-        let now = Instant::now();
-        let mut readers = ReaderLeases::new(8, Duration::from_secs(60), Duration::from_secs(600));
-        let first = readers.open(now).unwrap();
-        let first_permit = readers.acquire(&first, now).unwrap();
+        let mut readers = ReaderLeases::new(8);
+        let first = readers.open().unwrap();
+        let first_permit = readers.acquire(&first).unwrap();
         let first_generation = first_permit.generation().unwrap();
         let first_prefetch = first_generation.request_prefetch(1).unwrap();
         drop(first_permit);
 
-        let second = readers.open(now).unwrap();
+        let second = readers.open().unwrap();
         assert!(first_generation.is_obsolete());
         assert!(first_generation.request_prefetch(2).is_none());
         drop(first_prefetch);
         assert!(first_generation.request_prefetch(3).is_none());
 
-        let second_permit = readers.acquire(&second, now).unwrap();
+        let second_permit = readers.acquire(&second).unwrap();
         let second_generation = second_permit.generation().unwrap();
         assert!(!second_generation.is_obsolete());
         assert!(second_generation.request_prefetch(1).is_some());
         drop(second_permit);
-        readers.close(&second, now).unwrap();
+        readers.close(&second).unwrap();
         assert!(second_generation.is_obsolete());
     }
 
     #[test]
     fn rejected_reader_admission_does_not_cancel_the_current_generation() {
-        let now = Instant::now();
-        let mut readers = ReaderLeases::new(1, Duration::from_secs(60), Duration::from_secs(600));
-        let first = readers.open(now).unwrap();
-        let permit = readers.acquire(&first, now).unwrap();
+        let mut readers = ReaderLeases::new(1);
+        let first = readers.open().unwrap();
+        let permit = readers.acquire(&first).unwrap();
         let generation = permit.generation().unwrap();
         drop(permit);
 
-        assert!(readers.open(now).is_err());
+        assert!(readers.open().is_err());
         assert!(!generation.is_obsolete());
         assert!(generation.request_prefetch(1).is_some());
     }
 
     #[test]
     fn active_prefetch_observes_progress_without_losing_the_final_request() {
-        let now = Instant::now();
-        let mut readers = ReaderLeases::new(1, Duration::from_secs(60), Duration::from_secs(600));
-        let lease_id = readers.open(now).unwrap();
-        let permit = readers.acquire(&lease_id, now).unwrap();
+        let mut readers = ReaderLeases::new(1);
+        let lease_id = readers.open().unwrap();
+        let permit = readers.acquire(&lease_id).unwrap();
         let generation = permit.generation().unwrap();
         let mut prefetch = generation.request_prefetch(1).unwrap();
         let (first_revision, first_target) = prefetch.request();
@@ -342,17 +307,16 @@ mod tests {
 
     #[test]
     fn close_revokes_an_active_reader_without_waiting_for_its_request() {
-        let now = Instant::now();
-        let mut readers = ReaderLeases::new(1, Duration::from_secs(60), Duration::from_secs(600));
-        let lease_id = readers.open(now).unwrap();
-        let permit = readers.acquire(&lease_id, now).unwrap();
+        let mut readers = ReaderLeases::new(1);
+        let lease_id = readers.open().unwrap();
+        let permit = readers.acquire(&lease_id).unwrap();
         let generation = permit.generation().unwrap();
 
-        readers.close(&lease_id, now).unwrap();
+        readers.close(&lease_id).unwrap();
 
         assert!(generation.is_obsolete());
         assert!(!readers.is_busy());
-        assert!(readers.acquire(&lease_id, now).is_err());
+        assert!(readers.acquire(&lease_id).is_err());
         drop(permit);
     }
 }

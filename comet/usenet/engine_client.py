@@ -79,7 +79,7 @@ class EngineNntpError(RuntimeError):
         self.code = code
         self.retryable = retryable
         self.auth_failed = code in _NNTP_AUTH_FAILURES
-        self.source_unavailable = code == "session_unavailable"
+        self.source_unavailable = code in {"session_busy", "session_unavailable"}
         self.source_failure = code in _NNTP_SOURCE_FAILURES
 
 
@@ -96,7 +96,10 @@ class EngineArchiveError(RuntimeError):
         self.retryable = retryable
         self.required_recovery_blocks = required_recovery_blocks
         self.auth_failed = False
-        self.source_unavailable = code == "raw_composite_unavailable"
+        self.source_unavailable = code in {
+            "raw_composite_busy",
+            "raw_composite_unavailable",
+        }
         self.source_failure = code in _NNTP_SOURCE_FAILURES
 
 
