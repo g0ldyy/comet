@@ -95,6 +95,7 @@ _DEFAULT_VALIDATED_CONFIG["_debridEntries"] = []
 _DEFAULT_VALIDATED_CONFIG["_enableTorrent"] = True
 _DEFAULT_OPTIONS = default_config["options"]
 
+
 def _reject_nonfinite_json_constant(_value):
     raise ValueError("non-finite JSON number")
 

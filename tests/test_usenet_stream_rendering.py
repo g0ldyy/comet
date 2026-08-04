@@ -155,9 +155,13 @@ class UsenetStreamRenderingTests(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         }
-        legacy_config = base64.urlsafe_b64encode(
-            orjson.dumps({"schemaVersion": 2, "legacyPadding": "x" * 3_000})
-        ).decode().rstrip("=")
+        legacy_config = (
+            base64.urlsafe_b64encode(
+                orjson.dumps({"schemaVersion": 2, "legacyPadding": "x" * 3_000})
+            )
+            .decode()
+            .rstrip("=")
+        )
         compact_config = encode_configuration_segment(
             base64.urlsafe_b64decode(legacy_config + "=" * (-len(legacy_config) % 4))
         )

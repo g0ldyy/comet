@@ -2012,7 +2012,7 @@ struct PostingFailureAggregate {
     auth: Option<&'static str>,
     transient: Option<&'static str>,
     mixed_transient: bool,
-    content_evidence: bool,
+    content: Option<&'static str>,
     all_auth: bool,
     provider_count: usize,
 }
@@ -2024,7 +2024,7 @@ impl PostingFailureAggregate {
             auth: None,
             transient: None,
             mixed_transient: false,
-            content_evidence: false,
+            content: None,
             all_auth: true,
             provider_count,
         }
@@ -2038,7 +2038,7 @@ impl PostingFailureAggregate {
             self.all_auth = false;
         }
         if code == "nntp_article_missing" || yenc::integrity_failure(code) {
-            self.content_evidence = true;
+            self.content.get_or_insert(code);
         } else if let Some(transient) = self.transient {
             self.mixed_transient |= transient != code;
         } else {
@@ -2050,18 +2050,46 @@ impl PostingFailureAggregate {
         let Some(transient) = self.transient else {
             return self.last;
         };
-        if self.all_auth {
+        let result = if self.all_auth {
             self.auth
                 .expect("inconclusive all-auth aggregate contains an authentication failure")
         } else if self.provider_count == 1
-            && !self.content_evidence
+            && self.content.is_none()
             && !self.mixed_transient
             && nntp::retryable_provider_failure(transient)
         {
             transient
         } else {
             "nntp_availability_unknown"
+        };
+        if result == "nntp_availability_unknown"
+            && observability::enabled(observability::Detail::Normal)
+        {
+            let mut fields = vec![
+                observability::Field::token("error_code", result),
+                observability::Field::token("underlying_error_code", transient),
+                observability::Field::token("last_error_code", self.last),
+                observability::Field::unsigned("provider_count", self.provider_count as u64),
+            ];
+            if let Some(code) = self.content {
+                fields.push(observability::Field::token("content_error_code", code));
+            }
+            if let Some(code) = self.auth {
+                fields.push(observability::Field::token(
+                    "authentication_error_code",
+                    code,
+                ));
+            }
+            observability::emit(
+                observability::Detail::Normal,
+                observability::Level::Warning,
+                "nntp.availability.inconclusive",
+                "NNTP availability check was inconclusive",
+                None,
+                &fields,
+            );
         }
+        result
     }
 }
 

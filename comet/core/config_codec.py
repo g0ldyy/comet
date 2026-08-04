@@ -4,7 +4,6 @@ import base64
 import re
 import zlib
 
-
 MAX_CONFIG_SEGMENT_BYTES = 32 * 1024
 MAX_CONFIG_JSON_BYTES = 24 * 1024
 # This is part of the z1 wire format. Never mutate it; a new dictionary needs a

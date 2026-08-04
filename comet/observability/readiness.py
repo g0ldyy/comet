@@ -22,6 +22,12 @@ class ReadinessSnapshot:
     def status_code(self) -> int:
         return 503 if self.state == "unavailable" else 200
 
+    @property
+    def component_details(self) -> str:
+        return " ".join(
+            f"{component}={status}" for component, status in self.components.items()
+        )
+
 
 def evaluate_readiness(
     *,
@@ -113,6 +119,7 @@ class ReadinessTransitionTracker:
                     "readiness.degraded",
                     "Application readiness is degraded",
                     error_code="readiness_degraded",
+                    details=snapshot.component_details,
                     suppressed_count=suppressed_count,
                 )
             else:
@@ -120,6 +127,7 @@ class ReadinessTransitionTracker:
                     "readiness.unavailable",
                     "Application is not ready",
                     error_code="readiness_unavailable",
+                    details=snapshot.component_details,
                     suppressed_count=suppressed_count,
                 )
             return
@@ -135,6 +143,7 @@ class ReadinessTransitionTracker:
                 "readiness.degraded",
                 "Application readiness is degraded",
                 error_code="readiness_degraded",
+                details=snapshot.component_details,
                 suppressed_count=suppressed_count,
             )
         else:
@@ -142,6 +151,7 @@ class ReadinessTransitionTracker:
                 "readiness.unavailable",
                 "Application is not ready",
                 error_code="readiness_unavailable",
+                details=snapshot.component_details,
                 suppressed_count=suppressed_count,
             )
 

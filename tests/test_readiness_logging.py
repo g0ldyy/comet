@@ -32,7 +32,10 @@ class ReadinessTransitionTests(unittest.TestCase):
             clock=lambda: now[0],
             reminder_seconds=900,
         )
-        degraded = ReadinessSnapshot("degraded", {})
+        degraded = ReadinessSnapshot(
+            "degraded",
+            {"database": "ready", "usenet_engine": "degraded"},
+        )
         ready = ReadinessSnapshot("ready", {})
 
         with (
@@ -42,6 +45,10 @@ class ReadinessTransitionTests(unittest.TestCase):
         ):
             tracker.observe(degraded)
             warning.assert_called_once()
+            self.assertEqual(
+                warning.call_args.kwargs["details"],
+                "database=ready usenet_engine=degraded",
+            )
             now[0] = 1
             tracker.observe(degraded)
             warning.assert_called_once()
@@ -63,9 +70,16 @@ class ReadinessTransitionTests(unittest.TestCase):
 
     def test_reset_starts_a_fresh_worker_transition_history(self):
         tracker = ReadinessTransitionTracker(clock=lambda: 1)
-        unavailable = ReadinessSnapshot("unavailable", {})
+        unavailable = ReadinessSnapshot(
+            "unavailable",
+            {"database": "ready", "schema": "unavailable"},
+        )
         with patch("comet.observability.readiness.log.error") as error:
             tracker.observe(unavailable)
             tracker.reset()
             tracker.observe(unavailable)
         self.assertEqual(error.call_count, 2)
+        self.assertEqual(
+            error.call_args.kwargs["details"],
+            "database=ready schema=unavailable",
+        )

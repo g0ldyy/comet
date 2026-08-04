@@ -371,6 +371,25 @@ class LoggingContractTests(unittest.TestCase):
         with self.assertRaises(LogValidationError):
             ingest_native_event(native.replace(b'"USENET"', b'"STREAM"'))
 
+    def test_native_inconclusive_availability_preserves_underlying_failures(self):
+        self.configure("normal", "json")
+        native = (
+            b'{"timestamp":"2026-07-31 00:00:00","level":"WARNING",'
+            b'"event":"nntp.availability.inconclusive",'
+            b'"message":"NNTP availability check was inconclusive",'
+            b'"category":"USENET","process_role":"usenet_engine","pid":42,'
+            b'"engine_generation":3,"error_code":"nntp_availability_unknown",'
+            b'"underlying_error_code":"nntp_reader_failed",'
+            b'"last_error_code":"nntp_reader_failed","provider_count":1}\n'
+        )
+
+        records = self.render(lambda: ingest_native_event(native))
+        parsed = json.loads(records[0])
+
+        self.assertEqual(parsed["underlying_error_code"], "nntp_reader_failed")
+        self.assertEqual(parsed["last_error_code"], "nntp_reader_failed")
+        self.assertEqual(parsed["provider_count"], 1)
+
     def test_human_views_share_the_compact_field_presentation(self):
         self.configure("normal", "pretty", no_color=True)
         rendered = self.render(
