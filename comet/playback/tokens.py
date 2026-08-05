@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from comet.core.capability_states import deterministic_cbor
 
 MAX_NZB_HANDOFF_LOCATORS = 3
+PLAYBACK_INTENT_TTL_SECONDS = 6 * 60 * 60
 _SALT = b"comet-capability-root-v1"
 _DOMAIN = b"comet-cap-v1\0"
 _PREFIX_AUDIENCES = {
@@ -23,7 +24,7 @@ _PREFIX_AUDIENCES = {
     "ni2": "stremio-nzb-handoff",
 }
 _PREFIX_MAX_TTL = {
-    "pi2": 15 * 60,
+    "pi2": PLAYBACK_INTENT_TTL_SECONDS,
     "pa2": 6 * 60 * 60,
     "na1": 6 * 60 * 60,
     "ni2": 6 * 60 * 60,

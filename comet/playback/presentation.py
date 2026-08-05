@@ -14,7 +14,11 @@ from comet.playback.groups import (
     limit_presentation_groups,
 )
 from comet.playback.repository import RenderedCandidateIds
-from comet.playback.tokens import MAX_NZB_HANDOFF_LOCATORS, CapabilityCodec
+from comet.playback.tokens import (
+    MAX_NZB_HANDOFF_LOCATORS,
+    PLAYBACK_INTENT_TTL_SECONDS,
+    CapabilityCodec,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +152,7 @@ def issue_provider_option_capability(
     selection_intent: list,
     client: str,
 ) -> str:
-    """Create a short-lived server playback capability from committed IDs."""
+    """Create a session-lived server playback capability from committed IDs."""
     candidate_id = uuid.UUID(persisted.candidate_id).bytes
     provider_id = uuid.UUID(option.provider.configuration_id).bytes
     locator_ids = [
@@ -159,7 +163,7 @@ def issue_provider_option_capability(
         "pi2",
         partition=partition,
         suffix=[candidate_id, provider_id, locator_ids, selection_intent, client],
-        ttl=15 * 60,
+        ttl=PLAYBACK_INTENT_TTL_SECONDS,
     )
 
 

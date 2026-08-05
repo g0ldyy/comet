@@ -1,6 +1,7 @@
 import base64
 import unittest
 import uuid
+from unittest.mock import patch
 
 from comet.core.capabilities import CapabilityPlanner
 from comet.core.sources import (
@@ -19,7 +20,11 @@ from comet.playback.presentation import (
     select_presentation,
 )
 from comet.playback.repository import RenderedCandidateIds
-from comet.playback.tokens import CapabilityCodec
+from comet.playback.tokens import (
+    PLAYBACK_INTENT_TTL_SECONDS,
+    CapabilityCodec,
+    CapabilityError,
+)
 from comet.usenet.access import NativeAccessAuthorizer
 
 
@@ -336,16 +341,28 @@ class ProviderPresentationTests(unittest.TestCase):
             str(uuid.uuid4()), {"artifact": str(uuid.uuid4())}
         )
 
-        token = issue_provider_option_capability(
-            codec,
-            partition=partition,
-            option=option,
-            persisted=persisted,
-            selection_intent=[0],
-            client="stremio",
-        )
+        issued_at = 100
+        with patch("comet.playback.tokens.time.time", return_value=issued_at):
+            token = issue_provider_option_capability(
+                codec,
+                partition=partition,
+                option=option,
+                persisted=persisted,
+                selection_intent=[0],
+                client="stremio",
+            )
 
         self.assertEqual(
-            codec.decode(token, partition=partition)[5][0:1],
+            codec.decode(
+                token,
+                partition=partition,
+                now=issued_at + 4 * 60 * 60,
+            )[5][0:1],
             uuid.UUID(persisted.candidate_id).bytes[0:1],
         )
+        with self.assertRaises(CapabilityError):
+            codec.decode(
+                token,
+                partition=partition,
+                now=issued_at + PLAYBACK_INTENT_TTL_SECONDS,
+            )

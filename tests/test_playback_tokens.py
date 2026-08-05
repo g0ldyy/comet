@@ -8,7 +8,11 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from comet.core.capability_states import deterministic_cbor
-from comet.playback.tokens import CapabilityCodec, CapabilityError
+from comet.playback.tokens import (
+    PLAYBACK_INTENT_TTL_SECONDS,
+    CapabilityCodec,
+    CapabilityError,
+)
 
 ROOT = base64.urlsafe_b64encode(b"a" * 32).decode().rstrip("=")
 
@@ -298,27 +302,40 @@ def test_capability_rejects_modified_payload():
         )
 
 
-def test_playback_intents_have_a_shorter_lifetime_than_artifact_handoffs():
+def test_playback_intents_cover_a_session_but_remain_bounded():
     codec = CapabilityCodec(ROOT)
     partition = codec.configuration_partition(b"normalized")
+    suffix = [
+        uuid.uuid4().bytes,
+        uuid.uuid4().bytes,
+        [uuid.uuid4().bytes],
+        [0],
+        "stremio",
+    ]
+
+    token = codec.encode(
+        "pi2",
+        partition=partition,
+        suffix=suffix,
+        ttl=PLAYBACK_INTENT_TTL_SECONDS,
+        now=100,
+    )
+    assert (
+        codec.decode(
+            token,
+            partition=partition,
+            now=100 + 4 * 60 * 60,
+        )[5:]
+        == suffix
+    )
 
     with pytest.raises(ValueError):
         codec.encode(
             "pi2",
             partition=partition,
-            suffix=[
-                uuid.uuid4().bytes,
-                uuid.uuid4().bytes,
-                [uuid.uuid4().bytes],
-                [0],
-                "stremio",
-            ],
-            ttl=901,
+            suffix=suffix,
+            ttl=PLAYBACK_INTENT_TTL_SECONDS + 1,
         )
-
-    assert codec.encode(
-        "na1", partition=partition, suffix=[uuid.uuid4().bytes], ttl=901
-    )
 
 
 def test_capabilities_reject_noncanonical_playback_intent_suffixes():
