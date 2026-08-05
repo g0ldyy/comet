@@ -11,6 +11,7 @@ from comet.core.schema_migrations import (
     _column_exists,
     _drop_column_if_exists,
     _ensure_managed_table,
+    _migration_active_connection_timestamps,
     _migration_candidate_identity_scope,
     _migration_debrid_account_cleanup_index,
     _migration_media_demand_scrape_coverage,
@@ -23,6 +24,32 @@ from comet.core.schema_specs import ManagedTableSpec
 
 
 class SchemaMigrationMetadataCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def test_postgres_active_connection_timestamp_types_are_repaired(self):
+        database = AsyncMock()
+
+        await _migration_active_connection_timestamps(
+            MigrationContext(database, is_sqlite=False, is_postgres=True)
+        )
+
+        statement = database.execute.await_args.args[0]
+        self.assertIn(
+            "ALTER COLUMN started_at TYPE DOUBLE PRECISION",
+            statement,
+        )
+        self.assertIn(
+            "ALTER COLUMN updated_at TYPE DOUBLE PRECISION",
+            statement,
+        )
+
+    async def test_sqlite_active_connection_timestamp_migration_is_a_noop(self):
+        database = AsyncMock()
+
+        await _migration_active_connection_timestamps(
+            MigrationContext(database, is_sqlite=True, is_postgres=False)
+        )
+
+        database.execute.assert_not_awaited()
+
     async def test_candidate_identity_migration_scopes_exact_identity_by_family(self):
         with TemporaryDirectory() as temp_dir:
             database = ReplicaAwareDatabase(

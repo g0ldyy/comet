@@ -1282,6 +1282,21 @@ async def _migration_candidate_identity_scope(ctx: MigrationContext):
     return True
 
 
+async def _migration_active_connection_timestamps(ctx: MigrationContext):
+    """Repair timestamp columns renamed from the legacy integer schema."""
+    if ctx.is_postgres:
+        await ctx.database.execute(
+            """
+            ALTER TABLE active_connections
+                ALTER COLUMN started_at TYPE DOUBLE PRECISION
+                    USING started_at::DOUBLE PRECISION,
+                ALTER COLUMN updated_at TYPE DOUBLE PRECISION
+                    USING updated_at::DOUBLE PRECISION
+            """
+        )
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1308,4 +1323,8 @@ MIGRATIONS = [
     ("2026072701_imdb_title_lookup", _migration_imdb_title_lookup),
     (USENET_RELEASE_SCHEMA_MIGRATION, _migration_usenet_release_schema),
     ("2026080202_candidate_identity_scope", _migration_candidate_identity_scope),
+    (
+        "2026080601_active_connection_timestamps",
+        _migration_active_connection_timestamps,
+    ),
 ]
