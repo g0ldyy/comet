@@ -3506,6 +3506,231 @@ fn seven_zip_archive_catalog(
     Ok(catalog)
 }
 
+fn read_sparse_archive_source<F>(
+    source: &raw_composite::RawCompositeSource,
+    offset: u64,
+    length: usize,
+    state: &Arc<EngineState>,
+    artifact_data: &Path,
+    cancelled: &F,
+) -> Result<Vec<u8>, &'static str>
+where
+    F: Fn() -> bool,
+{
+    source.read_at(
+        offset,
+        u64::try_from(length).map_err(|_| "archive_header_invalid")?,
+        cancelled,
+        |part, start, end| {
+            state.read_composite_part(artifact_data, part, start, end, None, cancelled)
+        },
+    )
+}
+
+fn catalog_nested_rar_in_seven_zip<F>(
+    outer_plan: &archive_group::VolumePlan,
+    outer_volumes: &[SessionArchiveVolume],
+    outer_members: &[seven_zip_direct::StoredMember],
+    state: &Arc<EngineState>,
+    artifact_data: &Path,
+    cancelled: &F,
+) -> Result<
+    (
+        Vec<ArchiveCatalogMember>,
+        Vec<raw_composite::RawCompositeSource>,
+    ),
+    &'static str,
+>
+where
+    F: Fn() -> bool,
+{
+    let nested_volumes = outer_members
+        .iter()
+        .filter(|member| {
+            inspect::classify_path(&member.relative_path) == Some(inspect::AssetKind::Archive)
+        })
+        .map(|member| {
+            Ok((
+                member.relative_path.clone(),
+                open_session_seven_zip_member(outer_plan, outer_volumes, member)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, &'static str>>()?;
+    if nested_volumes.is_empty() {
+        return Err("archive_direct_unsupported");
+    }
+
+    let sample_bytes = archive_group::sample_bytes_per_volume(nested_volumes.len());
+    let mut evidence = Vec::with_capacity(nested_volumes.len());
+    for (relative_path, source) in &nested_volumes {
+        let length = usize::try_from(source.exact_size().min(sample_bytes as u64))
+            .map_err(|_| "archive_header_invalid")?;
+        let head = read_sparse_archive_source(source, 0, length, state, artifact_data, cancelled)?;
+        let archive = archive::detect_archive(&head)?.ok_or("archive_direct_unsupported")?;
+        evidence.push((relative_path.clone(), source.identity().to_owned(), archive));
+    }
+    let inputs = evidence
+        .iter()
+        .zip(&nested_volumes)
+        .map(|((relative_path, identity, archive), (_, source))| {
+            archive_group::RarHeaderVolumeInput {
+                content_identity: identity,
+                relative_path,
+                exact_size: source.exact_size(),
+                evidence: *archive,
+            }
+        })
+        .collect::<Vec<_>>();
+    let nested_plan = archive_group::plan_rar_headers(&inputs)?;
+    let mut sources_by_identity = nested_volumes
+        .into_iter()
+        .map(|(_, source)| (source.identity().to_owned(), source))
+        .collect::<BTreeMap<_, _>>();
+    let nested_volumes = nested_plan
+        .volumes
+        .iter()
+        .map(|volume| {
+            sources_by_identity
+                .remove(&volume.content_identity)
+                .ok_or("archive_volume_conflict")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if !sources_by_identity.is_empty() {
+        return Err("archive_volume_conflict");
+    }
+    let volume_sizes = nested_volumes
+        .iter()
+        .map(raw_composite::RawCompositeSource::exact_size)
+        .collect::<Vec<_>>();
+    let read_range = |volume_index: usize, offset: u64, length: usize| {
+        read_sparse_archive_source(
+            nested_volumes
+                .get(volume_index)
+                .ok_or("archive_volume_conflict")?,
+            offset,
+            length,
+            state,
+            artifact_data,
+            cancelled,
+        )
+    };
+    let members = match nested_plan.kind {
+        archive_group::VolumePlanKind::SingleArchive(archive::ArchiveFormat::Rar4)
+        | archive_group::VolumePlanKind::MultiVolumeArchive(archive::ArchiveFormat::Rar4) => {
+            rar_stored::parse_rar4_stored_members(&volume_sizes, read_range)?
+        }
+        archive_group::VolumePlanKind::SingleArchive(archive::ArchiveFormat::Rar5)
+        | archive_group::VolumePlanKind::MultiVolumeArchive(archive::ArchiveFormat::Rar5) => {
+            rar_stored::parse_rar5_stored_members(&volume_sizes, read_range)?
+        }
+        _ => return Err("archive_direct_unsupported"),
+    };
+
+    let first_volume = nested_plan
+        .volumes
+        .first()
+        .ok_or("archive_volume_conflict")?;
+    let mut catalog = Vec::new();
+    let mut sources = Vec::new();
+    for member in members {
+        let Some(kind) = inspect::classify_path(&member.relative_path) else {
+            continue;
+        };
+        if kind != inspect::AssetKind::Video {
+            continue;
+        }
+        let relative_path = format!("{}!/{}", first_volume.relative_path, member.relative_path);
+        let member_id = archive_group::member_identity(
+            &outer_plan.set_identity,
+            &relative_path,
+            member.exact_size,
+        )?;
+        let mut parts = Vec::new();
+        for range in member.ranges {
+            parts.extend(
+                nested_volumes
+                    .get(range.volume_index)
+                    .ok_or("archive_volume_conflict")?
+                    .slice_parts(range.offset, range.length)?,
+            );
+        }
+        sources.push(raw_composite::RawCompositeSource::from_ranges(
+            member_id.clone(),
+            parts,
+        )?);
+        catalog.push(ArchiveCatalogMember {
+            member_id,
+            relative_path,
+            exact_size: member.exact_size,
+            kind,
+        });
+    }
+    if catalog.is_empty() {
+        return Err("archive_direct_unsupported");
+    }
+    catalog.sort_by_cached_key(|member| {
+        (
+            member.relative_path.to_lowercase(),
+            member.relative_path.clone(),
+        )
+    });
+    Ok((catalog, sources))
+}
+
+fn catalog_session_seven_zip_sources<F>(
+    plan: &archive_group::VolumePlan,
+    volumes: &[SessionArchiveVolume],
+    passphrase: Option<&str>,
+    state: &Arc<EngineState>,
+    artifact_data: &Path,
+    cancelled: &F,
+) -> Result<
+    (
+        Vec<ArchiveCatalogMember>,
+        Vec<raw_composite::RawCompositeSource>,
+    ),
+    &'static str,
+>
+where
+    F: Fn() -> bool,
+{
+    let members = parse_session_seven_zip_members(volumes, passphrase, state, cancelled)?;
+    let direct_catalog = seven_zip_archive_catalog(plan, &members)?;
+    let has_direct_video = direct_catalog
+        .iter()
+        .any(|member| member.kind == inspect::AssetKind::Video);
+    let direct_video_sources = || {
+        members
+            .iter()
+            .filter(|member| {
+                inspect::classify_path(&member.relative_path) == Some(inspect::AssetKind::Video)
+            })
+            .map(|member| open_session_seven_zip_member(plan, volumes, member))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    match catalog_nested_rar_in_seven_zip(plan, volumes, &members, state, artifact_data, cancelled)
+    {
+        Ok((mut nested_catalog, mut nested_sources)) => {
+            let mut catalog = direct_catalog
+                .into_iter()
+                .filter(|member| member.kind == inspect::AssetKind::Video)
+                .collect::<Vec<_>>();
+            catalog.append(&mut nested_catalog);
+            catalog.sort_by_cached_key(|member| {
+                (
+                    member.relative_path.to_lowercase(),
+                    member.relative_path.clone(),
+                )
+            });
+            let mut sources = direct_video_sources()?;
+            sources.append(&mut nested_sources);
+            Ok((catalog, sources))
+        }
+        Err(_) if has_direct_video && !cancelled() => Ok((direct_catalog, direct_video_sources()?)),
+        Err(code) => Err(code),
+    }
+}
+
 fn session_sources(volumes: &[SessionArchiveVolume]) -> Vec<raw_composite::SessionSource> {
     volumes
         .iter()
@@ -4473,24 +4698,20 @@ fn handle(
                         | archive_group::VolumePlanKind::MultiVolumeArchive(
                             archive::ArchiveFormat::SevenZip,
                         ) => {
-                            let direct_members = parse_session_seven_zip_members(
+                            let (catalog, sources) = catalog_session_seven_zip_sources(
+                                &plan,
                                 &volumes,
                                 passphrase.as_deref().map(String::as_str),
                                 state,
+                                artifact_data,
                                 &cancelled,
                             )?;
-                            let catalog = seven_zip_archive_catalog(&plan, &direct_members)?;
                             let mut composites = state
                                 .raw_composites
                                 .lock()
                                 .expect("raw composite registry lock");
-                            for member in &direct_members {
-                                if inspect::classify_path(&member.relative_path).is_some() {
-                                    composites.insert(
-                                        open_session_seven_zip_member(&plan, &volumes, member)?,
-                                        Instant::now(),
-                                    )?;
-                                }
+                            for source in sources {
+                                composites.insert(source, Instant::now())?;
                             }
                             catalog
                         }
@@ -4555,25 +4776,35 @@ fn handle(
                                 selected_path,
                             ));
                         }
-                        let member = parse_session_seven_zip_members(
+                        let (catalog, sources) = catalog_session_seven_zip_sources(
+                            &plan,
                             &volumes,
                             passphrase.as_deref().map(String::as_str),
                             state,
+                            artifact_data,
                             &cancelled,
-                        )?
-                        .into_iter()
-                        .find(|member| {
+                        )?;
+                        let member = catalog.into_iter().find(|member| {
                             member.relative_path == selected_path
                                 && member.exact_size == request.expected_output_size
                         })
                         .ok_or("archive_member_not_found")?;
-                        let source = open_session_seven_zip_member(&plan, &volumes, &member)?;
-                        let (identity, exact_size) = state
+                        let mut composites = state
                             .raw_composites
                             .lock()
-                            .expect("raw composite registry lock")
-                            .insert(source, Instant::now())?;
-                        return Ok((plan, identity, exact_size, member.relative_path));
+                            .expect("raw composite registry lock");
+                        for source in sources {
+                            composites.insert(source, Instant::now())?;
+                        }
+                        let exact_size = composites
+                            .exact_size(&member.member_id, Instant::now())
+                            .ok_or("archive_member_not_found")?;
+                        return Ok((
+                            plan,
+                            member.member_id,
+                            exact_size,
+                            member.relative_path,
+                        ));
                     }
                     let member = parse_session_stored_members(
                         &plan,

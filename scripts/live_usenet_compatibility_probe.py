@@ -154,6 +154,30 @@ async def _probe_direct_asset(
     }
 
 
+async def _probe_raw_composite(engine: EngineClient, identity: str, size: int) -> None:
+    await engine.inspect_raw_composite(identity, size)
+    lease = await engine.open_raw_composite_reader(identity)
+    try:
+        head_size = min(size, 256 * 1024)
+        await engine.read_raw_composite_range(
+            identity,
+            lease,
+            size,
+            0,
+            head_size - 1,
+        )
+        tail_size = min(size, 64 * 1024)
+        await engine.read_raw_composite_range(
+            identity,
+            lease,
+            size,
+            size - tail_size,
+            size - 1,
+        )
+    finally:
+        await engine.close_raw_composite_reader(identity, lease)
+
+
 async def _probe_release(
     engine: EngineClient,
     adapter: NewznabAdapter,
@@ -278,7 +302,7 @@ async def _open_materialized_archive(engine, materialized, plan):
             selected.declared_bytes,
             selected.relative_path,
         )
-        await engine.inspect_raw_composite(identity, size)
+        await _probe_raw_composite(engine, identity, size)
     except EngineArchiveError as catalog_error:
         if catalog_error.retryable:
             raise
@@ -488,6 +512,17 @@ async def _probe_document(
                 )
                 volumes.append((identity, revision, asset.relative_path, size))
             plan, members = await engine.catalog_session_archive_volumes(volumes)
+            if not any(member["kind"] == "video" for member in members):
+                _event(
+                    stage="nested_archive_detected",
+                    archive_members=sum(
+                        member["kind"] == "archive" for member in members
+                    ),
+                )
+                raise EngineArchiveError(
+                    "archive_direct_unsupported",
+                    retryable=False,
+                )
         except (EngineArchiveError, EngineNntpError) as exc:
             if par2_assets and len(archive_assets) > len(group.volumes):
                 try:
@@ -613,15 +648,13 @@ async def _probe_document(
                 "bytes": size,
             }
         videos = [member for member in members if member["kind"] == "video"]
-        if not videos:
-            raise RuntimeError("archive_without_video")
         selected = max(videos, key=lambda member: member["exact_size"])
         _plan, identity, size, _revision = await engine.open_session_archive_member(
             volumes,
             selected["exact_size"],
             selected["relative_path"],
         )
-        await engine.inspect_raw_composite(identity, size)
+        await _probe_raw_composite(engine, identity, size)
         return {
             "stage": "playable",
             "layout": plan["kind"]["layout"],

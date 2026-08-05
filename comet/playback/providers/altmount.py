@@ -219,7 +219,9 @@ class AltMountProvider:
                 Actionability.NONE,
                 code="configuration_required",
             )
-        if not isinstance(config, dict) or not _bounded_text(config.get("apiKey"), 1024):
+        if not isinstance(config, dict) or not _bounded_text(
+            config.get("apiKey"), 1024
+        ):
             return ProviderStatus(
                 Readiness.TERMINAL_FAILURE,
                 Actionability.NONE,

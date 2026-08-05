@@ -336,6 +336,47 @@ impl RawCompositeSource {
         self.exact_size
     }
 
+    pub(crate) fn slice_parts(
+        &self,
+        offset: u64,
+        length: u64,
+    ) -> Result<Vec<RawCompositePart>, &'static str> {
+        let end = offset.checked_add(length).ok_or("raw_composite_conflict")?;
+        if length == 0 || end > self.exact_size {
+            return Err("raw_composite_conflict");
+        }
+        let mut parts = Vec::new();
+        let mut logical = offset;
+        while logical < end {
+            let index = self
+                .prefix_ends
+                .partition_point(|part_end| *part_end <= logical);
+            let part = self.parts.get(index).ok_or("raw_composite_conflict")?;
+            let part_start = if index == 0 {
+                0
+            } else {
+                self.prefix_ends[index - 1]
+            };
+            let within = logical
+                .checked_sub(part_start)
+                .ok_or("raw_composite_conflict")?;
+            let part_length = (part.exact_size - within).min(end - logical);
+            parts.push(RawCompositePart {
+                content_identity: part.content_identity.clone(),
+                source_offset: part
+                    .source_offset
+                    .checked_add(within)
+                    .ok_or("raw_composite_conflict")?,
+                exact_size: part_length,
+                backing: part.backing.clone(),
+            });
+            logical = logical
+                .checked_add(part_length)
+                .ok_or("raw_composite_conflict")?;
+        }
+        Ok(parts)
+    }
+
     fn retained_metadata_bytes(&self) -> usize {
         COMPOSITE_BASE_METADATA_BYTES + self.parts.len() * COMPOSITE_PART_METADATA_BYTES
     }
@@ -732,6 +773,30 @@ mod tests {
             source.read_at(0, 1, &|| true, |_, _, _| Ok(Vec::new())),
             Err("raw_composite_cancelled")
         );
+    }
+
+    #[test]
+    fn slices_nested_ranges_without_losing_backing_offsets() {
+        let source = source();
+        let parts = source.slice_parts(2, 6).expect("slice composite range");
+
+        assert_eq!(parts.len(), 3);
+        assert_eq!(
+            parts
+                .iter()
+                .map(|part| (
+                    part.content_identity.clone(),
+                    part.source_offset,
+                    part.exact_size,
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("a".repeat(64), 2, 1),
+                ("b".repeat(64), 0, 4),
+                ("c".repeat(64), 0, 1),
+            ]
+        );
+        assert_eq!(source.slice_parts(9, 1), Err("raw_composite_conflict"));
     }
 
     #[test]

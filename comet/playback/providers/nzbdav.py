@@ -83,9 +83,7 @@ def _base_url(value: object, *, server_reachable: bool) -> str | None:
         return normalize_upstream_base_url(
             value,
             allowed_http_origins=(
-                settings.USENET_PRIVATE_UPSTREAM_ORIGINS
-                if server_reachable
-                else None
+                settings.USENET_PRIVATE_UPSTREAM_ORIGINS if server_reachable else None
             ),
         )
     except UpstreamUrlError:
