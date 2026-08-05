@@ -33,6 +33,10 @@ from comet.playback.manager import (
     _repair_archive_closure,
     _repair_direct_asset,
 )
+from comet.usenet.archive_passwords import (
+    ARCHIVE_CREDENTIAL_FAILURES,
+    resolve_archive_passphrase,
+)
 from comet.usenet.engine_client import (
     EngineArchiveError,
     EngineClient,
@@ -188,6 +192,7 @@ async def _probe_release(
     generation: str,
     artifact_dir: Path | None,
     materialize_archives: bool,
+    archive_passphrase: str | None,
 ) -> dict[str, object]:
     document = await adapter.grab(candidate.locators[0].remote_guid)
     return await _probe_document(
@@ -198,6 +203,8 @@ async def _probe_release(
         generation=generation,
         artifact_dir=artifact_dir,
         materialize_archives=materialize_archives,
+        archive_passphrase=archive_passphrase,
+        release_name=candidate.title,
     )
 
 
@@ -290,7 +297,13 @@ def _reused_materializations(directory: Path, assets) -> list[tuple[str, str, in
     return materialized
 
 
-async def _open_materialized_archive(engine, materialized, plan):
+async def _open_materialized_archive(
+    engine,
+    materialized,
+    plan,
+    *,
+    archive_passphrase: str | None,
+):
     try:
         catalog_plan, members = await engine.catalog_stored_archive_volumes(
             materialized
@@ -307,7 +320,8 @@ async def _open_materialized_archive(engine, materialized, plan):
         if catalog_error.retryable:
             raise
         catalog_plan, members = await engine.catalog_nested_archive_volumes(
-            materialized
+            materialized,
+            passphrase=archive_passphrase,
         )
         source_assets = catalog_nested_archive_members(plan["set_identity"], members)
         selected = select_asset(source_assets, (0,))
@@ -315,6 +329,7 @@ async def _open_materialized_archive(engine, materialized, plan):
             materialized,
             selected.declared_bytes,
             selected.selected_paths,
+            passphrase=archive_passphrase,
         )
         await engine.inspect_materialization(identity, size)
     if catalog_plan != plan:
@@ -334,6 +349,8 @@ async def _probe_document(
     par2_catalog_only: bool = False,
     par2_head_map: bool = False,
     reuse_materialized: Path | None = None,
+    archive_passphrase: str | None = None,
+    release_name: str | None = None,
 ) -> dict[str, object]:
     artifact_sha256 = hashlib.sha256(document).hexdigest()
     if artifact_dir is not None:
@@ -348,6 +365,14 @@ async def _probe_document(
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(document)
     parsed = await engine.parse_nzb(artifact_sha256, document)
+    archive_passphrase = resolve_archive_passphrase(
+        (
+            {"password": archive_passphrase}
+            if archive_passphrase is not None
+            else parsed["metadata"]
+        ),
+        release_name,
+    )
     catalog = await engine.catalog_nntp_artifact(
         artifact_sha256,
         parsed["nm1"],
@@ -511,7 +536,10 @@ async def _probe_document(
                     preparation=True,
                 )
                 volumes.append((identity, revision, asset.relative_path, size))
-            plan, members = await engine.catalog_session_archive_volumes(volumes)
+            plan, members = await engine.catalog_session_archive_volumes(
+                volumes,
+                passphrase=archive_passphrase,
+            )
             if not any(member["kind"] == "video" for member in members):
                 _event(
                     stage="nested_archive_detected",
@@ -524,6 +552,11 @@ async def _probe_document(
                     retryable=False,
                 )
         except (EngineArchiveError, EngineNntpError) as exc:
+            if (
+                isinstance(exc, EngineArchiveError)
+                and exc.code in ARCHIVE_CREDENTIAL_FAILURES
+            ):
+                raise
             if par2_assets and len(archive_assets) > len(group.volumes):
                 try:
                     (
@@ -634,7 +667,10 @@ async def _probe_document(
                 )
                 plan = await engine.plan_archive_volumes(materialized)
             selected_path, size = await _open_materialized_archive(
-                engine, materialized, plan
+                engine,
+                materialized,
+                plan,
+                archive_passphrase=archive_passphrase,
             )
             return {
                 "stage": "playable",
@@ -653,6 +689,7 @@ async def _probe_document(
             volumes,
             selected["exact_size"],
             selected["relative_path"],
+            passphrase=archive_passphrase,
         )
         await _probe_raw_composite(engine, identity, size)
         return {
@@ -718,7 +755,10 @@ async def _probe_document(
         )
         plan = await engine.plan_archive_volumes(materialized)
         selected_path, size = await _open_materialized_archive(
-            engine, materialized, plan
+            engine,
+            materialized,
+            plan,
+            archive_passphrase=archive_passphrase,
         )
         return {
             "stage": "playable",
@@ -814,6 +854,8 @@ async def _run(args: argparse.Namespace) -> None:
                                     if args.reuse_materialized
                                     else None
                                 ),
+                                archive_passphrase=args.archive_passphrase,
+                                release_name=nzb_path.stem,
                             ),
                             timeout=args.release_timeout,
                         )
@@ -917,6 +959,7 @@ async def _run(args: argparse.Namespace) -> None:
                                     generation=generation,
                                     artifact_dir=args.artifact_dir,
                                     materialize_archives=args.materialize_archives,
+                                    archive_passphrase=args.archive_passphrase,
                                 ),
                                 timeout=args.release_timeout,
                             )
@@ -969,6 +1012,7 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--keep-work", action="store_true")
     parser.add_argument("--resume-work-dir", type=Path)
     parser.add_argument("--reuse-materialized", action="store_true")
+    parser.add_argument("--archive-passphrase")
     parser.add_argument("--spool-gib", type=int, default=8)
     parser.add_argument("--indexer")
     parser.add_argument("--media-id")

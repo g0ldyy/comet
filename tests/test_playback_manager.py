@@ -3306,7 +3306,7 @@ class PlaybackManagerTests(unittest.IsolatedAsyncioTestCase):
             {
                 "nh1": "nh1:" + "1" * 40,
                 "nm1": "nm1:" + "b" * 64,
-                "metadata": {"password": "archive-secret"},
+                "metadata": {},
                 "manifest": [
                     {
                         "subject": '"release.rar" yEnc',
@@ -3366,12 +3366,13 @@ class PlaybackManagerTests(unittest.IsolatedAsyncioTestCase):
             "Release",
             (),
             {
+                "title": "Release {{archive-secret}}",
                 "locators": (
                     {
                         "kind": "nzb_artifact",
                         "payload": {"artifact_sha256": artifact_sha256},
                     },
-                )
+                ),
             },
         )()
         resolution = type(
@@ -3565,6 +3566,20 @@ class PlaybackManagerTests(unittest.IsolatedAsyncioTestCase):
                 "native_provider_set_generation": ANY,
             },
         )
+
+        engine.catalog_session_archive_volumes.side_effect = EngineArchiveError(
+            "archive_password_required", retryable=False
+        )
+        engine.materialize_nntp_postings.reset_mock()
+        with self.assertRaisesRegex(EngineArchiveError, "archive_password_required"):
+            await prepare_native_usenet(
+                prepared,
+                broker,
+                object(),
+                engine,
+                owner_configuration_partition=b"a" * 32,
+            )
+        engine.materialize_nntp_postings.assert_not_awaited()
 
     async def test_par2_repair_uses_cryptographic_source_mapping_to_choose_the_closure(
         self,

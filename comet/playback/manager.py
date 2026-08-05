@@ -43,6 +43,10 @@ from comet.playback.resolution_cache import ProviderResolutionCacheRepository
 from comet.playback.tokens import CapabilityCodec, PlaybackIntent
 from comet.services.lock import DistributedLock
 from comet.usenet.access import NativeAccessAuthorizer
+from comet.usenet.archive_passwords import (
+    ARCHIVE_CREDENTIAL_FAILURES,
+    resolve_archive_passphrase,
+)
 from comet.usenet.easynews import EasynewsNzbError
 from comet.usenet.engine_client import EngineArchiveError, EngineClient, EngineNntpError
 from comet.usenet.engine_transport import EngineUnavailable
@@ -1021,7 +1025,10 @@ async def prepare_native_usenet(
     resolved = await broker.resolve_owned_artifact(
         artifact_sha256, owner_configuration_partition=owner_configuration_partition
     )
-    archive_passphrase = resolved.metadata.get("password")
+    archive_passphrase = resolve_archive_passphrase(
+        resolved.metadata,
+        getattr(prepared.resolution.release, "title", None),
+    )
     selection_hint = artifact_selection_hint(artifact)
     engine_assets = await engine.catalog_nntp_artifact(
         artifact_sha256,
@@ -1190,6 +1197,8 @@ async def prepare_native_usenet(
                     archive_passphrase=archive_passphrase,
                 )
             except EngineArchiveError as exc:
+                if exc.code in ARCHIVE_CREDENTIAL_FAILURES:
+                    raise
                 if exc.retryable:
                     raise
                 if par2_assets and len(archive_source_assets) > len(
