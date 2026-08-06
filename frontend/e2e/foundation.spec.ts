@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 const envelope = (data: unknown) => ({
   data,
@@ -68,6 +68,16 @@ async function activityMarkBounds(page: Page, mode: string, selector: string) {
     }
     return [axis.x1.baseVal.value, chartMark.getBBox().x] as const;
   }, selector);
+}
+
+async function configurationSectionTitlesFit(navigation: Locator) {
+  return navigation.locator(".configuration-section__title").evaluateAll((titles) =>
+    titles.every((title) => {
+      const content = document.createRange();
+      content.selectNodeContents(title);
+      return content.getBoundingClientRect().width <= title.getBoundingClientRect().width + 1;
+    }),
+  );
 }
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -1388,7 +1398,7 @@ test("configurator uses compact controls without hiding inactive Usenet fields",
 });
 
 test("configurator keeps every tablet tab readable", async ({ page, isMobile }) => {
-  test.skip(isMobile, "The mobile project covers the compact scrolling navigation");
+  test.skip(isMobile, "The mobile project has a dedicated navigation layout");
   await page.setViewportSize({ height: 900, width: 1006 });
   await page.goto("/configure");
 
@@ -1400,14 +1410,41 @@ test("configurator keeps every tablet tab readable", async ({ page, isMobile }) 
     "Results",
     "Languages",
   ]);
-  expect(
-    await navigation
-      .locator(".configuration-section__title")
-      .evaluateAll((titles) => titles.every((title) => title.scrollWidth <= title.clientWidth + 1)),
-  ).toBeTruthy();
+  expect(await configurationSectionTitlesFit(navigation)).toBeTruthy();
   expect(
     await navigation.evaluate((element) => element.scrollWidth - element.clientWidth),
   ).toBeLessThanOrEqual(1);
+});
+
+test("configurator shows every mobile tab without horizontal scrolling", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "The desktop project covers the wider navigation layouts");
+  await page.setViewportSize({ height: 700, width: 320 });
+  await page.goto("/configure");
+
+  const navigation = page.locator(".configuration-sections");
+  await expect(navigation.locator(".configuration-section__title")).toHaveText([
+    "Torrent",
+    "Usenet",
+    "Results",
+    "Languages",
+  ]);
+  expect(
+    await navigation.evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(1);
+  expect(await configurationSectionTitlesFit(navigation)).toBeTruthy();
+  expect(
+    await navigation.locator(".configuration-section-row").evaluateAll(
+      (tabs, viewportWidth) =>
+        tabs.every((tab) => {
+          const bounds = tab.getBoundingClientRect();
+          return bounds.left >= 0 && bounds.right <= viewportWidth;
+        }),
+      await page.evaluate(() => document.documentElement.clientWidth),
+    ),
+  ).toBeTruthy();
 });
 
 test("torrent services can be reordered from the drag handle", async ({ page, isMobile }) => {
