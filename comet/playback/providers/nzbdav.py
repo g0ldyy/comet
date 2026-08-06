@@ -104,7 +104,7 @@ def parse_webdav_entries(
         raise ValueError("invalid NzbDAV WebDAV response")
     root_parts = urlsplit(root_url)
     try:
-        root_origin = configured_http_origin(root_url)
+        configured_http_origin(root_url)
     except ValueError as exc:
         raise ValueError("invalid NzbDAV WebDAV root") from exc
     if (
@@ -136,14 +136,16 @@ def parse_webdav_entries(
         )
         resolved = urlsplit(urljoin(f"{root_url.rstrip('/')}/", href))
         try:
-            resolved_origin = configured_http_origin(resolved.geturl())
+            # NzbDAV emits its backend origin here when its bundled reverse proxy
+            # forwards WebDAV requests. Only the confined path is consumed below;
+            # playback URLs are rebuilt from the configured stream base.
+            configured_http_origin(resolved.geturl())
         except ValueError as exc:
             raise ValueError(
                 "NzbDAV WebDAV response escapes the completed job"
             ) from exc
         if (
             not href
-            or resolved_origin != root_origin
             or resolved.query
             or resolved.fragment
             or (

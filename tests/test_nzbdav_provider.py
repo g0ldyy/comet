@@ -894,6 +894,16 @@ class NzbDavProviderTests(unittest.IsolatedAsyncioTestCase):
             parse_webdav_entries(
                 root,
                 response.replace(
+                    b"<d:href>/content/",
+                    b"<d:href>http://localhost:8080/content/",
+                ),
+            ),
+            entries,
+        )
+        self.assertEqual(
+            parse_webdav_entries(
+                root,
+                response.replace(
                     b">42</d:getcontentlength>", b">0042</d:getcontentlength>"
                 ),
             )[0].byte_size,
