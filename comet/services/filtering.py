@@ -73,7 +73,7 @@ def alternate_title_match(torrent_title: str, title: str, aliases) -> bool:
             continue
 
         try:
-            parsed_segment = _parse_with_cache(segment)
+            parsed_segment = parse_with_cache(segment)
         except ValidationError:
             continue
 
@@ -208,7 +208,7 @@ def _clone_parsed(parsed):
     return clone
 
 
-def _parse_with_cache(title: str):
+def parse_with_cache(title: str):
     if _PARSE_CACHE_SIZE <= 0 or _PARSE_CACHE_EFFECTIVE_SHARDS <= 0:
         return parse(title)
 
@@ -342,7 +342,7 @@ def filter_worker(
 
         # temp fix while waiting for RTN to fix their parsing
         try:
-            parsed = _parse_with_cache(torrent_title)
+            parsed = parse_with_cache(torrent_title)
         except ValidationError:
             _log_exclusion(f"❌ Rejected (Parse Error) | {torrent_title}")
             continue

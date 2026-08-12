@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+from pydantic import ValidationError
 from RTN import DefaultRanking, ParsedData
 
 from comet.core.execution import get_executor
@@ -9,7 +10,7 @@ from comet.core.models import CometSettingsModel, database, settings
 from comet.core.scrape import ScrapeContext
 from comet.scrapers.manager import scraper_manager
 from comet.scrapers.models import ScrapeRequest
-from comet.services.filtering import filter_worker
+from comet.services.filtering import TitleMatcher, filter_worker, parse_with_cache
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.languages import select_indexer_titles
@@ -202,10 +203,10 @@ class TorrentManager:
                 for cache_media_id in self.cache_media_ids
             )
         )
-        for cache_media_id, cache_rows in zip(self.cache_media_ids, cache_row_groups):
-            if cache_rows and cache_media_id == self.media_only_id:
-                self.primary_cached = True
-            rows.extend(cache_rows)
+        for cache_media_id, cache_rows in zip(
+            self.cache_media_ids, cache_row_groups, strict=True
+        ):
+            rows.extend((cache_media_id, row) for row in cache_rows)
 
         if rows:
             best_rows = {}
@@ -229,15 +230,23 @@ class TorrentManager:
                     updated_at,
                 )
 
-            for row in rows:
+            for cache_media_id, row in rows:
                 info_hash = row["info_hash"]
                 current = best_rows.get(info_hash)
-                if current is None or row_priority(row) > row_priority(current):
-                    best_rows[info_hash] = row
+                if current is None or row_priority(row) > row_priority(current[1]):
+                    best_rows[info_hash] = (cache_media_id, row)
 
             rows = list(best_rows.values())
 
-        for row in rows:
+        title_matcher = TitleMatcher(
+            self.title,
+            self.year,
+            self.year_end,
+            self.media_type,
+            self.aliases,
+        )
+
+        for cache_media_id, row in rows:
             parsed_data = load_cached_parsed(row["parsed_json"])
             if parsed_data is None:
                 logger.warning(
@@ -245,6 +254,22 @@ class TorrentManager:
                 )
                 continue
             ensure_multi_language(parsed_data)
+
+            torrent_title = row["title"]
+            if not isinstance(torrent_title, str) or not torrent_title:
+                continue
+            try:
+                parsed_title = parse_with_cache(torrent_title)
+            except ValidationError:
+                logger.warning(
+                    f"Skipping torrent cache row with invalid title: {row['info_hash']}"
+                )
+                continue
+
+            if not parsed_title.parsed_title or not title_matcher.matches(
+                torrent_title, parsed_title.parsed_title, parsed_title.year
+            ):
+                continue
 
             target_season = self.search_season
             if (
@@ -277,6 +302,8 @@ class TorrentManager:
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
+            if cache_media_id == self.media_only_id:
+                self.primary_cached = True
 
     def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):
         parsed = torrent["parsed"]

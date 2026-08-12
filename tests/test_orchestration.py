@@ -196,7 +196,7 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
             media_type="movie",
             media_full_id="tt123",
             media_only_id="tt123",
-            title="Title",
+            title="Valid",
             year=2024,
             year_end=None,
             season=None,
