@@ -480,6 +480,17 @@
         ></sl-input>
       </div>
 
+      <sl-details summary="SeriousSportSync">
+        <sl-input
+          id="seriousSportsSyncManifestUrl"
+          type="url"
+          label="SeriousSportSync manifest URL"
+          placeholder="http://serioussportsync:7000/your-token/manifest.json"
+          help-text="Optional. Lets Comet resolve SeriousSportSync event IDs into title searches. The Comet server must allow this host."
+          clearable
+        ></sl-input>
+      </sl-details>
+
       <sl-details id="debridServicesDetails" summary="Debrid Services" open>
         <div id="debridServicesContainer"></div>
 
@@ -1156,6 +1167,7 @@
             const deduplicateStreams = deduplicateStreamsEl ? deduplicateStreamsEl.checked : false;
             const scrapeDebridAccountTorrentsEl = document.getElementById("scrapeDebridAccountTorrents");
             const scrapeDebridAccountTorrents = scrapeDebridAccountTorrentsEl ? scrapeDebridAccountTorrentsEl.checked : false;
+            const seriousSportsSyncManifestUrl = document.getElementById("seriousSportsSyncManifestUrl").value.trim();
 
             const selectedResultFormat = resultFormat.length === defaultResultFormat.length && resultFormat.every((val, index) => val === defaultResultFormat[index]) ? ["all"] : resultFormat;
 
@@ -1170,6 +1182,7 @@
               enableTorrent: enableTorrent,
               deduplicateStreams: deduplicateStreams,
               scrapeDebridAccountTorrents: scrapeDebridAccountTorrents,
+              seriousSportsSyncManifestUrl: seriousSportsSyncManifestUrl,
               debridStreamProxyPassword: debridStreamProxyPassword,
               languages: {
                 required: languages_required,
@@ -1191,6 +1204,10 @@
           function isDefaultConfig(settings) {
             // For default: no debrid services and torrent mode enabled
             if (settings.debridServices && settings.debridServices.length > 0) {
+              return false;
+            }
+
+            if (settings.seriousSportsSyncManifestUrl) {
               return false;
             }
 
@@ -1444,6 +1461,8 @@
           }
 
           function populateFormFromSettings(settings, updatePreview) {
+            if (settings.seriousSportsSyncManifestUrl)
+              document.getElementById("seriousSportsSyncManifestUrl").value = settings.seriousSportsSyncManifestUrl;
             if (settings.cachedOnly !== null)
               document.getElementById("cachedOnly").checked = settings.cachedOnly;
             if (settings.sortCachedUncachedTogether !== undefined && settings.sortCachedUncachedTogether !== null)

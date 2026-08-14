@@ -4,6 +4,7 @@ import secrets
 import string
 import time
 from collections.abc import Awaitable, Callable
+from urllib.parse import urlsplit
 
 import RTN
 from databases import Database
@@ -1282,6 +1283,7 @@ class ConfigModel(BaseModel):
     enableTorrent: bool | None = False
     deduplicateStreams: bool | None = False
     scrapeDebridAccountTorrents: bool | None = False
+    seriousSportsSyncManifestUrl: str | None = ""
 
     debridStreamProxyPassword: str | None = ""
     languages: dict | None = rtn_settings_default_dumped["languages"]
@@ -1322,6 +1324,23 @@ class ConfigModel(BaseModel):
                 for entry in v
             ]
         return v
+
+    @field_validator("seriousSportsSyncManifestUrl")
+    def validate_serioussportsync_manifest_url(cls, v):
+        if v is None or v == "":
+            return ""
+        if not isinstance(v, str):
+            raise ValueError("SeriousSportSync manifest URL must be a string")
+        parsed = urlsplit(v.strip())
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or not parsed.path.endswith("/manifest.json")
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("Invalid SeriousSportSync manifest URL")
+        return v.strip()
 
 
 default_config = ConfigModel().model_dump()

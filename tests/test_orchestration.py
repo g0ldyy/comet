@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from comet.core.scrape import ScrapeContext
@@ -233,6 +234,53 @@ class TorrentOrchestrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("a" * 40, manager.torrents)
         self.assertEqual(manager.torrents["b" * 40]["sources"], ["tracker:first"])
+
+    async def test_rejected_external_cache_rows_force_a_fresh_scrape(self):
+        manager = TorrentManager(
+            media_type="movie",
+            media_full_id="wwe:2185907",
+            media_only_id="wwe:2185907",
+            title="SummerSlam Sunday",
+            year=2025,
+            year_end=None,
+            season=None,
+            episode=None,
+            aliases={"ez": ["WWE SummerSlam"]},
+            remove_adult_content=False,
+            target_air_date="2025-08-03",
+            search_titles=("WWE SummerSlam Sunday", "WWE SummerSlam"),
+            external_event=True,
+        )
+        row = {
+            "info_hash": "c" * 40,
+            "file_index": 0,
+            "title": "WWE SummerSlam 2024 1080p WEB h264-HEEL",
+            "seeders": 1,
+            "size": 100,
+            "tracker": "cache",
+            "sources_json": "[]",
+            "parsed_json": "{}",
+            "episode": None,
+            "updated_at": 1,
+        }
+        parsed = SimpleNamespace(
+            parsed_title="WWE SummerSlam",
+            year=2024,
+            date=None,
+        )
+
+        with (
+            patch.object(manager, "_fetch_cached_rows", return_value=[row]),
+            patch(
+                "comet.services.orchestration.load_cached_parsed",
+                return_value=parsed,
+            ),
+            patch("comet.services.orchestration.ensure_multi_language"),
+        ):
+            await manager.get_cached_torrents()
+
+        self.assertEqual(manager.torrents, {})
+        self.assertFalse(manager.primary_cached)
 
     async def test_series_cache_projects_episode_children_without_losing_pack_title(
         self,

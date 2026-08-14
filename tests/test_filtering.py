@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from RTN import parse
@@ -82,6 +83,126 @@ class AliasFilteringTests(unittest.TestCase):
             )
 
         self.assertEqual(actual[0]["parsed"].languages, ["it"])
+
+    def test_external_event_matches_fixture_tokens_and_date(self):
+        torrent = {
+            "title": (
+                "NBA 2025-2026 RS 12.04.2026 Chicago Bulls @ "
+                "Dallas Mavericks 1080p WEB-DL"
+            ),
+            "infoHash": "2" * 40,
+        }
+
+        parsed = SimpleNamespace(
+            parsed_title="NBA",
+            languages=[],
+            dubbed=False,
+            adult=False,
+            date="2026-04-12",
+            year=2026,
+        )
+        with patch("comet.services.filtering._parse_with_cache", return_value=parsed):
+            actual = filter_worker(
+                [torrent],
+                "Dallas Mavericks vs Chicago Bulls",
+                2026,
+                None,
+                "movie",
+                {},
+                False,
+                ("Dallas Mavericks vs Chicago Bulls",),
+                "2026-04-12",
+            )
+
+        self.assertEqual(len(actual), 1)
+
+    def test_external_event_rejects_a_different_fixture_date(self):
+        torrent = {
+            "title": (
+                "NBA 2025-2026 RS 18.01.2026 Dallas Mavericks @ "
+                "Chicago Bulls 1080p WEB-DL"
+            ),
+            "infoHash": "3" * 40,
+        }
+
+        parsed = SimpleNamespace(
+            parsed_title="NBA",
+            languages=[],
+            dubbed=False,
+            adult=False,
+            date="2026-01-18",
+            year=2026,
+        )
+        with patch("comet.services.filtering._parse_with_cache", return_value=parsed):
+            actual = filter_worker(
+                [torrent],
+                "Dallas Mavericks vs Chicago Bulls",
+                2026,
+                None,
+                "movie",
+                {},
+                False,
+                ("Dallas Mavericks vs Chicago Bulls",),
+                "2026-04-12",
+            )
+
+        self.assertEqual(actual, [])
+
+    def test_external_event_rejects_a_neighbouring_year(self):
+        torrent = {
+            "title": "WWE SummerSlam 2024 1080p WEB h264-HEEL",
+            "infoHash": "4" * 40,
+        }
+        parsed = SimpleNamespace(
+            parsed_title="WWE SummerSlam",
+            languages=[],
+            dubbed=False,
+            adult=False,
+            date=None,
+            year=2024,
+        )
+        with patch("comet.services.filtering._parse_with_cache", return_value=parsed):
+            actual = filter_worker(
+                [torrent],
+                "SummerSlam Sunday",
+                2025,
+                None,
+                "movie",
+                {"ez": ["WWE SummerSlam"]},
+                False,
+                ("WWE SummerSlam Sunday", "WWE SummerSlam"),
+                "2025-08-03",
+            )
+
+        self.assertEqual(actual, [])
+
+    def test_external_event_rejects_the_other_split_day(self):
+        torrent = {
+            "title": "WWE SummerSlam 2025 Saturday 1080p WEB h264-HEEL",
+            "infoHash": "5" * 40,
+        }
+        parsed = SimpleNamespace(
+            parsed_title="WWE SummerSlam",
+            languages=[],
+            dubbed=False,
+            adult=False,
+            date=None,
+            year=2025,
+        )
+        with patch("comet.services.filtering._parse_with_cache", return_value=parsed):
+            actual = filter_worker(
+                [torrent],
+                "SummerSlam Sunday",
+                2025,
+                None,
+                "movie",
+                {"ez": ["WWE SummerSlam"]},
+                False,
+                ("WWE SummerSlam Sunday", "WWE SummerSlam"),
+                "2025-08-03",
+            )
+
+        self.assertEqual(actual, [])
 
 
 if __name__ == "__main__":

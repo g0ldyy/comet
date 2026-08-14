@@ -1,11 +1,14 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from comet.api.endpoints.playback import (
+    SeriousSportSyncResolverError,
     _build_playback_media_id,
     _cache_download_link_safely,
     _decode_sources,
     _parse_playback_path,
+    _resolve_playback_metadata,
     _valid_download_url,
 )
 
@@ -36,6 +39,65 @@ class PlaybackCacheTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(_decode_sources(b"not-json"), [])
         self.assertEqual(_decode_sources(b'{"tracker": "first"}'), [])
+
+    async def test_serioussportsync_playback_uses_event_metadata(self):
+        event = SimpleNamespace(
+            search_titles=("SummerSlam Sunday", "WWE SummerSlam Sunday")
+        )
+        with (
+            patch(
+                "comet.api.endpoints.playback.resolve_serioussportsync_event",
+                new=AsyncMock(return_value=event),
+            ) as resolve,
+            patch(
+                "comet.api.endpoints.playback.MetadataScraper.fetch_metadata_and_aliases",
+                new=AsyncMock(),
+            ) as ordinary_metadata,
+        ):
+            video_id, media_only_id, aliases = await _resolve_playback_metadata(
+                object(),
+                {
+                    "seriousSportsSyncManifestUrl": (
+                        "https://sports.example/user-token/manifest.json"
+                    )
+                },
+                "wwe:2185907",
+                "movie",
+                None,
+                None,
+            )
+
+        self.assertEqual(video_id, "wwe:2185907")
+        self.assertEqual(media_only_id, "wwe:2185907")
+        self.assertEqual(
+            aliases, {"ez": ["SummerSlam Sunday", "WWE SummerSlam Sunday"]}
+        )
+        resolve.assert_awaited_once()
+        ordinary_metadata.assert_not_awaited()
+
+    async def test_serioussportsync_playback_survives_alias_refresh_failure(self):
+        with patch(
+            "comet.api.endpoints.playback.resolve_serioussportsync_event",
+            new=AsyncMock(
+                side_effect=SeriousSportSyncResolverError("temporary failure")
+            ),
+        ):
+            video_id, media_only_id, aliases = await _resolve_playback_metadata(
+                object(),
+                {
+                    "seriousSportsSyncManifestUrl": (
+                        "https://sports.example/user-token/manifest.json"
+                    )
+                },
+                "wwe:2185907",
+                "movie",
+                None,
+                None,
+            )
+
+        self.assertEqual(video_id, "wwe:2185907")
+        self.assertEqual(media_only_id, "wwe:2185907")
+        self.assertEqual(aliases, {})
 
     async def test_cache_write_failure_does_not_discard_generated_link(self):
         with (

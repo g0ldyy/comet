@@ -28,6 +28,7 @@
 - [Kitsu](https://kitsu.io/) support (anime)
 - Adult Content Filter
 - ChillLink Protocol support
+- **SeriousSportSync event search**: Resolve sports-event IDs into title/date-aware searches across compatible Comet scrapers ([documentation](docs/integrations/serioussportsync.md))
 
 # Installation
 To customize your Comet experience to suit your needs, please first take a look at all the [environment variables](https://github.com/g0ldyy/comet/blob/main/.env-sample)!

@@ -23,6 +23,11 @@ from comet.debrid.manager import (
     get_debrid_credentials,
 )
 from comet.metadata.manager import MetadataScraper
+from comet.metadata.serioussportsync import (
+    SeriousSportSyncResolverError,
+    is_serioussportsync_event_id,
+    resolve_serioussportsync_event,
+)
 from comet.services.status_video import build_status_video_response
 from comet.services.streaming.manager import custom_handle_stream_request
 from comet.utils.http_client import http_client_manager
@@ -113,6 +118,51 @@ def _build_playback_media_id(
     if episode is None:
         return f"{media_only_id}:{season}"
     return f"{media_only_id}:{season}:{episode}"
+
+
+async def _resolve_playback_metadata(
+    session,
+    config: dict,
+    context_media_id: str,
+    media_type: str | None,
+    season: int | None,
+    episode: int | None,
+) -> tuple[str, str, dict]:
+    resolved_media_type = media_type or (
+        "series" if season is not None else "movie"
+    )
+    serioussportsync_manifest_url = config.get("seriousSportsSyncManifestUrl") or ""
+    if serioussportsync_manifest_url and is_serioussportsync_event_id(
+        resolved_media_type, context_media_id
+    ):
+        aliases = {}
+        try:
+            event = await resolve_serioussportsync_event(
+                session,
+                serioussportsync_manifest_url,
+                resolved_media_type,
+                context_media_id,
+            )
+            aliases = {"ez": list(event.search_titles)}
+        except SeriousSportSyncResolverError as error:
+            # Playback still has an exact torrent name and file index. Do not
+            # turn a temporary metadata outage into a server error.
+            logger.warning(
+                "Unable to refresh SeriousSportSync playback aliases for "
+                f"{context_media_id}: {error}"
+            )
+        return context_media_id, context_media_id, aliases
+
+    full_media_id = _build_playback_media_id(
+        context_media_id,
+        resolved_media_type,
+        season,
+        episode,
+    )
+    _, aliases = await MetadataScraper(session).fetch_metadata_and_aliases(
+        resolved_media_type, full_media_id
+    )
+    return full_media_id, context_media_id, aliases
 
 
 async def cache_download_link(
@@ -314,14 +364,16 @@ async def playback(
         debrid_video_id = None
         debrid_media_only_id = context_media_id
         if context_media_id:
-            metadata_scraper = MetadataScraper(session)
-            resolved_media_type = media_type or (
-                "series" if season is not None else "movie"
-            )
             try:
-                full_media_id = _build_playback_media_id(
+                (
+                    debrid_video_id,
+                    debrid_media_only_id,
+                    aliases,
+                ) = await _resolve_playback_metadata(
+                    session,
+                    config,
                     context_media_id,
-                    resolved_media_type,
+                    media_type,
                     season,
                     episode,
                 )
@@ -330,11 +382,6 @@ async def playback(
                     ["BAD_REQUEST"],
                     default_key="BAD_REQUEST",
                 )
-
-            debrid_video_id = full_media_id
-            _, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-                resolved_media_type, full_media_id
-            )
 
         debrid = get_debrid(
             session,

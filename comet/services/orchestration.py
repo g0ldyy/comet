@@ -9,7 +9,7 @@ from comet.core.models import CometSettingsModel, database, settings
 from comet.core.scrape import ScrapeContext
 from comet.scrapers.manager import scraper_manager
 from comet.scrapers.models import ScrapeRequest
-from comet.services.filtering import filter_worker
+from comet.services.filtering import TitleMatcher, filter_worker
 from comet.services.ranking import rank_worker
 from comet.services.torrent_manager import torrent_update_queue
 from comet.utils.languages import select_indexer_titles
@@ -76,6 +76,8 @@ class TorrentManager:
         target_air_date: str | None = None,
         reject_unknown_episode_files: bool = False,
         media_scope: MediaScope | None = None,
+        search_titles: tuple[str, ...] | None = None,
+        external_event: bool = False,
     ):
         self.media_type = media_type
         self.media_id = media_full_id
@@ -101,6 +103,8 @@ class TorrentManager:
         )
         self.target_air_date = target_air_date
         self.reject_unknown_episode_files = reject_unknown_episode_files
+        self.search_titles = search_titles
+        self.external_event = external_event
 
         self.seen_hashes = set()
         self.torrents = {}
@@ -144,12 +148,16 @@ class TorrentManager:
             season=self.search_season,
             episode=self.search_episode,
             context=context,
-            search_titles=select_indexer_titles(
-                self.title,
-                self.aliases,
-                settings.INDEXER_LANGUAGES,
-                include_canonical=settings.INDEXER_INCLUDE_CANONICAL_TITLE,
-                include_original=settings.INDEXER_INCLUDE_ORIGINAL_TITLE,
+            search_titles=(
+                self.search_titles
+                if self.search_titles is not None
+                else select_indexer_titles(
+                    self.title,
+                    self.aliases,
+                    settings.INDEXER_LANGUAGES,
+                    include_canonical=settings.INDEXER_INCLUDE_CANONICAL_TITLE,
+                    include_original=settings.INDEXER_INCLUDE_ORIGINAL_TITLE,
+                )
             ),
         )
         titles = " · ".join(f"“{title}”" for title in request.query_titles)
@@ -237,6 +245,19 @@ class TorrentManager:
 
             rows = list(best_rows.values())
 
+        external_matcher = (
+            TitleMatcher(
+                self.title,
+                self.year,
+                self.year_end,
+                self.media_type,
+                self.aliases,
+                self.search_titles or (),
+            )
+            if self.external_event
+            else None
+        )
+
         for row in rows:
             parsed_data = load_cached_parsed(row["parsed_json"])
             if parsed_data is None:
@@ -245,6 +266,21 @@ class TorrentManager:
                 )
                 continue
             ensure_multi_language(parsed_data)
+
+            if external_matcher is not None:
+                cached_title = row["title"] or ""
+                if (
+                    not parsed_data.parsed_title
+                    or not external_matcher.matches(
+                        cached_title, parsed_data.parsed_title, parsed_data.year
+                    )
+                    or (
+                        self.target_air_date
+                        and parsed_data.date
+                        and parsed_data.date != self.target_air_date
+                    )
+                ):
+                    continue
 
             target_season = self.search_season
             if (
@@ -277,6 +313,12 @@ class TorrentManager:
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
+
+        # Raw cache rows that fail external-event relevance checks must not
+        # suppress a fresh scrape. This also repairs existing installations
+        # whose cache was populated before stricter sports filtering.
+        if self.external_event:
+            self.primary_cached = bool(self.torrents)
 
     def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):
         parsed = torrent["parsed"]
@@ -383,6 +425,8 @@ class TorrentManager:
                 self.media_type,
                 self.aliases,
                 self.remove_adult_content,
+                self.search_titles if self.external_event else (),
+                self.target_air_date if self.external_event else None,
             )
             for i in range(0, len(new_torrents), chunk_size)
         ]

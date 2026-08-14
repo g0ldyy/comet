@@ -3,7 +3,8 @@ import xml.etree.ElementTree as ET
 
 from comet.core.logger import logger
 from comet.core.models import settings
-from comet.scrapers.base import BaseScraper
+from comet.metadata.serioussportsync import is_serioussportsync_event_id
+from comet.scrapers.base import BaseScraper, deduplicate_torrents
 from comet.scrapers.models import ScrapeRequest
 
 
@@ -55,15 +56,24 @@ class BitmagnetScraper(BaseScraper):
         return torrents
 
     async def scrape_page(
-        self, imdb_id, scrape_type, offset, limit, season=None, episode=None
+        self,
+        imdb_id,
+        scrape_type,
+        offset,
+        limit,
+        season=None,
+        episode=None,
+        query=None,
     ):
         try:
             params = {
-                "t": scrape_type,
-                "imdbid": imdb_id,
                 "offset": offset,
                 "limit": limit,
             }
+            if query:
+                params.update({"t": "search", "q": query})
+            else:
+                params.update({"t": scrape_type, "imdbid": imdb_id})
             if season is not None:
                 params["season"] = season
             if episode is not None:
@@ -91,44 +101,56 @@ class BitmagnetScraper(BaseScraper):
         season = request.season
         episode = request.episode
 
+        queries = (
+            request.query_titles
+            if is_serioussportsync_event_id(request.media_type, request.media_only_id)
+            else (None,)
+        )
         batch_size = settings.BITMAGNET_MAX_CONCURRENT_PAGES
-        offset = 0
 
-        while True:
-            if offset >= settings.BITMAGNET_MAX_OFFSET:
-                break
-
-            tasks = []
-            for i in range(batch_size):
-                current_offset = offset + (i * limit)
-                if current_offset >= settings.BITMAGNET_MAX_OFFSET:
+        for query in queries:
+            offset = 0
+            while True:
+                if offset >= settings.BITMAGNET_MAX_OFFSET:
                     break
-                tasks.append(
-                    self.scrape_page(
-                        imdb_id, scrape_type, current_offset, limit, season, episode
+
+                tasks = []
+                for i in range(batch_size):
+                    current_offset = offset + (i * limit)
+                    if current_offset >= settings.BITMAGNET_MAX_OFFSET:
+                        break
+                    tasks.append(
+                        self.scrape_page(
+                            imdb_id,
+                            scrape_type,
+                            current_offset,
+                            limit,
+                            season,
+                            episode,
+                            query,
+                        )
                     )
-                )
 
-            if not tasks:
-                break
-
-            results = await asyncio.gather(*tasks)
-
-            should_stop = False
-            for batch_results in results:
-                if not batch_results:
-                    should_stop = True
+                if not tasks:
                     break
 
-                torrents.extend(batch_results)
+                results = await asyncio.gather(*tasks)
 
-                if len(batch_results) < limit:
-                    should_stop = True
+                should_stop = False
+                for batch_results in results:
+                    if not batch_results:
+                        should_stop = True
+                        break
+
+                    torrents.extend(batch_results)
+
+                    if len(batch_results) < limit:
+                        should_stop = True
+                        break
+
+                if should_stop:
                     break
 
-            if should_stop:
-                break
+                offset += batch_size * limit
 
-            offset += batch_size * limit
-
-        return torrents
+        return deduplicate_torrents(torrents)

@@ -9,5 +9,6 @@ class ServerSettings(BaseSettings):
     FASTAPI_HOST: str | None = "0.0.0.0"
     FASTAPI_PORT: int | None = 8000
     FASTAPI_WORKERS: int | None = 1
+    SERIOUSSPORTSYNC_ALLOWED_HOSTS: str | None = ""
     USE_GUNICORN: bool | None = True
     GUNICORN_PRELOAD_APP: bool | None = True

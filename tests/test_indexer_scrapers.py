@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from comet.scrapers.bitmagnet import BitmagnetScraper
 from comet.scrapers.jackett import JackettScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.scrapers.prowlarr import ProwlarrScraper
@@ -49,6 +50,34 @@ class _StremthruSession:
 
 
 class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bitmagnet_searches_serioussportsync_titles_as_text(self):
+        request = ScrapeRequest(
+            media_type="movie",
+            media_id="nba:2371750",
+            media_only_id="nba:2371750",
+            title="Dallas Mavericks vs Chicago Bulls",
+            search_titles=(
+                "Dallas Mavericks vs Chicago Bulls",
+                "Dallas Mavericks Chicago Bulls",
+            ),
+        )
+        scraper = BitmagnetScraper(None, None, "https://bitmagnet.test")
+        scraper.scrape_page = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "comet.scrapers.bitmagnet.settings.BITMAGNET_MAX_CONCURRENT_PAGES",
+                1,
+            ),
+            patch("comet.scrapers.bitmagnet.settings.BITMAGNET_MAX_OFFSET", 100),
+        ):
+            await scraper.scrape(request)
+
+        self.assertEqual(
+            [call.args[6] for call in scraper.scrape_page.await_args_list],
+            list(request.search_titles),
+        )
+
     async def test_indexers_search_every_localized_episode_title(self):
         request = ScrapeRequest(
             media_type="series",

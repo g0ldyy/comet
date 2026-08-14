@@ -12,6 +12,11 @@ from comet.debrid.exceptions import DebridAuthError
 from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.filter import release_filter
 from comet.metadata.manager import MetadataScraper
+from comet.metadata.serioussportsync import (
+    SeriousSportSyncResolverError,
+    is_serioussportsync_event_id,
+    resolve_serioussportsync_event,
+)
 from comet.observability import metrics
 from comet.services.anime import anime_mapper
 from comet.services.cache_state import CacheStateManager, mark_scope_scraped
@@ -357,21 +362,72 @@ async def search_media(
 
     session = await http_client_manager.get_session()
     metadata_scraper = MetadataScraper(session)
-
-    try:
-        media_only_id, season, episode = parse_media_id(media_type, media_id)
-    except ValueError:
-        return MediaSearchResult(MediaSearchStatus.INVALID)
-    media_scope = resolve_media_scope(media_type, season, episode)
-
-    if settings.DIGITAL_RELEASE_FILTER:
-        is_released = await release_filter.check_is_released(
-            session, media_type, media_id, season, episode
-        )
-        if not is_released:
-            logger.log("FILTER", f"🚫 {media_id} is not released yet. Skipping.")
+    serioussportsync_event = None
+    serioussportsync_manifest_url = config.get("seriousSportsSyncManifestUrl") or ""
+    if serioussportsync_manifest_url and is_serioussportsync_event_id(
+        media_type, media_id
+    ):
+        try:
+            serioussportsync_event = await resolve_serioussportsync_event(
+                session,
+                serioussportsync_manifest_url,
+                media_type,
+                media_id,
+            )
+        except SeriousSportSyncResolverError as error:
+            logger.log(
+                "SCRAPER",
+                f"❌ Failed to resolve SeriousSportSync event {media_id}: {error}",
+            )
             return MediaSearchResult(
-                MediaSearchStatus.UNRELEASED,
+                MediaSearchStatus.METADATA_UNAVAILABLE,
+                is_torrent_only=is_torrent_only,
+                use_account_scrape=use_account_scrape,
+            )
+
+        media_only_id = media_id
+        season = episode = None
+        media_scope = MediaScope.MOVIE
+        metadata = {
+            "title": serioussportsync_event.title,
+            "year": serioussportsync_event.year,
+            "year_end": None,
+            "season": None,
+            "episode": None,
+        }
+        aliases = {"ez": list(serioussportsync_event.search_titles)}
+    else:
+        try:
+            media_only_id, season, episode = parse_media_id(media_type, media_id)
+        except ValueError:
+            return MediaSearchResult(MediaSearchStatus.INVALID)
+        media_scope = resolve_media_scope(media_type, season, episode)
+
+        if settings.DIGITAL_RELEASE_FILTER:
+            is_released = await release_filter.check_is_released(
+                session, media_type, media_id, season, episode
+            )
+            if not is_released:
+                logger.log(
+                    "FILTER", f"🚫 {media_id} is not released yet. Skipping."
+                )
+                return MediaSearchResult(
+                    MediaSearchStatus.UNRELEASED,
+                    media_scope=media_scope,
+                    media_only_id=media_only_id,
+                    search_season=season,
+                    search_episode=episode,
+                    is_torrent_only=is_torrent_only,
+                    use_account_scrape=use_account_scrape,
+                )
+
+        metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
+            media_type, media_id, media_only_id, season, episode
+        )
+        if metadata is None:
+            logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
+            return MediaSearchResult(
+                MediaSearchStatus.METADATA_UNAVAILABLE,
                 media_scope=media_scope,
                 media_only_id=media_only_id,
                 search_season=season,
@@ -379,21 +435,6 @@ async def search_media(
                 is_torrent_only=is_torrent_only,
                 use_account_scrape=use_account_scrape,
             )
-
-    metadata, aliases = await metadata_scraper.fetch_metadata_and_aliases(
-        media_type, media_id, media_only_id, season, episode
-    )
-    if metadata is None:
-        logger.log("SCRAPER", f"❌ Failed to fetch metadata for {media_id}")
-        return MediaSearchResult(
-            MediaSearchStatus.METADATA_UNAVAILABLE,
-            media_scope=media_scope,
-            media_only_id=media_only_id,
-            search_season=season,
-            search_episode=episode,
-            is_torrent_only=is_torrent_only,
-            use_account_scrape=use_account_scrape,
-        )
 
     title = metadata["title"]
     year = metadata["year"]
@@ -406,7 +447,7 @@ async def search_media(
         log_title += f" S{season:02d}E{episode:02d}"
     logger.log("SCRAPER", f"🔍 Starting search for {log_title}")
 
-    is_kitsu = media_id.startswith("kitsu:")
+    is_kitsu = serioussportsync_event is None and media_id.startswith("kitsu:")
     search_episode = episode
     search_season = season
 
@@ -440,7 +481,7 @@ async def search_media(
                     )
 
     cache_media_ids = [media_only_id]
-    if anime_mapper.is_loaded():
+    if serioussportsync_event is None and anime_mapper.is_loaded():
         if is_kitsu:
             imdb_id = await anime_mapper.get_imdb_from_kitsu(media_only_id)
             if imdb_id:
@@ -462,7 +503,9 @@ async def search_media(
         has_debrid=bool(debrid_entries),
         enable_torrent=enable_torrent,
     )
-    target_air_date = None
+    target_air_date = (
+        serioussportsync_event.date if serioussportsync_event is not None else None
+    )
     if is_imdb_episode_request:
         target_air_date = await EpisodeIndexService(session).get_target_air_date(
             media_only_id,
@@ -501,6 +544,12 @@ async def search_media(
         target_air_date=target_air_date,
         reject_unknown_episode_files=reject_unknown_episode_files,
         media_scope=media_scope,
+        search_titles=(
+            serioussportsync_event.search_titles
+            if serioussportsync_event is not None
+            else None
+        ),
+        external_event=serioussportsync_event is not None,
     )
 
     await torrent_manager.get_cached_torrents()

@@ -8,6 +8,7 @@ from RTN import normalize_title, parse, title_match
 
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.external_event import external_event_title_matches
 from comet.utils.languages import alias_language
 from comet.utils.parsing import ensure_multi_language
 
@@ -96,6 +97,7 @@ class TitleMatcher:
         "_matches_cache",
         "aliases",
         "aliases_normalized",
+        "external_event_titles",
         "max_year",
         "min_year",
         "title",
@@ -103,12 +105,21 @@ class TitleMatcher:
         "year_end",
     )
 
-    def __init__(self, title, year, year_end, media_type, aliases):
+    def __init__(
+        self,
+        title,
+        year,
+        year_end,
+        media_type,
+        aliases,
+        external_event_titles=(),
+    ):
         self._matches_cache = None
         self.title = title
         self.year = year
         self.year_end = year_end
         self.aliases = _normalize_aliases(aliases)
+        self.external_event_titles = tuple(external_event_titles)
         self.aliases_normalized = frozenset(
             normalized
             for titles in self.aliases.values()
@@ -122,6 +133,11 @@ class TitleMatcher:
             if year_end:
                 self.min_year = year
                 self.max_year = year_end
+            elif self.external_event_titles:
+                # Sports events are date-specific. A neighbouring-year allowance
+                # that is useful for ordinary movie metadata admits old fixtures.
+                self.min_year = year
+                self.max_year = year
             elif media_type == "series":
                 self.min_year = year - 1
             else:
@@ -129,6 +145,14 @@ class TitleMatcher:
                 self.max_year = year + 1
 
     def matches_title(self, torrent_title: str, parsed_title: str) -> bool:
+        if self.external_event_titles:
+            # External sports matching already understands precise aliases,
+            # fixture tokens, and split-day conflicts. Falling through to the
+            # generic alias matcher would let a broad base alias override a
+            # rejected Saturday/Sunday distinction.
+            return external_event_title_matches(
+                torrent_title, self.external_event_titles
+            )
         if exact_alias_match(scrub(parsed_title), self.aliases_normalized):
             return True
         return title_match(
@@ -295,10 +319,25 @@ def _do_parse_and_cache(
 
 
 def filter_worker(
-    torrents, title, year, year_end, media_type, aliases, remove_adult_content
+    torrents,
+    title,
+    year,
+    year_end,
+    media_type,
+    aliases,
+    remove_adult_content,
+    external_event_titles=(),
+    target_air_date=None,
 ):
     results = []
-    matcher = TitleMatcher(title, year, year_end, media_type, aliases)
+    matcher = TitleMatcher(
+        title,
+        year,
+        year_end,
+        media_type,
+        aliases,
+        external_event_titles,
+    )
     aliases = matcher.aliases
 
     country_aliases = {}
@@ -368,6 +407,17 @@ def filter_worker(
         if not matcher.matches_title(torrent_title, parsed.parsed_title):
             _log_exclusion(
                 f"❌ Rejected (Title Mismatch) | {torrent_title} | Parsed: {parsed.parsed_title} | Expected: {title}"
+            )
+            continue
+
+        if (
+            external_event_titles
+            and target_air_date
+            and parsed.date
+            and parsed.date != target_air_date
+        ):
+            _log_exclusion(
+                f"Rejected (Event Date Mismatch) | {torrent_title} | Date: {parsed.date} | Expected: {target_air_date}"
             )
             continue
 
