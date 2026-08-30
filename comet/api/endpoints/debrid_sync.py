@@ -12,8 +12,9 @@ from comet.utils.parsing import parse_optional_int
 router = APIRouter()
 
 
-@router.get(
+@router.api_route(
     "/{b64config}/debrid-sync/{service_index}",
+    methods=["GET", "HEAD"],
     tags=["Stremio"],
     summary="Debrid Account Sync Trigger",
     description="Triggers a debrid account snapshot sync for the selected service.",

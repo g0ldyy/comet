@@ -181,8 +181,9 @@ async def _cache_download_link_safely(**kwargs) -> None:
         )
 
 
-@router.get(
+@router.api_route(
     "/{b64config}/playback/{hash}/{service_index}/{index}/{season}/{episode}",
+    methods=["GET", "HEAD"],
     tags=["Stremio"],
     summary="Playback Proxy",
     description="Proxies the playback request to the Debrid service or returns a cached link.",
