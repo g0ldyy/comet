@@ -22,6 +22,7 @@ from comet.utils.update import UpdateManager
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
 background_scraper_start_lock = asyncio.Lock()
+_metrics_refresh_task: asyncio.Task | None = None
 ADMIN_SESSION_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = settings.ADMIN_DASHBOARD_SESSION_TTL
 ADMIN_SESSION_SECRET = derive_session_secret(
@@ -296,79 +297,136 @@ async def admin_api_metrics(
 
     current_time = time.time()
 
-    # Try to get from cache
     cached_metrics = await database.fetch_one(
         "SELECT payload_json, refreshed_at FROM metrics_cache WHERE id = 1"
     )
+    cached_payload = None
+    is_fresh = False
     if cached_metrics:
+        cached_payload = _decode_cached_metrics(cached_metrics["payload_json"])
         refreshed_at = cached_metrics["refreshed_at"]
-        if (
+        is_fresh = (
             isinstance(refreshed_at, (int, float))
             and refreshed_at + settings.METRICS_CACHE_TTL > current_time
-        ):
-            cached_payload = _decode_cached_metrics(cached_metrics["payload_json"])
-            if cached_payload is not None:
-                return JSONResponse(cached_payload)
-
-    # 📊 TORRENTS METRICS
-    total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
-
-    # Torrents by tracker
-    top_trackers = await database.fetch_all("""
-        SELECT tracker, COUNT(*) as count, AVG(seeders) as avg_seeders, AVG(size) as avg_size
-        FROM torrents 
-        GROUP BY tracker 
-        ORDER BY count DESC 
-    """)
-
-    tracker_stats = []
-    for row in top_trackers:
-        tracker_stats.append(
-            {
-                "tracker": row["tracker"],
-                "count": row["count"],
-                "avg_seeders": row["avg_seeders"],
-                "avg_size": row["avg_size"],
-            }
         )
 
-    # Size distribution
-    size_distribution = await database.fetch_all("""
-        SELECT 
-            CASE 
-                WHEN size < 1073741824 THEN 'Under 1GB'
-                WHEN size < 5368709120 THEN '1-5GB'
-                WHEN size < 10737418240 THEN '5-10GB'
-                WHEN size < 21474836480 THEN '10-20GB'
-                ELSE 'Over 20GB'
-            END as size_range,
-            COUNT(*) as count
-        FROM torrents 
-        GROUP BY size_range
-    """)
+    if cached_payload is not None:
+        # Serve the last snapshot immediately (stale-while-revalidate): on large
+        # databases a recompute takes minutes, longer than METRICS_CACHE_TTL.
+        if not is_fresh:
+            _start_metrics_refresh()
+        return JSONResponse(cached_payload)
 
-    # Top seeders and quality metrics
-    quality_stats = await database.fetch_all("""
-        SELECT 
-            AVG(seeders) as avg_seeders,
-            MAX(seeders) as max_seeders,
-            MIN(seeders) as min_seeders,
-            AVG(size) as avg_size,
-            MAX(size) as max_size
+    # No snapshot yet: wait for the shared refresh instead of starting another.
+    return JSONResponse(await asyncio.shield(_start_metrics_refresh()))
+
+
+def _start_metrics_refresh() -> asyncio.Task:
+    """Start the metrics recompute unless one is already running."""
+    global _metrics_refresh_task
+    if _metrics_refresh_task is None or _metrics_refresh_task.done():
+        _metrics_refresh_task = asyncio.create_task(_refresh_metrics())
+        _metrics_refresh_task.add_done_callback(_handle_metrics_refresh_done)
+    return _metrics_refresh_task
+
+
+def _handle_metrics_refresh_done(task: asyncio.Task):
+    if not task.cancelled() and task.exception():
+        logger.error(f"Metrics refresh failed: {task.exception()}")
+
+
+async def _refresh_metrics() -> dict:
+    current_time = time.time()
+    started = time.monotonic()
+
+    # 📊 TORRENTS METRICS
+    # One pass over torrents grouped by tracker; global figures are derived
+    # from the per-tracker rows instead of running five full-table scans.
+    tracker_rows = await database.fetch_all("""
+        SELECT
+            tracker,
+            COUNT(*) AS count,
+            SUM(seeders) AS sum_seeders,
+            COUNT(seeders) AS n_seeders,
+            MAX(seeders) AS max_seeders,
+            MIN(seeders) AS min_seeders,
+            SUM(size) AS sum_size,
+            COUNT(size) AS n_size,
+            MAX(size) AS max_size,
+            COUNT(*) FILTER (WHERE size < 1073741824) AS size_under_1gb,
+            COUNT(*) FILTER (WHERE size >= 1073741824 AND size < 5368709120) AS size_1_5gb,
+            COUNT(*) FILTER (WHERE size >= 5368709120 AND size < 10737418240) AS size_5_10gb,
+            COUNT(*) FILTER (WHERE size >= 10737418240 AND size < 21474836480) AS size_10_20gb,
+            COUNT(*) FILTER (WHERE size IS NULL OR size >= 21474836480) AS size_over_20gb,
+            COUNT(*) FILTER (WHERE season IS NOT NULL) AS series_count
         FROM torrents
+        GROUP BY tracker
+        ORDER BY count DESC
     """)
 
-    # Media type distribution
-    media_distribution = await database.fetch_all("""
-        SELECT 
-            CASE 
-                WHEN season IS NOT NULL THEN 'Series'
-                ELSE 'Movies'
-            END as media_type,
-            COUNT(*) as count
-        FROM torrents 
-        GROUP BY media_type
-    """)
+    total_torrents = sum(row["count"] for row in tracker_rows)
+    tracker_stats = [
+        {
+            "tracker": row["tracker"],
+            "count": row["count"],
+            "avg_seeders": (row["sum_seeders"] or 0) / row["n_seeders"]
+            if row["n_seeders"]
+            else 0,
+            "avg_size": (row["sum_size"] or 0) / row["n_size"] if row["n_size"] else 0,
+        }
+        for row in tracker_rows
+    ]
+
+    size_buckets = (
+        ("Under 1GB", "size_under_1gb"),
+        ("1-5GB", "size_1_5gb"),
+        ("5-10GB", "size_5_10gb"),
+        ("10-20GB", "size_10_20gb"),
+        ("Over 20GB", "size_over_20gb"),
+    )
+    size_distribution = [
+        {"size_range": label, "count": sum(row[key] for row in tracker_rows)}
+        for label, key in size_buckets
+    ]
+    size_distribution = [row for row in size_distribution if row["count"]]
+
+    n_seeders = sum(row["n_seeders"] for row in tracker_rows)
+    n_size = sum(row["n_size"] for row in tracker_rows)
+    max_seeders_values = [
+        r["max_seeders"] for r in tracker_rows if r["max_seeders"] is not None
+    ]
+    min_seeders_values = [
+        r["min_seeders"] for r in tracker_rows if r["min_seeders"] is not None
+    ]
+    max_size_values = [r["max_size"] for r in tracker_rows if r["max_size"] is not None]
+    quality_stats = (
+        [
+            {
+                "avg_seeders": sum(r["sum_seeders"] or 0 for r in tracker_rows)
+                / n_seeders
+                if n_seeders
+                else None,
+                "max_seeders": max(max_seeders_values) if max_seeders_values else None,
+                "min_seeders": min(min_seeders_values) if min_seeders_values else None,
+                "avg_size": sum(r["sum_size"] or 0 for r in tracker_rows) / n_size
+                if n_size
+                else None,
+                "max_size": max(max_size_values) if max_size_values else None,
+            }
+        ]
+        if tracker_rows
+        else []
+    )
+
+    series_count = sum(row["series_count"] for row in tracker_rows)
+    media_distribution = [
+        {"media_type": media_type, "count": count}
+        for media_type, count in (
+            ("Series", series_count),
+            ("Movies", total_torrents - series_count),
+        )
+        if count
+    ]
 
     # 🔍 SEARCH METRICS
     search_metrics = await database.fetch_one(
@@ -494,7 +552,8 @@ async def admin_api_metrics(
         },
     )
 
-    return JSONResponse(metrics_data)
+    logger.log("API", f"Metrics refreshed in {time.monotonic() - started:.1f}s")
+    return metrics_data
 
 
 @router.get(
