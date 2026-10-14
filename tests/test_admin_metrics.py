@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +16,47 @@ class AdminMetricsTests(unittest.TestCase):
         )
         self.assertIsNone(_decode_cached_metrics("not-json"))
         self.assertIsNone(_decode_cached_metrics("[]"))
+
+
+class AdminMetricsRefreshTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        admin._metrics_refresh_task = None
+
+    async def test_stale_snapshot_is_served_while_one_refresh_runs(self):
+        release = asyncio.Event()
+        refresh = AsyncMock(side_effect=release.wait)
+        stale = {"payload_json": '{"torrents":{"total":1}}', "refreshed_at": 0}
+        with (
+            patch.object(admin.settings, "PUBLIC_METRICS_API", True),
+            patch.object(
+                admin.database, "fetch_one", new=AsyncMock(return_value=stale)
+            ),
+            patch.object(admin, "_refresh_metrics", new=refresh),
+        ):
+            first = await admin.admin_api_metrics()
+            second = await admin.admin_api_metrics()
+            await asyncio.sleep(0)
+
+            self.assertEqual(orjson.loads(first.body), {"torrents": {"total": 1}})
+            self.assertEqual(orjson.loads(second.body), {"torrents": {"total": 1}})
+            self.assertEqual(refresh.call_count, 1)
+            release.set()
+            await admin._metrics_refresh_task
+
+    async def test_cold_start_requests_share_one_refresh(self):
+        refresh = AsyncMock(return_value={"torrents": {"total": 2}})
+        with (
+            patch.object(admin.settings, "PUBLIC_METRICS_API", True),
+            patch.object(admin.database, "fetch_one", new=AsyncMock(return_value=None)),
+            patch.object(admin, "_refresh_metrics", new=refresh),
+        ):
+            responses = await asyncio.gather(
+                admin.admin_api_metrics(), admin.admin_api_metrics()
+            )
+
+        self.assertEqual(refresh.await_count, 1)
+        for response in responses:
+            self.assertEqual(orjson.loads(response.body), {"torrents": {"total": 2}})
 
 
 class AdminBackgroundScraperTests(unittest.IsolatedAsyncioTestCase):
