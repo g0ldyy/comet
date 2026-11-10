@@ -202,7 +202,7 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
         }
         jackett = JackettScraper(object(), "http://jackett.internal:9117")
         with patch(
-            "comet.discovery.adapters.torrent.jackett.download_torrent",
+            "comet.discovery.indexer_release.download_torrent",
             new=AsyncMock(return_value=(None, None, None)),
         ) as download:
             self.assertEqual(
@@ -223,7 +223,7 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
         }
         prowlarr = ProwlarrScraper(object(), "http://prowlarr.internal:9696")
         with patch(
-            "comet.discovery.adapters.torrent.prowlarr.download_torrent",
+            "comet.discovery.indexer_release.download_torrent",
             new=AsyncMock(return_value=(None, None, None)),
         ) as download:
             self.assertEqual(
@@ -233,6 +233,110 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
         download.assert_awaited_once_with(
             prowlarr_result["downloadUrl"],
             allowed_private_origins=frozenset({"http://prowlarr.internal:9696"}),
+        )
+
+    async def test_indexer_releases_with_known_hash_skip_the_grab(self):
+        prowlarr = ProwlarrScraper(object(), "http://prowlarr.internal:9696")
+        with (
+            patch(
+                "comet.discovery.indexer_release.download_torrent", new=AsyncMock()
+            ) as download,
+            patch(
+                "comet.discovery.indexer_release.add_torrent_queue.add_torrent",
+                new=AsyncMock(),
+            ) as add_torrent,
+        ):
+            torrents = await prowlarr.process_torrent(
+                {
+                    "title": "Show S01",
+                    "seeders": "3",
+                    "size": 1,
+                    "indexer": "indexer",
+                    "infoHash": "C" * 40,
+                    "guid": "magnet:?xt=urn:btih:" + "C" * 40 + "&tr=udp%3A%2F%2Ft",
+                    "downloadUrl": "http://prowlarr.internal/download/1",
+                },
+                "tt123",
+                1,
+            )
+
+        download.assert_not_awaited()
+        add_torrent.assert_awaited_once()
+        self.assertEqual(
+            torrents,
+            [
+                {
+                    "title": "Show S01",
+                    "infoHash": "c" * 40,
+                    "fileIndex": None,
+                    "seeders": 3,
+                    "size": 1,
+                    "tracker": "indexer",
+                    "sources": ["udp://t"],
+                    "isPrivate": False,
+                }
+            ],
+        )
+
+    async def test_jackett_grabs_known_hashes_and_falls_back_on_failure(self):
+        jackett = JackettScraper(object(), "http://jackett.internal:9117")
+        with patch(
+            "comet.discovery.indexer_release.download_torrent",
+            new=AsyncMock(return_value=(None, None, None)),
+        ) as download:
+            torrents = await jackett.process_torrent(
+                {
+                    "Title": "Movie",
+                    "Seeders": 1,
+                    "Size": 1,
+                    "Tracker": "indexer",
+                    "Link": "http://jackett.internal/download/1",
+                    "InfoHash": "E" * 40,
+                    "MagnetUri": None,
+                },
+                "tt123",
+                None,
+            )
+
+        download.assert_awaited_once()
+        self.assertEqual([t["infoHash"] for t in torrents], ["e" * 40])
+
+    async def test_indexer_grab_expands_files_and_inherits_torrent_privacy(self):
+        metadata = {
+            "info_hash": "D" * 40,
+            "sources": [],
+            "is_private": True,
+            "files": [
+                {"index": 0, "title": "Show S01E01.mkv", "size": 1},
+                {"index": 1, "title": "Show S01E02.mkv", "size": 2},
+            ],
+        }
+        jackett = JackettScraper(object(), "http://jackett.internal:9117")
+        with (
+            patch(
+                "comet.discovery.indexer_release.download_torrent",
+                new=AsyncMock(return_value=(b"torrent", None, None)),
+            ),
+            patch(
+                "comet.discovery.indexer_release.extract_torrent_metadata",
+                return_value=metadata,
+            ),
+        ):
+            torrents = await jackett.process_torrent(
+                {
+                    "Title": "Show S01",
+                    "Seeders": None,
+                    "Size": 3,
+                    "Tracker": "indexer",
+                    "Link": "http://jackett.internal/download/1",
+                },
+                "tt123",
+                1,
+            )
+
+        self.assertEqual(
+            [(t["infoHash"], t["fileIndex"], t["isPrivate"]) for t in torrents],
+            [("d" * 40, 0, True), ("d" * 40, 1, True)],
         )
 
     async def test_indexers_search_every_localized_episode_title(self):

@@ -41,8 +41,21 @@ async def gather_concurrently[T](
     tasks: Iterable[Awaitable[T]],
     *,
     preserve_successes: bool = False,
+    limit: int | None = None,
 ) -> list[T]:
-    """Run siblings concurrently, optionally keeping partial processed results."""
+    """Run siblings concurrently, optionally keeping partial processed results.
+
+    ``limit`` bounds in-flight siblings with a sliding window, so one slow
+    sibling never holds back the others the way fixed-size batches do.
+    """
+    if limit is not None:
+        semaphore = asyncio.Semaphore(limit)
+
+        async def bounded(task: Awaitable[T]) -> T:
+            async with semaphore:
+                return await task
+
+        tasks = map(bounded, tasks)
     results = await asyncio.gather(*tasks, return_exceptions=True)
     successful = []
     failures = []

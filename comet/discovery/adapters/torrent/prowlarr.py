@@ -1,110 +1,41 @@
-import asyncio
-from itertools import batched
-
 from comet.core.models import settings
 from comet.core.provider_json import is_success_status
+from comet.discovery.indexer_release import resolve_indexer_release
 from comet.discovery.torrent_base import (
     TorrentDiscoveryAdapter,
     deduplicate_torrents,
     gather_concurrently,
 )
-from comet.discovery.torrent_models import ScrapeRequest, ScrapeResult
+from comet.discovery.torrent_models import ScrapeRequest
 from comet.services.indexer_manager import (
     active_prowlarr_indexers,
     decode_indexer_json,
     indexer_manager,
     is_private_prowlarr_indexer,
 )
-from comet.services.torrent_manager import (
-    add_torrent_queue,
-    download_torrent,
-    extract_torrent_metadata,
-    extract_trackers_from_magnet,
-)
-from comet.usenet.outbound import configured_http_origin
 
-_REQUEST_BATCH_SIZE = 16
+_MAX_CONCURRENT_REQUESTS = 16
 
 
 class ProwlarrScraper(TorrentDiscoveryAdapter):
     url_setting = "PROWLARR_URL"
 
-    def __init__(self, session, url: str):
-        super().__init__(session, url)
-
     async def process_torrent(self, result: dict, media_id: str, season: int):
-        is_private = is_private_prowlarr_indexer(result.get("indexerId"))
-        base_torrent = {
-            "title": result["title"],
-            "infoHash": None,
-            "fileIndex": None,
-            "seeders": int(result["seeders"])
-            if result["seeders"] is not None
-            else None,
-            "size": result["size"],
-            "tracker": result["indexer"],
-            "sources": [],
-            "isPrivate": is_private,
-        }
-
-        torrents = []
-
-        if "downloadUrl" in result:
-            content, magnet_hash, magnet_url = await download_torrent(
-                result["downloadUrl"],
-                allowed_private_origins=frozenset({configured_http_origin(self.url)}),
-            )
-
-            if content:
-                metadata = await asyncio.to_thread(extract_torrent_metadata, content)
-                if metadata:
-                    base_torrent["isPrivate"] |= metadata["is_private"]
-                    for file in metadata["files"]:
-                        torrent = base_torrent.copy()
-                        torrent["title"] = file["title"]
-                        torrent["infoHash"] = metadata["info_hash"].lower()
-                        torrent["fileIndex"] = file["index"]
-                        torrent["size"] = file["size"]
-                        torrent["sources"] = metadata["sources"]
-                        torrents.append(torrent)
-                    return torrents
-
-            if magnet_hash:
-                base_torrent["infoHash"] = magnet_hash.lower()
-                base_torrent["sources"] = extract_trackers_from_magnet(magnet_url)
-
-                await add_torrent_queue.add_torrent(
-                    magnet_url,
-                    base_torrent["seeders"],
-                    base_torrent["tracker"],
-                    media_id,
-                    season,
-                    base_torrent["infoHash"],
-                    is_private=base_torrent["isPrivate"],
-                )
-
-                torrents.append(base_torrent)
-                return torrents
-
-        if result.get("infoHash"):
-            base_torrent["infoHash"] = result["infoHash"].lower()
-            guid = result.get("guid")
-            if guid and guid.startswith("magnet:"):
-                base_torrent["sources"] = extract_trackers_from_magnet(guid)
-
-                await add_torrent_queue.add_torrent(
-                    guid,
-                    base_torrent["seeders"],
-                    base_torrent["tracker"],
-                    media_id,
-                    season,
-                    base_torrent["infoHash"],
-                    is_private=base_torrent["isPrivate"],
-                )
-
-            torrents.append(base_torrent)
-
-        return torrents
+        guid = result.get("guid")
+        return await resolve_indexer_release(
+            self.url,
+            title=result["title"],
+            seeders=result["seeders"],
+            size=result["size"],
+            tracker=result["indexer"],
+            is_private=is_private_prowlarr_indexer(result.get("indexerId")),
+            info_hash=result.get("infoHash"),
+            magnet_url=guid if guid and guid.startswith("magnet:") else None,
+            download_url=result.get("downloadUrl"),
+            grab_known_hash=settings.PROWLARR_GRAB_KNOWN_HASHES,
+            media_id=media_id,
+            season=season,
+        )
 
     async def _fetch_search_results(self, query):
         indexers = active_prowlarr_indexers()
@@ -137,30 +68,21 @@ class ProwlarrScraper(TorrentDiscoveryAdapter):
         if not indexers:
             return []
 
-        torrents: list[ScrapeResult] = []
-
         queries = request.title_queries(include_episode_variants=True)
 
-        torrent_results = []
-        requests = (self._fetch_search_results(query) for query in queries)
-        for request_batch in batched(requests, _REQUEST_BATCH_SIZE):
-            responses = await gather_concurrently(request_batch)
-            for response in responses:
-                torrent_results.extend(response)
-
-        for result_batch in batched(torrent_results, _REQUEST_BATCH_SIZE):
-            processed_torrents = await gather_concurrently(
-                (
-                    self.process_torrent(
-                        result,
-                        request.media_only_id,
-                        request.season,
-                    )
-                    for result in result_batch
-                ),
-                preserve_successes=True,
-            )
-            for sublist in processed_torrents:
-                torrents.extend(sublist)
-
-        return deduplicate_torrents(torrents)
+        responses = await gather_concurrently(
+            (self._fetch_search_results(query) for query in queries),
+            limit=_MAX_CONCURRENT_REQUESTS,
+        )
+        processed = await gather_concurrently(
+            (
+                self.process_torrent(result, request.media_only_id, request.season)
+                for response in responses
+                for result in response
+            ),
+            preserve_successes=True,
+            limit=_MAX_CONCURRENT_REQUESTS,
+        )
+        return deduplicate_torrents(
+            [torrent for torrents in processed for torrent in torrents]
+        )
