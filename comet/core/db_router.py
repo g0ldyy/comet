@@ -1,9 +1,11 @@
 import asyncio
 import contextvars
+import re
 import socket
 import time
 from collections.abc import Sequence
 from contextlib import contextmanager
+from functools import partial
 
 import asyncpg
 from databases import Database
@@ -13,6 +15,8 @@ from comet.core.logger import logger
 from comet.observability import metrics
 
 _REPLICA_RETRY_DELAY_SECONDS = 30.0
+# Same named-parameter syntax as SQLAlchemy's text() constructs.
+_BIND_PARAM = re.compile(r"(?<![:\w\x5c]):(\w+)(?!:)")
 
 
 class StatelessPostgresConnection(asyncpg.Connection):
@@ -26,6 +30,27 @@ class StatelessPostgresConnection(asyncpg.Connection):
 
     def get_reset_query(self) -> str:
         return ""
+
+
+async def _execute_many(database: Database, query: str, values: list[dict]) -> None:
+    """Run one statement for many parameter sets, compiled once and batched natively.
+
+    `databases` would compile and send every parameter set separately.
+    """
+    async with database.connection() as connection:
+        raw_connection = connection.raw_connection
+        if database.url.dialect == "sqlite":
+            async with connection.transaction():
+                await raw_connection.executemany(query, values)
+            return
+
+        names = tuple(dict.fromkeys(_BIND_PARAM.findall(query)))
+        positions = {name: f"${index}" for index, name in enumerate(names, 1)}
+        # asyncpg pipelines the batch and wraps it in a transaction when needed.
+        await raw_connection.executemany(
+            _BIND_PARAM.sub(lambda match: positions[match[1]], query),
+            [[row[name] for name in names] for row in values],
+        )
 
 
 class ReplicaAwareDatabase:
@@ -102,27 +127,25 @@ class ReplicaAwareDatabase:
         return _ReplicaAwareTransaction(self, primary_transaction)
 
     async def execute(self, query, values=None, *, force_primary: bool = False):
-        return await self._run_primary("execute", query, values)
+        return await self._run_primary("execute", self._primary.execute, query, values)
 
     async def execute_many(self, query, values, *, force_primary: bool = False):
-        return await self._run_primary("execute_many", query, values)
+        if values:
+            await self._run_primary(
+                "execute_many", partial(_execute_many, self._primary), query, values
+            )
 
-    async def _run_primary(self, operation: str, *args):
+    async def _run_primary(self, operation: str, call, *args):
         if not metrics.enabled:
-            return await getattr(self._primary, operation)(*args)
-        return await self._run_observed(
-            self._primary,
-            operation,
-            "primary",
-            *args,
-        )
+            return await call(*args)
+        return await self._run_observed(call, operation, "primary", *args)
 
     @staticmethod
-    async def _run_observed(target, operation: str, target_name: str, *args):
+    async def _run_observed(call, operation: str, target_name: str, *args):
         started_at = time.perf_counter()
         outcome = "success"
         try:
-            return await getattr(target, operation)(*args)
+            return await call(*args)
         except asyncio.CancelledError:
             outcome = "cancelled"
             raise
@@ -184,11 +207,12 @@ class ReplicaAwareDatabase:
         )
 
         target_name = "primary" if target is self._primary else "replica"
+        call = getattr(target, method_name)
         try:
             return await (
-                self._run_observed(target, method_name, target_name, *args)
+                self._run_observed(call, method_name, target_name, *args)
                 if metrics.enabled
-                else getattr(target, method_name)(*args)
+                else call(*args)
             )
         except asyncio.CancelledError:  # pragma: no cover - propagate cancellations
             raise
@@ -203,15 +227,11 @@ class ReplicaAwareDatabase:
                         f"retrying on primary: {exc}"
                     ),
                 )
+                call = getattr(self._primary, method_name)
                 return await (
-                    self._run_observed(
-                        self._primary,
-                        method_name,
-                        "primary",
-                        *args,
-                    )
+                    self._run_observed(call, method_name, "primary", *args)
                     if metrics.enabled
-                    else getattr(self._primary, method_name)(*args)
+                    else call(*args)
                 )
             raise
 
