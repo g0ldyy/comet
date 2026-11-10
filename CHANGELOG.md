@@ -2,6 +2,46 @@
 
 <!-- markdownlint-disable MD024 -->
 
+## [2.59.0](https://github.com/g0ldyy/comet/compare/v2.58.0...v2.59.0) (2026-11-10)
+
+
+### Features
+
+* **imdb:** implement title lookup caching and upsert functionality ([c1d1766](https://github.com/g0ldyy/comet/commit/c1d1766688549be6058523f6ebf686eb58af3153))
+* **torrent:** enhance metadata broadcasting to skip invalid entries ([77bdada](https://github.com/g0ldyy/comet/commit/77bdada7c79037d035647679ac27d7d132df90b4))
+
+
+### Bug Fixes
+
+* **animetosho:** use feed.animetosho.net ([20a8d85](https://github.com/g0ldyy/comet/commit/20a8d852fb73b3bbe14af40a14454f32b3f4702f))
+* **animetosho:** use feed.animetosho.net ([7bcba21](https://github.com/g0ldyy/comet/commit/7bcba210e0858ce2afcd91edb4d84f613a32aaee))
+* **dependencies:** update torrent-parse-rank source reference to latest commit ([efcb4f8](https://github.com/g0ldyy/comet/commit/efcb4f86684e5be45c25019636ae3588c1ac2f2a))
+* **discovery:** drop disallowed persisted peers instead of rejecting state ([384e335](https://github.com/g0ldyy/comet/commit/384e335e0ed009c3ddc4047a8dcd57a94891f261))
+* **dmm:** read hashlists stored by id under lists/ ([0f242fa](https://github.com/g0ldyy/comet/commit/0f242fa9bf3865034a1d2c1408d76b50a7becb32))
+* **dmm:** read hashlists stored by id under lists/ ([0fdcf6d](https://github.com/g0ldyy/comet/commit/0fdcf6d894f8fa4df08c961b51505cfa5a0ad614))
+* **memory:** replace mimalloc with jemalloc to stop unbounded RSS growth ([7e9dda1](https://github.com/g0ldyy/comet/commit/7e9dda1af28a4a7e5e9cbb24200fa6680d8f09af))
+* **stremio:** format torrent sources with tracker: prefix and add dht for p2p streams ([bde6907](https://github.com/g0ldyy/comet/commit/bde6907b9e5174ce3973b0cf4cb42c4c31da1766))
+* **stremio:** format torrent sources with tracker: prefix and add dht for p2p streams ([1a9c679](https://github.com/g0ldyy/comet/commit/1a9c679626922653c53f180fd34a54466ed5c0bf))
+
+
+### Performance Improvements
+
+* **admin:** coordinate metrics refresh across workers and fold stats in one pass ([6c74025](https://github.com/g0ldyy/comet/commit/6c740253f4ba7610b893ca73238692f539b3c476))
+* **admin:** serve metrics instantly and compute them in one scan ([295b3b9](https://github.com/g0ldyy/comet/commit/295b3b95550f60ebc3889153c62a7a4aa61dc76f))
+* **admin:** serve metrics instantly and compute them in one scan ([17a3c1a](https://github.com/g0ldyy/comet/commit/17a3c1a84eee4f9ce1c4430146d5efddbf8950d7)), closes [#633](https://github.com/g0ldyy/comet/issues/633)
+* **db:** run execute_many as one natively batched statement ([89651a1](https://github.com/g0ldyy/comet/commit/89651a13f823614e41dc5ce64db7f7fe99c8891f))
+* **db:** skip asyncpg session reset on pooled connection release ([6a0201a](https://github.com/g0ldyy/comet/commit/6a0201a490a217aefd194b6ff33be709a1f4ad49))
+* **debrid-account:** sync magnet snapshots by diff instead of rewriting every row ([ae1dc91](https://github.com/g0ldyy/comet/commit/ae1dc917612ef8005e10bf36a2fff3d15ff089b4))
+* **debrid:** batch availability upserts natively and skip unchanged rows ([e5da1a3](https://github.com/g0ldyy/comet/commit/e5da1a31e5f1cde35098b9fd9aed24ef4cc5d6cc))
+* **debrid:** index any-service availability lookups and drop redundant indexes ([52fbc4d](https://github.com/g0ldyy/comet/commit/52fbc4d1480c676e7b93a115e73015c6f954a8fc))
+* **debrid:** skip cached torrents with oversized file lists ([fd61bb0](https://github.com/g0ldyy/comet/commit/fd61bb0bed63bc5fc80102af59cf3508e834b4d8))
+* **media-demand:** index scraped scopes and drop the last-seen index blocking HOT updates ([a699993](https://github.com/g0ldyy/comet/commit/a699993d7aa96a20a1c8093437f9f52cd7149753))
+* **scrapers:** make known-hash torrent grabs configurable per manager ([572d399](https://github.com/g0ldyy/comet/commit/572d3999fa641893952fdf51fccfbc7444cae89c))
+* **sqlite:** drive cleanup batches by the expiry predicate instead of rowid scans ([a770627](https://github.com/g0ldyy/comet/commit/a770627a1cc61d2565b1e2c16eb4a3678aed545b))
+* **sqlite:** reuse connections so per-connection pragmas and the WAL persist ([c807a6e](https://github.com/g0ldyy/comet/commit/c807a6ed536a278a0862807b0ef82932347943db))
+* **torrents:** batch upserts natively and skip unchanged rows ([c50fd2b](https://github.com/g0ldyy/comet/commit/c50fd2b317317991142f1ea3d28df858b04a3ba9))
+* **torrents:** check known hashes with a semi-join instead of fetching every scope row ([0667876](https://github.com/g0ldyy/comet/commit/0667876835adc12de685815581b74e09e39eee03))
+
 ## [2.58.0](https://github.com/g0ldyy/comet/compare/v2.57.0...v2.58.0) (2026-07-27)
 
 
