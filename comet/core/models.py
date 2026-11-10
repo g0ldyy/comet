@@ -35,7 +35,7 @@ from RTN.models import (
 )
 from sqlalchemy.engine import URL, make_url
 
-from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.db_router import ReplicaAwareDatabase, StatelessPostgresConnection
 from comet.core.operator_settings import (
     LiveSettings,
     effective_model_inputs,
@@ -1542,7 +1542,10 @@ def _build_database_instance(raw_url: str):
         return Database(f"sqlite:///{raw_url}")
 
     parsed = _parse_postgres_url(raw_url).set(drivername="postgresql+asyncpg")
-    return Database(parsed.render_as_string(hide_password=False))
+    return Database(
+        parsed.render_as_string(hide_password=False),
+        connection_class=StatelessPostgresConnection,
+    )
 
 
 replica_instances: list[Database] = []
