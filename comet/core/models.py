@@ -3,11 +3,8 @@ import os
 import secrets
 import string
 import time
-from collections.abc import Awaitable, Callable
 
 import RTN
-from databases import Database
-from databases.backends.sqlite import SQLiteConnection
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import SettingsConfigDict
 from RTN import DefaultRanking, SettingsModel
@@ -25,13 +22,11 @@ from RTN.models import (
     TrashRankModel,
 )
 
-from comet.core.db_router import ReplicaAwareDatabase, StatelessPostgresConnection
+from comet.core.db_router import ReplicaAwareDatabase, build_database
 from comet.core.logger import logger
 from comet.core.scrape import normalize_scraper_timeout_selector
 from comet.core.server_settings import ServerSettings
 
-_comet_fk_enabled = False
-_SQLITE_BUSY_TIMEOUT_MS = 30000
 _SECRET_ALPHABET = string.ascii_letters + string.digits
 
 
@@ -115,35 +110,6 @@ _POSITIVE_HTTP_OPERATION_FIELDS = (
     "HTTP_CLIENT_KEEPALIVE_TIMEOUT",
     "HTTP_CLIENT_TIMEOUT_TOTAL",
 )
-
-
-def set_comet_foreign_keys_enabled(enabled: bool) -> None:
-    global _comet_fk_enabled
-    _comet_fk_enabled = enabled
-
-
-async def apply_sqlite_connection_pragmas(
-    execute: Callable[[str], Awaitable[object]],
-    *,
-    foreign_keys_enabled: bool,
-) -> None:
-    await execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
-    await execute(f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}")
-
-
-if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
-    _original_sqlite_acquire = SQLiteConnection.acquire
-
-    async def _comet_sqlite_acquire(self):
-        await _original_sqlite_acquire(self)
-        assert self._connection is not None
-        await apply_sqlite_connection_pragmas(
-            self._connection.execute,
-            foreign_keys_enabled=_comet_fk_enabled,
-        )
-
-    SQLiteConnection.acquire = _comet_sqlite_acquire
-    SQLiteConnection._comet_pragmas_patched = True
 
 
 class AppSettings(ServerSettings):
@@ -1350,20 +1316,17 @@ web_config = {
 
 def _build_database_instance(raw_url: str):
     if IS_SQLITE:
-        return Database(f"sqlite:///{raw_url}")
+        return build_database(f"sqlite:///{raw_url}")
 
     for scheme in ["postgresql://", "postgres://"]:
         if raw_url.startswith(scheme):
             raw_url = raw_url[len(scheme) :]
             break
 
-    return Database(
-        f"postgresql+asyncpg://{raw_url}",
-        connection_class=StatelessPostgresConnection,
-    )
+    return build_database(f"postgresql+asyncpg://{raw_url}")
 
 
-replica_instances: list[Database] = []
+replica_instances = []
 force_ipv4 = False
 
 if IS_SQLITE:

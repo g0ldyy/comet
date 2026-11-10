@@ -83,6 +83,21 @@ async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool)
         logger.log("DATABASE", f"Applied schema migration {version}")
 
 
+async def has_pending_schema_migrations(
+    database, *, is_sqlite: bool, is_postgres: bool
+) -> bool:
+    """Check the migration ledger without mutating the database."""
+    ctx = MigrationContext(
+        database=database,
+        is_sqlite=is_sqlite,
+        is_postgres=is_postgres,
+    )
+    if not await _table_exists(ctx, "schema_migrations"):
+        return True
+    applied = await _get_applied_migrations(ctx)
+    return any(version not in applied for version, _migration in MIGRATIONS)
+
+
 async def _ensure_schema_migrations_table(ctx: MigrationContext):
     await ctx.database.execute(
         """

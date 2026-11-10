@@ -13,10 +13,14 @@ except ImportError:
 
 import orjson
 
-import comet.core.models as _models_mod
+from comet.core.db_router import set_sqlite_foreign_keys
 from comet.core.logger import logger
 from comet.core.models import IS_POSTGRES, IS_SQLITE, JSON_FUNC, database, settings
-from comet.core.schema_migrations import NULL_SCOPE_SENTINEL, run_schema_migrations
+from comet.core.schema_migrations import (
+    NULL_SCOPE_SENTINEL,
+    has_pending_schema_migrations,
+    run_schema_migrations,
+)
 
 __all__ = [
     "DOWNLOAD_LINK_CACHE_TTL",
@@ -45,7 +49,6 @@ _BACKEND_LOCK_RETRY_INTERVAL_SECONDS = 0.1
 _SQLITE_INVALID_LOCKFILE_GRACE_SECONDS = 1.0
 _SQLITE_DEFAULT_JOURNAL_MODE = "WAL"
 _SQLITE_MIGRATION_JOURNAL_MODE = "DELETE"
-_SQLITE_JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
 _SQLITE_CLEANUP_BATCH_SIZE = 50000
 
 
@@ -507,29 +510,6 @@ async def _startup_cleanup_lock():
             yield True
 
 
-async def _apply_sqlite_pragmas(
-    *,
-    foreign_keys: bool,
-    journal_mode: str = _SQLITE_DEFAULT_JOURNAL_MODE,
-):
-    await _models_mod.apply_sqlite_connection_pragmas(
-        database.execute,
-        foreign_keys_enabled=foreign_keys,
-    )
-    await database.execute(f"PRAGMA journal_mode={journal_mode}")
-    await database.execute("PRAGMA synchronous=OFF")
-    await database.execute("PRAGMA temp_store=MEMORY")
-    await database.execute("PRAGMA mmap_size=30000000000")
-    await database.execute("PRAGMA page_size=4096")
-    await database.execute("PRAGMA cache_size=-2000")
-    await database.execute(
-        f"PRAGMA journal_size_limit={_SQLITE_JOURNAL_SIZE_LIMIT_BYTES}"
-    )
-    await database.execute("PRAGMA count_changes=OFF")
-    await database.execute("PRAGMA secure_delete=OFF")
-    await database.execute("PRAGMA auto_vacuum=OFF")
-
-
 async def setup_database():
     connected = False
     try:
@@ -539,16 +519,20 @@ async def setup_database():
                 os.makedirs(db_dir, exist_ok=True)
             if not os.path.exists(settings.DATABASE_PATH):
                 Path(settings.DATABASE_PATH).touch(exist_ok=True)
-            _models_mod.set_comet_foreign_keys_enabled(False)
+            set_sqlite_foreign_keys(False)
 
         await database.connect()
         connected = True
 
         async with _schema_migration_lock():
-            if IS_SQLITE:
-                await _apply_sqlite_pragmas(
-                    foreign_keys=False,
-                    journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
+            # Leaving WAL needs exclusive access: only do it when migrations will
+            # actually run, since other processes may hold pooled connections.
+            sqlite_migrating = IS_SQLITE and await has_pending_schema_migrations(
+                database, is_sqlite=True, is_postgres=False
+            )
+            if sqlite_migrating:
+                await database.execute(
+                    f"PRAGMA journal_mode={_SQLITE_MIGRATION_JOURNAL_MODE}"
                 )
 
             await run_schema_migrations(
@@ -558,10 +542,10 @@ async def setup_database():
             )
 
             if IS_SQLITE:
-                _models_mod.set_comet_foreign_keys_enabled(True)
-                await _apply_sqlite_pragmas(
-                    foreign_keys=True,
-                    journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
+                set_sqlite_foreign_keys(True)
+            if sqlite_migrating:
+                await database.execute(
+                    f"PRAGMA journal_mode={_SQLITE_DEFAULT_JOURNAL_MODE}"
                 )
 
         await database.execute("DELETE FROM active_connections")
