@@ -25,6 +25,7 @@ __all__ = [
     "JSON_FUNC",
     "NULL_SCOPE_SENTINEL",
     "backend_lock",
+    "build_changed_rows_upsert",
     "build_distinct_from_predicate",
     "build_json_list_membership_predicate",
     "build_scope_lookup_params",
@@ -82,6 +83,44 @@ def build_distinct_from_predicate(
         f"{table_name}.{column} IS DISTINCT FROM {compared_alias}.{column}"
         for column in columns
     )
+
+
+def build_changed_rows_upsert(
+    table_name: str,
+    *,
+    columns: dict[str, str],
+    conflict_columns: tuple[str, ...],
+    compared_columns: tuple[str, ...],
+    refreshed_column: str | None = None,
+) -> str:
+    """Single-row upsert for `execute_many` that skips rows already stored as-is.
+
+    `columns` maps every inserted column (bound as a same-named param) to its SQL
+    type. A stored row whose compared columns already match, and whose
+    `refreshed_column` is not older than `:refresh_before`, is left untouched:
+    ON CONFLICT never locks nor rewrites it.
+    """
+    values = {column: f"CAST(:{column} AS {kind})" for column, kind in columns.items()}
+    unchanged = [f"current.{column} = {values[column]}" for column in conflict_columns]
+    unchanged += [
+        f"current.{column} IS NOT DISTINCT FROM {values[column]}"
+        for column in compared_columns
+    ]
+    updated_columns = compared_columns
+    if refreshed_column is not None:
+        unchanged.append(f"current.{refreshed_column} >= :refresh_before")
+        updated_columns += (refreshed_column,)
+
+    return f"""
+        INSERT INTO {table_name} ({", ".join(values)})
+        SELECT {", ".join(values.values())}
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {table_name} AS current
+            WHERE {" AND ".join(unchanged)}
+        )
+        ON CONFLICT ({", ".join(conflict_columns)}) DO UPDATE SET
+{build_upsert_assignments(updated_columns)}
+    """
 
 
 def build_upsert_assignments(

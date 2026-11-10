@@ -24,11 +24,8 @@ from comet.cometnet import get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.database import (
-    IS_SQLITE,
-    NULL_SCOPE_SENTINEL,
-    build_distinct_from_predicate,
+    build_changed_rows_upsert,
     build_json_list_membership_predicate,
-    build_upsert_assignments,
     encode_json_param,
     normalize_scope_value,
 )
@@ -39,57 +36,35 @@ from comet.utils.parsing import default_dump, ensure_multi_language, is_video
 
 TRACKER_PATTERN = re.compile(r"[&?]tr=([^&]+)")
 INFO_HASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
-TORRENT_DB_COLUMNS = (
-    "media_id",
-    "info_hash",
-    "season",
-    "episode",
-    "season_norm",
-    "episode_norm",
-    "file_index",
-    "title",
-    "seeders",
-    "size",
-    "tracker",
-    "sources_json",
-    "parsed_json",
-    "updated_at",
-)
-TORRENT_UPSERT_PARAM_COLUMNS = (
-    "media_id",
-    "info_hash",
-    "season",
-    "episode",
-    "file_index",
-    "title",
-    "seeders",
-    "size",
-    "tracker",
-    "sources_json",
-    "parsed_json",
-)
-TORRENT_UPSERT_ROW_PARAM_COUNT = len(TORRENT_UPSERT_PARAM_COLUMNS)
-TORRENT_UPSERT_SHARED_PARAM_COUNT = 2
-TORRENT_UPSERT_PARAM_COUNT = (
-    TORRENT_UPSERT_ROW_PARAM_COUNT + TORRENT_UPSERT_SHARED_PARAM_COUNT
-)
-TORRENT_CONFLICT_COLUMNS = ("media_id", "info_hash", "season_norm", "episode_norm")
-TORRENT_CONFLICT_TARGET = f"({', '.join(TORRENT_CONFLICT_COLUMNS)})"
-TORRENT_IMMUTABLE_COLUMNS = frozenset(
-    {
-        "media_id",
-        "info_hash",
-        "season",
-        "episode",
-        "season_norm",
-        "episode_norm",
-    }
-)
-TORRENT_UPDATE_COLUMNS = tuple(
-    column for column in TORRENT_DB_COLUMNS if column not in TORRENT_IMMUTABLE_COLUMNS
-)
-TORRENT_CHANGE_DETECTION_COLUMNS = tuple(
-    column for column in TORRENT_UPDATE_COLUMNS if column != "updated_at"
+TORRENT_UPSERT_QUERY = build_changed_rows_upsert(
+    "torrents",
+    columns={
+        "media_id": "TEXT",
+        "info_hash": "TEXT",
+        "season": "INTEGER",
+        "episode": "INTEGER",
+        "season_norm": "INTEGER",
+        "episode_norm": "INTEGER",
+        "file_index": "INTEGER",
+        "title": "TEXT",
+        "seeders": "INTEGER",
+        "size": "BIGINT",
+        "tracker": "TEXT",
+        "sources_json": "TEXT",
+        "parsed_json": "TEXT",
+        "updated_at": "REAL",
+    },
+    conflict_columns=("media_id", "info_hash", "season_norm", "episode_norm"),
+    compared_columns=(
+        "file_index",
+        "title",
+        "seeders",
+        "size",
+        "tracker",
+        "sources_json",
+        "parsed_json",
+    ),
+    refreshed_column="updated_at",
 )
 TORRENT_STABLE_REFRESH_INTERVAL = 31536000
 if settings.LIVE_TORRENT_CACHE_TTL is not None and settings.LIVE_TORRENT_CACHE_TTL >= 0:
@@ -105,14 +80,6 @@ DEFAULT_TORRENT_BROADCAST_QUEUE_MAXSIZE = 4096
 DEFAULT_TORRENT_BROADCAST_BATCH_QUEUE_MIN_SIZE = 32
 DEFAULT_TORRENT_BROADCAST_MAX_RETRIES = 5
 CHECK_TORRENTS_EXIST_CHUNK_SIZE = 4096
-SQLITE_MAX_VARIABLES = 32766
-POSTGRES_MAX_PARAMETERS = 32767
-DB_MAX_PARAMETERS = SQLITE_MAX_VARIABLES if IS_SQLITE else POSTGRES_MAX_PARAMETERS
-UPSERT_MAX_ROWS_PER_STATEMENT = max(
-    1,
-    (DB_MAX_PARAMETERS - TORRENT_UPSERT_SHARED_PARAM_COUNT)
-    // TORRENT_UPSERT_ROW_PARAM_COUNT,
-)
 DEFAULT_TORRENT_UPDATE_RETRY_BASE_DELAY = 0.05
 DEFAULT_TORRENT_UPDATE_RETRY_MAX_DELAY = 1.0
 RETRYABLE_DB_SQLSTATES = frozenset({"40001", "40P01", "55P03"})
@@ -1511,66 +1478,6 @@ class TorrentUpdateQueue:
             self._retry_sequence = 0
 
 
-TORRENT_COLUMNS_SQL = ",\n    ".join(TORRENT_DB_COLUMNS)
-TORRENT_UPDATE_SET_SQL = build_upsert_assignments(TORRENT_UPDATE_COLUMNS)
-TORRENT_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
-    "torrents",
-    "EXCLUDED",
-    TORRENT_CHANGE_DETECTION_COLUMNS,
-)
-TORRENT_REFRESH_UPDATE_WHERE_SQL = "COALESCE(torrents.updated_at, 0) < :refresh_before"
-
-
-def _build_batched_upsert_query(
-    row_count: int,
-) -> str:
-    values_sql = ",\n".join(
-        "(\n    "
-        + ",\n    ".join(
-            (
-                f":media_id_{index}",
-                f":info_hash_{index}",
-                f":season_{index}",
-                f":episode_{index}",
-                f"COALESCE(:season_{index}, {NULL_SCOPE_SENTINEL})",
-                f"COALESCE(:episode_{index}, {NULL_SCOPE_SENTINEL})",
-                f":file_index_{index}",
-                f":title_{index}",
-                f":seeders_{index}",
-                f":size_{index}",
-                f":tracker_{index}",
-                f":sources_json_{index}",
-                f":parsed_json_{index}",
-                ":updated_at",
-            )
-        )
-        + "\n)"
-        for index in range(row_count)
-    )
-    return f"""
-INSERT INTO torrents (
-    {TORRENT_COLUMNS_SQL}
-) VALUES
-{values_sql}
-ON CONFLICT {TORRENT_CONFLICT_TARGET}
-DO UPDATE SET
-        {TORRENT_UPDATE_SET_SQL}
-WHERE
-    ({TORRENT_DISTINCT_UPDATE_WHERE_SQL})
-    OR ({TORRENT_REFRESH_UPDATE_WHERE_SQL})
-"""
-
-
-@lru_cache(maxsize=64)
-def _build_batched_upsert_statement(row_count: int) -> str:
-    return _build_batched_upsert_query(row_count)
-
-
-@lru_cache(maxsize=8192)
-def _build_batched_param_keys(index: int) -> tuple[str, ...]:
-    return tuple(f"{column}_{index}" for column in TORRENT_UPSERT_PARAM_COLUMNS)
-
-
 def _get_cached_json_dump(value, cache: dict[int, str]) -> str:
     value_id = id(value)
     cached = cache.get(value_id)
@@ -1578,52 +1485,6 @@ def _get_cached_json_dump(value, cache: dict[int, str]) -> str:
         cached = _json_dumps(value)
         cache[value_id] = cached
     return cached
-
-
-def _build_batched_params(
-    rows: list[_TorrentUpdate],
-    *,
-    updated_at: float,
-    sources_json_cache: dict[int, str] | None = None,
-    parsed_json_cache: dict[int, str] | None = None,
-) -> dict:
-    params = {
-        "updated_at": updated_at,
-        "refresh_before": updated_at - TORRENT_STABLE_REFRESH_INTERVAL,
-    }
-    if sources_json_cache is None:
-        sources_json_cache = {}
-    if parsed_json_cache is None:
-        parsed_json_cache = {}
-    for index, item in enumerate(rows):
-        param_keys = _build_batched_param_keys(index)
-        (
-            media_id_key,
-            info_hash_key,
-            season_key,
-            episode_key,
-            file_index_key,
-            title_key,
-            seeders_key,
-            size_key,
-            tracker_key,
-            sources_json_key,
-            parsed_json_key,
-        ) = param_keys
-        params[media_id_key] = item.media_id
-        params[info_hash_key] = item.info_hash
-        params[season_key] = item.season
-        params[episode_key] = item.episode
-        params[file_index_key] = item.file_index
-        params[title_key] = item.title
-        params[seeders_key] = item.seeders
-        params[size_key] = item.size
-        params[tracker_key] = item.tracker
-        params[sources_json_key] = _get_cached_json_dump(
-            item.sources, sources_json_cache
-        )
-        params[parsed_json_key] = _get_cached_json_dump(item.parsed, parsed_json_cache)
-    return params
 
 
 def _iter_exception_chain(exc: Exception) -> Iterator[Exception]:
@@ -1668,24 +1529,32 @@ def _is_row_specific_db_error(exc: Exception) -> bool:
 
 
 async def _execute_batched_upsert(rows: list[_TorrentUpdate], *, updated_at: float):
-    if not rows:
-        return
-
+    refresh_before = updated_at - TORRENT_STABLE_REFRESH_INTERVAL
     sources_json_cache = {}
     parsed_json_cache = {}
-
-    async with database.transaction():
-        for start in range(0, len(rows), UPSERT_MAX_ROWS_PER_STATEMENT):
-            chunk = rows[start : start + UPSERT_MAX_ROWS_PER_STATEMENT]
-            await database.execute(
-                _build_batched_upsert_statement(len(chunk)),
-                _build_batched_params(
-                    chunk,
-                    updated_at=updated_at,
-                    sources_json_cache=sources_json_cache,
-                    parsed_json_cache=parsed_json_cache,
-                ),
-            )
+    await database.execute_many(
+        TORRENT_UPSERT_QUERY,
+        [
+            {
+                "media_id": item.media_id,
+                "info_hash": item.info_hash,
+                "season": item.season,
+                "episode": item.episode,
+                "season_norm": item.season_norm,
+                "episode_norm": item.episode_norm,
+                "file_index": item.file_index,
+                "title": item.title,
+                "seeders": item.seeders,
+                "size": item.size,
+                "tracker": item.tracker,
+                "sources_json": _get_cached_json_dump(item.sources, sources_json_cache),
+                "parsed_json": _get_cached_json_dump(item.parsed, parsed_json_cache),
+                "updated_at": updated_at,
+                "refresh_before": refresh_before,
+            }
+            for item in rows
+        ],
+    )
 
 
 async def _execute_isolated_batched_upsert(
