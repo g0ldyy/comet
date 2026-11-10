@@ -5,6 +5,7 @@ import time
 from collections.abc import Sequence
 from contextlib import contextmanager
 
+import asyncpg
 from databases import Database
 from sqlalchemy.engine.url import make_url
 
@@ -12,6 +13,19 @@ from comet.core.logger import logger
 from comet.observability import metrics
 
 _REPLICA_RETRY_DELAY_SECONDS = 30.0
+
+
+class StatelessPostgresConnection(asyncpg.Connection):
+    """Pooled connection released without asyncpg's session reset query.
+
+    Comet keeps no session state on pooled connections (no SET, LISTEN or
+    cursors outside transactions; advisory locks are released explicitly), and
+    asyncpg still rolls back any open transaction on release. Skipping the
+    reset saves a full round trip (and a pgbouncer transaction) per query.
+    """
+
+    def get_reset_query(self) -> str:
+        return ""
 
 
 class ReplicaAwareDatabase:
@@ -236,7 +250,7 @@ class ReplicaAwareDatabase:
             url_obj = url_obj.set(host=resolved_ip)
             new_url_str = url_obj.render_as_string(hide_password=False)
 
-            return Database(new_url_str)
+            return Database(new_url_str, **db_instance.options)
         except Exception as e:
             logger.warning(
                 f"Failed to resolve hostname for {db_instance.url}: {e}. Keeping original."

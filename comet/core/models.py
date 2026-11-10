@@ -25,7 +25,7 @@ from RTN.models import (
     TrashRankModel,
 )
 
-from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.db_router import ReplicaAwareDatabase, StatelessPostgresConnection
 from comet.core.logger import logger
 from comet.core.scrape import normalize_scraper_timeout_selector
 from comet.core.server_settings import ServerSettings
@@ -1357,7 +1357,10 @@ def _build_database_instance(raw_url: str):
             raw_url = raw_url[len(scheme) :]
             break
 
-    return Database(f"postgresql+asyncpg://{raw_url}")
+    return Database(
+        f"postgresql+asyncpg://{raw_url}",
+        connection_class=StatelessPostgresConnection,
+    )
 
 
 replica_instances: list[Database] = []
