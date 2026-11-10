@@ -357,7 +357,7 @@ async def download_torrent(session, url: str):
             return (None, None, None)
     except Exception as e:
         logger.debug(
-            f"Failed to download torrent from {url}: {e} (in most cases, you can ignore this error)"
+            f"Failed to download torrent from {url}: {type(e).__name__}: {e} (in most cases, you can ignore this error)"
         )
         return (None, None, None)
 

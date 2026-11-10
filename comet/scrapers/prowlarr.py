@@ -8,86 +8,27 @@ from comet.scrapers.base import (
     deduplicate_torrents,
     gather_with_error_logging,
 )
+from comet.scrapers.helpers.indexer import resolve_indexer_release
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
 from comet.services.indexer_manager import indexer_manager
-from comet.services.torrent_manager import (
-    add_torrent_queue,
-    download_torrent,
-    extract_torrent_metadata,
-    extract_trackers_from_magnet,
-)
 
 
 class ProwlarrScraper(BaseScraper):
-    def __init__(self, manager, session, url: str):
-        super().__init__(manager, session, url)
-
     async def process_torrent(self, result: dict, media_id: str, season: int):
-        base_torrent = {
-            "title": result["title"],
-            "infoHash": None,
-            "fileIndex": None,
-            "seeders": int(result["seeders"])
-            if result["seeders"] is not None
-            else None,
-            "size": result["size"],
-            "tracker": result["indexer"],
-            "sources": [],
-        }
-
-        torrents = []
-
-        if "downloadUrl" in result:
-            content, magnet_hash, magnet_url = await download_torrent(
-                self.session, result["downloadUrl"]
-            )
-
-            if content:
-                metadata = await asyncio.to_thread(extract_torrent_metadata, content)
-                if metadata:
-                    for file in metadata["files"]:
-                        torrent = base_torrent.copy()
-                        torrent["title"] = file["title"]
-                        torrent["infoHash"] = metadata["info_hash"].lower()
-                        torrent["fileIndex"] = file["index"]
-                        torrent["size"] = file["size"]
-                        torrent["sources"] = metadata["sources"]
-                        torrents.append(torrent)
-                    return torrents
-
-            if magnet_hash:
-                base_torrent["infoHash"] = magnet_hash.lower()
-                base_torrent["sources"] = extract_trackers_from_magnet(magnet_url)
-
-                await add_torrent_queue.add_torrent(
-                    magnet_url,
-                    base_torrent["seeders"],
-                    base_torrent["tracker"],
-                    media_id,
-                    season,
-                    base_torrent["infoHash"],
-                )
-
-                torrents.append(base_torrent)
-                return torrents
-
-        if result.get("infoHash"):
-            base_torrent["infoHash"] = result["infoHash"].lower()
-            if "guid" in result and result["guid"].startswith("magnet:"):
-                base_torrent["sources"] = extract_trackers_from_magnet(result["guid"])
-
-                await add_torrent_queue.add_torrent(
-                    result["guid"],
-                    base_torrent["seeders"],
-                    base_torrent["tracker"],
-                    media_id,
-                    season,
-                    base_torrent["infoHash"],
-                )
-
-            torrents.append(base_torrent)
-
-        return torrents
+        guid = result.get("guid")
+        return await resolve_indexer_release(
+            self.session,
+            title=result["title"],
+            seeders=result["seeders"],
+            size=result["size"],
+            tracker=result["indexer"],
+            info_hash=result.get("infoHash"),
+            magnet_url=guid if guid and guid.startswith("magnet:") else None,
+            download_url=result.get("downloadUrl"),
+            grab_known_hash=settings.PROWLARR_GRAB_KNOWN_HASHES,
+            media_id=media_id,
+            season=season,
+        )
 
     async def _fetch_search_results(self, query):
         url = f"{self.url}/api/v1/search"

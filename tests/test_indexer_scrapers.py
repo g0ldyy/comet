@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from comet.scrapers.helpers.indexer import resolve_indexer_release
 from comet.scrapers.jackett import JackettScraper
 from comet.scrapers.models import ScrapeRequest
 from comet.scrapers.prowlarr import ProwlarrScraper
@@ -159,6 +160,129 @@ class IndexerScraperTests(unittest.IsolatedAsyncioTestCase):
             "Prowlarr query 'Failed' (https://prowlarr.test) failed: "
             "RuntimeError: transport failed"
         )
+
+    async def test_indexer_release_skips_download_when_hash_is_known(self):
+        download = AsyncMock()
+        add_torrent = AsyncMock()
+        with (
+            patch("comet.scrapers.helpers.indexer.download_torrent", download),
+            patch(
+                "comet.scrapers.helpers.indexer.add_torrent_queue.add_torrent",
+                add_torrent,
+            ),
+        ):
+            torrents = await resolve_indexer_release(
+                None,
+                title="Show S01",
+                seeders="7",
+                size=10,
+                tracker="indexer",
+                info_hash="ABC",
+                magnet_url="magnet:?xt=urn:btih:ABC&tr=udp%3A%2F%2Ft",
+                download_url="https://prowlarr.test/1/download",
+                grab_known_hash=False,
+                media_id="tt123",
+                season=1,
+            )
+
+        download.assert_not_awaited()
+        add_torrent.assert_awaited_once()
+        self.assertEqual(
+            torrents,
+            [
+                {
+                    "title": "Show S01",
+                    "infoHash": "abc",
+                    "fileIndex": None,
+                    "seeders": 7,
+                    "size": 10,
+                    "tracker": "indexer",
+                    "sources": ["udp://t"],
+                }
+            ],
+        )
+
+    async def test_indexer_release_grabs_known_hash_and_falls_back(self):
+        with patch(
+            "comet.scrapers.helpers.indexer.download_torrent",
+            AsyncMock(return_value=(None, None, None)),
+        ) as download:
+            torrents = await resolve_indexer_release(
+                None,
+                title="Movie",
+                seeders=1,
+                size=1,
+                tracker="indexer",
+                info_hash="ABC",
+                magnet_url=None,
+                download_url="https://jackett.test/dl/1",
+                grab_known_hash=True,
+                media_id="tt123",
+                season=None,
+            )
+
+        download.assert_awaited_once()
+        self.assertEqual([t["infoHash"] for t in torrents], ["abc"])
+
+    async def test_indexer_release_downloads_when_hash_is_unknown(self):
+        metadata = {
+            "info_hash": "DEF",
+            "sources": ["udp://t"],
+            "files": [
+                {"index": 0, "title": "Show S01E01.mkv", "size": 1},
+                {"index": 1, "title": "Show S01E02.mkv", "size": 2},
+            ],
+        }
+        with (
+            patch(
+                "comet.scrapers.helpers.indexer.download_torrent",
+                AsyncMock(return_value=(b"torrent", None, None)),
+            ) as download,
+            patch(
+                "comet.scrapers.helpers.indexer.extract_torrent_metadata",
+                return_value=metadata,
+            ),
+        ):
+            torrents = await resolve_indexer_release(
+                "session",
+                title="Show S01",
+                seeders=None,
+                size=3,
+                tracker="indexer",
+                info_hash=None,
+                magnet_url=None,
+                download_url="https://prowlarr.test/1/download",
+                grab_known_hash=False,
+                media_id="tt123",
+                season=1,
+            )
+
+        download.assert_awaited_once_with("session", "https://prowlarr.test/1/download")
+        self.assertEqual(
+            [(t["infoHash"], t["fileIndex"], t["size"]) for t in torrents],
+            [("def", 0, 1), ("def", 1, 2)],
+        )
+
+    async def test_indexer_release_without_hash_or_metadata_is_dropped(self):
+        with patch(
+            "comet.scrapers.helpers.indexer.download_torrent",
+            AsyncMock(return_value=(None, None, None)),
+        ):
+            torrents = await resolve_indexer_release(
+                None,
+                title="Private",
+                seeders=1,
+                size=1,
+                tracker="indexer",
+                info_hash=None,
+                magnet_url=None,
+                download_url="https://prowlarr.test/1/download",
+                grab_known_hash=False,
+                media_id="tt123",
+                season=None,
+            )
+
+        self.assertEqual(torrents, [])
 
     async def test_stremthru_discards_invalid_magnets_before_filtering(self):
         xml = """

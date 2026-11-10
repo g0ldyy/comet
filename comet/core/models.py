@@ -195,10 +195,12 @@ class AppSettings(ServerSettings):
     JACKETT_URL: str | None = "http://127.0.0.1:9117"
     JACKETT_API_KEY: str | None = None
     JACKETT_INDEXERS: list[str] = Field(default_factory=list)
+    JACKETT_GRAB_KNOWN_HASHES: bool = True
     SCRAPE_PROWLARR: bool | str = False
     PROWLARR_URL: str | None = "http://127.0.0.1:9696"
     PROWLARR_API_KEY: str | None = None
     PROWLARR_INDEXERS: list[str] = Field(default_factory=list)
+    PROWLARR_GRAB_KNOWN_HASHES: bool = False
     GET_TORRENT_TIMEOUT: int | None = 5
     MAGNET_RESOLVE_TIMEOUT: int | None = 60
     CATALOG_TIMEOUT: int | None = 30
