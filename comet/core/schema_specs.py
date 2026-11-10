@@ -446,26 +446,13 @@ DEBRID_ACCOUNT_MAGNETS_TABLE_SPEC = ManagedTableSpec(
             size BIGINT,
             status TEXT NOT NULL,
             added_at REAL NOT NULL,
-            synced_at REAL NOT NULL,
             PRIMARY KEY (debrid_service, account_key_hash, magnet_id)
         )
     """,
-    legacy_columns=(
-        LegacyColumnMigration(
-            column_name="synced_at",
-            column_sql="synced_at REAL",
-            legacy_name="timestamp",
-            backfill_expression="COALESCE(synced_at, timestamp)",
-        ),
-    ),
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_debrid_account_lookup_v2
-            ON {table_name} (debrid_service, account_key_hash, synced_at, added_at)
-        """,
-        """
-            CREATE INDEX IF NOT EXISTS idx_debrid_account_synced_at_v1
-            ON {table_name} (synced_at)
+            CREATE INDEX IF NOT EXISTS idx_debrid_account_added_v3
+            ON {table_name} (debrid_service, account_key_hash, added_at)
         """,
     ),
 )
