@@ -7,8 +7,10 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import partial
 
+import aiosqlite
 import asyncpg
 from databases import Database
+from databases.backends.sqlite import SQLiteBackend, SQLitePool
 from sqlalchemy.engine.url import make_url
 
 from comet.core.db_transactions import write_transaction
@@ -18,6 +20,24 @@ _REPLICA_RETRY_DELAY_SECONDS = 30.0
 _IPV4_RESOLUTION_TIMEOUT_SECONDS = 5.0
 # Same named-parameter syntax as SQLAlchemy's text() constructs.
 _BIND_PARAM = re.compile(r"(?<![:\w\x5c]):(\w+)(?!:)")
+
+
+_SQLITE_CONNECTION_PRAGMAS = (
+    "PRAGMA busy_timeout=30000",
+    "PRAGMA synchronous=NORMAL",
+    "PRAGMA temp_store=MEMORY",
+    "PRAGMA mmap_size=30000000000",
+    f"PRAGMA journal_size_limit={64 * 1024 * 1024}",
+    "PRAGMA secure_delete=FAST",
+)
+_SQLITE_MAX_IDLE_CONNECTIONS = 8
+_sqlite_foreign_keys = False
+
+
+def set_sqlite_foreign_keys(enabled: bool) -> None:
+    """Set foreign key enforcement for SQLite connections handed out from now on."""
+    global _sqlite_foreign_keys
+    _sqlite_foreign_keys = enabled
 
 
 class StatelessPostgresConnection(asyncpg.Connection):
@@ -31,6 +51,69 @@ class StatelessPostgresConnection(asyncpg.Connection):
 
     def get_reset_query(self) -> str:
         return ""
+
+
+class _ReusingSQLitePool(SQLitePool):
+    """Keeps released connections open instead of reopening one per query.
+
+    Per-connection pragmas then actually apply, and the page cache and WAL
+    survive between queries (closing the last connection checkpoints the WAL).
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._idle: list[aiosqlite.Connection] = []
+        self._foreign_keys: dict[aiosqlite.Connection, bool] = {}
+
+    async def acquire(self) -> aiosqlite.Connection:
+        while self._idle:
+            connection = self._idle.pop()
+            if self._foreign_keys[connection] == _sqlite_foreign_keys:
+                return connection
+            await self._close(connection)
+
+        connection = await super().acquire()
+        for pragma in _SQLITE_CONNECTION_PRAGMAS:
+            await connection.execute(pragma)
+        await connection.execute(
+            f"PRAGMA foreign_keys={'ON' if _sqlite_foreign_keys else 'OFF'}"
+        )
+        self._foreign_keys[connection] = _sqlite_foreign_keys
+        return connection
+
+    async def release(self, connection: aiosqlite.Connection) -> None:
+        if connection.in_transaction:
+            await connection.rollback()
+        if len(self._idle) < _SQLITE_MAX_IDLE_CONNECTIONS:
+            self._idle.append(connection)
+        else:
+            await self._close(connection)
+
+    async def _close(self, connection: aiosqlite.Connection) -> None:
+        self._foreign_keys.pop(connection, None)
+        await super().release(connection)
+
+    async def close(self) -> None:
+        while self._idle:
+            await self._close(self._idle.pop())
+
+
+class _ReusingSQLiteBackend(SQLiteBackend):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pool = _ReusingSQLitePool(self._database_url, **self._options)
+
+    async def disconnect(self) -> None:
+        await self._pool.close()
+        await super().disconnect()
+
+
+def build_database(url: str) -> Database:
+    if url.startswith("sqlite"):
+        database = Database(url)
+        database._backend = _ReusingSQLiteBackend(database.url, **database.options)
+        return database
+    return Database(url, connection_class=StatelessPostgresConnection)
 
 
 async def _execute_many(database: Database, query: str, values: list[dict]) -> None:
@@ -378,7 +461,7 @@ class ReplicaAwareDatabase:
             url_obj = url_obj.set(host=resolved_ip)
             new_url_str = url_obj.render_as_string(hide_password=False)
 
-            return Database(new_url_str, **db_instance.options)
+            return build_database(new_url_str)
         except Exception:
             return db_instance
 

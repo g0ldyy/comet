@@ -15,13 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import orjson
-from databases import Database
 from dotenv import dotenv_values
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
-from comet.core.db_router import ReplicaAwareDatabase
+from comet.core.db_router import ReplicaAwareDatabase, build_database
 from comet.core.schema_migrations import run_schema_migrations
 
 BOOTSTRAP_SETTING_KEYS = frozenset(
@@ -224,7 +223,7 @@ def _database_for_bootstrap(config: BootstrapSettings) -> ReplicaAwareDatabase:
     if config.DATABASE_TYPE == "sqlite":
         path = Path(config.DATABASE_PATH)
         path.parent.mkdir(parents=True, exist_ok=True)
-        return ReplicaAwareDatabase(Database(f"sqlite:///{path}"))
+        return ReplicaAwareDatabase(build_database(f"sqlite:///{path}"))
 
     if config.DATABASE_URL is None:
         raise ValueError("DATABASE_URL is required for PostgreSQL")
@@ -236,7 +235,7 @@ def _database_for_bootstrap(config: BootstrapSettings) -> ReplicaAwareDatabase:
         raise ValueError("DATABASE_URL must select PostgreSQL and include a host")
     parsed = parsed.set(drivername="postgresql+asyncpg")
     return ReplicaAwareDatabase(
-        Database(parsed.render_as_string(hide_password=False)),
+        build_database(parsed.render_as_string(hide_password=False)),
         force_ipv4=config.DATABASE_FORCE_IPV4_RESOLUTION,
     )
 

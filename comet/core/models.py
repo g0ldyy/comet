@@ -3,13 +3,11 @@ import re
 import secrets
 import stat
 import time
-from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from urllib.parse import urlsplit
 
 import RTN
 from databases import Database
-from databases.backends.sqlite import SQLiteConnection
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -35,7 +33,7 @@ from RTN.models import (
 )
 from sqlalchemy.engine import URL, make_url
 
-from comet.core.db_router import ReplicaAwareDatabase, StatelessPostgresConnection
+from comet.core.db_router import ReplicaAwareDatabase, build_database
 from comet.core.operator_settings import (
     LiveSettings,
     effective_model_inputs,
@@ -49,8 +47,6 @@ from comet.usenet.nntp_config import parse_instance_servers, parse_personal_serv
 from comet.usenet.stremio_nntp_config import validate_handoff_config
 from comet.utils.text import has_ascii_control
 
-_comet_fk_enabled = False
-_SQLITE_BUSY_TIMEOUT_MS = 30000
 _MAX_PERSISTED_TOKEN_BYTES = 4_096
 _PUBLIC_API_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 VALID_DEBRID_SERVICES = (
@@ -141,35 +137,6 @@ def _is_opaque_credential(value: object) -> bool:
     return not has_ascii_control(value) and not any(
         character.isspace() for character in value
     )
-
-
-def set_comet_foreign_keys_enabled(enabled: bool) -> None:
-    global _comet_fk_enabled
-    _comet_fk_enabled = enabled
-
-
-async def apply_sqlite_connection_pragmas(
-    execute: Callable[[str], Awaitable[object]],
-    *,
-    foreign_keys_enabled: bool,
-) -> None:
-    await execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
-    await execute(f"PRAGMA foreign_keys={'ON' if foreign_keys_enabled else 'OFF'}")
-
-
-if not getattr(SQLiteConnection, "_comet_pragmas_patched", False):
-    _original_sqlite_acquire = SQLiteConnection.acquire
-
-    async def _comet_sqlite_acquire(self):
-        await _original_sqlite_acquire(self)
-        assert self._connection is not None
-        await apply_sqlite_connection_pragmas(
-            self._connection.execute,
-            foreign_keys_enabled=_comet_fk_enabled,
-        )
-
-    SQLiteConnection.acquire = _comet_sqlite_acquire
-    SQLiteConnection._comet_pragmas_patched = True
 
 
 class AppSettings(ServerSettings):
@@ -1539,13 +1506,10 @@ def native_usenet_offered(configuration: AppSettings) -> bool:
 
 def _build_database_instance(raw_url: str):
     if IS_SQLITE:
-        return Database(f"sqlite:///{raw_url}")
+        return build_database(f"sqlite:///{raw_url}")
 
     parsed = _parse_postgres_url(raw_url).set(drivername="postgresql+asyncpg")
-    return Database(
-        parsed.render_as_string(hide_password=False),
-        connection_class=StatelessPostgresConnection,
-    )
+    return build_database(parsed.render_as_string(hide_password=False))
 
 
 replica_instances: list[Database] = []

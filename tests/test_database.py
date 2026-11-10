@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, call, patch
 
 import comet.core.database as database_module
+from comet.core import db_router
 
 
 @asynccontextmanager
@@ -69,10 +70,7 @@ class DatabaseSetupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(database_module, "IS_POSTGRES", False),
             patch.object(database_module.settings, "DATABASE_PATH", ""),
             patch.object(database_module, "_prepare_sqlite_database_file") as prepare,
-            patch.object(
-                database_module._models_mod,
-                "set_comet_foreign_keys_enabled",
-            ),
+            patch.object(database_module, "set_sqlite_foreign_keys"),
             patch.object(database_module.database, "connect", new=connect),
             patch.object(database_module.database, "execute", new=execute),
             patch.object(
@@ -87,7 +85,7 @@ class DatabaseSetupTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 database_module,
-                "_apply_sqlite_pragmas",
+                "_set_sqlite_journal_mode",
                 new=pragmas,
             ),
             patch.object(
@@ -119,10 +117,7 @@ class DatabaseSetupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(database_module, "IS_POSTGRES", False),
             patch.object(database_module.settings, "DATABASE_PATH", ""),
             patch.object(database_module, "_prepare_sqlite_database_file") as prepare,
-            patch.object(
-                database_module._models_mod,
-                "set_comet_foreign_keys_enabled",
-            ),
+            patch.object(database_module, "set_sqlite_foreign_keys"),
             patch.object(database_module.database, "connect", new=AsyncMock()),
             patch.object(database_module.database, "execute", new=AsyncMock()),
             patch.object(
@@ -137,7 +132,7 @@ class DatabaseSetupTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 database_module,
-                "_apply_sqlite_pragmas",
+                "_set_sqlite_journal_mode",
                 new=pragmas,
             ),
             patch.object(
@@ -161,37 +156,18 @@ class DatabaseSetupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             pragmas.await_args_list,
             [
-                call(
-                    foreign_keys=False,
-                    journal_mode=database_module._SQLITE_MIGRATION_JOURNAL_MODE,
-                ),
-                call(
-                    foreign_keys=True,
-                    journal_mode=database_module._SQLITE_DEFAULT_JOURNAL_MODE,
-                ),
+                call(database_module._SQLITE_MIGRATION_JOURNAL_MODE),
+                call(database_module._SQLITE_DEFAULT_JOURNAL_MODE),
             ],
         )
         prepare.assert_called_once_with("")
 
-    async def test_sqlite_pragmas_retain_durability_and_deleted_value_hygiene(self):
-        execute = AsyncMock()
-        with (
-            patch.object(database_module.database, "execute", new=execute),
-            patch.object(
-                database_module._models_mod,
-                "apply_sqlite_connection_pragmas",
-                new=AsyncMock(),
-            ),
-        ):
-            await database_module._apply_sqlite_pragmas(
-                foreign_keys=True,
-            )
-
-        queries = [call.args[0] for call in execute.await_args_list]
-        self.assertIn("PRAGMA synchronous=NORMAL", queries)
-        self.assertIn("PRAGMA secure_delete=FAST", queries)
-        self.assertNotIn("PRAGMA synchronous=OFF", queries)
-        self.assertNotIn("PRAGMA secure_delete=OFF", queries)
+    def test_sqlite_pragmas_retain_durability_and_deleted_value_hygiene(self):
+        pragmas = db_router._SQLITE_CONNECTION_PRAGMAS
+        self.assertIn("PRAGMA synchronous=NORMAL", pragmas)
+        self.assertIn("PRAGMA secure_delete=FAST", pragmas)
+        self.assertNotIn("PRAGMA synchronous=OFF", pragmas)
+        self.assertNotIn("PRAGMA secure_delete=OFF", pragmas)
 
     def test_sqlite_database_file_is_private_regular_and_nonfollowing(self):
         with tempfile.TemporaryDirectory() as directory:

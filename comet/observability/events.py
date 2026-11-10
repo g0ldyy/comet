@@ -10,8 +10,6 @@ import time
 from collections import deque
 from collections.abc import Mapping
 
-from databases import Database
-
 from comet.core.event_store import EventStore, EventWrite
 from comet.core.runtime_registry import RuntimeIdentity
 
@@ -94,7 +92,10 @@ class _PrimaryDatabase:
     """Expose the primary-only subset used by EventStore."""
 
     def __init__(self, url: str) -> None:
-        self._database = Database(url)
+        # Local import: comet.core.db_router imports observability logging.
+        from comet.core.db_router import build_database
+
+        self._database = build_database(url)
         self.url = self._database.url
 
     async def connect(self) -> None:

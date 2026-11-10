@@ -15,7 +15,7 @@ except ImportError:
 
 import orjson
 
-import comet.core.models as _models_mod
+from comet.core.db_router import set_sqlite_foreign_keys
 from comet.core.models import IS_POSTGRES, IS_SQLITE, JSON_FUNC, database, settings
 from comet.core.schema_migrations import (
     NULL_SCOPE_SENTINEL,
@@ -52,7 +52,6 @@ _BACKEND_LOCK_RETRY_INTERVAL_SECONDS = 0.1
 _SQLITE_INVALID_LOCKFILE_GRACE_SECONDS = 1.0
 _SQLITE_DEFAULT_JOURNAL_MODE = "WAL"
 _SQLITE_MIGRATION_JOURNAL_MODE = "DELETE"
-_SQLITE_JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
 _SQLITE_CLEANUP_BATCH_SIZE = 50000
 _USENET_LIFECYCLE_CLEANUP_INTERVAL_SECONDS = 5 * 60
 _MAX_SQLITE_LOCKFILE_PID_BYTES = 32
@@ -539,27 +538,8 @@ async def _startup_cleanup_lock():
             yield True
 
 
-async def _apply_sqlite_pragmas(
-    *,
-    foreign_keys: bool,
-    journal_mode: str = _SQLITE_DEFAULT_JOURNAL_MODE,
-):
-    await _models_mod.apply_sqlite_connection_pragmas(
-        database.execute,
-        foreign_keys_enabled=foreign_keys,
-    )
+async def _set_sqlite_journal_mode(journal_mode: str) -> None:
     await database.execute(f"PRAGMA journal_mode={journal_mode}")
-    await database.execute("PRAGMA synchronous=NORMAL")
-    await database.execute("PRAGMA temp_store=MEMORY")
-    await database.execute("PRAGMA mmap_size=30000000000")
-    await database.execute("PRAGMA page_size=4096")
-    await database.execute("PRAGMA cache_size=-2000")
-    await database.execute(
-        f"PRAGMA journal_size_limit={_SQLITE_JOURNAL_SIZE_LIMIT_BYTES}"
-    )
-    await database.execute("PRAGMA count_changes=OFF")
-    await database.execute("PRAGMA secure_delete=FAST")
-    await database.execute("PRAGMA auto_vacuum=OFF")
 
 
 def _fsync_directory(path: str) -> None:
@@ -615,7 +595,7 @@ async def setup_database():
     try:
         if IS_SQLITE:
             _prepare_sqlite_database_file(settings.DATABASE_PATH)
-            _models_mod.set_comet_foreign_keys_enabled(False)
+            set_sqlite_foreign_keys(False)
 
         await database.connect()
         connected = True
@@ -640,20 +620,14 @@ async def setup_database():
                 )
                 if migrations_pending:
                     _report_migration_started()
-                    await _apply_sqlite_pragmas(
-                        foreign_keys=False,
-                        journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
-                    )
+                    await _set_sqlite_journal_mode(_SQLITE_MIGRATION_JOURNAL_MODE)
                     migration_count = await run_schema_migrations(
                         database,
                         is_sqlite=True,
                         is_postgres=False,
                     )
-                    await _apply_sqlite_pragmas(
-                        foreign_keys=True,
-                        journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
-                    )
-                _models_mod.set_comet_foreign_keys_enabled(True)
+                    await _set_sqlite_journal_mode(_SQLITE_DEFAULT_JOURNAL_MODE)
+                set_sqlite_foreign_keys(True)
             else:
                 migration_count = await run_schema_migrations(
                     database,
