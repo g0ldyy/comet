@@ -43,6 +43,21 @@ class AdminMetricsRefreshTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             await admin._metrics_refresh_task
 
+    async def test_stale_snapshot_claimed_elsewhere_is_not_refreshed(self):
+        stale = {"payload_json": '{"torrents":{"total":1}}', "refreshed_at": 0}
+        refresh = AsyncMock()
+        with (
+            patch.object(admin.settings, "PUBLIC_METRICS_API", True),
+            patch.object(
+                admin.database, "fetch_one", new=AsyncMock(side_effect=[stale, None])
+            ),
+            patch.object(admin, "_refresh_metrics", new=refresh),
+        ):
+            response = await admin.admin_api_metrics()
+
+        self.assertEqual(orjson.loads(response.body), {"torrents": {"total": 1}})
+        refresh.assert_not_called()
+
     async def test_cold_start_requests_share_one_refresh(self):
         refresh = AsyncMock(return_value={"torrents": {"total": 2}})
         with (
