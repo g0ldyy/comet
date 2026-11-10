@@ -1376,6 +1376,12 @@ async def _migration_debrid_lookup_indexes(ctx: MigrationContext):
     return True
 
 
+async def _migration_media_demand_indexes(ctx: MigrationContext):
+    await _ensure_spec_indexes_online(ctx, MEDIA_DEMAND_TABLE_SPEC)
+    await _drop_index_if_exists(ctx, "idx_media_demand_last_seen_v1")
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1418,4 +1424,5 @@ MIGRATIONS = [
         _migration_debrid_account_snapshot_diff,
     ),
     ("2026111002_debrid_lookup_indexes", _migration_debrid_lookup_indexes),
+    ("2026111003_media_demand_indexes", _migration_media_demand_indexes),
 ]

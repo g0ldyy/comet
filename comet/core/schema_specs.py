@@ -1375,8 +1375,9 @@ MEDIA_DEMAND_TABLE_SPEC = ManagedTableSpec(
     ),
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_media_demand_last_seen_v1
-            ON {table_name} (last_seen_at)
+            CREATE INDEX IF NOT EXISTS idx_media_demand_last_scraped_v2
+            ON {table_name} (last_scraped_at)
+            WHERE last_scraped_at IS NOT NULL
         """,
     ),
 )
