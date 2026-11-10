@@ -4,7 +4,11 @@ from datetime import datetime
 
 from comet.core.database import (
     _debrid_account_snapshot_ttl,
+    build_changed_rows_upsert,
+    build_json_list_membership_predicate,
     database,
+    encode_json_param,
+    fetch_flag,
 )
 from comet.core.execution import get_executor
 from comet.core.models import settings
@@ -18,36 +22,31 @@ from comet.utils.parsing import MediaScope
 
 _SYNC_LOCK_PREFIX = "debrid-account-sync"
 _background_tasks: dict[asyncio.Task, DistributedLock] = {}
-_UPSERT_ACCOUNT_MAGNET_QUERY = """
-    INSERT INTO debrid_account_magnets (
-        debrid_service,
-        account_key_hash,
-        magnet_id,
-        info_hash,
-        name,
-        size,
-        status,
-        added_at,
-        synced_at
-    ) VALUES (
-        :debrid_service,
-        :account_key_hash,
-        :magnet_id,
-        :info_hash,
-        :name,
-        :size,
-        :status,
-        :added_at,
-        :synced_at
-    )
-    ON CONFLICT (debrid_service, account_key_hash, magnet_id)
-    DO UPDATE SET
-        info_hash = EXCLUDED.info_hash,
-        name = EXCLUDED.name,
-        size = EXCLUDED.size,
-        status = EXCLUDED.status,
-        added_at = EXCLUDED.added_at,
-        synced_at = EXCLUDED.synced_at
+_UPSERT_ACCOUNT_MAGNETS_QUERY = build_changed_rows_upsert(
+    "debrid_account_magnets",
+    columns={
+        "debrid_service": "TEXT",
+        "account_key_hash": "TEXT",
+        "magnet_id": "TEXT",
+        "info_hash": "TEXT",
+        "name": "TEXT",
+        "size": "BIGINT",
+        "status": "TEXT",
+        "added_at": "DOUBLE PRECISION",
+    },
+    conflict_columns=("debrid_service", "account_key_hash", "magnet_id"),
+    compared_columns=("info_hash", "name", "size", "status", "added_at"),
+)
+_FRESH_ACCOUNT_SNAPSHOT_SQL = """
+    debrid_account_sync_state.debrid_service = :debrid_service
+    AND debrid_account_sync_state.account_key_hash = :account_key_hash
+    AND debrid_account_sync_state.last_sync_at >= :min_timestamp
+"""
+_DELETE_REMOVED_ACCOUNT_MAGNETS_QUERY = f"""
+    DELETE FROM debrid_account_magnets
+    WHERE debrid_service = :debrid_service
+      AND account_key_hash = :account_key_hash
+      AND NOT {build_json_list_membership_predicate("magnet_id", "magnet_ids")}
 """
 _UPSERT_ACCOUNT_SYNC_STATE_QUERY = """
     INSERT INTO debrid_account_sync_state (
@@ -128,46 +127,28 @@ async def _fetch_all_magnets(client: StremThru):
     return list(items_by_id.values())
 
 
-async def _upsert_snapshot_rows(rows: list[dict]):
-    if not rows:
-        return
-
-    await database.execute_many(_UPSERT_ACCOUNT_MAGNET_QUERY, rows)
-
-
-async def _set_last_sync(service: str, account_key_hash: str, last_sync: float):
-    await database.execute(
-        _UPSERT_ACCOUNT_SYNC_STATE_QUERY,
-        {
-            "debrid_service": service,
-            "account_key_hash": account_key_hash,
-            "last_sync_at": last_sync,
-        },
-    )
-
-
 async def _replace_account_snapshot(
     service: str,
     account_key_hash: str,
     synced_at: float,
     rows: list[dict],
 ) -> None:
+    account = {"debrid_service": service, "account_key_hash": account_key_hash}
     async with database.transaction():
-        await _upsert_snapshot_rows(rows)
         await database.execute(
-            """
-            DELETE FROM debrid_account_magnets
-            WHERE debrid_service = :debrid_service
-              AND account_key_hash = :account_key_hash
-              AND synced_at < :synced_at
-            """,
+            _DELETE_REMOVED_ACCOUNT_MAGNETS_QUERY,
             {
-                "debrid_service": service,
-                "account_key_hash": account_key_hash,
-                "synced_at": synced_at,
+                **account,
+                "magnet_ids": encode_json_param([row["magnet_id"] for row in rows]),
             },
         )
-        await _set_last_sync(service, account_key_hash, synced_at)
+        await database.execute_many(
+            _UPSERT_ACCOUNT_MAGNETS_QUERY, [{**account, **row} for row in rows]
+        )
+        await database.execute(
+            _UPSERT_ACCOUNT_SYNC_STATE_QUERY,
+            {**account, "last_sync_at": synced_at},
+        )
 
 
 async def _sync_single_account(
@@ -186,15 +167,12 @@ async def _sync_single_account(
     for item in magnets:
         rows.append(
             {
-                "debrid_service": service,
-                "account_key_hash": account_key_hash,
                 "magnet_id": item["id"],
                 "info_hash": item["hash"],
                 "name": item["name"],
                 "size": item["size"],
                 "status": item["status"],
                 "added_at": _to_epoch(item.get("added_at")),
-                "synced_at": synced_at,
             }
         )
 
@@ -254,23 +232,11 @@ async def shutdown_account_sync_tasks() -> None:
 async def _has_fresh_snapshot(
     service: str, account_key_hash: str, min_timestamp: float
 ):
-    row = await database.fetch_one(
-        """
+    return await fetch_flag(
+        f"""
         SELECT 1
-        WHERE EXISTS (
-            SELECT 1
-            FROM debrid_account_sync_state
-            WHERE debrid_service = :debrid_service
-              AND account_key_hash = :account_key_hash
-              AND last_sync_at >= :min_timestamp
-        )
-        OR EXISTS (
-            SELECT 1
-            FROM debrid_account_magnets
-            WHERE debrid_service = :debrid_service
-              AND account_key_hash = :account_key_hash
-              AND synced_at >= :min_timestamp
-        )
+        FROM debrid_account_sync_state
+        WHERE {_FRESH_ACCOUNT_SNAPSHOT_SQL}
         """,
         {
             "debrid_service": service,
@@ -279,7 +245,6 @@ async def _has_fresh_snapshot(
         },
         force_primary=True,
     )
-    return bool(row)
 
 
 async def _get_fresh_snapshot_states(
@@ -468,12 +433,16 @@ async def get_account_torrents_for_media(
 
     async def fetch_rows(service: str, account_key_hash: str):
         rows = await database.fetch_all(
-            """
+            f"""
             SELECT info_hash, name, size
             FROM debrid_account_magnets
             WHERE debrid_service = :debrid_service
               AND account_key_hash = :account_key_hash
-              AND synced_at >= :min_timestamp
+              AND EXISTS (
+                  SELECT 1
+                  FROM debrid_account_sync_state
+                  WHERE {_FRESH_ACCOUNT_SNAPSHOT_SQL}
+              )
             ORDER BY added_at DESC
             """,
             {

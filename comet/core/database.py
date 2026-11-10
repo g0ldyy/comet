@@ -921,7 +921,15 @@ async def _perform_startup_cleanup(current_time: float):
 
     await _delete_where(
         "debrid_account_magnets",
-        "synced_at < :min_timestamp",
+        """
+        NOT EXISTS (
+            SELECT 1
+            FROM debrid_account_sync_state AS sync_state
+            WHERE sync_state.debrid_service = debrid_account_magnets.debrid_service
+              AND sync_state.account_key_hash = debrid_account_magnets.account_key_hash
+              AND sync_state.last_sync_at >= :min_timestamp
+        )
+        """,
         {"min_timestamp": current_time - _debrid_account_snapshot_ttl()},
     )
 

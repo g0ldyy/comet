@@ -86,7 +86,6 @@ class DebridAccountSnapshotTests(unittest.IsolatedAsyncioTestCase):
                         size BIGINT,
                         status TEXT NOT NULL,
                         added_at REAL NOT NULL,
-                        synced_at REAL NOT NULL,
                         PRIMARY KEY (debrid_service, account_key_hash, magnet_id)
                     )
                     """
@@ -105,24 +104,21 @@ class DebridAccountSnapshotTests(unittest.IsolatedAsyncioTestCase):
                     """
                     INSERT INTO debrid_account_magnets (
                         debrid_service, account_key_hash, magnet_id, info_hash,
-                        name, size, status, added_at, synced_at
+                        name, size, status, added_at
                     ) VALUES (
                         'realdebrid', 'account', 'old', 'old-hash',
-                        'old', 1, 'cached', 1, 1
+                        'old', 1, 'cached', 1
                     )
                     """
                 )
 
                 replacement = {
-                    "debrid_service": "realdebrid",
-                    "account_key_hash": "account",
                     "magnet_id": "new",
                     "info_hash": "new-hash",
                     "name": "new",
                     "size": 2,
                     "status": "cached",
                     "added_at": 2,
-                    "synced_at": 2,
                 }
                 with patch.object(account_scraper, "database", database):
                     with self.assertRaises(sqlite3.IntegrityError):
