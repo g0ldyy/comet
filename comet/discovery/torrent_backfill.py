@@ -1,5 +1,6 @@
 """One-way migration of legacy torrent cache rows."""
 
+import asyncio
 from dataclasses import dataclass
 
 from sqlalchemy.engine.url import make_url
@@ -16,6 +17,7 @@ from comet.discovery.torrent_repository import TorrentReleaseRepository
 
 _SQLITE_BATCH_SIZE = 5_000
 _POSTGRES_GROUP_BATCH_SIZE = 25_000
+_POSTGRES_IMPORT_WORKERS = 4
 _PUBLIC_PARTITION = "0" * 64
 _TORRENT_POLICY_JSON = policy_json(
     TorrentLocator(
@@ -330,9 +332,9 @@ async def backfill_legacy_torrents(database) -> TorrentBackfillResult:
 
 
 async def _backfill_postgres(database) -> TorrentBackfillResult:
+    ranges = []
     cursor: tuple[str, str] | tuple[None, None] = (None, None)
     eligible_rows = 0
-    persisted_rows = 0
     while True:
         boundary = await database.fetch_one(
             _POSTGRES_BOUNDARY_SQL,
@@ -345,25 +347,40 @@ async def _backfill_postgres(database) -> TorrentBackfillResult:
         )
         if boundary is None:
             break
-        values = {
-            "cursor_media_id": cursor[0],
-            "cursor_info_hash": cursor[1],
-            "end_media_id": boundary["media_id"],
-            "end_info_hash": boundary["info_hash"],
-            "configuration_id": LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID,
-            "public_partition": _PUBLIC_PARTITION,
-            "policy_json": _TORRENT_POLICY_JSON,
-        }
-        async with database.transaction():
-            await database.execute("SET LOCAL synchronous_commit = off")
-            imported = await database.fetch_one(
-                _POSTGRES_IMPORT_SQL,
-                values,
-                force_primary=True,
-            )
+        ranges.append(
+            {
+                "cursor_media_id": cursor[0],
+                "cursor_info_hash": cursor[1],
+                "end_media_id": boundary["media_id"],
+                "end_info_hash": boundary["info_hash"],
+                "configuration_id": LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID,
+                "public_partition": _PUBLIC_PARTITION,
+                "policy_json": _TORRENT_POLICY_JSON,
+            }
+        )
         eligible_rows += int(boundary["row_count"])
-        persisted_rows += int(imported["locator_count"])
         cursor = boundary["media_id"], boundary["info_hash"]
+
+    persisted_rows = 0
+    pending = iter(ranges)
+
+    async def import_ranges() -> None:
+        nonlocal persisted_rows
+        for values in pending:
+            async with database.transaction():
+                await database.execute("SET LOCAL synchronous_commit = off")
+                imported = await database.fetch_one(
+                    _POSTGRES_IMPORT_SQL,
+                    values,
+                    force_primary=True,
+                )
+            persisted_rows += int(imported["locator_count"])
+
+    # Ranges are disjoint (media_id, info_hash) slices, so each worker imports
+    # its own on a separate connection and transaction.
+    async with asyncio.TaskGroup() as workers:
+        for _ in range(_POSTGRES_IMPORT_WORKERS):
+            workers.create_task(import_ranges())
     return TorrentBackfillResult(eligible_rows, persisted_rows)
 
 
