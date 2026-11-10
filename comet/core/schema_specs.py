@@ -1487,8 +1487,8 @@ DEBRID_AVAILABILITY_TABLE_SPEC = ManagedTableSpec(
     ),
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_debrid_scope_lookup_v3
-            ON {table_name} (info_hash, season_norm, episode_norm, updated_at DESC)
+            CREATE INDEX IF NOT EXISTS idx_debrid_hash_scope_v4
+            ON {table_name} (info_hash, season_norm, episode_norm)
         """,
         """
             CREATE INDEX IF NOT EXISTS idx_debrid_updated_at_v1

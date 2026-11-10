@@ -1365,6 +1365,17 @@ async def _migration_debrid_account_snapshot_diff(ctx: MigrationContext):
     return True
 
 
+async def _migration_debrid_lookup_indexes(ctx: MigrationContext):
+    await _ensure_spec_indexes_online(ctx, DEBRID_AVAILABILITY_TABLE_SPEC)
+    for index_name in (
+        "idx_debrid_scope_lookup_v3",
+        "idx_debrid_lookup_v3",
+        "idx_download_links_lookup_v3",
+    ):
+        await _drop_index_if_exists(ctx, index_name)
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1406,4 +1417,5 @@ MIGRATIONS = [
         "2026111001_debrid_account_snapshot_diff",
         _migration_debrid_account_snapshot_diff,
     ),
+    ("2026111002_debrid_lookup_indexes", _migration_debrid_lookup_indexes),
 ]
