@@ -735,49 +735,26 @@ async def _sqlite_batched_delete(
     where_sql: str,
     params: dict[str, float | int | str],
 ):
-    last_rowid = 0
-
-    while True:
-        batch_params = {
-            **params,
-            "last_rowid": last_rowid,
-            "batch_size": _SQLITE_CLEANUP_BATCH_SIZE,
-        }
-        batch_row = await database.fetch_one(
-            f"""
-            SELECT COUNT(*) AS row_count, MAX(rowid) AS max_rowid
-            FROM (
-                SELECT rowid
-                FROM {table_name}
-                WHERE rowid > :last_rowid
-                  AND ({where_sql})
-                ORDER BY rowid
-                LIMIT :batch_size
-            ) AS cleanup_batch
-            """,
-            batch_params,
-            force_primary=True,
-        )
-
-        if not batch_row["row_count"]:
-            break
-
-        await database.execute(
-            f"""
-            DELETE FROM {table_name}
-            WHERE rowid IN (
-                SELECT rowid
-                FROM {table_name}
-                WHERE rowid > :last_rowid
-                  AND ({where_sql})
-                ORDER BY rowid
-                LIMIT :batch_size
+    batch_params = {**params, "batch_size": _SQLITE_CLEANUP_BATCH_SIZE}
+    async with database.connection() as connection:
+        while True:
+            await connection.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE rowid IN (
+                    SELECT rowid
+                    FROM {table_name}
+                    WHERE {where_sql}
+                    LIMIT :batch_size
+                )
+                """,
+                batch_params,
             )
-            """,
-            batch_params,
-        )
-
-        last_rowid = batch_row["max_rowid"]
+            if (
+                await connection.fetch_val("SELECT changes()")
+                < _SQLITE_CLEANUP_BATCH_SIZE
+            ):
+                return
 
 
 async def _delete_where(
