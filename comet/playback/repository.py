@@ -22,18 +22,71 @@ from comet.core.sources import (
     ReleaseCandidate,
     TransportKind,
 )
-from comet.core.sql_batch import chunk_parameters
+from comet.core.database import (
+    build_changed_rows_upsert,
+    build_json_list_membership_predicate,
+    encode_json_param,
+)
 from comet.discovery.repository import ReleaseDiscoveryRepository
 from comet.usenet.archive_paths import normalize_archive_relative_path
 
-_CANDIDATE_CHUNK = 250
-_LOCATOR_CHUNK = 300
 _MAX_GC_BATCH = 256
 _RENDERED_RELEASE_RETENTION_SECONDS = 24 * 60 * 60
-_CANDIDATE_SHARED_COLUMNS = frozenset(
-    {"partition", "created_at", "updated_at", "last_rendered_at"}
+# Re-rendering an unchanged release rewrites it at most this often; GC adds the
+# same slack so every render still stays resolvable for the full retention.
+_RENDERED_RELEASE_REFRESH_SECONDS = 60 * 60
+_UPSERT_RENDERED_CANDIDATE_QUERY = build_changed_rows_upsert(
+    "rendered_release_candidates",
+    columns={
+        "candidate_id": "CHAR(36)",
+        "owner_configuration_partition": "CHAR(64)",
+        "external_candidate_id": "TEXT",
+        "media_id": "TEXT",
+        "transport": "TEXT",
+        "title": "TEXT",
+        "byte_size": "BIGINT",
+        "parsed_json": "TEXT",
+        "created_at": "DOUBLE PRECISION",
+        "updated_at": "DOUBLE PRECISION",
+        "last_rendered_at": "DOUBLE PRECISION",
+    },
+    conflict_columns=("owner_configuration_partition", "external_candidate_id"),
+    compared_columns=("media_id", "transport", "title", "byte_size", "parsed_json"),
+    refreshed_column="last_rendered_at",
+    update_expressions={"updated_at": "EXCLUDED.updated_at"},
 )
-_LOCATOR_SHARED_COLUMNS = frozenset({"created_at", "updated_at", "last_rendered_at"})
+_EXTERNAL_CANDIDATE_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "external_candidate_id", "external_candidate_ids"
+)
+_RENDERED_CANDIDATE_IDS_QUERY = f"""
+    SELECT candidate_id, external_candidate_id
+    FROM rendered_release_candidates
+    WHERE owner_configuration_partition = :owner_configuration_partition
+      AND {_EXTERNAL_CANDIDATE_MEMBERSHIP_SQL}
+"""
+_UPSERT_RENDERED_LOCATOR_QUERY = build_changed_rows_upsert(
+    "rendered_release_locators",
+    columns={
+        "locator_id": "CHAR(36)",
+        "candidate_id": "CHAR(36)",
+        "external_locator_id": "TEXT",
+        "locator_kind": "TEXT",
+        "locator_json": "TEXT",
+        "policy_json": "TEXT",
+        "created_at": "DOUBLE PRECISION",
+        "updated_at": "DOUBLE PRECISION",
+        "last_rendered_at": "DOUBLE PRECISION",
+    },
+    conflict_columns=("candidate_id", "external_locator_id"),
+    compared_columns=("locator_kind", "locator_json", "policy_json"),
+    refreshed_column="last_rendered_at",
+    update_expressions={"updated_at": "EXCLUDED.updated_at"},
+)
+_RENDERED_LOCATOR_IDS_QUERY = f"""
+    SELECT locator_id, candidate_id, external_locator_id
+    FROM rendered_release_locators
+    WHERE {build_json_list_membership_predicate("candidate_id", "candidate_ids")}
+"""
 
 
 _BROKERED_LOCATOR_PREFIX = "brokered-nzb-v1:"
@@ -67,7 +120,11 @@ class RenderedReleaseRepository:
     ) -> tuple[int, int]:
         """Remove expired rendered IDs without erasing mutation authority."""
         current_time = time.time() if now is None else now
-        cutoff = current_time - _RENDERED_RELEASE_RETENTION_SECONDS
+        cutoff = (
+            current_time
+            - _RENDERED_RELEASE_RETENTION_SECONDS
+            - _RENDERED_RELEASE_REFRESH_SECONDS
+        )
         locators = await self._database.fetch_all(
             """
             DELETE FROM rendered_release_locators
@@ -171,7 +228,7 @@ class RenderedReleaseRepository:
                 candidate,
                 {
                     "candidate_id": str(uuid.uuid4()),
-                    "partition": partition,
+                    "owner_configuration_partition": partition,
                     "external_candidate_id": candidate.candidate_id,
                     "media_id": candidate.media_id,
                     "transport": candidate.transport.value,
@@ -231,79 +288,50 @@ class RenderedReleaseRepository:
         return result
 
     async def _upsert_candidates(self, rows: list[dict[str, object]]) -> dict[str, str]:
-        resolved: dict[str, str] = {}
-        for offset in range(0, len(rows), _CANDIDATE_CHUNK):
-            chunk = rows[offset : offset + _CANDIDATE_CHUNK]
-            values = chunk_parameters(chunk, _CANDIDATE_SHARED_COLUMNS)
-            tuples = [
-                f"(:candidate_id_{index}, :partition,"
-                f" :external_candidate_id_{index}, :media_id_{index},"
-                f" :transport_{index}, :title_{index}, :byte_size_{index},"
-                f" :parsed_json_{index}, :created_at,"
-                f" :updated_at, :last_rendered_at)"
-                for index in range(len(chunk))
-            ]
-            returned = await self._database.fetch_all(
-                f"""
-                INSERT INTO rendered_release_candidates (
-                    candidate_id, owner_configuration_partition, external_candidate_id,
-                    media_id, transport, title, byte_size, parsed_json,
-                    created_at, updated_at, last_rendered_at
-                ) VALUES {", ".join(tuples)}
-                ON CONFLICT (owner_configuration_partition, external_candidate_id)
-                DO UPDATE SET
-                    media_id = EXCLUDED.media_id,
-                    transport = EXCLUDED.transport,
-                    title = EXCLUDED.title,
-                    byte_size = EXCLUDED.byte_size,
-                    parsed_json = EXCLUDED.parsed_json,
-                    updated_at = EXCLUDED.updated_at,
-                    last_rendered_at = EXCLUDED.last_rendered_at
-                RETURNING candidate_id, external_candidate_id
-                """,
-                values,
-                force_primary=True,
-            )
-            for row in returned:
-                resolved[row["external_candidate_id"]] = row["candidate_id"]
-        return resolved
+        if not rows:
+            return {}
+        refresh_before = rows[0]["last_rendered_at"] - _RENDERED_RELEASE_REFRESH_SECONDS
+        await self._database.execute_many(
+            _UPSERT_RENDERED_CANDIDATE_QUERY,
+            [row | {"refresh_before": refresh_before} for row in rows],
+        )
+        stored = await self._database.fetch_all(
+            _RENDERED_CANDIDATE_IDS_QUERY,
+            {
+                "owner_configuration_partition": rows[0][
+                    "owner_configuration_partition"
+                ],
+                "external_candidate_ids": encode_json_param(
+                    [row["external_candidate_id"] for row in rows]
+                ),
+            },
+            force_primary=True,
+        )
+        return {row["external_candidate_id"]: row["candidate_id"] for row in stored}
 
     async def _upsert_locators(
         self, rows: list[dict[str, object]]
     ) -> dict[tuple[str, str], str]:
-        resolved: dict[tuple[str, str], str] = {}
-        for offset in range(0, len(rows), _LOCATOR_CHUNK):
-            chunk = rows[offset : offset + _LOCATOR_CHUNK]
-            values = chunk_parameters(chunk, _LOCATOR_SHARED_COLUMNS)
-            tuples = [
-                f"(:locator_id_{index}, :candidate_id_{index},"
-                f" :external_locator_id_{index}, :locator_kind_{index},"
-                f" :locator_json_{index}, :policy_json_{index},"
-                f" :created_at, :updated_at, :last_rendered_at)"
-                for index in range(len(chunk))
-            ]
-            returned = await self._database.fetch_all(
-                f"""
-                INSERT INTO rendered_release_locators (
-                    locator_id, candidate_id, external_locator_id, locator_kind,
-                    locator_json, policy_json, created_at, updated_at, last_rendered_at
-                ) VALUES {", ".join(tuples)}
-                ON CONFLICT (candidate_id, external_locator_id) DO UPDATE SET
-                    locator_kind = EXCLUDED.locator_kind,
-                    locator_json = EXCLUDED.locator_json,
-                    policy_json = EXCLUDED.policy_json,
-                    updated_at = EXCLUDED.updated_at,
-                    last_rendered_at = EXCLUDED.last_rendered_at
-                RETURNING locator_id, candidate_id, external_locator_id
-                """,
-                values,
-                force_primary=True,
-            )
-            for row in returned:
-                resolved[(row["candidate_id"], row["external_locator_id"])] = row[
-                    "locator_id"
-                ]
-        return resolved
+        if not rows:
+            return {}
+        refresh_before = rows[0]["last_rendered_at"] - _RENDERED_RELEASE_REFRESH_SECONDS
+        await self._database.execute_many(
+            _UPSERT_RENDERED_LOCATOR_QUERY,
+            [row | {"refresh_before": refresh_before} for row in rows],
+        )
+        stored = await self._database.fetch_all(
+            _RENDERED_LOCATOR_IDS_QUERY,
+            {
+                "candidate_ids": encode_json_param(
+                    list({row["candidate_id"] for row in rows})
+                )
+            },
+            force_primary=True,
+        )
+        return {
+            (row["candidate_id"], row["external_locator_id"]): row["locator_id"]
+            for row in stored
+        }
 
     async def resolve_intent(
         self,

@@ -283,7 +283,7 @@ class RenderedReleaseRepositoryAsyncTests(unittest.IsolatedAsyncioTestCase):
                 await repository.persist(
                     (fresh,),
                     owner_configuration_partition=b"a" * 32,
-                    now=86_402,
+                    now=90_002,
                 )
                 live_ids = persisted[live.candidate_id]
                 await PlaybackPreparationRepository(database).get_or_create(
@@ -297,7 +297,7 @@ class RenderedReleaseRepositoryAsyncTests(unittest.IsolatedAsyncioTestCase):
                     provider_kind="torbox_usenet",
                     owner_configuration_partition=b"a" * 32,
                     preparation_intent_key="a" * 64,
-                    now=80_000,
+                    now=83_600,
                 )
                 mutated_ids = persisted[mutated.candidate_id]
                 await ProviderPreparationRepository(database).get_or_create(
@@ -313,7 +313,7 @@ class RenderedReleaseRepositoryAsyncTests(unittest.IsolatedAsyncioTestCase):
                     now=2,
                 )
 
-                removed = await repository.garbage_collect(now=86_402)
+                removed = await repository.garbage_collect(now=90_002)
                 remaining_candidates = await database.fetch_all(
                     """
                     SELECT external_candidate_id
@@ -394,7 +394,7 @@ class RenderedReleaseRepositoryAsyncTests(unittest.IsolatedAsyncioTestCase):
                 current_ids = await repository.persist(
                     (candidate("current"),),
                     owner_configuration_partition=b"a" * 32,
-                    now=86_402,
+                    now=90_002,
                 )
                 current = current_ids["same-candidate"]
                 await ProviderPreparationRepository(database).get_or_create(
@@ -407,10 +407,10 @@ class RenderedReleaseRepositoryAsyncTests(unittest.IsolatedAsyncioTestCase):
                     selection_json=provider_selection_json((0,)),
                     mutation_idempotency_key="d" * 64,
                     provider_kind="torbox_usenet",
-                    now=86_402,
+                    now=90_002,
                 )
 
-                removed = await repository.garbage_collect(now=86_403)
+                removed = await repository.garbage_collect(now=90_003)
                 locators = await database.fetch_all(
                     """
                     SELECT external_locator_id
