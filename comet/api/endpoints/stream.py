@@ -1,5 +1,5 @@
 from collections import defaultdict
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, BackgroundTasks, Request
 
@@ -32,6 +32,53 @@ RESOLUTION_TO_DIMENSIONS = {
     "360P": (360, 480),
     "240P": (240, 320),
 }
+
+
+def _is_valid_tracker_url(url: str) -> bool:
+    """Validate that the tracker URL is parseable and uses a supported scheme."""
+    try:
+        parsed = urlsplit(url)
+        return bool(parsed.scheme in ("udp", "http", "https") and parsed.netloc)
+    except Exception:
+        return False
+
+
+def _format_stream_sources(
+    raw_sources: list[str] | None,
+    info_hash: str,
+    is_private: bool = False,
+) -> list[str]:
+    """Format and normalize torrent tracker and DHT sources for Stremio."""
+    formatted_sources: list[str] = []
+    seen: set[str] = set()
+
+    if not is_private:
+        dht_source = f"dht:{info_hash}"
+        formatted_sources.append(dht_source)
+        seen.add(dht_source)
+
+    if raw_sources:
+        for s in raw_sources:
+            if not isinstance(s, str):
+                continue
+            s = s.strip()
+            if not s:
+                continue
+
+            if s.startswith("dht:"):
+                if not is_private and s not in seen:
+                    seen.add(s)
+                    formatted_sources.append(s)
+                continue
+
+            tracker_url = s.removeprefix("tracker:")
+            if _is_valid_tracker_url(tracker_url):
+                entry = f"tracker:{tracker_url}"
+                if entry not in seen:
+                    seen.add(entry)
+                    formatted_sources.append(entry)
+
+    return formatted_sources
 
 
 def _first_meta_value(value):
@@ -529,9 +576,12 @@ async def stream(
             if torrent.get("fileIndex") is not None:
                 the_stream["fileIdx"] = torrent["fileIndex"]
 
-            sources = torrent.get("sources") or trackers
+            is_private = bool(torrent.get("is_private") or torrent.get("private"))
+            sources = torrent.get("sources") or ([] if is_private else trackers)
             if sources:
-                the_stream["sources"] = sources
+                the_stream["sources"] = _format_stream_sources(
+                    sources, info_hash, is_private=is_private
+                )
 
             cached_results.append(the_stream)
 
