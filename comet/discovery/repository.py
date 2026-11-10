@@ -41,6 +41,9 @@ _PUBLIC_PARTITION = bytes(32)
 LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID = "4d92fc74-6f21-5e67-96e5-80bc4f38092c"
 _FINGERPRINT_CHARS = frozenset("0123456789abcdef")
 _COVERAGE_CHUNK = 500
+_LOCATOR_ID_MEMBERSHIP_SQL = build_json_list_membership_predicate(
+    "locator_id", "locator_ids"
+)
 _IDENTITY_SCHEMES = frozenset({"btih", "nm1"})
 _CANDIDATE_ID_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "redirect.redirected_candidate_id",
@@ -216,21 +219,6 @@ class ReleaseDiscoveryRepository:
         observed_at = time.time() if now is None else now
         observed_at_ms = int(observed_at * 1_000)
         async with self._database.transaction():
-            await self._database.execute(
-                """
-                UPDATE release_locator_coverage
-                SET tombstoned_at_ms = :now_ms
-                WHERE query_fingerprint = :query_fingerprint
-                  AND branch_fingerprint = :branch_fingerprint
-                  AND tombstoned_at_ms IS NULL
-                """,
-                {
-                    "now_ms": observed_at_ms,
-                    "query_fingerprint": query_key,
-                    "branch_fingerprint": branch,
-                },
-                force_primary=True,
-            )
             stored, covered_locator_ids = await self._persist_candidate_rows(
                 query,
                 scope,
@@ -245,6 +233,24 @@ class ReleaseDiscoveryRepository:
                 observed_at_ms=observed_at_ms,
             )
             unique_locator_ids = list(dict.fromkeys(covered_locator_ids))
+            retired = await self._database.fetch_all(
+                f"""
+                UPDATE release_locator_coverage
+                SET tombstoned_at_ms = :now_ms
+                WHERE query_fingerprint = :query_fingerprint
+                  AND branch_fingerprint = :branch_fingerprint
+                  AND tombstoned_at_ms IS NULL
+                  AND NOT {_LOCATOR_ID_MEMBERSHIP_SQL}
+                RETURNING locator_id
+                """,
+                {
+                    "now_ms": observed_at_ms,
+                    "query_fingerprint": query_key,
+                    "branch_fingerprint": branch,
+                    "locator_ids": encode_json_param(unique_locator_ids),
+                },
+                force_primary=True,
+            )
             for offset in range(0, len(unique_locator_ids), _COVERAGE_CHUNK):
                 chunk = unique_locator_ids[offset : offset + _COVERAGE_CHUNK]
                 rows = ", ".join(
@@ -276,27 +282,34 @@ class ReleaseDiscoveryRepository:
                     force_primary=True,
                 )
 
-            await self._database.execute(
-                """
-                UPDATE release_locators
-                SET tombstoned_at_ms = :now_ms
-                WHERE discovery_configuration_id =
-                      :discovery_configuration_id
-                  AND tombstoned_at_ms IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM release_locator_coverage coverage
-                      WHERE coverage.locator_id =
-                            release_locators.locator_id
-                        AND coverage.tombstoned_at_ms IS NULL
-                  )
-                """,
-                {
-                    "now_ms": observed_at_ms,
-                    "discovery_configuration_id": source_id,
-                },
-                force_primary=True,
-            )
+            # Only locators whose coverage was just retired can have lost
+            # their last active coverage.
+            if retired:
+                await self._database.execute(
+                    f"""
+                    UPDATE release_locators
+                    SET tombstoned_at_ms = :now_ms
+                    WHERE {_LOCATOR_ID_MEMBERSHIP_SQL}
+                      AND discovery_configuration_id =
+                          :discovery_configuration_id
+                      AND tombstoned_at_ms IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM release_locator_coverage coverage
+                          WHERE coverage.locator_id =
+                                release_locators.locator_id
+                            AND coverage.tombstoned_at_ms IS NULL
+                      )
+                    """,
+                    {
+                        "now_ms": observed_at_ms,
+                        "discovery_configuration_id": source_id,
+                        "locator_ids": encode_json_param(
+                            [row["locator_id"] for row in retired]
+                        ),
+                    },
+                    force_primary=True,
+                )
             await SearchCoverageRepository(self._database).record_success(
                 query,
                 branch,
