@@ -17,6 +17,7 @@ from comet.debrid.file_selection import (
 from comet.debrid.link_cache import valid_download_url
 from comet.metadata.episode_index import EpisodeIndexService
 from comet.metadata.media_info import media_info_from_stremthru
+from comet.observability import log
 from comet.services.debrid_cache import schedule_cache_availability
 from comet.services.filtering import exact_alias_match
 from comet.services.torrent_manager import torrent_update_queue
@@ -39,6 +40,7 @@ def _prepare_cached_torrents(responses, *, is_offcloud: bool):
     prepared = []
     filenames = []
     seen_hashes = set()
+    max_files = settings.DEBRID_MAX_FILES_PER_TORRENT
 
     for response in responses:
         for torrent in response["data"]["items"]:
@@ -48,7 +50,16 @@ def _prepare_cached_torrents(responses, *, is_offcloud: bool):
 
             prepared_files = []
             if not is_offcloud:
-                for file in torrent["files"]:
+                torrent_files = torrent["files"]
+                if 0 < max_files < len(torrent_files):
+                    log.debug(
+                        "debrid.torrent.oversized",
+                        "Cached torrent skipped for listing too many files",
+                        item_count=len(torrent_files),
+                        details=f"info_hash={info_hash} limit={max_files}",
+                    )
+                    continue
+                for file in torrent_files:
                     name = file["name"]
                     index = file["index"]
                     if name == "" and index == -1 and file.get("path") == "":
