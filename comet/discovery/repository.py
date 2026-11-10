@@ -11,8 +11,10 @@ import orjson
 from sqlalchemy.engine.url import make_url
 
 from comet.core.database import (
+    build_changed_rows_upsert,
     build_json_list_membership_predicate,
     encode_json_param,
+    settings,
 )
 from comet.core.locator_codec import (
     locator_from_json,
@@ -27,7 +29,6 @@ from comet.core.sources import (
     TorrentLocator,
     TransportKind,
 )
-from comet.core.sql_batch import chunk_parameters
 from comet.discovery.coverage import (
     SearchCoverageRepository,
     query_fingerprint,
@@ -39,34 +40,132 @@ from comet.utils.parsing import load_cached_parsed
 _PUBLIC_PARTITION = bytes(32)
 LEGACY_TORRENT_DISCOVERY_CONFIGURATION_ID = "4d92fc74-6f21-5e67-96e5-80bc4f38092c"
 _FINGERPRINT_CHARS = frozenset("0123456789abcdef")
-_CANDIDATE_CHUNK = 250
-_LOCATOR_CHUNK = 300
 _COVERAGE_CHUNK = 500
 _IDENTITY_SCHEMES = frozenset({"btih", "nm1"})
 _CANDIDATE_ID_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "redirect.redirected_candidate_id",
     "candidate_ids",
 )
-_CANDIDATE_SHARED_COLUMNS = frozenset(
-    {
+_UPSERT_CANDIDATE_QUERY = build_changed_rows_upsert(
+    "release_candidates",
+    columns={
+        "candidate_id": "VARCHAR(36)",
+        "visibility_partition": "CHAR(64)",
+        "media_id": "TEXT",
+        "transport": "VARCHAR(16)",
+        "release_key": "TEXT",
+        "scope": "VARCHAR(32)",
+        "season_norm": "INTEGER",
+        "episode_norm": "INTEGER",
+        "daily_date": "VARCHAR(10)",
+        "title": "TEXT",
+        "byte_size": "BIGINT",
+        "published_at_ms": "BIGINT",
+        "parsed_json": "TEXT",
+        "attributes_json": "TEXT",
+        "is_private": "BOOLEAN",
+        "created_at_ms": "BIGINT",
+        "updated_at_ms": "BIGINT",
+        "last_seen_at_ms": "BIGINT",
+    },
+    conflict_columns=(
         "visibility_partition",
         "media_id",
+        "transport",
+        "release_key",
         "scope",
         "season_norm",
         "episode_norm",
+    ),
+    compared_columns=(
         "daily_date",
-        "now_ms",
-    }
+        "title",
+        "byte_size",
+        "published_at_ms",
+        "parsed_json",
+        "attributes_json",
+    ),
+    refreshed_column="last_seen_at_ms",
+    unchanged_conditions=("(current.is_private OR NOT CAST(:is_private AS BOOLEAN))",),
+    update_expressions={
+        "is_private": "release_candidates.is_private OR EXCLUDED.is_private",
+        "updated_at_ms": "EXCLUDED.updated_at_ms",
+    },
 )
-_LOCATOR_SHARED_COLUMNS = frozenset(
-    {
-        "origin_kind",
-        "discovery_configuration_id",
+_CANDIDATE_IDS_QUERY = f"""
+    SELECT candidate_id, transport, release_key
+    FROM release_candidates
+    WHERE visibility_partition = :visibility_partition
+      AND media_id = :media_id
+      AND scope = :scope
+      AND season_norm = :season_norm
+      AND episode_norm = :episode_norm
+      AND {build_json_list_membership_predicate("release_key", "release_keys")}
+"""
+_UPSERT_CANONICAL_IDENTITY_QUERY = build_changed_rows_upsert(
+    "candidate_identities",
+    columns={
+        "candidate_id": "VARCHAR(36)",
+        "visibility_partition": "CHAR(64)",
+        "transport": "VARCHAR(16)",
+        "identity_scheme": "VARCHAR(16)",
+        "identity_value": "TEXT",
+        "created_at_ms": "BIGINT",
+        "updated_at_ms": "BIGINT",
+    },
+    conflict_columns=("candidate_id", "identity_scheme", "identity_value"),
+    compared_columns=(),
+    refreshed_column="updated_at_ms",
+)
+_UPSERT_LOCATOR_QUERY = build_changed_rows_upsert(
+    "release_locators",
+    columns={
+        "locator_id": "VARCHAR(36)",
+        "candidate_id": "VARCHAR(36)",
+        "origin_kind": "VARCHAR(32)",
+        "discovery_configuration_id": "VARCHAR(36)",
+        "owner_configuration_partition": "CHAR(64)",
+        "account_partition": "CHAR(64)",
+        "locator_kind": "VARCHAR(32)",
+        "locator_json": "TEXT",
+        "policy_json": "TEXT",
+        "content_key": "VARCHAR(256)",
+        "source_expires_at_ms": "BIGINT",
+        "updated_at_ms": "BIGINT",
+        "tombstoned_at_ms": "BIGINT",
+    },
+    conflict_columns=(
+        "candidate_id",
+        "locator_kind",
+        "content_key",
         "owner_configuration_partition",
+    ),
+    compared_columns=(
         "account_partition",
-        "now_ms",
-    }
+        "locator_json",
+        "policy_json",
+        "source_expires_at_ms",
+    ),
+    refreshed_column="updated_at_ms",
+    unchanged_conditions=("current.tombstoned_at_ms IS NULL",),
+    update_expressions={"tombstoned_at_ms": "NULL"},
 )
+_LOCATOR_IDS_QUERY = f"""
+    SELECT locator_id, candidate_id, locator_kind, content_key
+    FROM release_locators
+    WHERE owner_configuration_partition = :owner_configuration_partition
+      AND {build_json_list_membership_predicate("candidate_id", "candidate_ids")}
+"""
+
+
+def _refresh_before_ms(now_ms: int) -> int:
+    """Rows seen again are only rewritten once half their cache lifetime elapsed."""
+    lifetimes = [
+        ttl
+        for ttl in (settings.LIVE_TORRENT_CACHE_TTL, settings.TORRENT_CACHE_TTL)
+        if ttl >= 0
+    ]
+    return now_ms - min(lifetimes, default=31_536_000) * 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -890,139 +989,99 @@ class ReleaseDiscoveryRepository:
     async def _upsert_candidates(
         self, rows: list[dict[str, object]]
     ) -> dict[tuple[str, str], str]:
-        resolved: dict[tuple[str, str], str] = {}
-        for offset in range(0, len(rows), _CANDIDATE_CHUNK):
-            chunk = rows[offset : offset + _CANDIDATE_CHUNK]
-            values = chunk_parameters(chunk, _CANDIDATE_SHARED_COLUMNS)
-            tuples = [
-                f"(:candidate_id_{index}, :visibility_partition,"
-                f" :media_id, :transport_{index},"
-                f" :release_key_{index}, :scope,"
-                f" :season_norm, :episode_norm,"
-                f" :daily_date, :title_{index},"
-                f" :byte_size_{index}, :published_at_ms_{index},"
-                f" :parsed_json_{index}, :attributes_json_{index},"
-                f" :is_private_{index}, :now_ms, :now_ms, :now_ms)"
-                for index in range(len(chunk))
-            ]
-            returned = await self._database.fetch_all(
-                f"""
-                INSERT INTO release_candidates (
-                    candidate_id, visibility_partition, media_id,
-                    transport, release_key, scope, season_norm,
-                    episode_norm, daily_date, title, byte_size,
-                    published_at_ms, parsed_json, attributes_json,
-                    is_private, created_at_ms, updated_at_ms, last_seen_at_ms
-                ) VALUES {", ".join(tuples)}
-                ON CONFLICT (
-                    visibility_partition, media_id, transport,
-                    release_key, scope, season_norm, episode_norm
-                ) DO UPDATE SET
-                    daily_date = excluded.daily_date,
-                    title = excluded.title,
-                    byte_size = excluded.byte_size,
-                    published_at_ms = excluded.published_at_ms,
-                    parsed_json = excluded.parsed_json,
-                    attributes_json = excluded.attributes_json,
-                    is_private = release_candidates.is_private OR excluded.is_private,
-                    updated_at_ms = excluded.updated_at_ms,
-                    last_seen_at_ms = excluded.last_seen_at_ms
-                RETURNING candidate_id, transport, release_key
-                """,
-                values,
-                force_primary=True,
-            )
-            for row in returned:
-                resolved[(row["transport"], row["release_key"])] = row["candidate_id"]
-        return resolved
+        if not rows:
+            return {}
+        shared = rows[0]
+        now_ms = shared["now_ms"]
+        timestamps = {
+            "created_at_ms": now_ms,
+            "updated_at_ms": now_ms,
+            "last_seen_at_ms": now_ms,
+            "refresh_before": _refresh_before_ms(now_ms),
+        }
+        await self._database.execute_many(
+            _UPSERT_CANDIDATE_QUERY,
+            [
+                {key: value for key, value in row.items() if key != "now_ms"}
+                | timestamps
+                for row in rows
+            ],
+        )
+        stored = await self._database.fetch_all(
+            _CANDIDATE_IDS_QUERY,
+            {
+                "visibility_partition": shared["visibility_partition"],
+                "media_id": shared["media_id"],
+                "scope": shared["scope"],
+                "season_norm": shared["season_norm"],
+                "episode_norm": shared["episode_norm"],
+                "release_keys": encode_json_param([row["release_key"] for row in rows]),
+            },
+            force_primary=True,
+        )
+        return {
+            (row["transport"], row["release_key"]): row["candidate_id"]
+            for row in stored
+        }
 
     async def _upsert_canonical_torrent_identities(
         self,
         rows: Iterable[tuple[str, str, str, int]],
     ) -> None:
-        batch = tuple(rows)
-        for offset in range(0, len(batch), _CANDIDATE_CHUNK):
-            chunk = batch[offset : offset + _CANDIDATE_CHUNK]
-            tuples = []
-            values = {}
-            for index, (candidate_id, visibility, info_hash, now_ms) in enumerate(
-                chunk
-            ):
-                tuples.append(
-                    f"(:candidate_id_{index}, :visibility_{index}, 'bittorrent',"
-                    f" 'btih', :info_hash_{index}, :now_ms_{index}, :now_ms_{index})"
-                )
-                values.update(
-                    {
-                        f"candidate_id_{index}": candidate_id,
-                        f"visibility_{index}": visibility,
-                        f"info_hash_{index}": info_hash,
-                        f"now_ms_{index}": now_ms,
-                    }
-                )
-            await self._database.execute(
-                f"""
-                INSERT INTO candidate_identities (
-                    candidate_id, visibility_partition, transport,
-                    identity_scheme, identity_value,
-                    created_at_ms, updated_at_ms
-                ) VALUES {", ".join(tuples)}
-                ON CONFLICT (
-                    candidate_id, identity_scheme, identity_value
-                ) DO UPDATE SET updated_at_ms = excluded.updated_at_ms
-                """,
-                values,
-                force_primary=True,
-            )
+        await self._database.execute_many(
+            _UPSERT_CANONICAL_IDENTITY_QUERY,
+            [
+                {
+                    "candidate_id": candidate_id,
+                    "visibility_partition": visibility,
+                    "transport": "bittorrent",
+                    "identity_scheme": "btih",
+                    "identity_value": info_hash,
+                    "created_at_ms": now_ms,
+                    "updated_at_ms": now_ms,
+                    "refresh_before": _refresh_before_ms(now_ms),
+                }
+                for candidate_id, visibility, info_hash, now_ms in rows
+            ],
+        )
 
     async def _upsert_locators(
         self, rows: list[dict[str, object]]
     ) -> dict[tuple[str, str, str], str]:
-        resolved: dict[tuple[str, str, str], str] = {}
-        for offset in range(0, len(rows), _LOCATOR_CHUNK):
-            chunk = rows[offset : offset + _LOCATOR_CHUNK]
-            values = chunk_parameters(chunk, _LOCATOR_SHARED_COLUMNS)
-            tuples = [
-                f"(:locator_id_{index}, :candidate_id_{index},"
-                f" :origin_kind, :discovery_configuration_id,"
-                f" :owner_configuration_partition,"
-                f" :account_partition, :locator_kind_{index},"
-                f" :locator_json_{index}, :policy_json_{index},"
-                f" :content_key_{index}, :source_expires_at_ms_{index},"
-                f" :now_ms, NULL)"
-                for index in range(len(chunk))
+        if not rows:
+            return {}
+        now_ms = rows[0]["now_ms"]
+        timestamps = {
+            "updated_at_ms": now_ms,
+            "tombstoned_at_ms": None,
+            "refresh_before": _refresh_before_ms(now_ms),
+        }
+        await self._database.execute_many(
+            _UPSERT_LOCATOR_QUERY,
+            [
+                {key: value for key, value in row.items() if key != "now_ms"}
+                | timestamps
+                for row in rows
+            ],
+        )
+        stored = await self._database.fetch_all(
+            _LOCATOR_IDS_QUERY,
+            {
+                "owner_configuration_partition": rows[0][
+                    "owner_configuration_partition"
+                ],
+                "candidate_ids": encode_json_param(
+                    list({row["candidate_id"] for row in rows})
+                ),
+            },
+            force_primary=True,
+        )
+        return {
+            (row["candidate_id"], row["locator_kind"], row["content_key"]): row[
+                "locator_id"
             ]
-            returned = await self._database.fetch_all(
-                f"""
-                INSERT INTO release_locators (
-                    locator_id, candidate_id, origin_kind,
-                    discovery_configuration_id,
-                    owner_configuration_partition, account_partition,
-                    locator_kind, locator_json, policy_json,
-                    content_key, source_expires_at_ms,
-                    updated_at_ms,
-                    tombstoned_at_ms
-                ) VALUES {", ".join(tuples)}
-                ON CONFLICT (
-                    candidate_id, locator_kind, content_key,
-                    owner_configuration_partition
-                ) DO UPDATE SET
-                    account_partition = excluded.account_partition,
-                    locator_json = excluded.locator_json,
-                    policy_json = excluded.policy_json,
-                    source_expires_at_ms = excluded.source_expires_at_ms,
-                    updated_at_ms = excluded.updated_at_ms,
-                    tombstoned_at_ms = NULL
-                RETURNING locator_id, candidate_id, locator_kind, content_key
-                """,
-                values,
-                force_primary=True,
-            )
-            for row in returned:
-                resolved[
-                    (row["candidate_id"], row["locator_kind"], row["content_key"])
-                ] = row["locator_id"]
-        return resolved
+            for row in stored
+        }
 
     async def load_active(
         self,
