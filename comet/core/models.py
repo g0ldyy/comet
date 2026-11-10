@@ -263,6 +263,7 @@ class AppSettings(ServerSettings):
     DEBRID_ACCOUNT_SCRAPE_MAX_MATCH_ITEMS: int = 1500
     DEBRID_ACCOUNT_SCRAPE_INITIAL_WARM_TIMEOUT: float = 5.0
     STREMTHRU_URL: str | None = "https://stremthru.13377001.xyz"
+    DEBRID_MAX_FILES_PER_TORRENT: int = 10000
     DISABLE_TORRENT_STREAMS: bool | None = False
     TORRENT_DISABLED_STREAM_NAME: str | None = "[INFO] Comet"
     TORRENT_DISABLED_STREAM_DESCRIPTION: str | None = (

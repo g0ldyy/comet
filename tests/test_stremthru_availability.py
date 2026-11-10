@@ -87,6 +87,35 @@ class StremThruAvailabilityTests(unittest.TestCase):
             filenames,
         )
 
+    def test_torrents_listing_too_many_files_are_skipped(self):
+        def torrent(info_hash, count):
+            return {
+                "status": "cached",
+                "hash": info_hash,
+                "files": [
+                    {"name": f"Show.S01E{i:02d}.mkv", "index": i, "size": 1}
+                    for i in range(1, count + 1)
+                ],
+            }
+
+        responses = [{"data": {"items": [torrent("a" * 40, 2), torrent("b" * 40, 3)]}}]
+
+        for limit, expected in ((2, ["a" * 40]), (0, ["a" * 40, "b" * 40])):
+            with (
+                self.subTest(limit=limit),
+                patch(
+                    "comet.debrid.stremthru.settings.DEBRID_MAX_FILES_PER_TORRENT",
+                    limit,
+                ),
+            ):
+                torrents, filenames = _prepare_cached_torrents(
+                    responses,
+                    is_offcloud=False,
+                )
+
+            self.assertEqual([t["info_hash"] for t in torrents], expected)
+            self.assertEqual(len(filenames), 2 if limit else 5)
+
 
 class StremThruResponseTests(unittest.IsolatedAsyncioTestCase):
     async def test_store_json_response_closes_after_complete_payload_read(self):
