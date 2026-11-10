@@ -130,7 +130,7 @@ class ObservabilityConfigurationTests(unittest.TestCase):
                 self.assertTrue(lookalike_database.exists())
                 self.assertEqual(
                     os.environ["PROMETHEUS_MULTIPROC_DIR"],
-                    str(metrics_dir.resolve()),
+                    str(metrics_dir),
                 )
 
     def test_single_level_multiprocess_directory_is_accepted(self):

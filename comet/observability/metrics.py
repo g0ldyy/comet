@@ -490,7 +490,9 @@ def configure_multiprocess_directory(path: str) -> Path:
 
     directory.mkdir(parents=True, exist_ok=True)
     _multiprocess_path = str(directory)
-    os.environ["PROMETHEUS_MULTIPROC_DIR"] = _multiprocess_path
+    # Export the configured value verbatim: settings are re-read from the
+    # environment, and a resolved symlink would register as a changed setting.
+    os.environ["PROMETHEUS_MULTIPROC_DIR"] = path
     return directory
 
 
