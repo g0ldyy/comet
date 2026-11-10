@@ -10,6 +10,8 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertNotRegex(dockerfile, r"(?m)^USER\s+comet\s*$")
         self.assertIn("WORKDIR /app", dockerfile)
         self.assertIn("PYTHONDONTWRITEBYTECODE=1", dockerfile)
+        self.assertIn("LD_PRELOAD=libjemalloc.so.2", dockerfile)
+        self.assertIn("MALLOC_CONF=background_thread:true", dockerfile)
         self.assertIn("CMD python -m comet.healthcheck", dockerfile)
 
     def test_docker_context_excludes_native_build_outputs(self):

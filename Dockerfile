@@ -107,7 +107,7 @@ RUN apt-get update \
         libbz2-1.0 \
         liblz4-1 \
         liblzma5 \
-        libmimalloc3 \
+        libjemalloc2 \
         libstdc++6 \
         libxxhash0 \
         libzstd1 \
@@ -130,7 +130,8 @@ ENV TZ=UTC \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONMALLOC=malloc \
-    LD_PRELOAD=libmimalloc.so.3
+    LD_PRELOAD=libjemalloc.so.2 \
+    MALLOC_CONF=background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:0,narenas:2
 
 ARG COMET_COMMIT_HASH
 ARG COMET_BUILD_DATE

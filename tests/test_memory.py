@@ -5,21 +5,24 @@ from comet.utils.memory import trim_process_memory
 
 
 class MemoryUtilityLifecycleTests(unittest.TestCase):
-    def test_active_mimalloc_precedes_platform_fallback(self):
+    def test_trim_collects_garbage_then_releases_libc_heap(self):
         with (
             patch("comet.utils.memory.gc.collect") as collect,
-            patch("comet.utils.memory._is_mimalloc_active", return_value=True),
-            patch(
-                "comet.utils.memory._trim_with_mimalloc",
-                return_value=True,
-            ) as mimalloc,
-            patch("comet.utils.memory._trim_with_libc") as fallback,
+            patch("comet.utils.memory._malloc_trim") as malloc_trim,
         ):
-            self.assertTrue(trim_process_memory())
+            trim_process_memory()
 
         collect.assert_called_once_with()
-        mimalloc.assert_called_once_with(aggressive=True)
-        fallback.assert_not_called()
+        malloc_trim.assert_called_once_with(0)
+
+    def test_trim_without_libc_symbol_only_collects_garbage(self):
+        with (
+            patch("comet.utils.memory.gc.collect") as collect,
+            patch("comet.utils.memory._malloc_trim", None),
+        ):
+            trim_process_memory()
+
+        collect.assert_called_once_with()
 
 
 if __name__ == "__main__":
