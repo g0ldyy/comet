@@ -66,7 +66,7 @@ class AnimeToshoScraper(BaseScraper):
     async def _scrape_page(self, query, offset, limit):
         try:
             async with self.session.get(
-                "https://feed.animetosho.org/api"
+                "https://feed.animetosho.net/api"
                 f"?t=search&q={quote_plus(query)}&offset={offset}&limit={limit}"
             ) as response:
                 if response.status != 200:
