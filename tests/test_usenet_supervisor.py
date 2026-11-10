@@ -2,12 +2,22 @@ import asyncio
 import json
 import os
 import stat
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from comet.usenet.engine_transport import EngineUnavailable
 from comet.usenet.supervisor import EngineSupervisor
+
+
+@pytest.fixture
+def tmp_path():
+    # pytest's default base (e.g. macOS /var/folders) can push engine.sock past
+    # the Unix socket path limit.
+    with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+        yield Path(directory).resolve()
 
 
 def test_engine_supervisor_owns_a_distinct_secure_local_data_directory(tmp_path):
