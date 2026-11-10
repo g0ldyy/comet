@@ -26,7 +26,6 @@ __all__ = [
     "NULL_SCOPE_SENTINEL",
     "backend_lock",
     "build_changed_rows_upsert",
-    "build_distinct_from_predicate",
     "build_json_list_membership_predicate",
     "build_scope_lookup_params",
     "build_scope_params",
@@ -72,17 +71,6 @@ def build_scope_lookup_params(
         "season_norm": normalize_scope_value(season),
         "episode_norm": normalize_scope_value(episode),
     }
-
-
-def build_distinct_from_predicate(
-    table_name: str,
-    compared_alias: str,
-    columns: tuple[str, ...],
-) -> str:
-    return " OR ".join(
-        f"{table_name}.{column} IS DISTINCT FROM {compared_alias}.{column}"
-        for column in columns
-    )
 
 
 def build_changed_rows_upsert(
