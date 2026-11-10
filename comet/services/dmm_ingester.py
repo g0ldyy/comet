@@ -223,21 +223,16 @@ class DMMIngester:
 
 HASHLIST_REGEX = re.compile(r'hashlist#(.*?)"')
 HASHLIST_ID_REGEX = re.compile(
-    r"id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.IGNORECASE
+    r"id=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", re.IGNORECASE
 )
-LIST_IFRAME_REGEX = re.compile(r'<iframe src="[^"#]*#([^"]+)"')
 
 
-def read_stored_payload(file_path, id_match):
-    list_path = Path(file_path).parent / "lists" / f"{id_match.group(1)}.txt"
-    with open(list_path, "r", encoding="utf-8") as f:
-        text = f.read().strip()
-
-    if not text.startswith("<"):
-        return text
-
-    match = LIST_IFRAME_REGEX.search(text)
-    return match.group(1) if match else ""
+def read_stored_payload(file_path, list_id):
+    stored = (Path(file_path).parent / "lists" / f"{list_id}.txt").read_text(
+        encoding="utf-8"
+    )
+    match = HASHLIST_REGEX.search(stored)
+    return match.group(1) if match else stored.strip()
 
 
 def process_file_sync(file_path):
@@ -250,9 +245,8 @@ def process_file_sync(file_path):
             return []
 
         encoded_data = match.group(1)
-        id_match = HASHLIST_ID_REGEX.match(encoded_data)
-        if id_match:
-            encoded_data = read_stored_payload(file_path, id_match)
+        if id_match := HASHLIST_ID_REGEX.fullmatch(encoded_data):
+            encoded_data = read_stored_payload(file_path, id_match.group(1))
 
         json_str = decompressFromEncodedURIComponent(encoded_data)
 

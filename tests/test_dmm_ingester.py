@@ -69,24 +69,18 @@ class DmmArchiveTests(unittest.TestCase):
 
     def test_hashlist_decode_reads_stored_list_by_id(self):
         list_id = "88ef286f-8582-434e-8d3b-2a61a678cf82"
-        torrents = (
-            '[{"filename": "Valid.Movie.2026.1080p.WEB-DL", "hash": "aa", "bytes": 1}]'
-        )
-        iframe = (
-            '<iframe src="https://debridmediamanager.com/hashlist#payload"></iframe>'
-        )
+        torrents = '[{"filename": "Valid.Movie.2026", "hash": "aa", "bytes": 1}]'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "lists").mkdir()
             page = root / f"{list_id}.html"
-            page.write_text(
-                f'<iframe src="https://debridmediamanager.com/hashlist#id={list_id}"></iframe>'
-            )
+            page.write_text(f'<iframe src="https://x/hashlist#id={list_id}"></iframe>')
 
             self.assertIsNone(process_file_sync(page))
 
-            for stored in ("payload\n", f"<html>{iframe}</html>"):
-                (root / "lists" / f"{list_id}.txt").write_text(stored)
+            stored = root / "lists" / f"{list_id}.txt"
+            for content in ("payload\n", '<iframe src="https://x/hashlist#payload">'):
+                stored.write_text(content)
                 with (
                     patch(
                         "comet.services.dmm_ingester.decompressFromEncodedURIComponent",
@@ -97,7 +91,7 @@ class DmmArchiveTests(unittest.TestCase):
                     patch("comet.services.dmm_ingester.RTN.parse"),
                 ):
                     result = process_file_sync(page)
-                self.assertEqual([r["hash"] for r in result], ["aa"])
+                self.assertEqual([entry["hash"] for entry in result], ["aa"])
 
     def test_extract_rejects_path_traversal_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
