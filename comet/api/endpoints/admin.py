@@ -22,6 +22,33 @@ from comet.utils.update import UpdateManager
 router = APIRouter()
 templates = Jinja2Templates("comet/templates")
 background_scraper_start_lock = asyncio.Lock()
+_metrics_refresh_task: asyncio.Task | None = None
+# (exclusive upper bound in GiB, label); the open-ended last range also holds
+# torrents of unknown size.
+_SIZE_RANGES = (
+    (1, "Under 1GB"),
+    (5, "1-5GB"),
+    (10, "5-10GB"),
+    (20, "10-20GB"),
+    (None, "Over 20GB"),
+)
+_TORRENT_STATS_QUERY = f"""
+    SELECT
+        tracker,
+        COUNT(*) AS count,
+        SUM(seeders) AS seeders_sum,
+        COUNT(seeders) AS seeders_count,
+        MAX(seeders) AS max_seeders,
+        MIN(seeders) AS min_seeders,
+        SUM(size) AS size_sum,
+        COUNT(size) AS size_count,
+        MAX(size) AS max_size,
+        {", ".join(f"COUNT(*) FILTER (WHERE size < {gb << 30}) AS under_{gb}gb" for gb, _ in _SIZE_RANGES if gb)},
+        COUNT(*) FILTER (WHERE season IS NOT NULL) AS series_count
+    FROM torrents
+    GROUP BY tracker
+    ORDER BY count DESC
+"""
 ADMIN_SESSION_COOKIE = "admin_session"
 ADMIN_SESSION_TTL = settings.ADMIN_DASHBOARD_SESSION_TTL
 ADMIN_SESSION_SECRET = derive_session_secret(
@@ -294,81 +321,87 @@ async def admin_api_metrics(
     if not settings.PUBLIC_METRICS_API:
         require_admin_auth(admin_session)
 
-    current_time = time.time()
-
-    # Try to get from cache
-    cached_metrics = await database.fetch_one(
+    cached = await database.fetch_one(
         "SELECT payload_json, refreshed_at FROM metrics_cache WHERE id = 1"
     )
-    if cached_metrics:
-        refreshed_at = cached_metrics["refreshed_at"]
-        if (
-            isinstance(refreshed_at, (int, float))
-            and refreshed_at + settings.METRICS_CACHE_TTL > current_time
-        ):
-            cached_payload = _decode_cached_metrics(cached_metrics["payload_json"])
-            if cached_payload is not None:
-                return JSONResponse(cached_payload)
+    payload = _decode_cached_metrics(cached["payload_json"]) if cached else None
+    if payload is None:
+        # No snapshot yet: wait on the shared refresh instead of starting another.
+        return JSONResponse(await asyncio.shield(_start_metrics_refresh()))
+
+    # Stale-while-revalidate: a recompute can outlast METRICS_CACHE_TTL on large
+    # databases, so serve the snapshot and let a single worker refresh it.
+    stale_before = time.time() - settings.METRICS_CACHE_TTL
+    if cached["refreshed_at"] <= stale_before and await _claim_metrics_refresh(
+        stale_before
+    ):
+        _start_metrics_refresh()
+    return JSONResponse(payload)
+
+
+async def _claim_metrics_refresh(stale_before: float) -> bool:
+    """Atomically mark a stale snapshot as refreshing, across all workers."""
+    return (
+        await database.fetch_one(
+            """
+            UPDATE metrics_cache SET refreshed_at = :now
+            WHERE id = 1 AND refreshed_at <= :stale_before
+            RETURNING 1
+            """,
+            {"now": time.time(), "stale_before": stale_before},
+            force_primary=True,
+        )
+        is not None
+    )
+
+
+def _start_metrics_refresh() -> asyncio.Task:
+    """Start the metrics recompute unless this worker is already running one."""
+    global _metrics_refresh_task
+    if _metrics_refresh_task is None or _metrics_refresh_task.done():
+        _metrics_refresh_task = asyncio.create_task(_refresh_metrics())
+        _metrics_refresh_task.add_done_callback(_log_metrics_refresh_failure)
+    return _metrics_refresh_task
+
+
+def _log_metrics_refresh_failure(task: asyncio.Task):
+    if not task.cancelled() and (error := task.exception()):
+        logger.error(f"Metrics refresh failed: {error}")
+
+
+async def _refresh_metrics() -> dict:
+    current_time = time.time()
+    started = time.monotonic()
 
     # 📊 TORRENTS METRICS
-    total_torrents = await database.fetch_val("SELECT COUNT(*) FROM torrents")
+    # One scan grouped by tracker; global figures are folded from its rows.
+    tracker_rows = await database.fetch_all(_TORRENT_STATS_QUERY)
 
-    # Torrents by tracker
-    top_trackers = await database.fetch_all("""
-        SELECT tracker, COUNT(*) as count, AVG(seeders) as avg_seeders, AVG(size) as avg_size
-        FROM torrents 
-        GROUP BY tracker 
-        ORDER BY count DESC 
-    """)
+    def total(column: str) -> int:
+        return sum(row[column] for row in tracker_rows)
 
-    tracker_stats = []
-    for row in top_trackers:
-        tracker_stats.append(
-            {
-                "tracker": row["tracker"],
-                "count": row["count"],
-                "avg_seeders": row["avg_seeders"],
-                "avg_size": row["avg_size"],
-            }
+    def extreme(pick, column: str):
+        return pick(
+            (row[column] for row in tracker_rows if row[column] is not None),
+            default=0,
         )
 
-    # Size distribution
-    size_distribution = await database.fetch_all("""
-        SELECT 
-            CASE 
-                WHEN size < 1073741824 THEN 'Under 1GB'
-                WHEN size < 5368709120 THEN '1-5GB'
-                WHEN size < 10737418240 THEN '5-10GB'
-                WHEN size < 21474836480 THEN '10-20GB'
-                ELSE 'Over 20GB'
-            END as size_range,
-            COUNT(*) as count
-        FROM torrents 
-        GROUP BY size_range
-    """)
+    def average(rows, sum_column: str, count_column: str) -> float:
+        count = sum(row[count_column] for row in rows)
+        return (
+            float(sum(row[sum_column] or 0 for row in rows)) / count if count else 0.0
+        )
 
-    # Top seeders and quality metrics
-    quality_stats = await database.fetch_all("""
-        SELECT 
-            AVG(seeders) as avg_seeders,
-            MAX(seeders) as max_seeders,
-            MIN(seeders) as min_seeders,
-            AVG(size) as avg_size,
-            MAX(size) as max_size
-        FROM torrents
-    """)
+    total_torrents = total("count")
+    series_count = total("series_count")
 
-    # Media type distribution
-    media_distribution = await database.fetch_all("""
-        SELECT 
-            CASE 
-                WHEN season IS NOT NULL THEN 'Series'
-                ELSE 'Movies'
-            END as media_type,
-            COUNT(*) as count
-        FROM torrents 
-        GROUP BY media_type
-    """)
+    size_distribution = []
+    below = 0
+    for upper_gb, label in _SIZE_RANGES:
+        cumulative = total(f"under_{upper_gb}gb") if upper_gb else total_torrents
+        if cumulative > below:
+            size_distribution.append({"range": label, "count": cumulative - below})
+        below = cumulative
 
     # 🔍 SEARCH METRICS
     search_metrics = await database.fetch_one(
@@ -416,44 +449,41 @@ async def admin_api_metrics(
         {"min_timestamp": current_time - settings.DEBRID_CACHE_TTL},
     )
 
-    # Process quality stats
-    if quality_stats:
-        quality_data = quality_stats[0]
-        # PostgreSQL compatibility
-        avg_seeders = float(quality_data["avg_seeders"] or 0)
-        max_seeders = float(quality_data["max_seeders"] or 0)
-        min_seeders = float(quality_data["min_seeders"] or 0)
-        avg_size = float(quality_data["avg_size"] or 0)
-        max_size = float(quality_data["max_size"] or 0)
-    else:
-        avg_seeders = max_seeders = min_seeders = avg_size = max_size = 0
-
     metrics_data = {
         "torrents": {
-            "total": total_torrents or 0,
+            "total": total_torrents,
             "by_tracker": [
                 {
                     "tracker": row["tracker"],
                     "count": row["count"],
-                    "avg_seeders": round(float(row["avg_seeders"] or 0), 1),
-                    "avg_size_formatted": format_bytes(row["avg_size"] or 0),
+                    "avg_seeders": round(
+                        average((row,), "seeders_sum", "seeders_count"), 1
+                    ),
+                    "avg_size_formatted": format_bytes(
+                        average((row,), "size_sum", "size_count")
+                    ),
                 }
-                for row in tracker_stats
+                for row in tracker_rows
             ],
-            "size_distribution": [
-                {"range": row["size_range"], "count": row["count"]}
-                for row in size_distribution
-            ],
+            "size_distribution": size_distribution,
             "quality": {
-                "avg_seeders": round(avg_seeders, 1),
-                "max_seeders": int(max_seeders),
-                "min_seeders": int(min_seeders),
-                "avg_size_formatted": format_bytes(avg_size),
-                "max_size_formatted": format_bytes(max_size),
+                "avg_seeders": round(
+                    average(tracker_rows, "seeders_sum", "seeders_count"), 1
+                ),
+                "max_seeders": extreme(max, "max_seeders"),
+                "min_seeders": extreme(min, "min_seeders"),
+                "avg_size_formatted": format_bytes(
+                    average(tracker_rows, "size_sum", "size_count")
+                ),
+                "max_size_formatted": format_bytes(extreme(max, "max_size")),
             },
             "media_distribution": [
-                {"type": row["media_type"], "count": row["count"]}
-                for row in media_distribution
+                {"type": media_type, "count": count}
+                for media_type, count in (
+                    ("Series", series_count),
+                    ("Movies", total_torrents - series_count),
+                )
+                if count
             ],
         },
         "searches": {
@@ -494,7 +524,8 @@ async def admin_api_metrics(
         },
     )
 
-    return JSONResponse(metrics_data)
+    logger.log("API", f"Metrics refreshed in {time.monotonic() - started:.1f}s")
+    return metrics_data
 
 
 @router.get(
