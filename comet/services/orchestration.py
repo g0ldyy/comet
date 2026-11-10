@@ -17,6 +17,7 @@ from comet.utils.media_ids import normalize_cache_media_ids
 from comet.utils.parsing import (
     MediaScope,
     ensure_multi_language,
+    is_video,
     load_cached_parsed,
     load_cached_string_list,
     resolve_media_scope,
@@ -207,6 +208,25 @@ class TorrentManager:
                 self.primary_cached = True
             rows.extend(cache_rows)
 
+        # Whole-torrent rows keep the pack name and size, which the per-file row
+        # picked below for an episode request no longer carries. Rows of a single
+        # file (a file index, or a video file name) are skipped.
+        pack_rows = {}
+        for row in rows:
+            if (
+                row["episode"] is not None
+                or row["file_index"] is not None
+                or not row["title"]
+                or is_video(row["title"])
+            ):
+                continue
+            parsed_pack = load_cached_parsed(row["parsed_json"])
+            if parsed_pack is None or not (parsed_pack.seasons or parsed_pack.episodes):
+                continue
+            current = pack_rows.get(row["info_hash"])
+            if current is None or (row["size"] or 0) > (current["size"] or 0):
+                pack_rows[row["info_hash"]] = row
+
         if rows:
             best_rows = {}
 
@@ -277,6 +297,15 @@ class TorrentManager:
                 "parsed": parsed_data,
                 "updatedAt": row["updated_at"],
             }
+            pack_row = pack_rows.get(info_hash)
+            if (
+                row["episode"] is not None
+                and pack_row is not None
+                and pack_row["title"] != row["title"]
+            ):
+                self.torrents[info_hash]["torrentTitle"] = pack_row["title"]
+                if (pack_row["size"] or 0) > (row["size"] or 0):
+                    self.torrents[info_hash]["torrentSize"] = pack_row["size"]
 
     def _append_cache_file_infos(self, file_infos: list[dict], torrent: dict):
         parsed = torrent["parsed"]

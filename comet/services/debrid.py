@@ -98,8 +98,14 @@ class DebridService:
         if file_index is not None:
             update["fileIndex"] = file_index
         if title is not None:
+            if title != torrent.get("title") and "torrentTitle" not in torrent:
+                # Keep the torrent's own name: once a file is matched, "title"
+                # holds that file's name and the pack name would be lost.
+                update["torrentTitle"] = torrent.get("title")
             update["title"] = title
         if size is not None:
+            if size != torrent.get("size") and "torrentSize" not in torrent:
+                update["torrentSize"] = torrent.get("size")
             update["size"] = size
 
         return update
