@@ -439,7 +439,9 @@ class TorrentReleaseRepository:
                 FROM candidate_identities AS identity
                 JOIN release_candidates AS candidate
                   ON candidate.candidate_id = identity.candidate_id
-                WHERE candidate.visibility_partition = :public_partition
+                WHERE identity.visibility_partition = :public_partition
+                  AND identity.transport = 'bittorrent'
+                  AND candidate.visibility_partition = :public_partition
                   AND candidate.transport = 'bittorrent'
                   AND identity.identity_scheme = 'btih'
                   AND {_IDENTITY_MEMBERSHIP_SQL}
