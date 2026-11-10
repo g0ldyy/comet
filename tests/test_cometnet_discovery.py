@@ -21,10 +21,8 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ValueError):
                     DiscoveryService(**arguments)
 
-    async def test_persisted_discovery_rejects_invalid_peer_atomically(self):
+    async def test_persisted_discovery_drops_disallowed_peers_only(self):
         service = DiscoveryService()
-        service._add_known_peer("wss://existing.example", "existing", "manual")
-        original = service.to_dict()
         candidate = {
             "known_peers": [
                 {
@@ -34,24 +32,44 @@ class CometNetDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                     "last_seen": 1,
                 },
                 {
-                    "address": "invalid://peer",
-                    "node_id": "invalid",
+                    "address": "wss://private.example",
+                    "node_id": "private",
                     "source": "pex",
                     "last_seen": 2,
                 },
             ]
         }
 
-        with (
-            patch(
-                "comet.cometnet.discovery.is_valid_peer_address",
-                new=AsyncMock(side_effect=[True, False]),
-            ),
-            self.assertRaisesRegex(ValueError, "address is invalid"),
+        with patch(
+            "comet.cometnet.discovery.is_valid_peer_address",
+            new=AsyncMock(side_effect=[True, False]),
         ):
             await service.from_dict(candidate)
 
-        self.assertEqual(service.to_dict(), original)
+        self.assertEqual(set(service._known_peers), {"wss://valid.example"})
+        self.assertEqual(service._node_id_to_address, {"valid": "wss://valid.example"})
+
+    async def test_persisted_pex_peers_follow_private_pex_setting(self):
+        service = DiscoveryService()
+        validate = AsyncMock(return_value=True)
+        candidate = {
+            "known_peers": [
+                {
+                    "address": "wss://peer.example",
+                    "node_id": "peer",
+                    "source": "pex",
+                    "last_seen": 1,
+                }
+            ]
+        }
+
+        with (
+            patch("comet.cometnet.discovery.is_valid_peer_address", new=validate),
+            patch("comet.cometnet.discovery.settings.COMETNET_ALLOW_PRIVATE_PEX", True),
+        ):
+            await service.from_dict(candidate)
+
+        validate.assert_awaited_once_with("wss://peer.example", allow_private=True)
 
     async def test_peer_response_counts_only_new_valid_peers(self):
         service = DiscoveryService()

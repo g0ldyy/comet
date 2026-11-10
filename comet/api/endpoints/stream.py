@@ -1,4 +1,5 @@
 from collections import defaultdict
+from functools import lru_cache
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Request
@@ -8,7 +9,7 @@ from comet.core.models import settings
 from comet.debrid.manager import get_debrid_extension
 from comet.observability import metrics
 from comet.services.media_search import MediaSearchStatus, search_media
-from comet.services.trackers import trackers
+from comet.services.trackers import normalize_trackers, trackers
 from comet.utils.cache import CachePolicies, cached_json_response
 from comet.utils.formatting import (
     format_chilllink,
@@ -32,6 +33,15 @@ RESOLUTION_TO_DIMENSIONS = {
     "360P": (360, 480),
     "240P": (240, 320),
 }
+
+
+@lru_cache(maxsize=1024)
+def _tracker_sources(candidates: tuple[str, ...]) -> tuple[str, ...]:
+    """Format a tracker list as Stremio `tracker:` peer sources.
+
+    Cached because every torrent without its own trackers shares the global list.
+    """
+    return tuple(f"tracker:{tracker}" for tracker in normalize_trackers(candidates))
 
 
 def _first_meta_value(value):
@@ -529,9 +539,11 @@ async def stream(
             if torrent.get("fileIndex") is not None:
                 the_stream["fileIdx"] = torrent["fileIndex"]
 
-            sources = torrent.get("sources") or trackers
-            if sources:
-                the_stream["sources"] = sources
+            # Explicit sources replace the streaming server's default DHT lookup.
+            the_stream["sources"] = [
+                f"dht:{info_hash}",
+                *_tracker_sources(tuple(torrent["sources"] or trackers)),
+            ]
 
             cached_results.append(the_stream)
 

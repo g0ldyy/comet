@@ -8,88 +8,26 @@ from comet.scrapers.base import (
     deduplicate_torrents,
     gather_with_error_logging,
 )
+from comet.scrapers.helpers.indexer import resolve_indexer_release
 from comet.scrapers.models import ScrapeRequest, ScrapeResult
 from comet.services.indexer_manager import indexer_manager
-from comet.services.torrent_manager import (
-    add_torrent_queue,
-    download_torrent,
-    extract_torrent_metadata,
-    extract_trackers_from_magnet,
-)
 
 
 class JackettScraper(BaseScraper):
-    def __init__(self, manager, session, url: str):
-        super().__init__(manager, session, url)
-
     async def process_torrent(self, result: dict, media_id: str, season: int):
-        base_torrent = {
-            "title": result["Title"],
-            "infoHash": None,
-            "fileIndex": None,
-            "seeders": int(result["Seeders"])
-            if result["Seeders"] is not None
-            else None,
-            "size": result["Size"],
-            "tracker": result["Tracker"],
-            "sources": [],
-        }
-
-        torrents = []
-
-        if result["Link"] is not None:
-            content, magnet_hash, magnet_url = await download_torrent(
-                self.session, result["Link"]
-            )
-
-            if content:
-                metadata = await asyncio.to_thread(extract_torrent_metadata, content)
-                if metadata:
-                    for file in metadata["files"]:
-                        torrent = base_torrent.copy()
-                        torrent["title"] = file["title"]
-                        torrent["infoHash"] = metadata["info_hash"].lower()
-                        torrent["fileIndex"] = file["index"]
-                        torrent["size"] = file["size"]
-                        torrent["sources"] = metadata["sources"]
-                        torrents.append(torrent)
-                    return torrents
-
-            if magnet_hash:
-                base_torrent["infoHash"] = magnet_hash.lower()
-                base_torrent["sources"] = extract_trackers_from_magnet(magnet_url)
-
-                await add_torrent_queue.add_torrent(
-                    magnet_url,
-                    base_torrent["seeders"],
-                    base_torrent["tracker"],
-                    media_id,
-                    season,
-                    base_torrent["infoHash"],
-                )
-
-                torrents.append(base_torrent)
-                return torrents
-
-        if result.get("InfoHash"):
-            base_torrent["infoHash"] = result["InfoHash"].lower()
-            if result["MagnetUri"] is not None:
-                base_torrent["sources"] = extract_trackers_from_magnet(
-                    result["MagnetUri"]
-                )
-
-                await add_torrent_queue.add_torrent(
-                    result["MagnetUri"],
-                    base_torrent["seeders"],
-                    base_torrent["tracker"],
-                    media_id,
-                    season,
-                    base_torrent["infoHash"],
-                )
-
-            torrents.append(base_torrent)
-
-        return torrents
+        return await resolve_indexer_release(
+            self.session,
+            title=result["Title"],
+            seeders=result["Seeders"],
+            size=result["Size"],
+            tracker=result["Tracker"],
+            info_hash=result.get("InfoHash"),
+            magnet_url=result.get("MagnetUri"),
+            download_url=result.get("Link"),
+            grab_known_hash=settings.JACKETT_GRAB_KNOWN_HASHES,
+            media_id=media_id,
+            season=season,
+        )
 
     async def fetch_jackett_results(self, indexer: str, query: str):
         async with self.session.get(

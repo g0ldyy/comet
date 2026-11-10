@@ -1,3 +1,4 @@
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -80,6 +81,21 @@ async def run_schema_migrations(database, *, is_sqlite: bool, is_postgres: bool)
             break
         await _record_schema_migration(ctx, version)
         logger.log("DATABASE", f"Applied schema migration {version}")
+
+
+async def has_pending_schema_migrations(
+    database, *, is_sqlite: bool, is_postgres: bool
+) -> bool:
+    """Check the migration ledger without mutating the database."""
+    ctx = MigrationContext(
+        database=database,
+        is_sqlite=is_sqlite,
+        is_postgres=is_postgres,
+    )
+    if not await _table_exists(ctx, "schema_migrations"):
+        return True
+    applied = await _get_applied_migrations(ctx)
+    return any(version not in applied for version, _migration in MIGRATIONS)
 
 
 async def _ensure_schema_migrations_table(ctx: MigrationContext):
@@ -221,9 +237,32 @@ async def _add_column_if_missing(
 
 
 async def _drop_index_if_exists(ctx: MigrationContext, index_name: str):
-    if not await _index_exists(ctx, index_name):
+    concurrently = " CONCURRENTLY" if ctx.is_postgres else ""
+    await ctx.database.execute(f"DROP INDEX{concurrently} IF EXISTS {index_name}")
+
+
+async def _ensure_index_online(ctx: MigrationContext, index_sql: str):
+    """Build an index without blocking writes, replacing a failed online build."""
+    if not ctx.is_postgres:
+        await ctx.database.execute(index_sql)
         return
-    await ctx.database.execute(f"DROP INDEX IF EXISTS {index_name}")
+
+    index_name = _INDEX_NAME_PATTERN.search(index_sql)[1]
+    valid = await ctx.database.fetch_val(
+        "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass(:index_name)",
+        {"index_name": index_name},
+        force_primary=True,
+    )
+    if valid is False:
+        await _drop_index_if_exists(ctx, index_name)
+    await ctx.database.execute(
+        index_sql.replace("INDEX IF NOT EXISTS", "INDEX CONCURRENTLY IF NOT EXISTS", 1)
+    )
+
+
+async def _ensure_spec_indexes_online(ctx: MigrationContext, spec: ManagedTableSpec):
+    for index_sql in _render_index_sql(spec):
+        await _ensure_index_online(ctx, index_sql)
 
 
 async def _ensure_index(ctx: MigrationContext, index_sql: str):
@@ -343,6 +382,7 @@ async def _rename_column_if_missing(
     return True
 
 
+_INDEX_NAME_PATTERN = re.compile(r"INDEX IF NOT EXISTS (\w+)")
 SQLITE_LARGE_MUTATION_BATCH_SIZE = 25000
 SQLITE_LARGE_MUTATION_CHECKPOINT_INTERVAL = 8
 
@@ -994,6 +1034,35 @@ async def _migration_media_demand_scrape_coverage(ctx: MigrationContext):
     return True
 
 
+async def _migration_debrid_account_snapshot_diff(ctx: MigrationContext):
+    spec = DEBRID_ACCOUNT_MAGNETS_TABLE_SPEC
+    await _ensure_spec_indexes_online(ctx, spec)
+    for index_name in (
+        "idx_debrid_account_lookup_v2",
+        "idx_debrid_account_synced_at_v1",
+    ):
+        await _drop_index_if_exists(ctx, index_name)
+    await _drop_column_if_exists(ctx, spec.table_name, "synced_at")
+    return True
+
+
+async def _migration_debrid_lookup_indexes(ctx: MigrationContext):
+    await _ensure_spec_indexes_online(ctx, DEBRID_AVAILABILITY_TABLE_SPEC)
+    for index_name in (
+        "idx_debrid_scope_lookup_v3",
+        "idx_debrid_lookup_v3",
+        "idx_download_links_lookup_v3",
+    ):
+        await _drop_index_if_exists(ctx, index_name)
+    return True
+
+
+async def _migration_media_demand_indexes(ctx: MigrationContext):
+    await _ensure_spec_indexes_online(ctx, MEDIA_DEMAND_TABLE_SPEC)
+    await _drop_index_if_exists(ctx, "idx_media_demand_last_seen_v1")
+    return True
+
+
 MIGRATIONS = [
     ("2026030901_foundation", _migration_foundation),
     ("2026030902_backfill_canonical_tables", _migration_backfill_canonical_tables),
@@ -1018,4 +1087,10 @@ MIGRATIONS = [
         _migration_media_demand_scrape_coverage,
     ),
     ("2026072701_imdb_title_lookup", _migration_imdb_title_lookup),
+    (
+        "2026111001_debrid_account_snapshot_diff",
+        _migration_debrid_account_snapshot_diff,
+    ),
+    ("2026111002_debrid_lookup_indexes", _migration_debrid_lookup_indexes),
+    ("2026111003_media_demand_indexes", _migration_media_demand_indexes),
 ]

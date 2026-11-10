@@ -2,11 +2,10 @@ import asyncio
 import time
 
 from comet.core.database import (
-    build_distinct_from_predicate,
+    build_changed_rows_upsert,
     build_json_list_membership_predicate,
     build_scope_lookup_params,
     build_scope_params,
-    build_upsert_assignments,
     encode_json_param,
 )
 from comet.core.logger import logger
@@ -17,18 +16,24 @@ DEBRID_UPDATE_INTERVAL = (
     settings.DEBRID_CACHE_TTL // 2 if settings.DEBRID_CACHE_TTL > 0 else 31536000
 )
 
-DEBRID_CHANGE_DETECTION_COLUMNS = (
-    "title",
-    "file_index",
-    "size",
-    "parsed_json",
-)
-DEBRID_UPDATE_COLUMNS = (*DEBRID_CHANGE_DETECTION_COLUMNS, "updated_at")
-DEBRID_UPDATE_SET_SQL = build_upsert_assignments(DEBRID_UPDATE_COLUMNS)
-DEBRID_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
+CACHE_AVAILABILITY_QUERY = build_changed_rows_upsert(
     "debrid_availability",
-    "EXCLUDED",
-    DEBRID_CHANGE_DETECTION_COLUMNS,
+    columns={
+        "debrid_service": "TEXT",
+        "info_hash": "TEXT",
+        "season": "INTEGER",
+        "episode": "INTEGER",
+        "season_norm": "INTEGER",
+        "episode_norm": "INTEGER",
+        "file_index": "TEXT",
+        "title": "TEXT",
+        "size": "BIGINT",
+        "parsed_json": "TEXT",
+        "updated_at": "REAL",
+    },
+    conflict_columns=("debrid_service", "info_hash", "season_norm", "episode_norm"),
+    compared_columns=("title", "file_index", "size", "parsed_json"),
+    refreshed_column="updated_at",
 )
 INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "info_hash", "info_hashes"
@@ -61,49 +66,6 @@ async def shutdown_cache_writes() -> None:
     if not _cache_write_tasks:
         return
     await asyncio.gather(*tuple(_cache_write_tasks), return_exceptions=True)
-
-
-def _build_conditional_update() -> str:
-    return f"""
-        DO UPDATE SET
-{DEBRID_UPDATE_SET_SQL}
-        WHERE
-            {DEBRID_DISTINCT_UPDATE_WHERE_SQL}
-            OR COALESCE(debrid_availability.updated_at, 0) < (EXCLUDED.updated_at - :update_interval)
-"""
-
-
-CONDITIONAL_UPDATE_SQL = _build_conditional_update()
-CACHE_AVAILABILITY_QUERY = f"""
-    INSERT INTO debrid_availability (
-        debrid_service,
-        info_hash,
-        season,
-        episode,
-        season_norm,
-        episode_norm,
-        file_index,
-        title,
-        size,
-        parsed_json,
-        updated_at
-    )
-    VALUES (
-        :debrid_service,
-        :info_hash,
-        :season,
-        :episode,
-        :season_norm,
-        :episode_norm,
-        :file_index,
-        :title,
-        :size,
-        :parsed_json,
-        :updated_at
-    )
-    ON CONFLICT (debrid_service, info_hash, season_norm, episode_norm)
-    {CONDITIONAL_UPDATE_SQL}
-"""
 
 
 def _build_scope_lookup(
@@ -142,7 +104,7 @@ async def cache_availability(debrid_service: str, availability: list):
                 else None
             ),
             "updated_at": current_time,
-            "update_interval": DEBRID_UPDATE_INTERVAL,
+            "refresh_before": current_time - DEBRID_UPDATE_INTERVAL,
         }
         values_by_scope[
             (file["info_hash"], scope["season_norm"], scope["episode_norm"])

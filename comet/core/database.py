@@ -13,10 +13,14 @@ except ImportError:
 
 import orjson
 
-import comet.core.models as _models_mod
+from comet.core.db_router import set_sqlite_foreign_keys
 from comet.core.logger import logger
 from comet.core.models import IS_POSTGRES, IS_SQLITE, JSON_FUNC, database, settings
-from comet.core.schema_migrations import NULL_SCOPE_SENTINEL, run_schema_migrations
+from comet.core.schema_migrations import (
+    NULL_SCOPE_SENTINEL,
+    has_pending_schema_migrations,
+    run_schema_migrations,
+)
 
 __all__ = [
     "DOWNLOAD_LINK_CACHE_TTL",
@@ -25,7 +29,7 @@ __all__ = [
     "JSON_FUNC",
     "NULL_SCOPE_SENTINEL",
     "backend_lock",
-    "build_distinct_from_predicate",
+    "build_changed_rows_upsert",
     "build_json_list_membership_predicate",
     "build_scope_lookup_params",
     "build_scope_params",
@@ -45,7 +49,6 @@ _BACKEND_LOCK_RETRY_INTERVAL_SECONDS = 0.1
 _SQLITE_INVALID_LOCKFILE_GRACE_SECONDS = 1.0
 _SQLITE_DEFAULT_JOURNAL_MODE = "WAL"
 _SQLITE_MIGRATION_JOURNAL_MODE = "DELETE"
-_SQLITE_JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
 _SQLITE_CLEANUP_BATCH_SIZE = 50000
 
 
@@ -73,15 +76,42 @@ def build_scope_lookup_params(
     }
 
 
-def build_distinct_from_predicate(
+def build_changed_rows_upsert(
     table_name: str,
-    compared_alias: str,
-    columns: tuple[str, ...],
+    *,
+    columns: dict[str, str],
+    conflict_columns: tuple[str, ...],
+    compared_columns: tuple[str, ...],
+    refreshed_column: str | None = None,
 ) -> str:
-    return " OR ".join(
-        f"{table_name}.{column} IS DISTINCT FROM {compared_alias}.{column}"
-        for column in columns
-    )
+    """Single-row upsert for `execute_many` that skips rows already stored as-is.
+
+    `columns` maps every inserted column (bound as a same-named param) to its SQL
+    type. A stored row whose compared columns already match, and whose
+    `refreshed_column` is not older than `:refresh_before`, is left untouched:
+    ON CONFLICT never locks nor rewrites it.
+    """
+    values = {column: f"CAST(:{column} AS {kind})" for column, kind in columns.items()}
+    unchanged = [f"current.{column} = {values[column]}" for column in conflict_columns]
+    unchanged += [
+        f"current.{column} IS NOT DISTINCT FROM {values[column]}"
+        for column in compared_columns
+    ]
+    updated_columns = compared_columns
+    if refreshed_column is not None:
+        unchanged.append(f"current.{refreshed_column} >= :refresh_before")
+        updated_columns += (refreshed_column,)
+
+    return f"""
+        INSERT INTO {table_name} ({", ".join(values)})
+        SELECT {", ".join(values.values())}
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {table_name} AS current
+            WHERE {" AND ".join(unchanged)}
+        )
+        ON CONFLICT ({", ".join(conflict_columns)}) DO UPDATE SET
+{build_upsert_assignments(updated_columns)}
+    """
 
 
 def build_upsert_assignments(
@@ -480,29 +510,6 @@ async def _startup_cleanup_lock():
             yield True
 
 
-async def _apply_sqlite_pragmas(
-    *,
-    foreign_keys: bool,
-    journal_mode: str = _SQLITE_DEFAULT_JOURNAL_MODE,
-):
-    await _models_mod.apply_sqlite_connection_pragmas(
-        database.execute,
-        foreign_keys_enabled=foreign_keys,
-    )
-    await database.execute(f"PRAGMA journal_mode={journal_mode}")
-    await database.execute("PRAGMA synchronous=OFF")
-    await database.execute("PRAGMA temp_store=MEMORY")
-    await database.execute("PRAGMA mmap_size=30000000000")
-    await database.execute("PRAGMA page_size=4096")
-    await database.execute("PRAGMA cache_size=-2000")
-    await database.execute(
-        f"PRAGMA journal_size_limit={_SQLITE_JOURNAL_SIZE_LIMIT_BYTES}"
-    )
-    await database.execute("PRAGMA count_changes=OFF")
-    await database.execute("PRAGMA secure_delete=OFF")
-    await database.execute("PRAGMA auto_vacuum=OFF")
-
-
 async def setup_database():
     connected = False
     try:
@@ -512,16 +519,20 @@ async def setup_database():
                 os.makedirs(db_dir, exist_ok=True)
             if not os.path.exists(settings.DATABASE_PATH):
                 Path(settings.DATABASE_PATH).touch(exist_ok=True)
-            _models_mod.set_comet_foreign_keys_enabled(False)
+            set_sqlite_foreign_keys(False)
 
         await database.connect()
         connected = True
 
         async with _schema_migration_lock():
-            if IS_SQLITE:
-                await _apply_sqlite_pragmas(
-                    foreign_keys=False,
-                    journal_mode=_SQLITE_MIGRATION_JOURNAL_MODE,
+            # Leaving WAL needs exclusive access: only do it when migrations will
+            # actually run, since other processes may hold pooled connections.
+            sqlite_migrating = IS_SQLITE and await has_pending_schema_migrations(
+                database, is_sqlite=True, is_postgres=False
+            )
+            if sqlite_migrating:
+                await database.execute(
+                    f"PRAGMA journal_mode={_SQLITE_MIGRATION_JOURNAL_MODE}"
                 )
 
             await run_schema_migrations(
@@ -531,10 +542,10 @@ async def setup_database():
             )
 
             if IS_SQLITE:
-                _models_mod.set_comet_foreign_keys_enabled(True)
-                await _apply_sqlite_pragmas(
-                    foreign_keys=True,
-                    journal_mode=_SQLITE_DEFAULT_JOURNAL_MODE,
+                set_sqlite_foreign_keys(True)
+            if sqlite_migrating:
+                await database.execute(
+                    f"PRAGMA journal_mode={_SQLITE_DEFAULT_JOURNAL_MODE}"
                 )
 
         await database.execute("DELETE FROM active_connections")
@@ -595,49 +606,26 @@ async def _sqlite_batched_delete(
     where_sql: str,
     params: dict[str, float | int | str],
 ):
-    last_rowid = 0
-
-    while True:
-        batch_params = {
-            **params,
-            "last_rowid": last_rowid,
-            "batch_size": _SQLITE_CLEANUP_BATCH_SIZE,
-        }
-        batch_row = await database.fetch_one(
-            f"""
-            SELECT COUNT(*) AS row_count, MAX(rowid) AS max_rowid
-            FROM (
-                SELECT rowid
-                FROM {table_name}
-                WHERE rowid > :last_rowid
-                  AND ({where_sql})
-                ORDER BY rowid
-                LIMIT :batch_size
-            ) AS cleanup_batch
-            """,
-            batch_params,
-            force_primary=True,
-        )
-
-        if not batch_row or not batch_row["row_count"]:
-            break
-
-        await database.execute(
-            f"""
-            DELETE FROM {table_name}
-            WHERE rowid IN (
-                SELECT rowid
-                FROM {table_name}
-                WHERE rowid > :last_rowid
-                  AND ({where_sql})
-                ORDER BY rowid
-                LIMIT :batch_size
+    batch_params = {**params, "batch_size": _SQLITE_CLEANUP_BATCH_SIZE}
+    async with database.connection() as connection:
+        while True:
+            await connection.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE rowid IN (
+                    SELECT rowid
+                    FROM {table_name}
+                    WHERE {where_sql}
+                    LIMIT :batch_size
+                )
+                """,
+                batch_params,
             )
-            """,
-            batch_params,
-        )
-
-        last_rowid = int(batch_row["max_rowid"])
+            if (
+                await connection.fetch_val("SELECT changes()")
+                < _SQLITE_CLEANUP_BATCH_SIZE
+            ):
+                return
 
 
 async def _delete_where(
@@ -748,7 +736,15 @@ async def _perform_startup_cleanup(current_time: float):
 
     await _delete_where(
         "debrid_account_magnets",
-        "synced_at < :min_timestamp",
+        """
+        NOT EXISTS (
+            SELECT 1
+            FROM debrid_account_sync_state AS sync_state
+            WHERE sync_state.debrid_service = debrid_account_magnets.debrid_service
+              AND sync_state.account_key_hash = debrid_account_magnets.account_key_hash
+              AND sync_state.last_sync_at >= :min_timestamp
+        )
+        """,
         {"min_timestamp": current_time - _debrid_account_snapshot_ttl()},
     )
 

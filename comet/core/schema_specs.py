@@ -289,8 +289,9 @@ MEDIA_DEMAND_TABLE_SPEC = ManagedTableSpec(
     ),
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_media_demand_last_seen_v1
-            ON {table_name} (last_seen_at)
+            CREATE INDEX IF NOT EXISTS idx_media_demand_last_scraped_v2
+            ON {table_name} (last_scraped_at)
+            WHERE last_scraped_at IS NOT NULL
         """,
     ),
 )
@@ -399,8 +400,8 @@ DEBRID_AVAILABILITY_TABLE_SPEC = ManagedTableSpec(
     ),
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_debrid_scope_lookup_v3
-            ON {table_name} (info_hash, season_norm, episode_norm, updated_at DESC)
+            CREATE INDEX IF NOT EXISTS idx_debrid_hash_scope_v4
+            ON {table_name} (info_hash, season_norm, episode_norm)
         """,
         """
             CREATE INDEX IF NOT EXISTS idx_debrid_updated_at_v1
@@ -446,26 +447,13 @@ DEBRID_ACCOUNT_MAGNETS_TABLE_SPEC = ManagedTableSpec(
             size BIGINT,
             status TEXT NOT NULL,
             added_at REAL NOT NULL,
-            synced_at REAL NOT NULL,
             PRIMARY KEY (debrid_service, account_key_hash, magnet_id)
         )
     """,
-    legacy_columns=(
-        LegacyColumnMigration(
-            column_name="synced_at",
-            column_sql="synced_at REAL",
-            legacy_name="timestamp",
-            backfill_expression="COALESCE(synced_at, timestamp)",
-        ),
-    ),
     index_sql=(
         """
-            CREATE INDEX IF NOT EXISTS idx_debrid_account_lookup_v2
-            ON {table_name} (debrid_service, account_key_hash, synced_at, added_at)
-        """,
-        """
-            CREATE INDEX IF NOT EXISTS idx_debrid_account_synced_at_v1
-            ON {table_name} (synced_at)
+            CREATE INDEX IF NOT EXISTS idx_debrid_account_added_v3
+            ON {table_name} (debrid_service, account_key_hash, added_at)
         """,
     ),
 )

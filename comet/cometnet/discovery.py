@@ -47,6 +47,14 @@ def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
     return canonical, len(canonical) != len(peers)
 
 
+async def is_allowed_peer_address(address: str, source: str) -> bool:
+    """Apply the SSRF policy matching where a peer address came from."""
+    return await is_valid_peer_address(
+        address,
+        allow_private=source != "pex" or settings.COMETNET_ALLOW_PRIVATE_PEX,
+    )
+
+
 def validate_discovery_configuration(
     manual_peers: object,
     bootstrap_nodes: object,
@@ -247,12 +255,7 @@ class DiscoveryService:
         if peer_info.node_id == self._node_id:
             return False  # Don't add ourselves
 
-        # Validate address before adding
-        # Allow private IPs only if explicitly configured
-        allow_private = settings.COMETNET_ALLOW_PRIVATE_PEX
-        if not await is_valid_peer_address(
-            peer_info.address, allow_private=allow_private
-        ):
+        if not await is_allowed_peer_address(peer_info.address, "pex"):
             return False
 
         is_new = peer_info.address not in self._known_peers
@@ -534,11 +537,6 @@ class DiscoveryService:
             if node_id and node_id in node_id_to_address:
                 raise ValueError("persisted non-empty peer node IDs must be unique")
 
-            # Validate before loading to prevent loading invalid data
-            allow_private = source in ("manual", "bootstrap")
-            if not await is_valid_peer_address(address, allow_private=allow_private):
-                raise ValueError(f"persisted peer address is invalid: {address}")
-
             known_peers[address] = KnownPeer(
                 node_id=node_id,
                 address=address,
@@ -547,6 +545,20 @@ class DiscoveryService:
             )
             if node_id:
                 node_id_to_address[node_id] = address
+
+        # Address policy depends on DNS and settings that can change between
+        # restarts, so a peer failing it is dropped instead of voiding the state.
+        allowed = await asyncio.gather(
+            *(
+                is_allowed_peer_address(peer.address, peer.source)
+                for peer in known_peers.values()
+            )
+        )
+        for peer, is_allowed in zip(tuple(known_peers.values()), allowed, strict=True):
+            if not is_allowed:
+                del known_peers[peer.address]
+                node_id_to_address.pop(peer.node_id, None)
+                logger.warning(f"Dropped disallowed persisted peer: {peer.address}")
 
         self._known_peers = known_peers
         self._node_id_to_address = node_id_to_address

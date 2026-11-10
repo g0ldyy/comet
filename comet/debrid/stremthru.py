@@ -12,6 +12,7 @@ from comet.metadata.episode_index import EpisodeIndexService
 from comet.services.debrid_cache import schedule_cache_availability
 from comet.services.filtering import exact_alias_match
 from comet.services.torrent_manager import torrent_update_queue
+from comet.services.trackers import normalize_trackers
 from comet.utils.parsing import (
     ensure_multi_language,
     is_video,
@@ -30,6 +31,7 @@ def batch_parse(filenames):
 def _prepare_cached_torrents(responses, *, is_offcloud: bool):
     prepared = []
     filenames = []
+    max_files = settings.DEBRID_MAX_FILES_PER_TORRENT
 
     for response in responses:
         if not isinstance(response, dict):
@@ -52,6 +54,11 @@ def _prepare_cached_torrents(responses, *, is_offcloud: bool):
             if not is_offcloud:
                 torrent_files = torrent.get("files")
                 if not isinstance(torrent_files, list):
+                    continue
+                if 0 < max_files < len(torrent_files):
+                    logger.debug(
+                        f"Skipping cached torrent {info_hash}: {len(torrent_files)} files exceed DEBRID_MAX_FILES_PER_TORRENT={max_files}"
+                    )
                     continue
 
                 for file in torrent_files:
@@ -427,8 +434,8 @@ class StremThru:
             magnet_uri = f"magnet:?xt=urn:btih:{hash}&dn={quote(torrent_name)}"
 
             if sources:
-                for source in sources:
-                    magnet_uri += f"&tr={quote(source, safe='')}"
+                for tracker in normalize_trackers(sources):
+                    magnet_uri += f"&tr={quote(tracker, safe='')}"
 
             magnet = await self._post_store_json(
                 f"/magnets?client_ip={self.client_ip}",
