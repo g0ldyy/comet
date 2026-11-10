@@ -13,12 +13,13 @@ import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from itertools import compress
 from typing import Any
 
 from comet.cometnet.protocol import PeerInfo, PeerRequest, PeerResponse
 from comet.cometnet.utils import is_valid_peer_address
 from comet.core.models import settings
-from comet.observability.context import create_detached_task
+from comet.observability import create_detached_task, log
 
 
 def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
@@ -60,6 +61,14 @@ def canonicalize_persisted_peers(peers: list[dict]) -> tuple[list[dict], bool]:
         and (not peer["node_id"] or canonical_indices[peer["node_id"]] == index)
     ]
     return canonical, len(canonical) != len(peers)
+
+
+async def is_allowed_peer_address(address: str, source: str) -> bool:
+    """Apply the SSRF policy matching where a peer address came from."""
+    return await is_valid_peer_address(
+        address,
+        allow_private=source != "pex" or settings.COMETNET_ALLOW_PRIVATE_PEX,
+    )
 
 
 def resolve_discovery_configuration(
@@ -227,12 +236,7 @@ class DiscoveryService:
         if peer_info.node_id == self._node_id:
             return False  # Don't add ourselves
 
-        # Validate address before adding
-        # Allow private IPs only if explicitly configured
-        allow_private = settings.COMETNET_ALLOW_PRIVATE_PEX
-        if not await is_valid_peer_address(
-            peer_info.address, allow_private=allow_private
-        ):
+        if not await is_allowed_peer_address(peer_info.address, "pex"):
             return False
 
         is_new = peer_info.address not in self._known_peers
@@ -498,10 +502,6 @@ class DiscoveryService:
                 raise ValueError(
                     "persisted peer last_seen must be finite and non-negative"
                 )
-            # Validate before loading to prevent loading invalid data
-            allow_private = source in ("manual", "bootstrap")
-            if not await is_valid_peer_address(address, allow_private=allow_private):
-                raise ValueError(f"persisted peer address is invalid: {address}")
 
             validated_peers.append(
                 {
@@ -512,7 +512,24 @@ class DiscoveryService:
                 }
             )
 
-        canonical_peers, _ = canonicalize_persisted_peers(validated_peers)
+        # Address policy depends on DNS and settings that can change between
+        # restarts, so a peer failing it is dropped instead of voiding the state.
+        # Filtering before canonicalization keeps a node's freshest allowed address.
+        allowed = await asyncio.gather(
+            *(
+                is_allowed_peer_address(peer["address"], peer["source"])
+                for peer in validated_peers
+            )
+        )
+        allowed_peers = list(compress(validated_peers, allowed))
+        if dropped_count := len(validated_peers) - len(allowed_peers):
+            log.warning(
+                "cometnet.state.peers_dropped",
+                "Dropped persisted CometNet peers with disallowed addresses",
+                failure_count=dropped_count,
+            )
+
+        canonical_peers, _ = canonicalize_persisted_peers(allowed_peers)
         known_peers = {peer["address"]: KnownPeer(**peer) for peer in canonical_peers}
 
         self._known_peers = known_peers
