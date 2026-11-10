@@ -3,11 +3,10 @@ import time
 from functools import partial
 
 from comet.core.database import (
-    build_distinct_from_predicate,
+    build_changed_rows_upsert,
     build_json_list_membership_predicate,
     build_scope_lookup_params,
     build_scope_params,
-    build_upsert_assignments,
     encode_json_param,
 )
 from comet.core.models import database, settings
@@ -16,17 +15,41 @@ from comet.observability import log
 from comet.observability.context import create_detached_task
 from comet.utils.parsing import MediaScope, default_dump
 
-DEBRID_CHANGE_DETECTION_COLUMNS = (
-    "title",
-    "file_index",
-    "size",
-    "parsed_json",
-)
-DEBRID_UPDATE_SET_SQL = build_upsert_assignments(DEBRID_CHANGE_DETECTION_COLUMNS)
-DEBRID_DISTINCT_UPDATE_WHERE_SQL = build_distinct_from_predicate(
+CACHE_AVAILABILITY_QUERY = build_changed_rows_upsert(
     "debrid_availability",
-    "EXCLUDED",
-    DEBRID_CHANGE_DETECTION_COLUMNS,
+    columns={
+        "debrid_service": "TEXT",
+        "info_hash": "TEXT",
+        "season": "INTEGER",
+        "episode": "INTEGER",
+        "season_norm": "INTEGER",
+        "episode_norm": "INTEGER",
+        "file_index": "TEXT",
+        "title": "TEXT",
+        "size": "BIGINT",
+        "parsed_json": "TEXT",
+        "media_info_json": "TEXT",
+        "updated_at": "DOUBLE PRECISION",
+    },
+    conflict_columns=("debrid_service", "info_hash", "season_norm", "episode_norm"),
+    compared_columns=("title", "file_index", "size", "parsed_json"),
+    refreshed_column="updated_at",
+    unchanged_conditions=(
+        """(
+            CAST(:media_info_json AS TEXT) IS NULL
+            OR current.media_info_json IS NOT DISTINCT FROM CAST(:media_info_json AS TEXT)
+        )""",
+    ),
+    update_expressions={
+        "media_info_json": """CASE
+            WHEN EXCLUDED.media_info_json IS NOT NULL
+                THEN EXCLUDED.media_info_json
+            WHEN debrid_availability.file_index IS NOT DISTINCT FROM EXCLUDED.file_index
+                AND debrid_availability.title IS NOT DISTINCT FROM EXCLUDED.title
+                THEN debrid_availability.media_info_json
+            ELSE NULL
+        END""",
+    },
 )
 INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
     "info_hash", "info_hashes"
@@ -73,64 +96,6 @@ async def shutdown_cache_writes() -> None:
     await asyncio.gather(*tuple(_cache_write_tasks), return_exceptions=True)
 
 
-def _build_conditional_update() -> str:
-    return f"""
-        DO UPDATE SET
-{DEBRID_UPDATE_SET_SQL},
-            media_info_json = CASE
-                WHEN EXCLUDED.media_info_json IS NOT NULL
-                    THEN EXCLUDED.media_info_json
-                WHEN debrid_availability.file_index IS NOT DISTINCT FROM EXCLUDED.file_index
-                    AND debrid_availability.title IS NOT DISTINCT FROM EXCLUDED.title
-                    THEN debrid_availability.media_info_json
-                ELSE NULL
-            END,
-            updated_at = EXCLUDED.updated_at
-        WHERE
-            {DEBRID_DISTINCT_UPDATE_WHERE_SQL}
-            OR (
-                EXCLUDED.media_info_json IS NOT NULL
-                AND debrid_availability.media_info_json IS DISTINCT FROM EXCLUDED.media_info_json
-            )
-            OR COALESCE(debrid_availability.updated_at, 0) < (EXCLUDED.updated_at - :update_interval)
-"""
-
-
-CONDITIONAL_UPDATE_SQL = _build_conditional_update()
-CACHE_AVAILABILITY_QUERY = f"""
-    INSERT INTO debrid_availability (
-        debrid_service,
-        info_hash,
-        season,
-        episode,
-        season_norm,
-        episode_norm,
-        file_index,
-        title,
-        size,
-        parsed_json,
-        media_info_json,
-        updated_at
-    )
-    VALUES (
-        :debrid_service,
-        :info_hash,
-        :season,
-        :episode,
-        :season_norm,
-        :episode_norm,
-        :file_index,
-        :title,
-        :size,
-        :parsed_json,
-        :media_info_json,
-        :updated_at
-    )
-    ON CONFLICT (debrid_service, info_hash, season_norm, episode_norm)
-    {CONDITIONAL_UPDATE_SQL}
-"""
-
-
 def _build_scope_lookup(
     media_scope: MediaScope,
     season: int | None,
@@ -168,7 +133,8 @@ async def cache_availability(debrid_service: str, availability: list):
             ),
             "media_info_json": media_info_to_json(file.get("media_info")),
             "updated_at": current_time,
-            "update_interval": (
+            "refresh_before": current_time
+            - (
                 settings.DEBRID_CACHE_TTL // 2
                 if settings.DEBRID_CACHE_TTL > 0
                 else 31_536_000

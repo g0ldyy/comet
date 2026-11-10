@@ -31,11 +31,10 @@ __all__ = [
     "JSON_FUNC",
     "NULL_SCOPE_SENTINEL",
     "backend_lock",
-    "build_distinct_from_predicate",
+    "build_changed_rows_upsert",
     "build_json_list_membership_predicate",
     "build_scope_lookup_params",
     "build_scope_params",
-    "build_upsert_assignments",
     "database",
     "encode_json_param",
     "fetch_flag",
@@ -110,26 +109,48 @@ def build_scope_lookup_params(
     }
 
 
-def build_distinct_from_predicate(
+def build_changed_rows_upsert(
     table_name: str,
-    compared_alias: str,
-    columns: tuple[str, ...],
-) -> str:
-    return " OR ".join(
-        f"{table_name}.{column} IS DISTINCT FROM {compared_alias}.{column}"
-        for column in columns
-    )
-
-
-def build_upsert_assignments(
-    columns: tuple[str, ...] | list[str],
     *,
-    source_alias: str = "EXCLUDED",
-    indent: str = "        ",
+    columns: dict[str, str],
+    conflict_columns: tuple[str, ...],
+    compared_columns: tuple[str, ...],
+    refreshed_column: str | None = None,
+    unchanged_conditions: tuple[str, ...] = (),
+    update_expressions: dict[str, str] | None = None,
 ) -> str:
-    return ",\n".join(
-        f"{indent}{column} = {source_alias}.{column}" for column in columns
-    )
+    """Single-row upsert for `execute_many` that skips rows already stored as-is.
+
+    `columns` maps every inserted column (bound as a same-named param) to its SQL
+    type. A stored row whose compared columns already match, whose
+    `refreshed_column` is not older than `:refresh_before` and which meets
+    `unchanged_conditions` is left untouched: ON CONFLICT never locks nor
+    rewrites it. `update_expressions` adds or overrides update assignments.
+    """
+    values = {column: f"CAST(:{column} AS {kind})" for column, kind in columns.items()}
+    unchanged = [f"current.{column} = {values[column]}" for column in conflict_columns]
+    unchanged += [
+        f"current.{column} IS NOT DISTINCT FROM {values[column]}"
+        for column in compared_columns
+    ]
+    unchanged += unchanged_conditions
+    updated_columns = compared_columns
+    if refreshed_column is not None:
+        unchanged.append(f"current.{refreshed_column} >= :refresh_before")
+        updated_columns += (refreshed_column,)
+    assignments = {column: f"EXCLUDED.{column}" for column in updated_columns}
+    assignments.update(update_expressions or {})
+
+    return f"""
+        INSERT INTO {table_name} ({", ".join(values)})
+        SELECT {", ".join(values.values())}
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {table_name} AS current
+            WHERE {" AND ".join(unchanged)}
+        )
+        ON CONFLICT ({", ".join(conflict_columns)}) DO UPDATE SET
+            {", ".join(f"{column} = {sql}" for column, sql in assignments.items())}
+    """
 
 
 def encode_json_param(value, *, default=None) -> str:
