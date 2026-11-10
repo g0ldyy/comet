@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.utils import format_datetime
 from functools import lru_cache
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Request, Response
 
@@ -17,6 +17,7 @@ from comet.metadata.imdb import resolve_imdb_title
 from comet.metadata.tmdb import TMDBApi
 from comet.observability import metrics
 from comet.services.media_search import MediaSearchResult, MediaSearchStatus, search_media
+from comet.services.trackers import normalize_trackers
 from comet.services.trackers import trackers as global_trackers
 from comet.utils.cache import CachePolicies, cached_response
 from comet.utils.http_client import http_client_manager
@@ -419,30 +420,15 @@ async def find_recent_target(
     return None
 
 
-def _valid_tracker(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = _clean_xml(value.strip())
-    if normalized.casefold().startswith("tracker:"):
-        normalized = normalized[8:].strip()
-    parsed = urlsplit(normalized)
-    if parsed.scheme.casefold() not in {"http", "https", "udp"} or not parsed.hostname:
-        return None
-    return normalized
-
-
 @lru_cache(maxsize=1024)
 def _encoded_trackers(candidates: tuple[str, ...]) -> str:
     """Encode a tracker list as magnet `&tr=` parameters.
 
     Cached because a feed reuses the same list across every one of its items.
     """
-    trackers = dict.fromkeys(
-        tracker
-        for tracker in map(_valid_tracker, candidates)
-        if tracker is not None
+    return "".join(
+        f"&tr={quote(tracker, safe='')}" for tracker in normalize_trackers(candidates)
     )
-    return "".join(f"&tr={quote(tracker, safe='')}" for tracker in trackers)
 
 
 def build_magnet(info_hash: str, title: str, torrent: dict) -> str:
