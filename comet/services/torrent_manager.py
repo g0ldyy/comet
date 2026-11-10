@@ -24,8 +24,8 @@ from comet.cometnet import get_active_backend
 from comet.cometnet.protocol import TorrentMetadata
 from comet.core.constants import TORRENT_TIMEOUT
 from comet.core.database import (
+    JSON_FUNC,
     build_changed_rows_upsert,
-    build_json_list_membership_predicate,
     encode_json_param,
     normalize_scope_value,
 )
@@ -730,9 +730,13 @@ def _compute_batched_queue_maxsize(
     return max(min_batches, total_slots // max(1, min(batch_size, 128)))
 
 
-TORRENT_INFO_HASH_MEMBERSHIP_SQL = build_json_list_membership_predicate(
-    "info_hash", "info_hashes"
-)
+EXISTING_TORRENT_HASHES_SQL = f"""
+    SELECT CAST(value AS TEXT) AS info_hash
+    FROM {JSON_FUNC}(:info_hashes)
+    WHERE EXISTS (
+        SELECT 1 FROM torrents WHERE torrents.info_hash = CAST(value AS TEXT)
+    )
+"""
 
 
 def _normalize_unique_info_hashes(info_hashes: Iterable[str]) -> tuple[str, ...]:
@@ -761,11 +765,7 @@ async def check_torrents_exist(info_hashes: list[str]) -> set[str]:
         for start in range(0, len(unique_hashes), CHECK_TORRENTS_EXIST_CHUNK_SIZE):
             chunk = unique_hashes[start : start + CHECK_TORRENTS_EXIST_CHUNK_SIZE]
             rows = await database.fetch_all(
-                f"""
-                SELECT info_hash
-                FROM torrents
-                WHERE {TORRENT_INFO_HASH_MEMBERSHIP_SQL}
-                """,
+                EXISTING_TORRENT_HASHES_SQL,
                 {"info_hashes": encode_json_param(chunk)},
             )
             existing_hashes.update(row["info_hash"] for row in rows)
