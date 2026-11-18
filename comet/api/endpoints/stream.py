@@ -18,6 +18,7 @@ from comet.utils.formatting import (
     get_formatted_components_plain,
 )
 from comet.utils.network import get_client_ip
+from comet.utils.parsing import get_pack_info
 
 streams = APIRouter()
 STREMIO_API_PREFIX = settings.STREMIO_API_PREFIX
@@ -80,6 +81,14 @@ def _build_kodi_meta(parsed, formatted_components: dict):
 
 def _stream_notice_name(kodi: bool, emoji_name: str, plain_name: str):
     return plain_name if kodi else emoji_name
+
+
+def _build_folder_hints(torrent: dict) -> dict:
+    """Name and size of the whole torrent when the matched file is part of a pack."""
+    pack = get_pack_info(torrent)
+    if pack is None:
+        return {}
+    return {"folderName": pack[0], "folderSize": pack[1]}
 
 
 def _build_stream_name(
@@ -438,6 +447,7 @@ async def stream(
         kodi_meta = _build_kodi_meta(rtn_data, formatted_components) if kodi else None
         info_hash_cache_status = service_cache_status.get(info_hash)
         quoted_torrent_title = quote(torrent_title)
+        folder_hints = _build_folder_hints(torrent) if media_type == "series" else {}
 
         for entry_index, service, debrid_extension in debrid_stream_specs:
             if service in debrid_errors:
@@ -461,6 +471,7 @@ async def stream(
             }
             if torrent_size is not None:
                 behavior_hints["videoSize"] = torrent_size
+            behavior_hints.update(folder_hints)
             if kodi_meta is not None:
                 behavior_hints["cometKodiMetaV1"] = kodi_meta
 
@@ -513,6 +524,7 @@ async def stream(
             }
             if torrent_size is not None:
                 behavior_hints["videoSize"] = torrent_size
+            behavior_hints.update(folder_hints)
             if kodi_meta is not None:
                 behavior_hints["cometKodiMetaV1"] = kodi_meta
 

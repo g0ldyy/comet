@@ -170,6 +170,28 @@ def is_video(title: str):
     return title.lower().endswith(video_extensions)
 
 
+# A matched file this much smaller than its torrent sits in a pack.
+PACK_SIZE_RATIO = 1.5
+
+
+def get_pack_info(torrent: dict) -> tuple[str, int] | None:
+    """Name and size of the whole torrent when the matched file is part of a pack."""
+    pack_name = torrent.get("torrentTitle")
+    pack_size = torrent.get("torrentSize")
+    size = torrent.get("size")
+    if (
+        not isinstance(pack_name, str)
+        or not pack_name
+        or pack_name == torrent.get("title")
+        or not isinstance(pack_size, int)
+        or not isinstance(size, int)
+        or size <= 0
+        or pack_size < size * PACK_SIZE_RATIO
+    ):
+        return None
+    return pack_name, pack_size
+
+
 def default_dump(obj):
     if isinstance(obj, ParsedData):
         return obj.model_dump()

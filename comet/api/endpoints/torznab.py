@@ -22,7 +22,7 @@ from comet.services.trackers import trackers as global_trackers
 from comet.utils.cache import CachePolicies, cached_response
 from comet.utils.http_client import http_client_manager
 from comet.utils.network import get_client_ip
-from comet.utils.parsing import MediaScope, parse_media_id
+from comet.utils.parsing import MediaScope, get_pack_info, parse_media_id
 from comet.utils.torrent_cache import build_torrent_cache_where
 
 router = APIRouter()
@@ -480,7 +480,9 @@ def _serialize_items(
         torrent = result.torrents.get(raw_info_hash)
         if not isinstance(torrent, dict):
             continue
-        raw_title = torrent.get("title")
+        # A file matched inside a pack is reported as the pack it downloads.
+        pack = get_pack_info(torrent) if media_type == "series" else None
+        raw_title = pack[0] if pack else torrent.get("title")
         if not isinstance(raw_title, str):
             continue
         title = _clean_xml(raw_title)
@@ -488,7 +490,7 @@ def _serialize_items(
             continue
 
         info_hash = raw_info_hash.lower()
-        raw_size = torrent.get("size")
+        raw_size = pack[1] if pack else torrent.get("size")
         size = (
             raw_size
             if type(raw_size) is int and raw_size >= 0
