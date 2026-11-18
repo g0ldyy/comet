@@ -32,6 +32,7 @@ from comet.cometnet.protocol import (
     parse_message,
 )
 from comet.cometnet.utils import (
+    connect_websocket,
     extract_ip_from_address,
     format_websocket_url,
     get_websocket_compression,
@@ -509,15 +510,13 @@ class ConnectionManager:
         try:
             # Connect with timeout
             logger.debug(f"Attempting WebSocket connection to {address}...")
-            websocket = await asyncio.wait_for(
-                websockets.connect(
-                    address,
-                    ping_interval=None,
-                    ping_timeout=None,
-                    max_size=self.max_message_size,
-                    compression=self.websocket_compression,
-                ),
-                timeout=5.0,
+            websocket = await connect_websocket(
+                address,
+                open_timeout=5.0,
+                ping_interval=None,
+                ping_timeout=None,
+                max_size=self.max_message_size,
+                compression=self.websocket_compression,
             )
             logger.debug(f"WebSocket connection established to {address}")
 

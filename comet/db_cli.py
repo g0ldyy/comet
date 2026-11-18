@@ -3,8 +3,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-import aiohttp
-
 from comet.core.database import setup_database
 from comet.core.db_manager import DatabaseManager
 from comet.core.logger import logger
@@ -17,6 +15,7 @@ from comet.services.debrid_account_cache_cleanup import (
     DEFAULT_CLEANUP_BATCH_SIZE,
     repair_debrid_account_cache_for_media,
 )
+from comet.utils.http_client import HttpSession
 
 
 async def list_tables_command(db_manager: DatabaseManager):
@@ -274,7 +273,7 @@ async def cleanup_debrid_account_command(
         "unverifiable": 0,
         "skipped": 0,
     }
-    async with aiohttp.ClientSession() as session:
+    async with HttpSession() as session:
         metadata_scraper = MetadataScraper(session)
         tmdb = TMDBApi(session)
         needs_kitsu = any(

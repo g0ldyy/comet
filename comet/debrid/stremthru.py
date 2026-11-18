@@ -1,7 +1,6 @@
 import asyncio
 from urllib.parse import quote, unquote
 
-import aiohttp
 from RTN import normalize_title, parse, title_match
 
 from comet.core.execution import get_executor
@@ -13,6 +12,7 @@ from comet.services.debrid_cache import schedule_cache_availability
 from comet.services.filtering import exact_alias_match
 from comet.services.torrent_manager import torrent_update_queue
 from comet.services.trackers import normalize_trackers
+from comet.utils.http_client import HttpSession
 from comet.utils.parsing import (
     ensure_multi_language,
     is_video,
@@ -92,7 +92,7 @@ class StremThru:
 
     def __init__(
         self,
-        session: aiohttp.ClientSession,
+        session: HttpSession,
         video_id: str,
         media_only_id: str,
         token: str,

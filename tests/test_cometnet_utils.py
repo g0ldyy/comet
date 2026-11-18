@@ -1,10 +1,41 @@
+import asyncio
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from comet.cometnet.utils import (
+    check_advertise_url_reachability,
     extract_ip_from_address,
     format_websocket_url,
     replace_websocket_url_port,
 )
+from comet.core.models import settings
+
+
+class ReachabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_websocket_connection_timeout_allows_proxy_fallback(self):
+        proxy_url = "http://proxy.example:8080"
+        timeout = 0.01
+        attempts = []
+        websocket = AsyncMock()
+
+        async def connect(url, *, proxy, open_timeout, **kwargs):
+            attempts.append((url, proxy, open_timeout))
+            if proxy is None:
+                await asyncio.sleep(open_timeout)
+                raise TimeoutError
+            return websocket
+
+        url = "wss://peer.example"
+        with (
+            patch.object(settings, "GLOBAL_PROXY_URL", proxy_url),
+            patch.object(settings, "PROXY_ETHOS", "on_failure"),
+            patch("comet.cometnet.utils.websockets.connect", side_effect=connect),
+        ):
+            reachable, _ = await check_advertise_url_reachability(url, timeout)
+
+        self.assertTrue(reachable)
+        self.assertEqual(attempts, [(url, None, timeout), (url, proxy_url, timeout)])
+        websocket.close.assert_awaited_once()
 
 
 class CometNetUtilsTests(unittest.TestCase):

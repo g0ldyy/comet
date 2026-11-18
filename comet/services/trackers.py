@@ -1,9 +1,8 @@
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-import aiohttp
-
 from comet.core.logger import logger
+from comet.utils.http_client import http_client_manager
 
 TRACKER_SCHEMES = frozenset(("http", "https", "udp"))
 
@@ -29,11 +28,11 @@ def normalize_trackers(sources: Iterable[str]) -> list[str]:
 
 async def download_best_trackers():
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
-            ) as response:
-                text = await response.text()
+        session = await http_client_manager.get_session()
+        async with session.get(
+            "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
+        ) as response:
+            text = await response.text()
 
         trackers.clear()
         trackers.extend(line for line in text.split("\n") if line)

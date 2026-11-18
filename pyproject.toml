@@ -8,6 +8,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp",
+    "aiohttp-socks>=0.11",
     "aiosqlite",
     "asyncpg",
     "bencode-py",
@@ -26,7 +27,7 @@ dependencies = [
     "uvicorn",
     "xxhash",
     "cryptography",
-    "websockets",
+    "websockets>=15",
     "msgpack",
     "miniupnpc",
     "aiofiles",

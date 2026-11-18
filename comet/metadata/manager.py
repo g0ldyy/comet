@@ -3,13 +3,13 @@ import time
 from dataclasses import dataclass
 from weakref import WeakValueDictionary
 
-import aiohttp
 import orjson
 
 from comet.core.database import database, encode_json_param
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.anime import anime_mapper
+from comet.utils.http_client import HttpSession
 from comet.utils.languages import merge_aliases
 from comet.utils.parsing import parse_media_id
 
@@ -118,7 +118,7 @@ def _alias_cache_timestamp(current_time: float, succeeded: bool) -> float:
 
 
 class MetadataScraper:
-    def __init__(self, session: aiohttp.ClientSession):
+    def __init__(self, session: HttpSession):
         self.session = session
 
     async def fetch_metadata_and_aliases(
