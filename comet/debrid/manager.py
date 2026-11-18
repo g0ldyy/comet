@@ -1,6 +1,6 @@
 import hashlib
 
-import aiohttp
+from comet.utils.http_client import HttpSession
 
 from .stremthru import StremThru
 
@@ -67,7 +67,7 @@ def get_debrid_credentials(config: dict, service_index: int | None = None):
 
 
 def get_debrid(
-    session: aiohttp.ClientSession,
+    session: HttpSession,
     video_id: str,
     media_only_id: str,
     debrid_service: str,
@@ -85,7 +85,7 @@ def get_debrid(
 
 
 async def retrieve_debrid_availability(
-    session: aiohttp.ClientSession,
+    session: HttpSession,
     video_id: str,
     media_only_id: str,
     debrid_service: str,

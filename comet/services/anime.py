@@ -3,12 +3,12 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-import aiohttp
 import orjson
 
 from comet.core.database import backend_lock, database
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.http_client import HttpSession
 from comet.utils.memory import trim_process_memory
 
 _PROVIDER_URL_PATTERNS = (
@@ -71,7 +71,7 @@ class AnimeMapper:
         self._fribb_url = "https://raw.githubusercontent.com/Fribb/anime-lists/refs/heads/master/anime-list-full.json"
         self._kitsu_imdb_url = "https://raw.githubusercontent.com/TheBeastLT/stremio-kitsu-anime/master/static/data/imdb_mapping.json"
 
-    async def load_anime_mapping(self, session: aiohttp.ClientSession | None = None):
+    async def load_anime_mapping(self, session: HttpSession | None = None):
         if not settings.ANIME_MAPPING_ENABLED:
             return True
 
@@ -405,7 +405,7 @@ class AnimeMapper:
 
     async def _refresh_from_remote(
         self,
-        session: aiohttp.ClientSession | None = None,
+        session: HttpSession | None = None,
         *,
         background: bool = False,
     ):
@@ -416,7 +416,7 @@ class AnimeMapper:
             own_session = False
             if session is None:
                 own_session = True
-                session = aiohttp.ClientSession()
+                session = HttpSession()
 
             try:
                 async with _anime_refresh_lock():

@@ -2,7 +2,6 @@ import asyncio
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
 
-import aiohttp
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -42,6 +41,7 @@ from comet.services.debrid_account_scraper import shutdown_account_sync_tasks
 from comet.services.debrid_cache import shutdown_cache_writes
 from comet.services.dmm_ingester import dmm_ingester
 from comet.services.indexer_manager import indexer_manager
+from comet.services.streaming.wrapper import configure_stream_proxy
 from comet.services.torrent_manager import (
     add_torrent_queue,
     check_torrents_exist,
@@ -136,11 +136,11 @@ async def lifespan(app: FastAPI):
             await download_best_trackers()
 
         # Load anime ID mapping for enhanced metadata and anime detection
-        async with aiohttp.ClientSession() as session:
-            await anime_mapper.load_anime_mapping(session)
+        await anime_mapper.load_anime_mapping()
 
         # Initialize bandwidth monitoring system
         if settings.PROXY_DEBRID_STREAM:
+            configure_stream_proxy()
             cleanup.push_async_callback(bandwidth_monitor.shutdown)
             await bandwidth_monitor.initialize()
 
@@ -198,7 +198,6 @@ async def lifespan(app: FastAPI):
 
         # Start indexer manager
         indexer_manager_task = asyncio.create_task(indexer_manager.run())
-        cleanup.push_async_callback(indexer_manager.close)
         cleanup.push_async_callback(_cancel_task, indexer_manager_task)
 
         yield

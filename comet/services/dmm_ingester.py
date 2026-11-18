@@ -18,6 +18,7 @@ from comet.core.execution import get_executor
 from comet.core.logger import logger
 from comet.core.models import settings
 from comet.services.lock import DistributedLock
+from comet.utils.http_client import http_client_manager
 from comet.utils.lzstring import decompressFromEncodedURIComponent
 
 DMM_URL = "https://github.com/debridmediamanager/hashlists/zipball/main/"
@@ -74,20 +75,20 @@ class DMMIngester:
         try:
             logger.log("DMM_INGEST", "Downloading DMM hashlists...")
             timeout = aiohttp.ClientTimeout(total=None, sock_read=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(DMM_URL) as response:
-                    if response.status != 200:
-                        logger.warning(
-                            f"Failed to download DMM hashlists: {response.status}"
-                        )
-                        return
+            session = await http_client_manager.get_session()
+            async with session.get(DMM_URL, timeout=timeout) as response:
+                if response.status != 200:
+                    logger.warning(
+                        f"Failed to download DMM hashlists: {response.status}"
+                    )
+                    return
 
-                    async with aiofiles.open(zip_path, "wb") as f:
-                        while True:
-                            chunk = await response.content.read(1024 * 1024 * 64)
-                            if not chunk:
-                                break
-                            await f.write(chunk)
+                async with aiofiles.open(zip_path, "wb") as f:
+                    while True:
+                        chunk = await response.content.read(1024 * 1024 * 64)
+                        if not chunk:
+                            break
+                        await f.write(chunk)
 
             logger.log("DMM_INGEST", "Extracting DMM hashlists...")
             extract_dir = os.path.join(TEMP_DIR, "extracted")

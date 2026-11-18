@@ -2,11 +2,10 @@ import math
 import time
 from datetime import date
 
-import aiohttp
-
 from comet.core.logger import logger
 from comet.core.models import database, settings
 from comet.metadata.tmdb import TMDBApi
+from comet.utils.http_client import HttpSession
 
 _CINEMETA_SERIES_META_URL = "https://v3-cinemeta.strem.io/meta/series/{series_id}.json"
 
@@ -93,7 +92,7 @@ def _normalize_air_date(raw_value) -> str | None:
 
 
 class EpisodeIndexService:
-    def __init__(self, session: aiohttp.ClientSession):
+    def __init__(self, session: HttpSession):
         self.session = session
 
     async def _get_cached_air_date(

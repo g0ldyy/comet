@@ -1,6 +1,5 @@
-import aiohttp
-
 from comet.core.logger import logger
+from comet.utils.http_client import HttpSession
 from comet.utils.year import parse_year
 
 
@@ -33,7 +32,7 @@ def _extract_kitsu_metadata(payload) -> tuple[str | None, int | None, int | None
     return title, year, year_end
 
 
-async def get_kitsu_metadata(session: aiohttp.ClientSession, id: str):
+async def get_kitsu_metadata(session: HttpSession, id: str):
     try:
         async with session.get(
             f"https://kitsu.io/api/edge/anime/{id}",

@@ -10,9 +10,18 @@ import asyncio
 from typing import Any
 
 import aiohttp
+from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
 
 from comet.cometnet.interface import CometNetBackend
 from comet.core.logger import censor_url, logger
+from comet.utils.http_client import HttpSession
+
+_HTTP_ERRORS = (
+    aiohttp.ClientError,
+    ProxyConnectionError,
+    ProxyError,
+    ProxyTimeoutError,
+)
 
 
 class CometNetRelay(CometNetBackend):
@@ -39,7 +48,7 @@ class CometNetRelay(CometNetBackend):
         self._display_url = censor_url(self.relay_url)
         self.timeout = timeout
         self.api_key = api_key
-        self._session: aiohttp.ClientSession | None = None
+        self._session: HttpSession | None = None
         self._batch: list[dict] = []
         self._batch_lock = asyncio.Lock()
         self._flush_event = asyncio.Event()
@@ -69,7 +78,7 @@ class CometNetRelay(CometNetBackend):
         if self.api_key:
             headers["X-API-Key"] = self.api_key
 
-        self._session = aiohttp.ClientSession(
+        self._session = HttpSession(
             timeout=aiohttp.ClientTimeout(total=self.timeout),
             json_serialize=lambda x: __import__("orjson").dumps(x).decode(),
             headers=headers,
@@ -219,7 +228,7 @@ class CometNetRelay(CometNetBackend):
                         f"Relay returned {response.status} from {self._display_url}"
                     )
                     return False
-        except aiohttp.ClientError as error:
+        except _HTTP_ERRORS as error:
             self._total_errors += 1
             logger.warning(
                 f"Relay connection error to {self._display_url} "
@@ -266,7 +275,7 @@ class CometNetRelay(CometNetBackend):
                         f"Relay batch returned {response.status} from {self._display_url}"
                     )
                     return 0
-        except aiohttp.ClientError as error:
+        except _HTTP_ERRORS as error:
             self._total_errors += len(torrents)
             logger.warning(
                 f"Relay batch connection error to {self._display_url} "
@@ -347,23 +356,14 @@ class CometNetRelay(CometNetBackend):
         if not self._session or not self._running:
             raise RuntimeError("Relay not running")
 
+        if method not in {"GET", "POST", "DELETE", "PATCH"}:
+            raise ValueError(f"Unsupported method: {method}")
+        kwargs = {"json": json_data or {}} if method in {"POST", "PATCH"} else {}
         url = f"{self.relay_url}{path}"
         try:
-            if method == "GET":
-                async with self._session.get(url) as response:
-                    return await self._handle_pool_response(response)
-            elif method == "POST":
-                async with self._session.post(url, json=json_data or {}) as response:
-                    return await self._handle_pool_response(response)
-            elif method == "DELETE":
-                async with self._session.delete(url) as response:
-                    return await self._handle_pool_response(response)
-            elif method == "PATCH":
-                async with self._session.patch(url, json=json_data or {}) as response:
-                    return await self._handle_pool_response(response)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-        except aiohttp.ClientError as error:
+            async with self._session.request(method, url, **kwargs) as response:
+                return await self._handle_pool_response(response)
+        except _HTTP_ERRORS as error:
             logger.warning(f"Pool request failed ({type(error).__name__})")
             raise RuntimeError("Failed to connect to standalone") from error
 

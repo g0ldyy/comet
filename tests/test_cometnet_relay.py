@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import aiohttp
+from aiohttp_socks import ProxyConnectionError
 
 from comet.cometnet.relay import CometNetRelay
 
@@ -16,6 +17,9 @@ class FakeSession:
         return self.response
 
     def post(self, *args, **kwargs):
+        return self.response
+
+    def request(self, *args, **kwargs):
         return self.response
 
     async def close(self):
@@ -38,30 +42,54 @@ class FakeResponse:
 
 
 class FailingResponse:
+    def __init__(self, error):
+        self.error = error
+
     async def __aenter__(self):
-        raise aiohttp.ClientConnectionError("secret credential")
+        raise self.error
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         return False
 
 
 class CometNetRelayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pool_mutations_pass_method_and_body_to_http_session(self):
+        relay = CometNetRelay("http://relay")
+        relay._running = True
+        relay._session = FakeSession(FakeResponse(200, {}))
+        path = "/pools/test"
+
+        with patch.object(
+            relay._session, "request", wraps=relay._session.request
+        ) as request:
+            await relay._pool_request("PATCH", path, {"display_name": "New name"})
+            request.assert_called_once_with(
+                "PATCH", f"http://relay{path}", json={"display_name": "New name"}
+            )
+            request.reset_mock()
+            await relay._pool_request("DELETE", path)
+            request.assert_called_once_with("DELETE", f"http://relay{path}")
+
     async def test_pool_transport_error_is_redacted(self):
         relay = CometNetRelay("http://user:password@relay")
         relay._running = True
-        relay._session = FakeSession(FailingResponse())
 
-        with (
-            patch("comet.cometnet.relay.logger.warning") as warning,
-            self.assertRaisesRegex(RuntimeError, "Failed to connect to standalone"),
-        ):
-            await relay._pool_request("POST", "/pools", {})
+        for error_type in (aiohttp.ClientConnectionError, ProxyConnectionError):
+            relay._session = FakeSession(
+                FailingResponse(error_type("secret credential"))
+            )
+            with (
+                self.subTest(error=error_type),
+                patch("comet.cometnet.relay.logger.warning") as warning,
+                self.assertRaisesRegex(RuntimeError, "Failed to connect to standalone"),
+            ):
+                await relay._pool_request("POST", "/pools", {})
 
-        rendered = " ".join(
-            str(value) for call in warning.call_args_list for value in call.args
-        )
-        self.assertNotIn("password", rendered)
-        self.assertNotIn("secret credential", rendered)
+            rendered = " ".join(
+                str(value) for call in warning.call_args_list for value in call.args
+            )
+            self.assertNotIn("password", rendered)
+            self.assertNotIn("secret credential", rendered)
 
     async def test_cancelled_flush_restores_batch_in_front(self):
         relay = CometNetRelay("http://relay")

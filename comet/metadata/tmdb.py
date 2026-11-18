@@ -1,9 +1,8 @@
 from datetime import date
 
-import aiohttp
-
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.http_client import HttpSession
 from comet.utils.languages import merge_aliases
 
 DEFAULT_TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Zjk3ZTE1NWY1YmQ3ZjY1MSIsInN1YiI6IjY1M2NjNWUyZTg5NGE2MDBmZjE2N2FmYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.xrIXsMFJpI1o1j5g2QpQcFP1X3AfRjFA5FlBFO5Naw8"
@@ -182,7 +181,7 @@ def _extract_all_title_aliases(payload: object, config: dict) -> dict[str, list[
 
 
 class TMDBApi:
-    def __init__(self, session: aiohttp.ClientSession):
+    def __init__(self, session: HttpSession):
         self.session = session
         self.base_url = "https://api.themoviedb.org/3"
         self.headers = {

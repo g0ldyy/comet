@@ -3,10 +3,9 @@ import time
 from dataclasses import dataclass
 from urllib.parse import quote
 
-import aiohttp
-
 from comet.core.logger import logger
 from comet.core.models import database, settings
+from comet.utils.http_client import HttpSession
 from comet.utils.year import parse_year, parse_year_range
 
 _IMDB_SUGGESTION_URL = "https://v3.sg.media-imdb.com/suggestion/a/{id}.json"
@@ -157,7 +156,7 @@ def _extract_title_match(
 
 
 async def resolve_imdb_title(
-    session: aiohttp.ClientSession,
+    session: HttpSession,
     query: str,
     media_type: str | None = None,
     year: int | None = None,
@@ -251,7 +250,7 @@ def _iter_cinemeta_media_types(media_type: str | None):
 
 
 async def _get_cinemeta_metadata(
-    session: aiohttp.ClientSession, id: str, media_type: str | None
+    session: HttpSession, id: str, media_type: str | None
 ) -> tuple[str | None, int | None, int | None]:
     for candidate_type in _iter_cinemeta_media_types(media_type):
         url = _CINEMETA_META_URL.format(media_type=candidate_type, id=id)
@@ -281,7 +280,7 @@ async def _get_cinemeta_metadata(
 
 
 async def get_imdb_metadata(
-    session: aiohttp.ClientSession, id: str, media_type: str | None = None
+    session: HttpSession, id: str, media_type: str | None = None
 ):
     metadata = None
 

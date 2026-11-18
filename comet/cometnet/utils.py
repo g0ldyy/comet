@@ -19,9 +19,10 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import aiohttp
 import websockets
-from websockets.exceptions import InvalidHandshake, InvalidStatusCode
+from websockets.exceptions import InvalidHandshake, InvalidStatus
 
 from comet.core.models import settings
+from comet.utils.http_client import HttpSession, ProxyPolicy
 
 T = TypeVar("T")
 
@@ -282,6 +283,15 @@ async def run_in_executor[T](func: Callable[..., T], *args: Any) -> T:
 # --- Reachability Check ---
 
 
+async def connect_websocket(url: str, **kwargs):
+    policy = ProxyPolicy(settings.GLOBAL_PROXY_URL)
+    if policy.use_environment_proxy:
+        return await websockets.connect(url, **kwargs)
+    return await policy.connect(
+        lambda proxy: websockets.connect(url, proxy=proxy, **kwargs)
+    )
+
+
 async def check_advertise_url_reachability(
     advertise_url: str, timeout: float = 10.0, logger=None
 ) -> tuple[bool, str | None]:
@@ -307,19 +317,18 @@ async def check_advertise_url_reachability(
         return False, f"Invalid URL format: {e}"
 
     try:
-        async with asyncio.timeout(timeout):
-            async with websockets.connect(
-                advertise_url,
-                close_timeout=2,
-                open_timeout=timeout,
-                compression=get_websocket_compression(),
-            ) as ws:
-                await ws.close()
-                return True, "WebSocket connection successful"
-    except InvalidStatusCode as e:
+        ws = await connect_websocket(
+            advertise_url,
+            close_timeout=2,
+            open_timeout=timeout,
+            compression=get_websocket_compression(),
+        )
+        await ws.close()
+        return True, "WebSocket connection successful"
+    except InvalidStatus as e:
         return (
             False,
-            f"Server returned HTTP {e.status_code} instead of WebSocket upgrade",
+            f"Server returned HTTP {e.response.status_code} instead of WebSocket upgrade",
         )
     except InvalidHandshake as e:
         return False, f"WebSocket handshake failed: {e}"
@@ -352,10 +361,10 @@ async def check_system_clock_sync(
     client_timeout = aiohttp.ClientTimeout(total=timeout)
     errors = []
 
-    async with aiohttp.ClientSession(timeout=client_timeout) as session:
+    async with HttpSession(timeout=client_timeout) as session:
         for url in endpoints:
             try:
-                async with session.head(url) as resp:
+                async with session.request("HEAD", url, allow_redirects=False) as resp:
                     if "Date" not in resp.headers:
                         errors.append(f"{url}: No Date header")
                         continue

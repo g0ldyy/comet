@@ -2,11 +2,10 @@ import asyncio
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
-import aiohttp
-
 from comet.core.constants import INDEXER_TIMEOUT
 from comet.core.logger import logger
 from comet.core.models import settings
+from comet.utils.network_manager import network_manager
 
 
 def _active_jackett_ids(root, configured_ids: list[str]) -> list[str]:
@@ -85,22 +84,11 @@ def _active_prowlarr_ids(
 
 class IndexerManager:
     def __init__(self):
-        self.session: aiohttp.ClientSession | None = None
         self.refresh_interval = settings.INDEXER_MANAGER_UPDATE_INTERVAL
         self.original_jackett_config = settings.JACKETT_INDEXERS.copy()
         self.original_prowlarr_config = settings.PROWLARR_INDEXERS.copy()
         self.jackett_initialized = asyncio.Event()
         self.prowlarr_initialized = asyncio.Event()
-
-    async def get_session(self):
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
-
-    async def close(self):
-        if self.session and not self.session.closed:
-            await self.session.close()
-        self.session = None
 
     async def _fetch_prowlarr_json(self, session, path: str, headers: dict):
         async with session.get(
@@ -122,7 +110,7 @@ class IndexerManager:
                 return
 
             try:
-                session = await self.get_session()
+                session = network_manager.get_client("Jackett")
                 url = f"{settings.JACKETT_URL}/api/v2.0/indexers/!status:failing/results/torznab/api"
                 params = {
                     "apikey": settings.JACKETT_API_KEY,
@@ -165,7 +153,7 @@ class IndexerManager:
                 return
 
             try:
-                session = await self.get_session()
+                session = network_manager.get_client("Prowlarr")
                 headers = {"X-Api-Key": settings.PROWLARR_API_KEY}
 
                 responses = await asyncio.gather(

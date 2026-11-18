@@ -1,7 +1,6 @@
-import aiohttp
-
 from comet.core.constants import CATALOG_TIMEOUT
 from comet.core.logger import logger
+from comet.utils.http_client import HttpSession
 
 
 def _extract_catalog_page(payload: object) -> tuple[list[dict], bool, int]:
@@ -76,13 +75,13 @@ class CinemataClient:
         "Western",
     )
 
-    def __init__(self, session: aiohttp.ClientSession | None = None):
+    def __init__(self, session: HttpSession | None = None):
         self.session = session
         self._owns_session = session is None
 
     async def __aenter__(self):
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            self.session = HttpSession()
             self._owns_session = True
         return self
 

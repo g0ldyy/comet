@@ -362,6 +362,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
+    { name = "aiohttp-socks" },
     { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "bencode-py" },
@@ -395,6 +396,7 @@ dev = [
 requires-dist = [
     { name = "aiofiles" },
     { name = "aiohttp" },
+    { name = "aiohttp-socks", specifier = ">=0.11" },
     { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "bencode-py" },
@@ -415,7 +417,7 @@ requires-dist = [
     { name = "python-multipart" },
     { name = "torrent-parse-rank", git = "https://github.com/g0ldyy/torrent-parse-rank" },
     { name = "uvicorn" },
-    { name = "websockets" },
+    { name = "websockets", specifier = ">=15" },
     { name = "xxhash" },
 ]
 

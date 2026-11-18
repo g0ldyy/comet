@@ -1,8 +1,30 @@
 import mediaflow_proxy.handlers
 import mediaflow_proxy.utils.http_utils
+from mediaflow_proxy.configs import settings as mediaflow_settings
+from mediaflow_proxy.utils.http_client import (
+    get_routing_config,
+    initialize_routing_from_config,
+)
 from mediaflow_proxy.utils.http_utils import EnhancedStreamingResponse
 
+from comet.core.models import settings
 from comet.services.bandwidth import bandwidth_monitor
+from comet.utils.http_client import ProxyPolicy
+
+
+def configure_stream_proxy():
+    proxy_url = ProxyPolicy(settings.GLOBAL_PROXY_URL).initial_url
+    config = mediaflow_settings.transport_config
+    if proxy_url is None:
+        initialize_routing_from_config(config)
+        return
+
+    initialize_routing_from_config(
+        config.model_copy(update={"proxy_url": proxy_url, "all_proxy": True})
+    )
+    routing = get_routing_config()
+    for pattern, (verify_ssl, _) in routing.routes.items():
+        routing.add_route(pattern, verify_ssl=verify_ssl, proxy_url=proxy_url)
 
 
 async def _monitor_content(content, connection_id: str, charset: str):
